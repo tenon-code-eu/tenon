@@ -261,3 +261,11 @@ func TestEscapeRegressions(t *testing.T) {
 		}
 	}
 }
+
+func TestAskFiresOnAnyPath(t *testing.T) {
+	p, root := newPerms(t, []Rule{{"*", "secret-dir/*", Ask}})
+	c := readCall(filepath.Join(root, "a.txt"), filepath.Join(root, "secret-dir", "b"))
+	if got := p.Check(c); got != Ask {
+		t.Errorf("got %v", got)
+	}
+}

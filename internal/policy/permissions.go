@@ -95,8 +95,8 @@ func (p *Permissions) Check(c Call) Decision {
 	}
 
 	// matches : deny (fold=true) compare sans casse et sur toutes les formes ;
-	// allow/ask comparent la forme résolue, sensible à la casse. Un deny
-	// correspond si UN chemin correspond ; allow/ask exigent TOUS les chemins.
+	// allow/ask comparent la forme résolue, sensible à la casse. Deny et ask
+	// correspondent si UN chemin correspond ; allow exige TOUS les chemins.
 	matches := func(r Rule, fold bool) bool {
 		if r.Tool != "*" && r.Tool != c.Tool {
 			return false
@@ -122,7 +122,7 @@ func (p *Permissions) Check(c Call) Decision {
 			}
 			return false
 		}
-		if fold {
+		if fold || r.Decision == Ask { // deny et ask : UN chemin suffit ; allow : TOUS
 			for _, in := range infos {
 				if pathMatches(in) {
 					return true
