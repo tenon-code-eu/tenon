@@ -433,3 +433,29 @@ func TestToolOutputSecretsNeverLeak(t *testing.T) {
 		t.Fatalf("stdout : %q", out)
 	}
 }
+
+func TestProviderKeyValueNeverLeaks(t *testing.T) {
+	f := newFakeLLM(t, sseText("noté"))
+	e := newEnv(t, f, "eu")
+	key := e.vars["TEST_KEY"]
+
+	code, out, errb := e.run("-p", "ma clé est "+key+" voilà", "--output", "json")
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, errb)
+	}
+	reqs := f.requests()
+	if len(reqs) == 0 {
+		t.Fatal("aucune requête")
+	}
+	for _, b := range reqs {
+		if strings.Contains(b, key) {
+			t.Fatalf("clé envoyée : %s", b)
+		}
+	}
+	if a := e.auditContents(); strings.Contains(a, key) {
+		t.Fatalf("audit : %q", a)
+	}
+	if strings.Contains(out, key) {
+		t.Fatalf("stdout : %q", out)
+	}
+}

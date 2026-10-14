@@ -124,6 +124,16 @@ func loadSetup(getenv func(string) string, wd string) (setup, error) {
 	if err != nil {
 		return setup{}, err
 	}
+	// Les clés d'API sans préfixe reconnaissable (printenv, echo $KEY) sont
+	// masquées à l'identique ; l'environnement du shell n'est pas modifié.
+	for _, p := range cfg.Providers {
+		if p.APIKeyEnv == "" {
+			continue
+		}
+		if v := getenv(p.APIKeyEnv); len(v) >= 8 {
+			red.AddLiteral(v)
+		}
+	}
 	return setup{cfg: cfg, rules: rules, redactor: red}, nil
 }
 

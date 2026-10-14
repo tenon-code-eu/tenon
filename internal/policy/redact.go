@@ -30,6 +30,7 @@ type Redactor struct {
 	mu       sync.Mutex
 	markers  map[string]string // type + "\x00" + key -> marker
 	counters map[string]int
+	literals map[string]bool
 }
 
 var (
@@ -61,6 +62,7 @@ func NewRedactor(custom []RedactionRule) (*Redactor, error) {
 	r := &Redactor{
 		markers:  map[string]string{},
 		counters: map[string]int{},
+		literals: map[string]bool{},
 		steps: []step{
 			// Private key blocks. Bodies may carry JSON-escaped newlines (a
 			// literal backslash-n); lazy [\s\S] covers both forms.
@@ -97,6 +99,23 @@ func NewRedactor(custom []RedactionRule) (*Redactor, error) {
 		r.steps = append(r.steps, step{typ: strings.ToUpper(c.Name), re: re})
 	}
 	return r, nil
+}
+
+// AddLiteral masks every exact occurrence of value as SECRET (e.g. a provider
+// API key without a recognisable prefix). Literal steps run before the
+// pattern rules. An empty value is ignored.
+func (r *Redactor) AddLiteral(value string) {
+	if value == "" {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.literals[value] {
+		return
+	}
+	r.literals[value] = true
+	st := step{typ: "SECRET", re: regexp.MustCompile(regexp.QuoteMeta(value))}
+	r.steps = append([]step{st}, r.steps...)
 }
 
 // Redact masks s and returns the masked text with the number of masks per type.

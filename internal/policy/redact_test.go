@@ -154,3 +154,21 @@ func TestRedactNeverRemasksMarkers(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestRedactLiteral(t *testing.T) {
+	r, _ := NewRedactor(nil)
+	r.AddLiteral("plainkeyvalue42")
+	r.AddLiteral("") // ignorée
+	got, counts := r.Redact("printenv -> plainkeyvalue42\nencore plainkeyvalue42")
+	if got != "printenv -> [SECRET_1]\nencore [SECRET_1]" || counts["SECRET"] != 2 {
+		t.Fatalf("got %q %v", got, counts)
+	}
+	// La valeur littérale garde le même marqueur qu'un masquage par règle.
+	got, _ = r.Redact("MISTRAL_API_KEY=plainkeyvalue42")
+	if got != "MISTRAL_API_KEY=[SECRET_1]" {
+		t.Fatalf("got %q", got)
+	}
+	if got, _ := r.Redact("rien ici"); got != "rien ici" {
+		t.Fatalf("got %q", got)
+	}
+}
