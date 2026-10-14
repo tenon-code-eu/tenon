@@ -226,3 +226,23 @@ func TestCancelClosesChannel(t *testing.T) {
 		t.Fatalf("%+v", last)
 	}
 }
+
+func TestSlowConsumerStillGetsFinalChunk(t *testing.T) {
+	p, _ := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+		for i := 0; i < 8; i++ {
+			sse(w, `{"choices":[{"delta":{"content":"x"}}]}`)
+		}
+		sse(w,
+			`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"f","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}`,
+			`[DONE]`)
+	})
+	ch, err := p.Stream(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(1500 * time.Millisecond)
+	text, last := collect(t, ch)
+	if len(text) != 8 || !last.Done || last.Err != nil || len(last.ToolCalls) != 1 || last.ToolCalls[0].ID != "call_1" {
+		t.Fatalf("text=%d last=%+v", len(text), last)
+	}
+}

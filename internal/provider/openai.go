@@ -210,6 +210,13 @@ func (o *OpenAICompat) pump(ctx context.Context, resp *http.Response, ch chan<- 
 
 	final := func(c llm.Chunk) {
 		c.Done = true
+		// Live context: block until the consumer reads, never drop the
+		// terminal chunk. Only once ctx is cancelled is the wait bounded.
+		select {
+		case ch <- c:
+			return
+		case <-ctx.Done():
+		}
 		select {
 		case ch <- c:
 		case <-time.After(time.Second):
