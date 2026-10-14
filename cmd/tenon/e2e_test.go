@@ -23,6 +23,7 @@ import (
 	"codeberg.org/tenon/tenon/internal/config"
 	"codeberg.org/tenon/tenon/internal/event"
 	"codeberg.org/tenon/tenon/internal/i18n"
+	"codeberg.org/tenon/tenon/internal/session"
 	"github.com/zalando/go-keyring"
 )
 
@@ -166,6 +167,18 @@ func (e *env) runStdin(stdin string, args ...string) (int, string, string) {
 
 // sessionsDir est le dossier des sessions de l'environnement.
 func (e *env) sessionsDir() string { return filepath.Join(e.dataDir, "sessions") }
+
+// sessionFiles liste les fichiers <id>.jsonl (sans les fichiers de verrou).
+func (e *env) sessionFiles() ([]os.DirEntry, error) {
+	ents, err := os.ReadDir(e.sessionsDir())
+	var out []os.DirEntry
+	for _, de := range ents {
+		if strings.HasSuffix(de.Name(), ".jsonl") {
+			out = append(out, de)
+		}
+	}
+	return out, err
+}
 
 func (e *env) auditContents() string {
 	e.t.Helper()
@@ -515,7 +528,7 @@ func TestResumeContinuesConversation(t *testing.T) {
 	if len(reqs) != 2 || !strings.Contains(reqs[1], "je m'appelle Ada") || !strings.Contains(reqs[1], "comment je m'appelle ?") {
 		t.Fatalf("requêtes : %q", reqs)
 	}
-	ents, err := os.ReadDir(e.sessionsDir())
+	ents, err := e.sessionFiles()
 	if err != nil || len(ents) != 1 {
 		t.Fatalf("sessions : %v %v", ents, err)
 	}
@@ -536,7 +549,7 @@ func TestResumeOtherProjectRefused(t *testing.T) {
 	if code, _, errb := e.run("-p", "secret du projet A"); code != 0 {
 		t.Fatalf("run A : code=%d stderr=%q", code, errb)
 	}
-	ents, err := os.ReadDir(e.sessionsDir())
+	ents, err := e.sessionFiles()
 	if err != nil || len(ents) != 1 {
 		t.Fatalf("sessions : %v %v", ents, err)
 	}
@@ -578,7 +591,7 @@ func TestSessionsList(t *testing.T) {
 	}
 	// La première session est datée d'une heure plus tôt : l'ordre ne dépend
 	// pas de la résolution des horodatages du système de fichiers.
-	ents, err := os.ReadDir(e.sessionsDir())
+	ents, err := e.sessionFiles()
 	if err != nil || len(ents) != 1 {
 		t.Fatalf("sessions : %v %v", ents, err)
 	}
@@ -614,7 +627,7 @@ func TestSessionFileHasNoSecret(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("code=%d stderr=%q", code, errb)
 	}
-	ents, err := os.ReadDir(e.sessionsDir())
+	ents, err := e.sessionFiles()
 	if err != nil || len(ents) == 0 {
 		t.Fatalf("sessions : %v %v", ents, err)
 	}
@@ -742,7 +755,7 @@ func TestKeyFromKeyring(t *testing.T) {
 	if strings.Contains(out, key) || strings.Contains(errb, key) {
 		t.Fatalf("clé du trousseau affichée : stdout=%q stderr=%q", out, errb)
 	}
-	ents, err := os.ReadDir(e.sessionsDir())
+	ents, err := e.sessionFiles()
 	if err != nil || len(ents) == 0 {
 		t.Fatalf("sessions : %v %v", ents, err)
 	}
@@ -845,7 +858,7 @@ decision = "allow"
 	if code != 0 {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errb)
 	}
-	ents, err := os.ReadDir(e.sessionsDir())
+	ents, err := e.sessionFiles()
 	if err != nil || len(ents) != 1 {
 		t.Fatalf("sessions : %v %v", ents, err)
 	}
@@ -1014,5 +1027,37 @@ decision = "deny"
 	}
 	if !strings.Contains(string(gj), "[SECRET_1]") || !strings.Contains(string(gj), "refusée par la politique") {
 		t.Fatalf("messages repris : %s", gj)
+	}
+}
+
+func TestResumeLockedSession(t *testing.T) {
+	f := newFakeLLM(t, sseText("ok"))
+	e := newEnv(t, f, "eu")
+	if code, _, errb := e.run("-p", "bonjour"); code != 0 {
+		t.Fatalf("run 1 : code=%d stderr=%q", code, errb)
+	}
+	ents, err := e.sessionFiles()
+	if err != nil || len(ents) < 1 {
+		t.Fatalf("sessions : %v %v", ents, err)
+	}
+	var id string
+	for _, en := range ents {
+		if strings.HasSuffix(en.Name(), ".jsonl") {
+			id = strings.TrimSuffix(en.Name(), ".jsonl")
+		}
+	}
+	held, err := session.Open(e.sessionsDir(), id, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Close()
+	before := len(f.requests())
+
+	code, _, errb := e.run("--lang", "en", "--resume", id, "-p", "x")
+	if code != 1 || !strings.Contains(errb, "session "+id+" is already open in another terminal") {
+		t.Fatalf("code=%d stderr=%q", code, errb)
+	}
+	if len(f.requests()) != before {
+		t.Fatalf("requêtes envoyées malgré le verrou : %d -> %d", before, len(f.requests()))
 	}
 }

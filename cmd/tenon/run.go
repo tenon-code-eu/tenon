@@ -465,6 +465,9 @@ func startEngine(o engineOptions) (started, error) {
 	sw, err := session.Open(sdir, sid, redactJSON)
 	if err != nil {
 		_ = w.Close()
+		if errors.Is(err, session.ErrLocked) {
+			return started{}, errors.New(i18n.T(lang, "err.session_locked", sid))
+		}
 		return started{}, err
 	}
 	closeAll := func() {

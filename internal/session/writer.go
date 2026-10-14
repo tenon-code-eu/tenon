@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sync"
+	"syscall"
 
 	"codeberg.org/tenon/tenon/internal/event"
 )
@@ -19,6 +20,9 @@ var ErrNoSession = errors.New("aucune session trouvée")
 
 // ErrInvalidID means a session ID is not of the form s_<12 hex digits>.
 var ErrInvalidID = errors.New("identifiant de session invalide")
+
+// ErrLocked means another process (or writer) already holds the session.
+var ErrLocked = errors.New("session déjà ouverte")
 
 var idRe = regexp.MustCompile(`^s_[0-9a-f]{12}$`)
 
@@ -38,6 +42,7 @@ type Writer struct {
 	id     string
 	redact func(string) string
 	f      *os.File
+	lock   *os.File
 }
 
 // Open creates dir (0700) and opens <dir>/<sessionID>.jsonl (0600) in append
@@ -53,18 +58,52 @@ func Open(dir, sessionID string, redact func(string) string) (*Writer, error) {
 		return nil, fmt.Errorf("permissions du dossier des sessions : %w", err)
 	}
 	path := filepath.Join(dir, sessionID+".jsonl")
+	// Le verrou est pris avant la réparation, qui tronque le fichier.
+	lock, err := acquireLock(path + ".lock")
+	if err != nil {
+		return nil, fmt.Errorf("session %s : %w", sessionID, err)
+	}
 	if err := repair(path); err != nil {
+		releaseLock(lock)
 		return nil, err
 	}
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
+		releaseLock(lock)
 		return nil, fmt.Errorf("ouverture de la session %s : %w", sessionID, err)
 	}
 	if err := os.Chmod(path, 0o600); err != nil {
 		f.Close()
+		releaseLock(lock)
 		return nil, fmt.Errorf("permissions de la session %s : %w", sessionID, err)
 	}
-	return &Writer{id: sessionID, redact: redact, f: f}, nil
+	return &Writer{id: sessionID, redact: redact, f: f, lock: lock}, nil
+}
+
+// acquireLock creates path (0600) and takes a non-blocking exclusive flock.
+func acquireLock(path string) (*os.File, error) {
+	l, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("verrou de la session : %w", err)
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		l.Close()
+		return nil, fmt.Errorf("permissions du verrou de la session : %w", err)
+	}
+	if err := syscall.Flock(int(l.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		l.Close()
+		if errors.Is(err, syscall.EWOULDBLOCK) {
+			return nil, ErrLocked
+		}
+		return nil, fmt.Errorf("verrou de la session : %w", err)
+	}
+	return l, nil
+}
+
+// releaseLock drops the flock and closes the lock file.
+func releaseLock(l *os.File) {
+	_ = syscall.Flock(int(l.Fd()), syscall.LOCK_UN)
+	_ = l.Close()
 }
 
 // repair cuts an existing file at the first unreadable line (same rules as
@@ -172,5 +211,7 @@ func (w *Writer) Close() error {
 	}
 	err := w.f.Close()
 	w.f = nil
+	releaseLock(w.lock)
+	w.lock = nil
 	return err
 }
