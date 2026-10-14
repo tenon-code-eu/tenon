@@ -59,8 +59,10 @@ func List(dir, projectRoot string) ([]Summary, error) {
 				if s.FirstPrompt == "" {
 					var p event.UserMessagePayload
 					if json.Unmarshal(e.Payload, &p) == nil {
+						// Caractères de contrôle et de format (U+202E,
+						// U+200B…) : ils pourraient tromper le terminal.
 						r := []rune(strings.Map(func(c rune) rune {
-							if unicode.IsControl(c) {
+							if unicode.IsControl(c) || unicode.Is(unicode.Cf, c) {
 								return ' '
 							}
 							return c
@@ -75,7 +77,7 @@ func List(dir, projectRoot string) ([]Summary, error) {
 				s.Turns++
 			}
 		}
-		if !started || s.ProjectRoot != projectRoot {
+		if !started || !SameRoot(s.ProjectRoot, projectRoot) {
 			continue
 		}
 		info, err := os.Stat(filepath.Join(dir, de.Name()))
@@ -87,6 +89,24 @@ func List(dir, projectRoot string) ([]Summary, error) {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Updated.After(out[j].Updated) })
 	return out, nil
+}
+
+// SameRoot reports whether two project roots designate the same directory:
+// paths are cleaned and symlinks resolved when possible. An empty root never
+// matches.
+func SameRoot(a, b string) bool {
+	if a == "" || b == "" {
+		return false
+	}
+	return canonical(a) == canonical(b)
+}
+
+func canonical(p string) string {
+	p = filepath.Clean(p)
+	if r, err := filepath.EvalSymlinks(p); err == nil {
+		return r
+	}
+	return p
 }
 
 // Latest returns the ID of the most recent session of projectRoot.

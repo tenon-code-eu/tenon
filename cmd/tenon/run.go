@@ -525,27 +525,19 @@ func providerKey(p config.Provider, getenv func(string) string) (value, source s
 }
 
 // sameProject indique si le premier SessionStarted de events désigne wd
-// (chemins nettoyés, liens symboliques résolus quand c'est possible).
+// (même comparaison que session.List).
 func sameProject(events []event.Event, wd string) bool {
 	for _, ev := range events {
 		if ev.Type != event.SessionStarted {
 			continue
 		}
 		var p event.SessionStartedPayload
-		if json.Unmarshal(ev.Payload, &p) != nil || p.ProjectRoot == "" {
+		if json.Unmarshal(ev.Payload, &p) != nil {
 			return false
 		}
-		return canonicalPath(p.ProjectRoot) == canonicalPath(wd)
+		return session.SameRoot(p.ProjectRoot, wd)
 	}
 	return false
-}
-
-func canonicalPath(p string) string {
-	p = filepath.Clean(p)
-	if r, err := filepath.EvalSymlinks(p); err == nil {
-		return r
-	}
-	return p
 }
 
 // skippedLines compte les lignes non vides de la session au-delà des valid

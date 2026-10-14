@@ -281,3 +281,77 @@ func mustWrite(t *testing.T, w *Writer, e event.Event) {
 		t.Fatal(err)
 	}
 }
+
+func TestFirstPromptStripsFormatChars(t *testing.T) {
+	dir := t.TempDir()
+	mkSession(t, dir, sidA, "/p", "a\u202eb\u200bc\ufeffd", 0, time.Now())
+	got, err := List(dir, "/p")
+	if err != nil || len(got) != 1 {
+		t.Fatalf("%v %v", got, err)
+	}
+	if got[0].FirstPrompt != "a b c d" {
+		t.Fatalf("FirstPrompt %q", got[0].FirstPrompt)
+	}
+}
+
+// Avant de tronquer une fin illisible, Open en garde une copie complète
+// <id>.jsonl.corrupt (0600), remplacée à chaque réparation.
+func TestOpenKeepsCorruptCopy(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, sidA+".jsonl")
+	for i, tail := range []string{`{"id":"s_`, "pas du json\n"} {
+		w := mustOpen(t, dir, sidA)
+		mustWrite(t, w, ev(t, sidA, uint64(i+1), event.UserMessage, event.UserMessagePayload{Text: "a"}))
+		w.Close()
+		f, err := os.OpenFile(p, os.O_APPEND|os.O_WRONLY, 0o600)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.WriteString(tail)
+		f.Close()
+		orig, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		mustOpen(t, dir, sidA).Close()
+		cp, err := os.ReadFile(p + ".corrupt")
+		if err != nil || string(cp) != string(orig) {
+			t.Fatalf("copie %d : %q (%v), attendu %q", i, cp, err, orig)
+		}
+		if fi, err := os.Stat(p + ".corrupt"); err != nil || fi.Mode().Perm() != 0o600 {
+			t.Fatalf("permissions de la copie : %v %v", fi.Mode(), err)
+		}
+	}
+	// Un fichier sain n'est pas copié de nouveau.
+	os.Remove(p + ".corrupt")
+	mustOpen(t, dir, sidA).Close()
+	if _, err := os.Stat(p + ".corrupt"); !os.IsNotExist(err) {
+		t.Fatalf("copie d'un fichier sain : %v", err)
+	}
+}
+
+// Un chemin de projet passant par un lien symbolique désigne le même projet.
+func TestListResolvesSymlinks(t *testing.T) {
+	base := t.TempDir()
+	real := filepath.Join(base, "reel")
+	link := filepath.Join(base, "lien")
+	if err := os.Mkdir(real, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(base, "sessions")
+	mkSession(t, dir, sidA, real, "x", 1, time.Now())
+	for _, root := range []string{link, link + "/", real} {
+		if got, err := List(dir, root); err != nil || len(got) != 1 {
+			t.Fatalf("List(%q) : %v %v", root, got, err)
+		}
+		if !SameRoot(real, root) {
+			t.Fatalf("SameRoot(%q, %q) faux", real, root)
+		}
+	}
+	if SameRoot(real, base) {
+		t.Fatal("SameRoot vrai pour un autre dossier")
+	}
+}

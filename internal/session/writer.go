@@ -93,6 +93,10 @@ func repair(path string) error {
 		good = next
 	}
 	if good < len(data) {
+		// L'original complet est gardé à côté avant la troncature.
+		if err := saveCorrupt(path+".corrupt", data); err != nil {
+			return err
+		}
 		if err := os.Truncate(path, int64(good)); err != nil {
 			return fmt.Errorf("réparation de la session : %w", err)
 		}
@@ -106,6 +110,17 @@ func repair(path string) error {
 		if _, err := f.Write([]byte("\n")); err != nil {
 			return fmt.Errorf("réparation de la session : %w", err)
 		}
+	}
+	return nil
+}
+
+// saveCorrupt writes data to path (0600), replacing any previous copy.
+func saveCorrupt(path string, data []byte) error {
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return fmt.Errorf("copie de la session endommagée : %w", err)
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		return fmt.Errorf("copie de la session endommagée : %w", err)
 	}
 	return nil
 }

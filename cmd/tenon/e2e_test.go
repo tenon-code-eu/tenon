@@ -956,3 +956,24 @@ func TestEnglishCLIMessages(t *testing.T) {
 	code, _, errb = e.run("--lang", "en", "-p", "x")
 	check("instructions illisibles", errb, "project instructions: ")
 }
+
+// Un dossier de travail atteint par un lien symbolique voit les sessions du
+// projet.
+func TestSymlinkedWorkdirSeesSessions(t *testing.T) {
+	f := newFakeLLM(t, sseText("ok"))
+	e := newEnv(t, f, "eu")
+	if code, _, errb := e.run("-p", "premier"); code != 0 {
+		t.Fatalf("run 1 : code=%d stderr=%q", code, errb)
+	}
+	link := filepath.Join(filepath.Dir(e.wd), "lien")
+	if err := os.Symlink(e.wd, link); err != nil {
+		t.Fatal(err)
+	}
+	e.wd = link
+	if code, out, errb := e.run("sessions"); code != 0 || !strings.HasPrefix(out, "sessions (1) :") {
+		t.Fatalf("sessions : code=%d stdout=%q stderr=%q", code, out, errb)
+	}
+	if code, _, errb := e.run("--resume", "last", "-p", "suite"); code != 0 {
+		t.Fatalf("--resume last : code=%d stderr=%q", code, errb)
+	}
+}
