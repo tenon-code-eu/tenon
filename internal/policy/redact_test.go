@@ -53,6 +53,13 @@ func TestRedactTable(t *testing.T) {
 		{"xoxb-1234567890-abcdef", "[SECRET_1]"},
 		{"postgres://user:p4ssw0rd!@db:5432/x", "postgres://user:[SECRET_1]@db:5432/x"},
 		{"Authorization: Bearer abcdefghij0123456789xyz", "Authorization: Bearer [SECRET_1]"},
+		// tool-prefixed lines (read_file "n\t", grep "path:n:") and env-style keys
+		{"1\tMISTRAL_API_KEY=Zx8kq2LmNp4Rt6Vw9YbC1dEf", "1\tMISTRAL_API_KEY=[SECRET_1]"},
+		{"3\t  api_key: Zx8kq2LmNp4Rt6Vw9YbC1dEf", "3\t  api_key: [SECRET_1]"},
+		{"conf/app.yml:3:  api_key: Zx8kq2LmNp4Rt6Vw9YbC1dEf", "conf/app.yml:3:  api_key: [SECRET_1]"},
+		{"  - password: Zx8kq2LmNp4Rt6Vw9YbC1dEf", "  - password: [SECRET_1]"},
+		{"docker run -e API_KEY=Zx8kq2LmNp4Rt6Vw9YbC1dEf img", "docker run -e API_KEY=[SECRET_1] img"},
+		{"TOKEN=Zx8kq2LmNp4Rt6Vw9YbC1dEf ./run.sh", "TOKEN=[SECRET_1] ./run.sh"},
 	}
 	for _, c := range cases {
 		r, err := NewRedactor(nil)

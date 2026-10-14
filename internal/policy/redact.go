@@ -36,8 +36,12 @@ var (
 	secretKW = `(?:api[_-]?key|secret|token|password|passwd)`
 	// Quoted literal after keyword and [:=]; quotes may be JSON-escaped.
 	reAssignQuoted = regexp.MustCompile(`(?i)` + secretKW + `\w*\\?["']?[ \t]*[:=][ \t]*\\?["']([^\s'"\\]{12,})`)
-	// Unquoted env/config line: [export] KEY=VALUE alone on its line.
-	reAssignLine = regexp.MustCompile(`(?im)^[ \t]*(?:export[ \t]+)?[A-Za-z0-9_.-]*` + secretKW + `\w*[ \t]*[:=][ \t]*([^\s'"\\]{12,}?)[,;]?[ \t]*\r?$`)
+	// Unquoted env/config line: [export] KEY=VALUE alone on its line. The line
+	// may carry a tool prefix (read_file "12\t", grep "path:12:") and a YAML
+	// list dash.
+	reAssignLine = regexp.MustCompile(`(?im)^(?:\d+\t|[^\s:]+:\d+:)?[ \t]*(?:-[ \t]+)?(?:export[ \t]+)?[A-Za-z0-9_.-]*` + secretKW + `\w*[ \t]*[:=][ \t]*([^\s'"\\]{12,}?)[,;]?[ \t]*\r?$`)
+	// Upper-case env-style KEY=VALUE anywhere (docker -e, VAR=x cmd, prose).
+	reAssignEnv = regexp.MustCompile(`\b[A-Z0-9_]*(?:KEY|SECRET|TOKEN|PASSWORD|PASSWD)[A-Z0-9_]*[ \t]*[:=][ \t]*([^\s'"\\;&|,]{12,})`)
 	// export KEY=VALUE inside a longer shell command.
 	reAssignExport = regexp.MustCompile(`(?i)\bexport[ \t]+[A-Za-z0-9_.-]*` + secretKW + `\w*=([^\s'"\\;&|,]{12,})`)
 	reMarker       = regexp.MustCompile(`\[[A-Z_]+_\d+\]`)
@@ -75,6 +79,7 @@ func NewRedactor(custom []RedactionRule) (*Redactor, error) {
 			{typ: "SECRET", re: reAssignQuoted, group: 1, valid: validSecretValue},
 			{typ: "SECRET", re: reAssignLine, group: 1, valid: validSecretValue},
 			{typ: "SECRET", re: reAssignExport, group: 1, valid: validSecretValue},
+			{typ: "SECRET", re: reAssignEnv, group: 1, valid: validSecretValue},
 			{typ: "IBAN", re: reIBAN, guard: true, valid: validIBAN, key: stripSpaces},
 			{typ: "NIR", re: reNIR, guard: true, valid: validNIR, key: stripSpaces},
 			{typ: "EMAIL", re: reEmail, valid: validEmail, key: strings.ToLower},

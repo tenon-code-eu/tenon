@@ -401,3 +401,35 @@ func TestJSONOutputNeverLeaksSecret(t *testing.T) {
 	}
 	decodeEvents(t, out)
 }
+
+func TestToolOutputSecretsNeverLeak(t *testing.T) {
+	f := newFakeLLM(t,
+		sseCall("read_file", `{"path":"config/app.yml"}`),
+		sseCall("grep", `{"pattern":"password"}`),
+		sseText("fini"))
+	e := newEnv(t, f, "eu")
+	e.writeFile(filepath.Join(e.wd, "config", "app.yml"), "db:\n  user: app\n  password: Zx8kq2LmNp4Rt6Vw9YbC1dEf\n")
+
+	code, out, errb := e.run("-p", "lis config/app.yml puis cherche password", "--output", "json")
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, errb)
+	}
+	reqs := f.requests()
+	if len(reqs) != 3 {
+		t.Fatalf("requêtes : %d", len(reqs))
+	}
+	for _, b := range reqs {
+		if strings.Contains(b, "Zx8kq") {
+			t.Fatalf("secret envoyé : %s", b)
+		}
+	}
+	if !strings.Contains(reqs[1], "[SECRET_") || !strings.Contains(reqs[2], "app.yml") {
+		t.Fatalf("requêtes : %q", reqs)
+	}
+	if a := e.auditContents(); strings.Contains(a, "Zx8kq") {
+		t.Fatalf("audit : %q", a)
+	}
+	if strings.Contains(out, "Zx8kq") {
+		t.Fatalf("stdout : %q", out)
+	}
+}
