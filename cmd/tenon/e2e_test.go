@@ -977,3 +977,42 @@ func TestSymlinkedWorkdirSeesSessions(t *testing.T) {
 		t.Fatalf("--resume last : code=%d stderr=%q", code, errb)
 	}
 }
+
+// La reprise envoie exactement l'historique qu'aurait envoyé le processus
+// d'origine : dernière requête du run 1, réponse finale, nouveau message.
+func TestResumeMatchesLiveHistory(t *testing.T) {
+	f := newFakeLLM(t, sseCall("write_file", `{"path":"x.txt","content":"pirate"}`), sseText("fini"), sseText("suite ok"))
+	e := newEnvExtra(t, f, "eu", `
+[[permissions.rules]]
+tool = "write_file"
+decision = "deny"
+`)
+	if code, _, errb := e.run("-p", "écris x.txt avec MISTRAL_API_KEY=Zx8kq2LmNp4Rt6Vw9YbC1dEf"); code != 3 {
+		t.Fatalf("run 1 : code=%d stderr=%q", code, errb)
+	}
+	if code, _, errb := e.run("--resume", "last", "-p", "suite"); code != 0 {
+		t.Fatalf("run 2 : code=%d stderr=%q", code, errb)
+	}
+	reqs := f.requests()
+	if len(reqs) != 3 {
+		t.Fatalf("requêtes : %d", len(reqs))
+	}
+	for _, b := range reqs {
+		if strings.Contains(b, "Zx8kq") {
+			t.Fatalf("secret envoyé : %s", b)
+		}
+	}
+	live := requestMessages(t, reqs[1])
+	want := append(live,
+		map[string]any{"role": "assistant", "content": "fini"},
+		map[string]any{"role": "user", "content": "suite"})
+	got := requestMessages(t, reqs[2])
+	gj, _ := json.Marshal(got)
+	wj, _ := json.Marshal(want)
+	if string(gj) != string(wj) {
+		t.Fatalf("messages repris\n%s\nattendu\n%s", gj, wj)
+	}
+	if !strings.Contains(string(gj), "[SECRET_1]") || !strings.Contains(string(gj), "refusée par la politique") {
+		t.Fatalf("messages repris : %s", gj)
+	}
+}
