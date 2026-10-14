@@ -2,6 +2,7 @@ package tui
 
 import (
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/charmbracelet/lipgloss"
@@ -107,14 +108,20 @@ func (m Model) wrap(s string) string {
 }
 
 // sanitize remplace les tabulations et retire les caractères de contrôle
-// (séquences d'échappement comprises) sauf le saut de ligne : le texte vient
-// du modèle ou des outils et ne doit pas piloter le terminal.
+// (séquences d'échappement comprises) sauf le saut de ligne, ainsi que les
+// caractères de format (contrôles bidirectionnels, largeur nulle, BOM) ; les
+// séparateurs de ligne et de paragraphe Unicode deviennent des espaces. Le
+// texte vient du modèle ou des outils et ne doit ni piloter le terminal ni
+// masquer son contenu.
 func sanitize(s string) string {
 	return strings.Map(func(r rune) rune {
 		switch {
 		case r == '\n':
 			return r
-		case r < 0x20, r == 0x7f, r >= 0x80 && r <= 0x9f, r == utf8.RuneError:
+		case r == '\u2028', r == '\u2029':
+			return ' '
+		case r < 0x20, r == 0x7f, r >= 0x80 && r <= 0x9f, r == utf8.RuneError,
+			unicode.Is(unicode.Cf, r):
 			return -1
 		}
 		return r

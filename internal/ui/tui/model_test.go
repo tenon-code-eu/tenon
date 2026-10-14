@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -495,5 +496,99 @@ func TestControlSequencesStripped(t *testing.T) {
 	}
 	if !strings.Contains(v, "a]0;titreb[2Jc    d") {
 		t.Fatalf("texte nettoyé inattendu : %q", v)
+	}
+}
+
+// emitAfterCancel fait émettre à Submit, après l'annulation, plus d'événements
+// que le tampon de l'abonnement n'en contient (envois bloquants).
+func emitAfterCancel(t *testing.T, n int) func(context.Context, *fakeEngine) error {
+	return func(ctx context.Context, f *fakeEngine) error {
+		<-ctx.Done()
+		for i := 0; i < n; i++ {
+			f.ch <- ev(t, event.AssistantDelta, event.AssistantDeltaPayload{Text: "x"})
+		}
+		f.ch <- ev(t, event.TurnCompleted, event.TurnCompletedPayload{Reason: "cancelled"})
+		return ctx.Err()
+	}
+}
+
+func TestShutdownDrainsUntilSubmitReturns(t *testing.T) {
+	f := newFake()
+	f.onSubmit = emitAfterCancel(t, 600)
+	h := newHarness(t, f, Options{Lang: i18n.FR})
+	typeText(h, "long")
+	enter(h)
+	h.until("Submit appelé", func() bool { return f.lastCtx() != nil })
+	// Le programme s'est arrêté : plus aucun message n'est traité.
+	if err := h.m.shutdown(5 * time.Second); err != nil {
+		t.Fatalf("shutdown : %v", err)
+	}
+	select {
+	case <-f.returned:
+	default:
+		t.Fatal("Submit n'a pas rendu la main")
+	}
+	if f.lastCtx().Err() == nil {
+		t.Fatal("tour non annulé")
+	}
+}
+
+func TestShutdownIdle(t *testing.T) {
+	h := newHarness(t, newFake(), Options{Lang: i18n.FR})
+	if err := h.m.shutdown(time.Millisecond); err != nil {
+		t.Fatalf("shutdown hors tour : %v", err)
+	}
+}
+
+func TestShutdownTimeout(t *testing.T) {
+	f := newFake()
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	f.onSubmit = func(context.Context, *fakeEngine) error { <-release; return nil }
+	h := newHarness(t, f, Options{Lang: i18n.FR})
+	typeText(h, "bloqué")
+	enter(h)
+	h.until("Submit appelé", func() bool { return f.lastCtx() != nil })
+	if err := h.m.shutdown(50 * time.Millisecond); !errors.Is(err, ErrTurnNotFinished) {
+		t.Fatalf("shutdown = %v, attendu ErrTurnNotFinished", err)
+	}
+}
+
+func TestSanitizeFormatCharacters(t *testing.T) {
+	in := "a\u202Eb\u200Bc\u2066d\uFEFFe\u2028f\u2029g"
+	if got := sanitize(in); got != "abcde f g" {
+		t.Fatalf("sanitize(%q) = %q", in, got)
+	}
+}
+
+func TestSubmitFailureRestoresInput(t *testing.T) {
+	f := newFake()
+	f.onSubmit = func(context.Context, *fakeEngine) error { return engine.ErrAuditFailure }
+	h := newHarness(t, f, Options{Lang: i18n.FR})
+	typeText(h, "à renvoyer")
+	enter(h)
+	h.until("tour terminé", func() bool { return len(f.submitted()) == 1 && !h.m.busy() })
+	if v := h.m.input.Value(); v != "à renvoyer" {
+		t.Fatalf("saisie non restaurée : %q", v)
+	}
+}
+
+func TestSubmitFailureAfterUserMessageKeepsInputEmpty(t *testing.T) {
+	f := newFake()
+	h := newHarness(t, f, Options{Lang: i18n.FR})
+	release := make(chan struct{})
+	f.onSubmit = func(context.Context, *fakeEngine) error {
+		<-release
+		return engine.ErrAuditFailure
+	}
+	typeText(h, "envoyé")
+	enter(h)
+	h.until("Submit appelé", func() bool { return f.lastCtx() != nil })
+	f.emit(t, event.UserMessage, event.UserMessagePayload{Text: "envoyé"})
+	h.until("UserMessage appliqué", func() bool { return len(h.m.tr.Items()) == 1 })
+	close(release)
+	h.until("tour terminé", func() bool { return !h.m.busy() })
+	if v := h.m.input.Value(); v != "" {
+		t.Fatalf("saisie restaurée alors que le message est parti : %q", v)
 	}
 }

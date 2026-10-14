@@ -37,7 +37,14 @@ const (
 	quitCommand    = "/quit"
 	helpCommand    = "/help"
 	tokenRuneRatio = 4
+	// turnFinishTimeout borne l'attente de la fin du tour en cours à la
+	// sortie de Run.
+	turnFinishTimeout = 10 * time.Second
 )
+
+// ErrTurnNotFinished signale qu'à la sortie de la TUI le tour annulé n'a pas
+// rendu la main dans le délai imparti.
+var ErrTurnNotFinished = errors.New("tui: le tour ne s'est pas terminé")
 
 // Messages internes.
 type (
@@ -65,7 +72,13 @@ type Model struct {
 	scrollBack int
 
 	// cancel annule le Submit en cours ; nil hors tour.
-	cancel    context.CancelFunc
+	cancel context.CancelFunc
+	// done est fermé quand le Submit en cours a rendu la main ; nil hors tour.
+	done chan struct{}
+	// sent est le texte du tour en cours, restauré dans la saisie si Submit
+	// échoue avant qu'un UserMessage ait été appliqué ; userSeen l'indique.
+	sent      string
+	userSeen  bool
 	lastCtrlC time.Time
 	now       func() time.Time
 }
@@ -105,13 +118,42 @@ func Run(ctx context.Context, eng Engine, opts Options, in io.Reader, out io.Wri
 	m.st = newStyles(lipgloss.NewRenderer(out))
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithContext(ctx), tea.WithInput(in), tea.WithOutput(out))
 	final, err := p.Run()
-	if fm, ok := final.(Model); ok && fm.cancel != nil {
-		fm.cancel()
+	if fm, ok := final.(Model); ok {
+		if serr := fm.shutdown(turnFinishTimeout); serr != nil {
+			return serr
+		}
 	}
 	if errors.Is(err, tea.ErrProgramKilled) && ctx.Err() != nil {
 		return ctx.Err()
 	}
 	return err
+}
+
+// shutdown annule le tour en cours éventuel et attend que Submit rende la
+// main, au plus timeout, en vidant l'abonnement pour que l'engine ne bloque
+// pas sur un tampon plein et puisse journaliser la fin du tour.
+func (m Model) shutdown(timeout time.Duration) error {
+	if m.done == nil {
+		return nil
+	}
+	m.cancel()
+	stop := make(chan struct{})
+	defer close(stop)
+	go func() {
+		for {
+			select {
+			case <-m.sub:
+			case <-stop:
+				return
+			}
+		}
+	}()
+	select {
+	case <-m.done:
+		return nil
+	case <-time.After(timeout):
+		return ErrTurnNotFinished
+	}
 }
 
 // readEvent lit un seul événement de l'abonnement.
@@ -135,6 +177,9 @@ func (m Model) busy() bool { return m.cancel != nil }
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case eventMsg:
+		if msg.Type == event.UserMessage && m.busy() {
+			m.userSeen = true
+		}
 		m.tr.Apply(event.Event(msg))
 		// La lecture n'est jamais suspendue, même pendant une demande de
 		// permission : l'engine bloquerait sur un tampon plein.
@@ -146,6 +191,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cancel()
 			m.cancel = nil
 		}
+		m.done = nil
+		if msg.err != nil && !m.userSeen {
+			m.restoreInput()
+		}
+		m.sent, m.userSeen = "", false
 		if msg.err != nil && !errors.Is(msg.err, context.Canceled) {
 			m.tr.add(Item{Kind: ItemError, Text: i18n.T(m.lang, "err.prefix", msg.err)})
 		}
@@ -218,12 +268,29 @@ func (m Model) submit() (tea.Model, tea.Cmd) {
 	m.input.Reset()
 	m.scrollBack = 0
 	ctx, cancel := context.WithCancel(context.Background())
-	m.cancel = cancel
+	done := make(chan struct{})
+	m.cancel, m.done = cancel, done
+	m.sent, m.userSeen = text, false
 	m.lastCtrlC = time.Time{}
 	eng, sid := m.eng, m.opts.SessionID
 	return m, func() tea.Msg {
-		return submitDone{err: eng.Submit(ctx, sid, text)}
+		err := eng.Submit(ctx, sid, text)
+		close(done)
+		return submitDone{err: err}
 	}
+}
+
+// restoreInput remet le texte envoyé dans la saisie, devant ce qui a pu être
+// tapé pendant le tour.
+func (m *Model) restoreInput() {
+	if m.sent == "" {
+		return
+	}
+	v := m.sent
+	if cur := m.input.Value(); cur != "" {
+		v += "\n" + cur
+	}
+	m.input.SetValue(v)
 }
 
 func (m *Model) resize(w, h int) {
