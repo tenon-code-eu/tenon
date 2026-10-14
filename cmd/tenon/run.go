@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -8,21 +9,29 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
+	"strings"
 
 	"codeberg.org/tenon/tenon/internal/audit"
 	"codeberg.org/tenon/tenon/internal/config"
 	"codeberg.org/tenon/tenon/internal/engine"
 	"codeberg.org/tenon/tenon/internal/event"
+	"codeberg.org/tenon/tenon/internal/i18n"
+	"codeberg.org/tenon/tenon/internal/instructions"
 	"codeberg.org/tenon/tenon/internal/llm"
 	"codeberg.org/tenon/tenon/internal/policy"
 	"codeberg.org/tenon/tenon/internal/provider"
+	"codeberg.org/tenon/tenon/internal/secrets"
+	"codeberg.org/tenon/tenon/internal/session"
 	"codeberg.org/tenon/tenon/internal/tools"
 	"codeberg.org/tenon/tenon/internal/ui/headless"
+	"golang.org/x/term"
 )
 
-// run exécute la CLI et retourne le code de sortie.
-func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv func(string) string, wd string) int {
+// run exécute la CLI et retourne le code de sortie. stdin ne sert qu'à
+// « tenon key set ».
+func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(string) string, wd string) int {
 	fs := flag.NewFlagSet("tenon", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	showVersion := fs.Bool("version", false, "afficher la version et quitter")
@@ -30,8 +39,12 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 	output := fs.String("output", string(headless.Text), "format de sortie : text ou json")
 	allowNonEU := fs.Bool("allow-non-eu", false, "autoriser l'envoi à un fournisseur hors UE")
 	providerID := fs.String("provider", "", "identifiant du fournisseur (défaut : default_provider)")
+	langFlag := fs.String("lang", "", "langue de l'interface : fr ou en (défaut : lang de la configuration)")
+	resume := fs.String("resume", "", "reprendre une session : son identifiant ou last (avec -p)")
 	fs.Usage = func() {
-		fmt.Fprintln(stderr, `usage : tenon -p "<prompt>" [--output text|json] [--allow-non-eu] [--provider <id>]`)
+		fmt.Fprintln(stderr, `usage : tenon -p "<prompt>" [--resume <id|last>] [--lang fr|en] [--output text|json] [--allow-non-eu] [--provider <id>]`)
+		fmt.Fprintln(stderr, "        tenon sessions [--lang fr|en]")
+		fmt.Fprintln(stderr, "        tenon key set|delete <fournisseur>")
 		fmt.Fprintln(stderr, "        tenon audit verify")
 		fmt.Fprintln(stderr, "        tenon config check")
 		fs.PrintDefaults()
@@ -49,47 +62,184 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 		return 0
 	}
 
-	switch rest := fs.Args(); {
-	case len(rest) == 2 && rest[0] == "audit" && rest[1] == "verify":
-		return auditVerify(stdout, stderr, getenv)
-	case len(rest) == 2 && rest[0] == "config" && rest[1] == "check":
-		if _, err := loadSetup(getenv, wd); err != nil {
-			fmt.Fprintf(stderr, "tenon : %v\n", err)
+	rest := fs.Args()
+	// « tenon sessions --lang en » : --lang est aussi accepté après la sous-commande.
+	if len(rest) > 0 && rest[0] == "sessions" {
+		sub := flag.NewFlagSet("tenon sessions", flag.ContinueOnError)
+		sub.SetOutput(stderr)
+		sub.StringVar(langFlag, "lang", *langFlag, "langue de l'interface : fr ou en")
+		if err := sub.Parse(rest[1:]); err != nil {
+			if errors.Is(err, flag.ErrHelp) {
+				return 0
+			}
 			return 1
 		}
-		fmt.Fprintln(stdout, "OK")
+		rest = append([]string{"sessions"}, sub.Args()...)
+	}
+
+	lang, ok := uiLang(*langFlag, getenv, wd)
+	if !ok {
+		fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", i18n.T(lang, "err.bad_lang", *langFlag)))
+		return 1
+	}
+
+	switch {
+	case len(rest) == 2 && rest[0] == "audit" && rest[1] == "verify":
+		return auditVerify(lang, stdout, stderr, getenv)
+	case len(rest) == 2 && rest[0] == "config" && rest[1] == "check":
+		if _, err := loadSetup(getenv, wd); err != nil {
+			fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", err))
+			return 1
+		}
+		fmt.Fprintln(stdout, i18n.T(lang, "config.ok"))
 		return 0
+	case len(rest) >= 1 && rest[0] == "sessions":
+		if len(rest) > 1 {
+			fmt.Fprintln(stderr, i18n.T(lang, "err.unexpected_args", rest[1]))
+			return 1
+		}
+		// Seul --lang accompagne « tenon sessions ».
+		var extra string
+		fs.Visit(func(f *flag.Flag) {
+			if f.Name != "lang" && extra == "" {
+				extra = "-" + f.Name
+			}
+		})
+		if extra != "" {
+			fmt.Fprintln(stderr, i18n.T(lang, "err.unexpected_args", extra))
+			return 1
+		}
+		return listSessions(lang, stdout, stderr, getenv, wd)
+	case len(rest) == 3 && rest[0] == "key" && (rest[1] == "set" || rest[1] == "delete"):
+		return keyCommand(lang, rest[1], rest[2], stdin, stdout, stderr, getenv, wd)
 	case len(rest) > 0:
-		fmt.Fprintf(stderr, "tenon: argument inattendu: %s\n", rest[0])
+		fmt.Fprintln(stderr, i18n.T(lang, "err.unexpected_args", rest[0]))
 		return 1
 	}
 
 	if *prompt == "" {
-		fmt.Fprintln(stderr, `l'interface interactive arrive bientôt : utilisez -p "<prompt>"`)
+		fmt.Fprintln(stderr, i18n.T(lang, "err.no_prompt"))
 		return 1
 	}
 	out := headless.Output(*output)
 	if out != headless.Text && out != headless.JSON {
-		fmt.Fprintf(stderr, "tenon : format de sortie inconnu %q (text|json)\n", *output)
+		fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", i18n.T(lang, "err.bad_output", *output)))
 		return 1
 	}
 
-	eng, red, closeFn, err := startEngine(getenv, wd, *providerID, *allowNonEU)
+	st, err := startEngine(engineOptions{
+		getenv: getenv, wd: wd, providerID: *providerID, allowNonEU: *allowNonEU,
+		lang: lang, resume: *resume, stderr: stderr,
+	})
 	if err != nil {
-		fmt.Fprintf(stderr, "tenon : %v\n", err)
+		fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", err))
 		return 1
 	}
-	defer closeFn()
-	sid, err := newSessionID()
-	if err != nil {
-		fmt.Fprintf(stderr, "tenon : %v\n", err)
-		return 1
-	}
-	return headless.Run(ctx, eng, sid, *prompt, headless.Options{
+	defer st.close()
+	red := st.redactor
+	return headless.Run(ctx, st.eng, st.sessionID, *prompt, headless.Options{
 		Output:     out,
+		Lang:       lang,
 		Redact:     func(s string) string { out, _ := red.RedactJSON(s); return out },
 		RedactText: func(s string) string { out, _ := red.Redact(s); return out },
 	}, stdout, stderr)
+}
+
+// uiLang renvoie la langue de l'interface : --lang, sinon lang de la
+// configuration (dont la valeur par défaut suit $LANG). Une configuration
+// illisible n'empêche pas de choisir une langue : son erreur sera signalée
+// plus loin. ok est faux si --lang n'est ni fr ni en.
+func uiLang(flagValue string, getenv func(string) string, wd string) (i18n.Lang, bool) {
+	cfgLang := config.Defaults(getenv).Lang
+	if cfg, err := config.Load(config.GlobalPath(getenv), filepath.Join(wd, ".tenon", "config.toml"), getenv); err == nil {
+		cfgLang = cfg.Lang
+	}
+	fallback := i18n.Parse(cfgLang)
+	switch flagValue {
+	case "":
+		return fallback, true
+	case string(i18n.FR), string(i18n.EN):
+		return i18n.Lang(flagValue), true
+	}
+	return fallback, false
+}
+
+// sessionsDir est le dossier des sessions persistées.
+func sessionsDir(getenv func(string) string) string {
+	return filepath.Join(config.DataDir(getenv), "sessions")
+}
+
+// listSessions affiche les sessions du projet wd, la plus récente d'abord.
+func listSessions(lang i18n.Lang, stdout, stderr io.Writer, getenv func(string) string, wd string) int {
+	l, err := session.List(sessionsDir(getenv), wd)
+	if err != nil {
+		fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", err))
+		return 1
+	}
+	if len(l) == 0 {
+		fmt.Fprintln(stdout, i18n.T(lang, "sessions.none"))
+		return 0
+	}
+	fmt.Fprintln(stdout, i18n.T(lang, "sessions.header", len(l)))
+	for _, s := range l {
+		fmt.Fprintf(stdout, "%s  %s  %d  %s\n", s.ID, s.Updated.Local().Format("2006-01-02 15:04"), s.Turns, s.FirstPrompt)
+	}
+	return 0
+}
+
+// keyCommand enregistre (set) ou supprime (delete) la clé d'un fournisseur
+// configuré dans le trousseau système.
+func keyCommand(lang i18n.Lang, action, providerID string, stdin io.Reader, stdout, stderr io.Writer, getenv func(string) string, wd string) int {
+	s, err := loadSetup(getenv, wd)
+	if err != nil {
+		fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", err))
+		return 1
+	}
+	if _, ok := s.cfg.Provider(providerID); !ok {
+		fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", i18n.T(lang, "err.unknown_provider", providerID)))
+		return 1
+	}
+	if action == "delete" {
+		if err := secrets.Delete(providerID); err != nil {
+			fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", err))
+			return 1
+		}
+		fmt.Fprintln(stdout, i18n.T(lang, "key.deleted", providerID))
+		return 0
+	}
+	key, err := readKey(lang, providerID, stdin, stderr)
+	if err != nil {
+		fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", err))
+		return 1
+	}
+	if err := secrets.Set(providerID, key); err != nil {
+		fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", err))
+		return 1
+	}
+	fmt.Fprintln(stdout, i18n.T(lang, "key.saved", providerID))
+	return 0
+}
+
+// readKey lit une ligne sur stdin : sans écho après une invite sur stderr si
+// stdin est un terminal, telle quelle sinon (tube, redirection).
+func readKey(lang i18n.Lang, providerID string, stdin io.Reader, stderr io.Writer) (string, error) {
+	if f, ok := stdin.(*os.File); ok && term.IsTerminal(int(f.Fd())) {
+		fmt.Fprint(stderr, i18n.T(lang, "key.prompt", providerID))
+		b, err := term.ReadPassword(int(f.Fd()))
+		fmt.Fprintln(stderr)
+		if err != nil {
+			return "", fmt.Errorf("lecture de la clé : %w", err)
+		}
+		return strings.TrimSpace(string(b)), nil
+	}
+	if stdin == nil {
+		return "", errors.New("lecture de la clé : entrée standard absente")
+	}
+	line, err := bufio.NewReader(stdin).ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return "", fmt.Errorf("lecture de la clé : %w", err)
+	}
+	return strings.TrimSpace(line), nil
 }
 
 // setup est la configuration chargée et convertie pour la politique.
@@ -135,44 +285,111 @@ func loadSetup(getenv func(string) string, wd string) (setup, error) {
 	return setup{cfg: cfg, rules: rules, redactor: red}, nil
 }
 
-// startEngine assemble configuration, fournisseur, politique, outils et audit.
-// Le Redactor renvoyé est celui de l'audit et d'Outbound ; closeFn ferme le
-// journal d'audit.
-func startEngine(getenv func(string) string, wd, providerID string, allowNonEU bool) (*engine.Engine, *policy.Redactor, func(), error) {
+// engineOptions paramètre startEngine.
+type engineOptions struct {
+	getenv     func(string) string
+	wd         string
+	providerID string
+	allowNonEU bool
+	lang       i18n.Lang
+	// resume : "" (nouvelle session), "last" ou un identifiant de session.
+	resume string
+	// stderr reçoit les avertissements (trousseau, session endommagée).
+	stderr io.Writer
+}
+
+// started est un Engine prêt pour la session sessionID.
+type started struct {
+	eng       *engine.Engine
+	redactor  *policy.Redactor // celui de l'audit, de la session et d'Outbound
+	sessionID string
+	close     func() // ferme le journal d'audit et le fichier de session
+}
+
+// startEngine assemble configuration, fournisseur, politique, outils, audit et
+// session ; une session reprise est restaurée dans l'Engine.
+func startEngine(o engineOptions) (started, error) {
+	getenv, wd, lang := o.getenv, o.wd, o.lang
 	s, err := loadSetup(getenv, wd)
 	if err != nil {
-		return nil, nil, nil, err
+		return started{}, err
 	}
 	cfg := s.cfg
 
+	providerID := o.providerID
 	if providerID == "" {
 		providerID = cfg.DefaultProvider
 	}
 	pc, ok := cfg.Provider(providerID)
 	if !ok {
-		return nil, nil, nil, fmt.Errorf("fournisseur inconnu %q", providerID)
+		return started{}, errors.New(i18n.T(lang, "err.unknown_provider", providerID))
 	}
 	info := llm.ProviderInfo{
 		ID: pc.ID, Name: pc.Name, BaseURL: pc.BaseURL, Model: pc.Model,
 		Country: pc.Country, Jurisdiction: llm.Jurisdiction(pc.Jurisdiction),
 	}
-	var apiKey string
-	if pc.APIKeyEnv != "" {
-		apiKey = getenv(pc.APIKeyEnv)
+	// Environnement d'abord, puis trousseau. Un trousseau illisible ne bloque
+	// pas : la clé est considérée absente.
+	apiKey, source, err := secrets.Lookup(pc.ID, pc.APIKeyEnv, getenv)
+	if err != nil {
+		fmt.Fprintln(o.stderr, i18n.T(lang, "warn.keyring", err))
+		apiKey = ""
+	}
+	// Une clé du trousseau est masquée comme celles de l'environnement
+	// (loadSetup les a déjà ajoutées).
+	if source == "keyring" && len(apiKey) >= 8 {
+		s.redactor.AddLiteral(apiKey)
 	}
 	if apiKey == "" && info.Jurisdiction != llm.Local {
 		if pc.APIKeyEnv == "" {
-			return nil, nil, nil, fmt.Errorf("fournisseur %q : api_key_env non défini", pc.ID)
+			return started{}, errors.New(i18n.T(lang, "err.no_api_key_env", pc.ID))
 		}
-		return nil, nil, nil, fmt.Errorf("variable %s absente", pc.APIKeyEnv)
+		return started{}, errors.New(i18n.T(lang, "err.missing_env", pc.APIKeyEnv))
+	}
+
+	files, err := instructions.Load(wd)
+	if err != nil {
+		return started{}, fmt.Errorf("instructions du projet : %w", err)
+	}
+	names := make([]string, 0, len(files))
+	for _, f := range files {
+		names = append(names, f.Name)
+	}
+
+	// La session à reprendre est lue avant l'ouverture du writer, qui tronque
+	// un fichier endommagé à sa première ligne illisible.
+	sdir := sessionsDir(getenv)
+	var sid string
+	var events []event.Event
+	switch o.resume {
+	case "":
+		if sid, err = newSessionID(); err != nil {
+			return started{}, err
+		}
+	case "last":
+		if sid, err = session.Latest(sdir, wd); err != nil {
+			return started{}, err
+		}
+	default:
+		sid = o.resume
+	}
+	if o.resume != "" {
+		var corrupt bool
+		events, corrupt, err = session.Load(sdir, sid)
+		if err != nil {
+			return started{}, fmt.Errorf("session %s : %w", sid, err)
+		}
+		if corrupt {
+			fmt.Fprintln(o.stderr, i18n.T(lang, "resume.warning_corrupt", skippedLines(sdir, sid, len(events)), sid))
+		}
 	}
 
 	perm, err := policy.NewPermissions(wd, s.rules)
 	if err != nil {
-		return nil, nil, nil, err
+		return started{}, err
 	}
 	out := policy.NewOutbound(s.redactor)
-	if allowNonEU {
+	if o.allowNonEU {
 		out.Consent(info.ID)
 	}
 
@@ -187,31 +404,69 @@ func startEngine(getenv func(string) string, wd, providerID string, allowNonEU b
 		tools.Shell(wd, cfg.ShellTimeout.Duration, cfg.OutputLimit))
 
 	red := s.redactor
-	w, err := audit.Open(filepath.Join(config.DataDir(getenv), "audit"), audit.Level(cfg.Audit.Level),
-		func(s string) string { out, _ := red.RedactJSON(s); return out })
+	redactJSON := func(s string) string { out, _ := red.RedactJSON(s); return out }
+	w, err := audit.Open(filepath.Join(config.DataDir(getenv), "audit"), audit.Level(cfg.Audit.Level), redactJSON)
 	if err != nil {
-		return nil, nil, nil, err
+		return started{}, err
+	}
+	sw, err := session.Open(sdir, sid, redactJSON)
+	if err != nil {
+		_ = w.Close()
+		return started{}, err
+	}
+	closeAll := func() {
+		_ = sw.Close()
+		_ = w.Close()
 	}
 
 	eng := engine.New(engine.Deps{
-		Provider:      provider.NewOpenAICompat(info, apiKey),
-		Tools:         tools.NewRegistry(ts...),
-		Permissions:   perm,
-		Outbound:      out,
-		Sinks:         []event.Sink{w},
-		MaxIterations: cfg.MaxIterations,
-		ProjectRoot:   wd,
+		Provider:            provider.NewOpenAICompat(info, apiKey),
+		Tools:               tools.NewRegistry(ts...),
+		Permissions:         perm,
+		Outbound:            out,
+		Sinks:               []event.Sink{w, sw}, // audit d'abord, puis la session
+		MaxIterations:       cfg.MaxIterations,
+		SystemPrompt:        instructions.Render(i18n.SystemPrompt(lang), files),
+		ProjectRoot:         wd,
+		Instructions:        names,
+		ContextWindow:       pc.Window(),
+		CompactionThreshold: cfg.CompactionThreshold,
 	})
-	return eng, red, func() { _ = w.Close() }, nil
+	if o.resume != "" {
+		if err := eng.Restore(sid, events); err != nil {
+			closeAll()
+			return started{}, fmt.Errorf("session %s : %w", sid, err)
+		}
+	}
+	return started{eng: eng, redactor: red, sessionID: sid, close: closeAll}, nil
 }
 
-func auditVerify(stdout, stderr io.Writer, getenv func(string) string) int {
-	hash, n, err := audit.Verify(filepath.Join(config.DataDir(getenv), "audit"))
+// skippedLines compte les lignes non vides de la session au-delà des valid
+// premiers événements lisibles.
+func skippedLines(dir, sid string, valid int) int {
+	b, err := os.ReadFile(filepath.Join(dir, sid+".jsonl"))
 	if err != nil {
-		fmt.Fprintf(stderr, "tenon : %v\n", err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "OK : %d lignes, dernier hash %s\n", n, hash)
+	n := 0
+	for _, l := range strings.Split(string(b), "\n") {
+		if strings.TrimSpace(l) != "" {
+			n++
+		}
+	}
+	if n-valid < 1 {
+		return 1
+	}
+	return n - valid
+}
+
+func auditVerify(lang i18n.Lang, stdout, stderr io.Writer, getenv func(string) string) int {
+	hash, n, err := audit.Verify(filepath.Join(config.DataDir(getenv), "audit"))
+	if err != nil {
+		fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", err))
+		return 1
+	}
+	fmt.Fprintln(stdout, i18n.T(lang, "audit.ok", n, hash))
 	return 0
 }
 

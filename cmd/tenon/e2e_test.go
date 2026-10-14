@@ -12,12 +12,22 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"codeberg.org/tenon/tenon/internal/event"
+	"github.com/zalando/go-keyring"
 )
+
+// TestMain remplace le trousseau système par un trousseau en mémoire : aucun
+// test ne lit ni n'écrit le trousseau réel.
+func TestMain(m *testing.M) {
+	keyring.MockInit()
+	os.Exit(m.Run())
+}
 
 // fakeLLM est un serveur compatible OpenAI piloté par script : la requête n
 // reçoit script[n] (la dernière entrée une fois le script épuisé).
@@ -27,6 +37,7 @@ type fakeLLM struct {
 
 	mu     sync.Mutex
 	bodies []string
+	auths  []string // en-tête Authorization de chaque requête
 }
 
 func newFakeLLM(t *testing.T, script ...[]string) *fakeLLM {
@@ -37,6 +48,7 @@ func newFakeLLM(t *testing.T, script ...[]string) *fakeLLM {
 		f.mu.Lock()
 		i := len(f.bodies)
 		f.bodies = append(f.bodies, string(b))
+		f.auths = append(f.auths, r.Header.Get("Authorization"))
 		f.mu.Unlock()
 		if i >= len(f.script) {
 			i = len(f.script) - 1
@@ -55,6 +67,12 @@ func (f *fakeLLM) requests() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]string(nil), f.bodies...)
+}
+
+func (f *fakeLLM) authorizations() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.auths...)
 }
 
 func sseText(s string) []string {
@@ -131,10 +149,19 @@ func (e *env) writeFile(path, content string) {
 
 func (e *env) run(args ...string) (int, string, string) {
 	e.t.Helper()
+	return e.runStdin("", args...)
+}
+
+// runStdin exécute la CLI avec stdin comme entrée standard.
+func (e *env) runStdin(stdin string, args ...string) (int, string, string) {
+	e.t.Helper()
 	var out, errb bytes.Buffer
-	code := run(context.Background(), args, &out, &errb, func(k string) string { return e.vars[k] }, e.wd)
+	code := run(context.Background(), args, strings.NewReader(stdin), &out, &errb, func(k string) string { return e.vars[k] }, e.wd)
 	return code, out.String(), errb.String()
 }
+
+// sessionsDir est le dossier des sessions de l'environnement.
+func (e *env) sessionsDir() string { return filepath.Join(e.dataDir, "sessions") }
 
 func (e *env) auditContents() string {
 	e.t.Helper()
@@ -466,5 +493,220 @@ func TestTextOutputFinalAnswerMasked(t *testing.T) {
 	code, out, errb := e.run("-p", "donne la clé")
 	if code != 0 || strings.Contains(out, "Zx8kq") || !strings.Contains(out, "MISTRAL_API_KEY=[SECRET_") {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errb)
+	}
+}
+
+func TestResumeContinuesConversation(t *testing.T) {
+	f := newFakeLLM(t, sseText("enchanté"), sseText("Ada"))
+	e := newEnv(t, f, "eu")
+
+	if code, out, errb := e.run("-p", "je m'appelle Ada"); code != 0 {
+		t.Fatalf("run 1 : code=%d stdout=%q stderr=%q", code, out, errb)
+	}
+	code, out, errb := e.run("--resume", "last", "-p", "comment je m'appelle ?")
+	if code != 0 || !strings.Contains(out, "Ada") {
+		t.Fatalf("run 2 : code=%d stdout=%q stderr=%q", code, out, errb)
+	}
+	reqs := f.requests()
+	if len(reqs) != 2 || !strings.Contains(reqs[1], "je m'appelle Ada") || !strings.Contains(reqs[1], "comment je m'appelle ?") {
+		t.Fatalf("requêtes : %q", reqs)
+	}
+	ents, err := os.ReadDir(e.sessionsDir())
+	if err != nil || len(ents) != 1 {
+		t.Fatalf("sessions : %v %v", ents, err)
+	}
+}
+
+func TestResumeUnknownID(t *testing.T) {
+	f := newFakeLLM(t, sseText("salut"))
+	e := newEnv(t, f, "eu")
+	code, _, errb := e.run("--resume", "s_000000000000", "-p", "salut")
+	if code != 1 || len(f.requests()) != 0 || errb == "" {
+		t.Fatalf("code=%d requêtes=%d stderr=%q", code, len(f.requests()), errb)
+	}
+}
+
+func TestSessionsList(t *testing.T) {
+	f := newFakeLLM(t, sseText("ok"))
+	e := newEnv(t, f, "eu")
+
+	if code, out, errb := e.run("sessions"); code != 0 || strings.TrimSpace(out) != "aucune session" {
+		t.Fatalf("sessions vide : code=%d stdout=%q stderr=%q", code, out, errb)
+	}
+	if code, _, errb := e.run("-p", "premier prompt"); code != 0 {
+		t.Fatalf("run 1 : code=%d stderr=%q", code, errb)
+	}
+	// La première session est datée d'une heure plus tôt : l'ordre ne dépend
+	// pas de la résolution des horodatages du système de fichiers.
+	ents, err := os.ReadDir(e.sessionsDir())
+	if err != nil || len(ents) != 1 {
+		t.Fatalf("sessions : %v %v", ents, err)
+	}
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(filepath.Join(e.sessionsDir(), ents[0].Name()), old, old); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errb := e.run("-p", "second prompt"); code != 0 {
+		t.Fatalf("run 2 : code=%d stderr=%q", code, errb)
+	}
+
+	code, out, errb := e.run("sessions")
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, errb)
+	}
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	if len(lines) != 3 || lines[0] != "sessions (2) :" {
+		t.Fatalf("stdout=%q", out)
+	}
+	line := regexp.MustCompile(`^s_[0-9a-f]{12}  \d{4}-\d{2}-\d{2} \d{2}:\d{2}  1  (.*)$`)
+	for i, want := range []string{"second prompt", "premier prompt"} {
+		m := line.FindStringSubmatch(lines[i+1])
+		if m == nil || m[1] != want {
+			t.Fatalf("ligne %d : %q (attendu %q)", i+1, lines[i+1], want)
+		}
+	}
+}
+
+func TestSessionFileHasNoSecret(t *testing.T) {
+	f := newFakeLLM(t, sseText("noté"))
+	e := newEnv(t, f, "eu")
+	code, _, errb := e.run("-p", "MISTRAL_API_KEY=Zx8kq2LmNp4Rt6Vw9YbC1dEf")
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, errb)
+	}
+	ents, err := os.ReadDir(e.sessionsDir())
+	if err != nil || len(ents) == 0 {
+		t.Fatalf("sessions : %v %v", ents, err)
+	}
+	for _, de := range ents {
+		b, err := os.ReadFile(filepath.Join(e.sessionsDir(), de.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(b), "Zx8kq") || !strings.Contains(string(b), "[SECRET_1]") {
+			t.Fatalf("session %s : %s", de.Name(), b)
+		}
+	}
+}
+
+func TestAgentsMdInSystemPrompt(t *testing.T) {
+	f := newFakeLLM(t, sseText("ok"))
+	e := newEnv(t, f, "eu")
+	e.writeFile(filepath.Join(e.wd, "AGENTS.md"), "Utilise des tabulations.\n")
+
+	code, _, errb := e.run("-p", "salut")
+	if code != 0 || !strings.Contains(errb, "instructions : AGENTS.md") {
+		t.Fatalf("code=%d stderr=%q", code, errb)
+	}
+	reqs := f.requests()
+	if len(reqs) != 1 {
+		t.Fatalf("requêtes : %q", reqs)
+	}
+	var body struct {
+		Messages []struct {
+			Role    string `json:"role"`
+			Content string `json:"content"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal([]byte(reqs[0]), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Messages) == 0 || body.Messages[0].Role != "system" ||
+		!strings.Contains(body.Messages[0].Content, "Utilise des tabulations.") {
+		t.Fatalf("messages : %+v", body.Messages)
+	}
+}
+
+func TestEnglishBanner(t *testing.T) {
+	f := newFakeLLM(t, sseText("hi"))
+	e := newEnv(t, f, "eu")
+	e.vars["LANG"] = "en_US.UTF-8"
+
+	code, _, errb := e.run("-p", "hello")
+	if code != 0 || !strings.Contains(errb, "jurisdiction EU") {
+		t.Fatalf("code=%d stderr=%q", code, errb)
+	}
+	if reqs := f.requests(); len(reqs) != 1 || !strings.Contains(reqs[0], "Answer in English") {
+		t.Fatalf("requêtes : %q", reqs)
+	}
+}
+
+func TestLangFlagOverrides(t *testing.T) {
+	f := newFakeLLM(t, sseText("salut"))
+	e := newEnv(t, f, "eu")
+	e.vars["LANG"] = "en_US.UTF-8"
+
+	code, _, errb := e.run("-p", "salut", "--lang", "fr")
+	if code != 0 || !strings.Contains(errb, "juridiction UE") {
+		t.Fatalf("code=%d stderr=%q", code, errb)
+	}
+	if reqs := f.requests(); len(reqs) != 1 || !strings.Contains(reqs[0], "Réponds en français") {
+		t.Fatalf("requêtes : %q", reqs)
+	}
+}
+
+func TestCompactionEndToEnd(t *testing.T) {
+	f := newFakeLLM(t, sseText("ok"))
+	// La fenêtre doit contenir le prompt système et les schémas des outils
+	// (environ 650 jetons estimés) : 1200 jetons, seuil 0,8.
+	e := newEnvExtra(t, f, "eu", "context_window = 1200\n")
+	long := strings.Repeat("mot ", 200) // 200 jetons estimés
+
+	for i := range 3 {
+		args := []string{"-p", fmt.Sprintf("run %d : %s", i, long)}
+		if i > 0 {
+			args = append(args, "--resume", "last")
+		}
+		code, out, errb := e.run(args...)
+		if code != 0 {
+			t.Fatalf("run %d : code=%d stdout=%q stderr=%q", i, code, out, errb)
+		}
+		if i == 2 && !strings.Contains(errb, "contexte compacté : ") {
+			t.Fatalf("run %d : stderr=%q", i, errb)
+		}
+	}
+	summaries := 0
+	for _, b := range f.requests() {
+		if strings.Contains(b, "Résume fidèlement") {
+			summaries++
+		}
+	}
+	if summaries == 0 {
+		t.Fatalf("aucune requête de résumé : %d requêtes", len(f.requests()))
+	}
+}
+
+func TestKeyFromKeyring(t *testing.T) {
+	keyring.MockInit()
+	t.Cleanup(keyring.MockInit)
+	f := newFakeLLM(t, sseText("salut"))
+	e := newEnv(t, f, "eu")
+	delete(e.vars, "TEST_KEY")
+	const key = "cle-du-trousseau-42"
+
+	code, out, errb := e.runStdin(key+"\n", "key", "set", "test")
+	if code != 0 || !strings.Contains(out+errb, "clé enregistrée pour test") {
+		t.Fatalf("key set : code=%d stdout=%q stderr=%q", code, out, errb)
+	}
+	code, out, errb = e.run("-p", "salut")
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errb)
+	}
+	if a := f.authorizations(); len(a) != 1 || a[0] != "Bearer "+key {
+		t.Fatalf("Authorization : %q", a)
+	}
+	// La clé du trousseau est masquée comme une clé d'environnement.
+	if strings.Contains(e.auditContents(), key) {
+		t.Fatal("clé du trousseau dans l'audit")
+	}
+
+	if code, out, errb := e.run("key", "delete", "test"); code != 0 || !strings.Contains(out+errb, "clé supprimée pour test") {
+		t.Fatalf("key delete : code=%d stdout=%q stderr=%q", code, out, errb)
+	}
+	if code, _, _ := e.run("-p", "salut"); code != 1 {
+		t.Fatalf("après suppression : code=%d", code)
+	}
+	if code, _, _ := e.runStdin("x\n", "key", "set", "nope"); code != 1 {
+		t.Fatalf("fournisseur inconnu : code=%d", code)
 	}
 }

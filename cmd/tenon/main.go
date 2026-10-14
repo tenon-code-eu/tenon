@@ -23,7 +23,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	os.Exit(run(ctx, os.Args[1:], os.Stdout, os.Stderr, os.Getenv, wd))
+	os.Exit(run(ctx, os.Args[1:], os.Stdin, os.Stdout, os.Stderr, os.Getenv, wd))
 }
 
 // interruptContext annule le contexte au premier signal reçu sur sig ; au

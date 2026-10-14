@@ -13,6 +13,7 @@ import (
 
 	"codeberg.org/tenon/tenon/internal/engine"
 	"codeberg.org/tenon/tenon/internal/event"
+	"codeberg.org/tenon/tenon/internal/i18n"
 	"codeberg.org/tenon/tenon/internal/llm"
 	"codeberg.org/tenon/tenon/internal/policy"
 	"codeberg.org/tenon/tenon/internal/tools"
@@ -171,7 +172,12 @@ func TestSubmitErrorExit1(t *testing.T) {
 
 func TestJurisdictionLabel(t *testing.T) {
 	for j, want := range map[llm.Jurisdiction]string{llm.EU: "UE", llm.NonEU: "hors UE", llm.Local: "locale"} {
-		if got := jurisdictionLabel(j); got != want {
+		if got := jurisdictionLabel(i18n.FR, j); got != want {
+			t.Fatalf("%s : %q", j, got)
+		}
+	}
+	for j, want := range map[llm.Jurisdiction]string{llm.EU: "EU", llm.NonEU: "non-EU", llm.Local: "local"} {
+		if got := jurisdictionLabel(i18n.EN, j); got != want {
 			t.Fatalf("%s : %q", j, got)
 		}
 	}
@@ -258,5 +264,76 @@ func TestTextOutputFinalAnswerRedacted(t *testing.T) {
 	Run(context.Background(), eng, "s_1", "salut", Options{Output: Text, Redact: redact, RedactText: textOnly}, &out, &errb)
 	if !strings.Contains(out.String(), "voici [T]") {
 		t.Fatalf("stdout=%q", out.String())
+	}
+}
+
+func TestEnglishOutput(t *testing.T) {
+	eng, _, _ := newEngine(t, llm.NonEU, text("non"))
+	var out, errb bytes.Buffer
+	code := Run(context.Background(), eng, "s_1", "hi", Options{Output: Text, Lang: i18n.EN}, &out, &errb)
+	if code != 3 {
+		t.Fatalf("code=%d stderr=%s", code, errb.String())
+	}
+	for _, want := range []string{
+		"tenon · m-1 · Test SA · FR · jurisdiction non-EU\n",
+		"refused (non-interactive mode): sending to Test SA (jurisdiction non-EU); rerun with --allow-non-eu to accept\n",
+		"turn blocked: sending to the provider was refused\n",
+	} {
+		if !strings.Contains(errb.String(), want) {
+			t.Fatalf("stderr=%q, attendu %q", errb.String(), want)
+		}
+	}
+	if strings.Contains(errb.String(), "juridiction") {
+		t.Fatalf("stderr en français : %q", errb.String())
+	}
+}
+
+// emitted rend un événement à partir de sa charge utile.
+func emitted(t *testing.T, typ event.Type, payload any) event.Event {
+	t.Helper()
+	b, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return event.Event{Type: typ, Session: "s_1", Payload: b}
+}
+
+func TestInstructionsAndCompactionNotices(t *testing.T) {
+	for lang, want := range map[i18n.Lang][]string{
+		i18n.FR: {"instructions : AGENTS.md, TENON.md\n", "contexte compacté : 4 messages résumés\n"},
+		i18n.EN: {"instructions: AGENTS.md, TENON.md\n", "context compacted: 4 messages summarised\n"},
+	} {
+		var out, errb bytes.Buffer
+		r := &renderer{out: Text, lang: lang, redact: func(s string) string { return s },
+			redactText: func(s string) string { return s }, stdout: &out, stderr: &errb}
+		r.handle(emitted(t, event.SessionStarted, event.SessionStartedPayload{
+			Provider:     llm.ProviderInfo{ID: "t", Model: "m", Jurisdiction: llm.EU},
+			Instructions: []string{"AGENTS.md", "TENON.md"},
+		}))
+		r.handle(emitted(t, event.ContextCompacted, event.ContextCompactedPayload{Summary: "s", Replaced: 4}))
+		for _, w := range want {
+			if !strings.Contains(errb.String(), w) {
+				t.Fatalf("%s : stderr=%q, attendu %q", lang, errb.String(), w)
+			}
+		}
+	}
+	// Sans fichier d'instructions, aucune ligne « instructions ».
+	var out, errb bytes.Buffer
+	r := &renderer{out: Text, lang: i18n.FR, redact: func(s string) string { return s },
+		redactText: func(s string) string { return s }, stdout: &out, stderr: &errb}
+	r.handle(emitted(t, event.SessionStarted, event.SessionStartedPayload{
+		Provider: llm.ProviderInfo{ID: "t", Model: "m", Jurisdiction: llm.EU},
+	}))
+	if strings.Contains(errb.String(), "instructions") {
+		t.Fatalf("stderr=%q", errb.String())
+	}
+}
+
+func TestDefaultLangIsFrench(t *testing.T) {
+	eng, _, _ := newEngine(t, llm.EU, text("ok"))
+	var out, errb bytes.Buffer
+	Run(context.Background(), eng, "s_1", "salut", Options{Output: Text}, &out, &errb)
+	if !strings.Contains(errb.String(), "juridiction UE") {
+		t.Fatalf("stderr=%q", errb.String())
 	}
 }
