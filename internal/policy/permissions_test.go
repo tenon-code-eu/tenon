@@ -269,3 +269,35 @@ func TestAskFiresOnAnyPath(t *testing.T) {
 		t.Errorf("got %v", got)
 	}
 }
+
+func TestAllowShellRejectsChaining(t *testing.T) {
+	p, _ := newPerms(t, []Rule{{Tool: "shell", Match: "go test *", Decision: Allow}})
+	for _, cmd := range []string{
+		"go test ./... ; touch pwned",
+		"go test ./... && rm x",
+		"go test ./... || rm x",
+		"go test ./... | sh",
+		"go test $(evil)",
+		"go test `evil`",
+		"go test > /etc/x",
+		"go test < /etc/x",
+		"go test ./...\ntouch pwned",
+	} {
+		if d := p.Check(shellCall(cmd)); d != Ask {
+			t.Errorf("%q : %v, want ask", cmd, d)
+		}
+	}
+	if d := p.Check(shellCall("go test ./...")); d != Allow {
+		t.Fatalf("go test ./... : %v", d)
+	}
+	// Un opérateur présent littéralement dans le motif reste autorisé.
+	p, _ = newPerms(t, []Rule{{Tool: "shell", Match: "go test * | tee *", Decision: Allow}})
+	if d := p.Check(shellCall("go test ./... | tee out.txt")); d != Allow {
+		t.Fatalf("pipe littéral : %v", d)
+	}
+	// Deny inchangé.
+	p, _ = newPerms(t, []Rule{{Tool: "shell", Match: "rm *", Decision: Deny}})
+	if d := p.Check(shellCall("rm -rf x; ls")); d != Deny {
+		t.Fatalf("deny : %v", d)
+	}
+}

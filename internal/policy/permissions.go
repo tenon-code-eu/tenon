@@ -105,6 +105,9 @@ func (p *Permissions) Check(c Call) Decision {
 			return true
 		}
 		if c.Target.Command != "" {
+			if r.Decision == Allow && chainsBeyond(r.Match, c.Target.Command) {
+				return false // allow ne couvre jamais une commande enchaînée
+			}
 			return matchWildcard(r.Match, c.Target.Command)
 		}
 		pat := r.Match
@@ -233,6 +236,20 @@ func resolvePath(abs string) (string, bool) {
 		rest = filepath.Join(filepath.Base(prefix), rest)
 		prefix = parent
 	}
+}
+
+// shellMeta sont les opérateurs qui enchaînent, substituent ou redirigent.
+var shellMeta = []string{";", "&", "|", "`", "$(", ">", "<", "\n"}
+
+// chainsBeyond rapporte si cmd contient un opérateur shell absent littéralement
+// du motif : `go test *` ne doit pas autoriser `go test ./... ; touch x`.
+func chainsBeyond(pattern, cmd string) bool {
+	for _, m := range shellMeta {
+		if strings.Contains(cmd, m) && !strings.Contains(pattern, m) {
+			return true
+		}
+	}
+	return false
 }
 
 func isSensitive(path string) bool {
