@@ -10,11 +10,11 @@ import (
 )
 
 // projectFile ne contient que les clés autorisées dans .tenon/config.toml.
+// default_provider en est exclu : un dépôt ne choisit pas le fournisseur.
 type projectFile struct {
-	Lang            string      `toml:"lang"`
-	DefaultProvider string      `toml:"default_provider"`
-	Permissions     Permissions `toml:"permissions"`
-	Redaction       Redaction   `toml:"redaction"`
+	Lang        string      `toml:"lang"`
+	Permissions Permissions `toml:"permissions"`
+	Redaction   Redaction   `toml:"redaction"`
 }
 
 // Load fusionne défauts, configuration globale puis configuration projet.
@@ -27,8 +27,14 @@ func Load(globalPath, projectPath string, getenv func(string) string) (Config, e
 	} else if ok {
 		g := cfg
 		g.Providers = nil
-		if _, err := toml.Decode(string(data), &g); err != nil {
+		md, err := toml.Decode(string(data), &g)
+		if err != nil {
 			return Config{}, fmt.Errorf("config globale : %w", err)
+		}
+		// Une clé mal orthographiée (ex. [[permission.rules]]) ferait
+		// disparaître silencieusement des règles : on la refuse.
+		if und := md.Undecoded(); len(und) > 0 {
+			return Config{}, fmt.Errorf("config globale : clé non autorisée %q", und[0].String())
 		}
 		cfg.Lang, cfg.DefaultProvider = g.Lang, g.DefaultProvider
 		cfg.MaxIterations, cfg.ShellTimeout, cfg.OutputLimit = g.MaxIterations, g.ShellTimeout, g.OutputLimit
@@ -51,7 +57,7 @@ func Load(globalPath, projectPath string, getenv func(string) string) (Config, e
 			return Config{}, fmt.Errorf("config projet : %w", err)
 		}
 		if und := md.Undecoded(); len(und) > 0 {
-			return Config{}, fmt.Errorf("config projet : clé non autorisée %q", und[0][0])
+			return Config{}, fmt.Errorf("config projet : clé non autorisée %q", und[0].String())
 		}
 		for _, r := range p.Permissions.Rules {
 			if r.Decision == "allow" {
@@ -60,9 +66,6 @@ func Load(globalPath, projectPath string, getenv func(string) string) (Config, e
 		}
 		if p.Lang != "" {
 			cfg.Lang = p.Lang
-		}
-		if p.DefaultProvider != "" {
-			cfg.DefaultProvider = p.DefaultProvider
 		}
 		cfg.Permissions.Rules = append(cfg.Permissions.Rules, p.Permissions.Rules...)
 		cfg.Redaction.Rules = append(cfg.Redaction.Rules, p.Redaction.Rules...)

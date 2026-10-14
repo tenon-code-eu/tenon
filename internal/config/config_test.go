@@ -215,3 +215,31 @@ func TestPaths(t *testing.T) {
 		t.Fatal("HOME data")
 	}
 }
+
+func TestProjectCannotSetDefaultProvider(t *testing.T) {
+	_, err := Load("", write(t, `default_provider = "ollama"`+"\n"), env(nil))
+	if err == nil || err.Error() != `config projet : clé non autorisée "default_provider"` {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestGlobalRejectsUnknownKeys(t *testing.T) {
+	for body, key := range map[string]string{
+		"max_iteration = 3\n": "max_iteration",
+		"[[permission.rules]]\ntool = \"shell\"\nmatch = \"rm*\"\ndecision = \"deny\"\n": "permission.rules",
+		"[[providers]]\nid = \"x\"\nbase_url = \"http://x\"\njurisdiction = \"eu\"\nmodle = \"m\"\n": "providers.modle",
+	} {
+		_, err := Load(write(t, body), "", env(nil))
+		want := `config globale : clé non autorisée "` + key + `"`
+		if err == nil || !strings.HasPrefix(err.Error(), want) {
+			t.Fatalf("%q : err = %v, want %s", body, err, want)
+		}
+	}
+}
+
+func TestProjectErrorUsesFullKeyPath(t *testing.T) {
+	_, err := Load("", write(t, "[permissions]\nfoo = 1\n"), env(nil))
+	if err == nil || err.Error() != `config projet : clé non autorisée "permissions.foo"` {
+		t.Fatalf("err = %v", err)
+	}
+}
