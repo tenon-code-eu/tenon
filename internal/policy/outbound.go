@@ -119,6 +119,14 @@ func (o *Outbound) walk(v any, counts map[string]int) any {
 		for k, x := range t {
 			nk, c := o.r.Redact(k)
 			merge(c)
+			if xs, ok := x.(string); ok && len(xs) >= 8 && reSecretKey.MatchString(k) {
+				m := o.r.maskSecret(xs)
+				if m != xs {
+					counts["SECRET"]++
+				}
+				out[nk] = m
+				continue
+			}
 			out[nk] = o.walk(x, counts)
 		}
 		return out

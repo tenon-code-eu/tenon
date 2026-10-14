@@ -33,11 +33,20 @@ type Redactor struct {
 }
 
 var (
-	reAssign = regexp.MustCompile(`(?i)(api[_-]?key|secret|token|password|passwd)\w*["']?\s*[:=]\s*['"]?([^\s'"]{12,})`)
-	reIBAN   = regexp.MustCompile(`[A-Z]{2}\d{2}(?: ?[A-Z0-9]{4}){2,7}(?: ?[A-Z0-9]{1,3})?`)
-	reNIR    = regexp.MustCompile(`[12] ?\d{2} ?\d{2} ?(?:\d{2}|2A|2B) ?\d{3} ?\d{3} ?\d{2}`)
-	reEmail  = regexp.MustCompile(`[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+`)
-	reTel    = regexp.MustCompile(`(?:\+33\s?|0)[1-9](?:[\s.-]?\d{2}){4}`)
+	secretKW = `(?:api[_-]?key|secret|token|password|passwd)`
+	// Quoted literal after keyword and [:=]; quotes may be JSON-escaped.
+	reAssignQuoted = regexp.MustCompile(`(?i)` + secretKW + `\w*\\?["']?[ \t]*[:=][ \t]*\\?["']([^\s'"\\]{12,})`)
+	// Unquoted env/config line: [export] KEY=VALUE alone on its line.
+	reAssignLine = regexp.MustCompile(`(?im)^[ \t]*(?:export[ \t]+)?[A-Za-z0-9_.-]*` + secretKW + `\w*[ \t]*[:=][ \t]*([^\s'"\\]{12,}?)[,;]?[ \t]*\r?$`)
+	// export KEY=VALUE inside a longer shell command.
+	reAssignExport = regexp.MustCompile(`(?i)\bexport[ \t]+[A-Za-z0-9_.-]*` + secretKW + `\w*=([^\s'"\\;&|,]{12,})`)
+	reMarker       = regexp.MustCompile(`\[[A-Z_]+_\d+\]`)
+	reIdent        = regexp.MustCompile(`^[A-Za-z_][\w.]*$`)
+	reSecretKey    = regexp.MustCompile(`(?i)` + secretKW)
+	reIBAN         = regexp.MustCompile(`[A-Z]{2}\d{2}(?: ?[A-Z0-9]{4}){2,7}(?: ?[A-Z0-9]{1,3})?`)
+	reNIR          = regexp.MustCompile(`[12] ?\d{2} ?\d{2} ?(?:\d{2}|2A|2B) ?\d{3} ?\d{3} ?\d{2}`)
+	reEmail        = regexp.MustCompile(`[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}`)
+	reTel          = regexp.MustCompile(`(?:\+33\s?|0)[1-9](?:[\s.-]?\d{2}){4}`)
 )
 
 // NewRedactor builds a Redactor with the built-in rules followed by custom.
@@ -58,11 +67,18 @@ func NewRedactor(custom []RedactionRule) (*Redactor, error) {
 			secret(`gh[pousr]_[A-Za-z0-9]{36}`, 0),
 			secret(`\bsk-[A-Za-z0-9_-]{20,}`, 0),
 			secret(`eyJ[\w-]+\.[\w-]+\.[\w-]+`, 0),
-			{typ: "SECRET", re: reAssign, group: 2},
+			secret(`github_pat_[A-Za-z0-9_]{20,}`, 0),
+			secret(`(?:sk|rk)_live_[A-Za-z0-9]{16,}`, 0),
+			secret(`xox[baprs]-[A-Za-z0-9-]{10,}`, 0),
+			secret(`://[^:/\s]+:([^@\s'"\\]+)@`, 1),
+			secret(`(?i:bearer)\s+([A-Za-z0-9._~+/=-]{20,})`, 1),
+			{typ: "SECRET", re: reAssignQuoted, group: 1, valid: validSecretValue},
+			{typ: "SECRET", re: reAssignLine, group: 1, valid: validSecretValue},
+			{typ: "SECRET", re: reAssignExport, group: 1, valid: validSecretValue},
 			{typ: "IBAN", re: reIBAN, guard: true, valid: validIBAN, key: stripSpaces},
 			{typ: "NIR", re: reNIR, guard: true, valid: validNIR, key: stripSpaces},
-			{typ: "EMAIL", re: reEmail, key: strings.ToLower},
-			{typ: "TEL", re: reTel, guard: true, key: stripSeparators},
+			{typ: "EMAIL", re: reEmail, valid: validEmail, key: strings.ToLower},
+			{typ: "TEL", re: reTel, guard: true, valid: validTel, key: stripSeparators},
 		},
 	}
 	for _, c := range custom {
@@ -94,11 +110,12 @@ func (r *Redactor) apply(st step, s string, counts map[string]int) string {
 	if len(locs) == 0 {
 		return s
 	}
+	marks := reMarker.FindAllStringIndex(s, -1)
 	var b strings.Builder
 	last := 0
 	for _, loc := range locs {
 		a, e := loc[2*st.group], loc[2*st.group+1]
-		if a < 0 || a < last {
+		if a < 0 || a < last || overlaps(marks, a, e) {
 			continue
 		}
 		val := s[a:e]
@@ -202,3 +219,56 @@ func validNIR(s string) bool {
 	}
 	return k == 97-n%97
 }
+
+func overlaps(marks [][]int, a, e int) bool {
+	for _, m := range marks {
+		if a < m[1] && m[0] < e {
+			return true
+		}
+	}
+	return false
+}
+
+// maskSecret masks a whole value as SECRET (used for values under secret keys).
+func (r *Redactor) maskSecret(val string) string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if reMarker.MatchString(val) && len(reMarker.FindString(val)) == len(val) {
+		return val
+	}
+	return r.marker(step{typ: "SECRET"}, val)
+}
+
+// validSecretValue rejects code-like values: identifiers, dotted chains,
+// calls, expansions, and values that are not a letter/digit/symbol mix.
+func validSecretValue(v string) bool {
+	if len(v) < 12 || strings.ContainsAny(v, "()[]{}$") {
+		return false
+	}
+	var up, lo, dg, sym bool
+	for _, c := range v {
+		switch {
+		case c >= 'A' && c <= 'Z':
+			up = true
+		case c >= 'a' && c <= 'z':
+			lo = true
+		case c >= '0' && c <= '9':
+			dg = true
+		default:
+			sym = true
+		}
+	}
+	// Identifier or dotted chain (env var name, member access): code, not a
+	// secret, unless it is a dot-free letter/digit mix.
+	if reIdent.MatchString(v) && (strings.Contains(v, ".") || !dg) {
+		return false
+	}
+	return ((up || lo) && dg) || (up && lo && sym)
+}
+
+func validEmail(s string) bool {
+	local, _, _ := strings.Cut(s, "@")
+	return !strings.EqualFold(local, "git")
+}
+
+func validTel(s string) bool { return stripSeparators(s) != "0123456789" }

@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -28,6 +29,30 @@ func TestRedactTable(t *testing.T) {
 		{`{"password":"hunter2hunter2"}`, `{"password":"[SECRET_1]"}`},
 		{"tel 0612345678, 0612345678.", "tel [TEL_1], [TEL_1]."},
 		{"id 12345678901234567890", "id 12345678901234567890"},
+		// code that must not change
+		{`token = r.URL.Query().Get("token")`, `token = r.URL.Query().Get("token")`},
+		{`tokenizer = NewTokenizer(cfg)`, `tokenizer = NewTokenizer(cfg)`},
+		{`accessToken = getAccessToken()`, `accessToken = getAccessToken()`},
+		{`apiKey: process.env.OPENAI_API_KEY,`, `apiKey: process.env.OPENAI_API_KEY,`},
+		{`password = getpass.getpass()`, `password = getpass.getpass()`},
+		{`token: CancellationToken)`, `token: CancellationToken)`},
+		{`tokens = tokenize(text, opts)`, `tokens = tokenize(text, opts)`},
+		{`secretName=projects/x/secrets/y`, `secretName=projects/x/secrets/y`},
+		{`git@github.com:org/repo.git`, `git@github.com:org/repo.git`},
+		{`npm i react@18.3.1`, `npm i react@18.3.1`},
+		{`gopls@v0.15.0`, `gopls@v0.15.0`},
+		{`a@b.T`, `a@b.T`},
+		{`const digits = "0123456789"`, `const digits = "0123456789"`},
+		// new masking
+		{`password = "Zx8kq2LmNp4Rt6Vw"`, `password = "[SECRET_1]"`},
+		{`{"api_key": "Zx8kq2LmNp4Rt6Vw9YbC"}`, `{"api_key": "[SECRET_1]"}`},
+		{`{"c":"\"api_key\": \"Zx8kq2LmNp4Rt6Vw9YbC\""}`, `{"c":"\"api_key\": \"[SECRET_1]\""}`},
+		{"export TOKEN=Zx8kq2LmNp4Rt6Vw; ls", "export TOKEN=[SECRET_1]; ls"},
+		{"github_pat_" + strings.Repeat("aB3", 10), "[SECRET_1]"},
+		{"sk_live_" + strings.Repeat("aB3d", 5), "[SECRET_1]"},
+		{"xoxb-1234567890-abcdef", "[SECRET_1]"},
+		{"postgres://user:p4ssw0rd!@db:5432/x", "postgres://user:[SECRET_1]@db:5432/x"},
+		{"Authorization: Bearer abcdefghij0123456789xyz", "Authorization: Bearer [SECRET_1]"},
 	}
 	for _, c := range cases {
 		r, err := NewRedactor(nil)
@@ -43,7 +68,7 @@ func TestRedactTable(t *testing.T) {
 
 func TestRedactCounts(t *testing.T) {
 	r, _ := NewRedactor(nil)
-	_, counts := r.Redact("a@x.fr b@x.fr token=abcdefghijklmnop")
+	_, counts := r.Redact("a@x.fr b@x.fr\nMISTRAL_API_KEY=Zx8kq2LmNp4Rt6Vw")
 	want := map[string]int{"EMAIL": 2, "SECRET": 1}
 	if !reflect.DeepEqual(counts, want) {
 		t.Fatalf("counts = %v, want %v", counts, want)
@@ -104,5 +129,21 @@ func TestRedactConcurrent(t *testing.T) {
 	}
 	for i := 0; i < 8; i++ {
 		<-done
+	}
+}
+
+func TestRedactNeverRemasksMarkers(t *testing.T) {
+	r, _ := NewRedactor(nil)
+	for i := 0; i < 100; i++ {
+		r.Redact(fmt.Sprintf("a%d@x.fr", i))
+		r.Redact(fmt.Sprintf("sk-%s%d", strings.Repeat("a", 20), i))
+	}
+	got, _ := r.Redact("token=[SECRET_100]")
+	if got != "token=[SECRET_100]" {
+		t.Fatalf("got %q", got)
+	}
+	got, _ = r.Redact("MISTRAL_API_KEY=[SECRET_100]")
+	if got != "MISTRAL_API_KEY=[SECRET_100]" {
+		t.Fatalf("got %q", got)
 	}
 }

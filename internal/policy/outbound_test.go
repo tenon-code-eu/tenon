@@ -108,10 +108,40 @@ func TestOutboundTruncatedPrivateKeyInArgs(t *testing.T) {
 
 func TestOutboundKeepsArgsValidJSON(t *testing.T) {
 	o := newOut(t)
-	raw := json.RawMessage(`{"cmd":"export TOKEN=abcdefghijklmnop\"; ls"}`)
+	raw := json.RawMessage(`{"cmd":"export TOKEN=Zx8kq2LmNp4Rt6Vw\"; ls"}`)
 	out, _, _ := o.Check(llm.ProviderInfo{ID: "p", Jurisdiction: llm.EU}, []llm.Message{{ToolCalls: []llm.ToolCall{{Args: raw}}}})
 	got := out[0].ToolCalls[0].Args
-	if !json.Valid(got) || strings.Contains(string(got), "abcdefghijklmnop") {
+	if !json.Valid(got) || strings.Contains(string(got), "Zx8kq2LmNp4Rt6Vw") {
+		t.Fatalf("args = %s", got)
+	}
+}
+
+func TestOutboundFallbackMasksKeyedValue(t *testing.T) {
+	o := newOut(t)
+	raw := json.RawMessage(`{"password":"hunter2hunter2","cmd":"export TOKEN=Zx8kq2LmNp4Rt6Vw\"; ls"}`)
+	out, _, _ := o.Check(llm.ProviderInfo{ID: "p", Jurisdiction: llm.EU}, []llm.Message{{ToolCalls: []llm.ToolCall{{Args: raw}}}})
+	got := string(out[0].ToolCalls[0].Args)
+	if !json.Valid([]byte(got)) || strings.Contains(got, "hunter2") || strings.Contains(got, "Zx8kq2") {
+		t.Fatalf("args = %s", got)
+	}
+}
+
+func TestOutboundWalkMasksKeyedValue(t *testing.T) {
+	o := newOut(t)
+	counts := map[string]int{}
+	v := o.walk(map[string]any{"password": "correcthorse", "note": "hello"}, counts)
+	m := v.(map[string]any)
+	if m["password"] != "[SECRET_1]" || m["note"] != "hello" || counts["SECRET"] != 1 {
+		t.Fatalf("got %v %v", m, counts)
+	}
+}
+
+func TestOutboundEscapedQuotedKeyInArgs(t *testing.T) {
+	o := newOut(t)
+	raw := json.RawMessage(`{"content":"{\"api_key\": \"Zx8kq2LmNp4Rt6Vw9YbC\"}"}`)
+	out, _, _ := o.Check(llm.ProviderInfo{ID: "p", Jurisdiction: llm.EU}, []llm.Message{{ToolCalls: []llm.ToolCall{{Args: raw}}}})
+	got := string(out[0].ToolCalls[0].Args)
+	if !json.Valid([]byte(got)) || strings.Contains(got, "Zx8kq2") {
 		t.Fatalf("args = %s", got)
 	}
 }
