@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -379,6 +380,12 @@ func startEngine(o engineOptions) (started, error) {
 		if err != nil {
 			return started{}, fmt.Errorf("session %s : %w", sid, err)
 		}
+		// Comme List et Latest, la reprise est limitée aux sessions du projet
+		// courant : une session d'un autre projet est traitée comme absente,
+		// avant toute ouverture de son fichier ou requête au fournisseur.
+		if !sameProject(events, wd) {
+			return started{}, fmt.Errorf("session %s : %w", sid, session.ErrNoSession)
+		}
 		if corrupt {
 			fmt.Fprintln(o.stderr, i18n.T(lang, "resume.warning_corrupt", skippedLines(sdir, sid, len(events)), sid))
 		}
@@ -439,6 +446,30 @@ func startEngine(o engineOptions) (started, error) {
 		}
 	}
 	return started{eng: eng, redactor: red, sessionID: sid, close: closeAll}, nil
+}
+
+// sameProject indique si le premier SessionStarted de events désigne wd
+// (chemins nettoyés, liens symboliques résolus quand c'est possible).
+func sameProject(events []event.Event, wd string) bool {
+	for _, ev := range events {
+		if ev.Type != event.SessionStarted {
+			continue
+		}
+		var p event.SessionStartedPayload
+		if json.Unmarshal(ev.Payload, &p) != nil || p.ProjectRoot == "" {
+			return false
+		}
+		return canonicalPath(p.ProjectRoot) == canonicalPath(wd)
+	}
+	return false
+}
+
+func canonicalPath(p string) string {
+	p = filepath.Clean(p)
+	if r, err := filepath.EvalSymlinks(p); err == nil {
+		return r
+	}
+	return p
 }
 
 // skippedLines compte les lignes non vides de la session au-delà des valid

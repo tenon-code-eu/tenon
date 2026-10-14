@@ -526,6 +526,42 @@ func TestResumeUnknownID(t *testing.T) {
 	}
 }
 
+func TestResumeOtherProjectRefused(t *testing.T) {
+	f := newFakeLLM(t, sseText("ok"))
+	e := newEnv(t, f, "eu")
+	if code, _, errb := e.run("-p", "secret du projet A"); code != 0 {
+		t.Fatalf("run A : code=%d stderr=%q", code, errb)
+	}
+	ents, err := os.ReadDir(e.sessionsDir())
+	if err != nil || len(ents) != 1 {
+		t.Fatalf("sessions : %v %v", ents, err)
+	}
+	path := filepath.Join(e.sessionsDir(), ents[0].Name())
+	before, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := strings.TrimSuffix(ents[0].Name(), ".jsonl")
+
+	e.wd = filepath.Join(filepath.Dir(e.wd), "projetB")
+	if err := os.MkdirAll(e.wd, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	_, _, unknownErr := e.run("--resume", "s_000000000000", "-p", "x")
+	code, _, errb := e.run("--resume", id, "-p", "x")
+	if code != 1 || len(f.requests()) != 1 {
+		t.Fatalf("code=%d requêtes=%d stderr=%q", code, len(f.requests()), errb)
+	}
+	// Même message qu'un identifiant inconnu (à l'identifiant près).
+	if strings.ReplaceAll(errb, id, "s_000000000000") != unknownErr {
+		t.Fatalf("stderr=%q, attendu comme %q", errb, unknownErr)
+	}
+	after, err := os.Stat(path)
+	if err != nil || after.Size() != before.Size() || !after.ModTime().Equal(before.ModTime()) {
+		t.Fatalf("session A modifiée : %v → %v (%v)", before.Size(), after.Size(), err)
+	}
+}
+
 func TestSessionsList(t *testing.T) {
 	f := newFakeLLM(t, sseText("ok"))
 	e := newEnv(t, f, "eu")
@@ -698,6 +734,22 @@ func TestKeyFromKeyring(t *testing.T) {
 	// La clé du trousseau est masquée comme une clé d'environnement.
 	if strings.Contains(e.auditContents(), key) {
 		t.Fatal("clé du trousseau dans l'audit")
+	}
+	if strings.Contains(out, key) || strings.Contains(errb, key) {
+		t.Fatalf("clé du trousseau affichée : stdout=%q stderr=%q", out, errb)
+	}
+	ents, err := os.ReadDir(e.sessionsDir())
+	if err != nil || len(ents) == 0 {
+		t.Fatalf("sessions : %v %v", ents, err)
+	}
+	for _, de := range ents {
+		b, err := os.ReadFile(filepath.Join(e.sessionsDir(), de.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(b), key) {
+			t.Fatalf("clé du trousseau dans la session %s", de.Name())
+		}
 	}
 
 	if code, out, errb := e.run("key", "delete", "test"); code != 0 || !strings.Contains(out+errb, "clé supprimée pour test") {
