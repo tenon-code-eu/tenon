@@ -1,0 +1,188 @@
+// Package engine contient la boucle agentique : il relie le fournisseur, les
+// outils, les permissions, le contrôle sortant et l'audit, et émet des
+// événements typés consommés par les interfaces.
+package engine
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"sync"
+	"time"
+
+	"codeberg.org/tenon/tenon/internal/event"
+	"codeberg.org/tenon/tenon/internal/llm"
+	"codeberg.org/tenon/tenon/internal/policy"
+	"codeberg.org/tenon/tenon/internal/provider"
+	"codeberg.org/tenon/tenon/internal/tools"
+)
+
+// DefaultMaxIterations s'applique quand Deps.MaxIterations vaut 0 ou moins.
+const DefaultMaxIterations = 50
+
+// subscriberBuffer est la taille du tampon de chaque abonnement.
+const subscriberBuffer = 256
+
+var (
+	// ErrAuditFailure : un Sink a échoué ; l'engine refuse désormais tout tour.
+	ErrAuditFailure = errors.New("échec d'écriture du journal d'audit")
+	// ErrUnknownPermission : Respond avec un identifiant inconnu ou déjà résolu.
+	ErrUnknownPermission = errors.New("demande de permission inconnue")
+)
+
+// Deps regroupe les dépendances de l'engine.
+type Deps struct {
+	Provider      provider.Provider
+	Tools         *tools.Registry
+	Permissions   *policy.Permissions
+	Outbound      *policy.Outbound
+	Sinks         []event.Sink // audit en premier
+	MaxIterations int
+	SystemPrompt  string
+	ProjectRoot   string
+	Now           func() time.Time
+}
+
+// Reply répond à un PermissionRequested.
+type Reply struct{ Allow, Remember bool }
+
+// Engine exécute les tours d'agent. Il est sûr en usage concurrent ; les tours
+// d'une même session sont sérialisés.
+type Engine struct {
+	d Deps
+
+	// emitMu sérialise l'émission (sinks puis abonnés) et protège subs et failed.
+	emitMu sync.Mutex
+	subs   []chan event.Event
+	failed bool
+
+	mu       sync.Mutex // protège sessions et pending
+	sessions map[string]*session
+	pending  map[string]chan Reply
+}
+
+// session est l'état en mémoire d'une session (persistance : plan 2).
+type session struct {
+	turn sync.Mutex // tenu pendant tout un Submit ; protège les champs suivants
+
+	id         string
+	started    bool
+	seq        uint64
+	permN      int
+	warned     bool
+	remembered map[string]bool
+	history    []llm.Message // non masqué ; le masquage a lieu à chaque envoi
+}
+
+// New construit un Engine.
+func New(d Deps) *Engine {
+	if d.MaxIterations <= 0 {
+		d.MaxIterations = DefaultMaxIterations
+	}
+	if d.SystemPrompt == "" {
+		d.SystemPrompt = DefaultSystemPrompt
+	}
+	if d.Now == nil {
+		d.Now = time.Now
+	}
+	return &Engine{d: d, sessions: map[string]*session{}, pending: map[string]chan Reply{}}
+}
+
+// Subscribe renvoie un canal recevant chaque événement émis après l'appel
+// (tampon de 256). La livraison est bloquante quand le tampon est plein :
+// l'abonné DOIT lire le canal en continu, sinon l'engine se bloque. Appeler
+// avant Submit. Le canal n'est jamais fermé ; quand Submit rend la main, tous
+// les événements du tour sont déjà dans le canal.
+func (e *Engine) Subscribe() <-chan event.Event {
+	ch := make(chan event.Event, subscriberBuffer)
+	e.emitMu.Lock()
+	e.subs = append(e.subs, ch)
+	e.emitMu.Unlock()
+	return ch
+}
+
+// Respond transmet la réponse à une demande de permission en attente.
+func (e *Engine) Respond(permissionID string, r Reply) error {
+	e.mu.Lock()
+	ch, ok := e.pending[permissionID]
+	delete(e.pending, permissionID)
+	e.mu.Unlock()
+	if !ok {
+		return fmt.Errorf("%w : %s", ErrUnknownPermission, permissionID)
+	}
+	ch <- r // tampon de 1, une seule réponse possible : jamais bloquant
+	return nil
+}
+
+// Submit exécute un tour complet et bloque jusqu'à sa fin (TurnCompleted,
+// erreur du fournisseur, annulation du contexte ou échec d'audit).
+func (e *Engine) Submit(ctx context.Context, sessionID, input string) error {
+	if e.isFailed() {
+		return ErrAuditFailure
+	}
+	s := e.session(sessionID)
+	s.turn.Lock()
+	defer s.turn.Unlock()
+	t := &turn{e: e, s: s, ctx: ctx}
+	return t.run(input)
+}
+
+func (e *Engine) isFailed() bool {
+	e.emitMu.Lock()
+	defer e.emitMu.Unlock()
+	return e.failed
+}
+
+func (e *Engine) session(id string) *session {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	s, ok := e.sessions[id]
+	if !ok {
+		s = &session{
+			id:         id,
+			remembered: map[string]bool{},
+			history:    []llm.Message{{Role: llm.System, Content: e.d.SystemPrompt}},
+		}
+		e.sessions[id] = s
+	}
+	return s
+}
+
+// emit écrit l'événement dans chaque Sink, dans l'ordre, puis le diffuse aux
+// abonnés. Au premier échec d'un Sink, l'engine passe définitivement en
+// fermeture par défaut : seul un Error{audit_failure} est diffusé (jamais
+// écrit dans les sinks) et toute émission ultérieure renvoie ErrAuditFailure.
+// L'appelant doit tenir s.turn.
+func (e *Engine) emit(s *session, typ event.Type, payload any) error {
+	e.emitMu.Lock()
+	defer e.emitMu.Unlock()
+	if e.failed {
+		return ErrAuditFailure
+	}
+	ev, err := event.New(s.id, s.seq+1, e.d.Now(), typ, payload)
+	if err != nil {
+		return err
+	}
+	s.seq++
+	for _, sk := range e.d.Sinks {
+		if err := sk.Write(ev); err != nil {
+			e.failed = true
+			s.seq++
+			msg := fmt.Sprintf("%v : %v ; aucune action ne sera exécutée", ErrAuditFailure, err)
+			if fe, ferr := event.New(s.id, s.seq, e.d.Now(), event.Error,
+				event.ErrorPayload{Code: "audit_failure", Message: msg}); ferr == nil {
+				e.deliver(fe)
+			}
+			return fmt.Errorf("%w : %v", ErrAuditFailure, err)
+		}
+	}
+	e.deliver(ev)
+	return nil
+}
+
+// deliver envoie aux abonnés ; bloquant si un tampon est plein. emitMu tenu.
+func (e *Engine) deliver(ev event.Event) {
+	for _, ch := range e.subs {
+		ch <- ev
+	}
+}
