@@ -39,6 +39,7 @@ func Load(globalPath, projectPath string, getenv func(string) string) (Config, e
 		cfg.Lang, cfg.DefaultProvider = g.Lang, g.DefaultProvider
 		cfg.MaxIterations, cfg.ShellTimeout, cfg.OutputLimit = g.MaxIterations, g.ShellTimeout, g.OutputLimit
 		cfg.Audit = g.Audit
+		cfg.CompactionThreshold = g.CompactionThreshold
 		cfg.Permissions, cfg.Redaction = g.Permissions, g.Redaction
 		for _, p := range g.Providers {
 			if p.Jurisdiction == "" {

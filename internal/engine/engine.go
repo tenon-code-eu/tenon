@@ -28,6 +28,8 @@ var (
 	ErrAuditFailure = errors.New("échec d'écriture du journal d'audit")
 	// ErrUnknownPermission : Respond avec un identifiant inconnu ou déjà résolu.
 	ErrUnknownPermission = errors.New("demande de permission inconnue")
+	// ErrSessionActive : Restore sur une session déjà utilisée dans ce processus.
+	ErrSessionActive = errors.New("session déjà active dans ce processus")
 )
 
 // Deps regroupe les dépendances de l'engine.
@@ -40,7 +42,14 @@ type Deps struct {
 	MaxIterations int
 	SystemPrompt  string
 	ProjectRoot   string
+	Instructions  []string // fichiers d'instructions chargés, recopiés dans SessionStarted
 	Now           func() time.Time
+	// ContextWindow est la fenêtre de contexte du modèle, en jetons estimés
+	// (0 : DefaultContextWindow).
+	ContextWindow int
+	// CompactionThreshold est la fraction de la fenêtre au-delà de laquelle
+	// l'historique est compacté (0 : DefaultCompactionThreshold).
+	CompactionThreshold float64
 }
 
 // Reply répond à un PermissionRequested.
@@ -67,6 +76,7 @@ type session struct {
 
 	id         string
 	started    bool
+	resumed    bool // reconstruite par Restore : SessionStarted{Resumed:true}
 	seq        uint64
 	permN      int
 	warned     bool
@@ -81,6 +91,12 @@ func New(d Deps) *Engine {
 	}
 	if d.SystemPrompt == "" {
 		d.SystemPrompt = DefaultSystemPrompt
+	}
+	if d.ContextWindow <= 0 {
+		d.ContextWindow = DefaultContextWindow
+	}
+	if d.CompactionThreshold <= 0 {
+		d.CompactionThreshold = DefaultCompactionThreshold
 	}
 	if d.Now == nil {
 		d.Now = time.Now

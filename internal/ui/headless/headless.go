@@ -11,6 +11,7 @@ import (
 
 	"codeberg.org/tenon/tenon/internal/engine"
 	"codeberg.org/tenon/tenon/internal/event"
+	"codeberg.org/tenon/tenon/internal/i18n"
 	"codeberg.org/tenon/tenon/internal/llm"
 )
 
@@ -25,6 +26,8 @@ const (
 // Options configure Run.
 type Options struct {
 	Output Output
+	// Lang est la langue des messages affichés (vide : français).
+	Lang i18n.Lang
 	// Redact masque une charge utile JSON avant affichage (sortie json).
 	// nil : aucun masquage.
 	Redact func(string) string
@@ -42,7 +45,8 @@ const (
 
 // Run soumet prompt à eng dans la session sessionID et renvoie le code de
 // sortie : 3 si une action a été refusée (permission, politique) ou le tour
-// bloqué, 1 si Submit échoue, sinon 0.
+// bloqué, 1 si Submit échoue ou si le tour n'a pas pu tourner (contexte trop
+// volumineux), sinon 0.
 func Run(ctx context.Context, eng *engine.Engine, sessionID, prompt string, opts Options, stdout, stderr io.Writer) int {
 	out := opts.Output
 	redact := opts.Redact
@@ -53,11 +57,15 @@ func Run(ctx context.Context, eng *engine.Engine, sessionID, prompt string, opts
 	if redactText == nil {
 		redactText = redact
 	}
+	lang := opts.Lang
+	if lang != i18n.EN {
+		lang = i18n.FR
+	}
 	ch := eng.Subscribe()
 	errc := make(chan error, 1)
 	go func() { errc <- eng.Submit(ctx, sessionID, prompt) }()
 
-	r := &renderer{eng: eng, out: out, redact: redact, redactText: redactText, stdout: stdout, stderr: stderr}
+	r := &renderer{eng: eng, out: out, lang: lang, redact: redact, redactText: redactText, stdout: stdout, stderr: stderr}
 	var err error
 loop:
 	for {
@@ -83,7 +91,9 @@ loop:
 	}
 	switch {
 	case err != nil:
-		fmt.Fprint(stderr, redactText(fmt.Sprintf("tenon : %v\n", err)))
+		fmt.Fprint(stderr, redactText(i18n.T(lang, "err.prefix", err)+"\n"))
+		return exitError
+	case r.failed:
 		return exitError
 	case r.refused:
 		return exitRefused
@@ -94,12 +104,14 @@ loop:
 type renderer struct {
 	eng            *engine.Engine
 	out            Output
+	lang           i18n.Lang
 	redact         func(string) string // charge utile JSON
 	redactText     func(string) string // texte libre
 	stdout, stderr io.Writer
 
 	final   string // dernier texte complet de l'assistant
 	refused bool
+	failed  bool // le tour n'a pas pu tourner (context_too_large)
 }
 
 func (r *renderer) handle(ev event.Event) {
@@ -110,13 +122,16 @@ func (r *renderer) handle(ev event.Event) {
 	case event.SessionStarted:
 		var p event.SessionStartedPayload
 		if r.decode(ev, &p) {
-			r.text("%s\n", Banner(p.Provider))
+			r.text("%s\n", Banner(r.lang, p.Provider))
+			if len(p.Instructions) > 0 {
+				r.text("%s\n", i18n.T(r.lang, "banner.instructions", strings.Join(p.Instructions, ", ")))
+			}
 		}
 	case event.JurisdictionWarning:
 		var p event.JurisdictionWarningPayload
 		if r.decode(ev, &p) {
-			r.text("attention : %s traite les données hors UE (juridiction %s)\n",
-				providerLabel(p.Provider), jurisdictionLabel(p.Provider.Jurisdiction))
+			r.text("%s\n", i18n.T(r.lang, "warn.non_eu",
+				providerLabel(p.Provider), jurisdictionLabel(r.lang, p.Provider.Jurisdiction)))
 		}
 	case event.PermissionRequested:
 		var p event.PermissionRequestedPayload
@@ -126,13 +141,13 @@ func (r *renderer) handle(ev event.Event) {
 		r.refused = true
 		// Respond n'échoue que si la demande est déjà résolue (contexte annulé).
 		_ = r.eng.Respond(p.PermissionID, engine.Reply{Allow: false})
-		r.text("refusé (mode non interactif) : %s\n", describe(p))
+		r.text("%s\n", i18n.T(r.lang, "refused.user", describe(r.lang, p)))
 	case event.ToolResult:
 		var p event.ToolResultPayload
 		if r.decode(ev, &p) && p.Denied != "" {
 			r.refused = true
 			if p.Denied == "policy" {
-				r.text("refusé par la politique : %s\n", p.Tool)
+				r.text("%s\n", i18n.T(r.lang, "refused.policy", p.Tool))
 			}
 		}
 	case event.AssistantMessage:
@@ -146,15 +161,28 @@ func (r *renderer) handle(ev event.Event) {
 			switch p.Reason {
 			case "blocked":
 				r.refused = true
-				r.text("tour bloqué : envoi au fournisseur refusé\n")
+				r.text("%s\n", i18n.T(r.lang, "turn.blocked"))
+			case "context_too_large":
+				// Une erreur, pas un refus de la politique : l'Error qui
+				// précède l'a déjà expliquée.
+				r.failed = true
 			case "max_iterations", "incomplete", "cancelled":
-				r.text("tour terminé : %s\n", p.Reason)
+				r.text("%s\n", i18n.T(r.lang, "turn.ended", p.Reason))
 			}
 		}
 	case event.Error:
 		var p event.ErrorPayload
 		if r.decode(ev, &p) {
-			r.text("erreur (%s) : %s\n", p.Code, p.Message)
+			msg := p.Message
+			if p.Code == "context_too_large" {
+				msg = i18n.T(r.lang, "err.context_too_large")
+			}
+			r.text("%s\n", i18n.T(r.lang, "err.event", p.Code, msg))
+		}
+	case event.ContextCompacted:
+		var p event.ContextCompactedPayload
+		if r.decode(ev, &p) {
+			r.text("%s\n", i18n.T(r.lang, "compaction.done", p.Replaced))
 		}
 	}
 }
@@ -183,7 +211,7 @@ func (r *renderer) printJSON(ev event.Event) {
 // decode lit la charge utile ; une charge illisible est signalée sur stderr.
 func (r *renderer) decode(ev event.Event, v any) bool {
 	if err := json.Unmarshal(ev.Payload, v); err != nil {
-		fmt.Fprintf(r.stderr, "tenon : événement %s illisible : %v\n", ev.Type, err)
+		fmt.Fprintln(r.stderr, i18n.T(r.lang, "err.unreadable_event", ev.Type, err))
 		return false
 	}
 	return true
@@ -196,10 +224,10 @@ func (r *renderer) text(format string, a ...any) {
 	}
 }
 
-// Banner renvoie la bannière de transparence :
+// Banner renvoie la bannière de transparence dans la langue l :
 // « tenon · <modèle> · <nom fournisseur> · <pays> · juridiction <UE|hors UE|locale> ».
 // Un nom ou un pays vide est omis.
-func Banner(p llm.ProviderInfo) string {
+func Banner(l i18n.Lang, p llm.ProviderInfo) string {
 	parts := []string{"tenon", p.Model}
 	if n := providerLabel(p); n != "" {
 		parts = append(parts, n)
@@ -207,7 +235,7 @@ func Banner(p llm.ProviderInfo) string {
 	if p.Country != "" {
 		parts = append(parts, p.Country)
 	}
-	parts = append(parts, "juridiction "+jurisdictionLabel(p.Jurisdiction))
+	parts = append(parts, i18n.T(l, "banner.prefix", jurisdictionLabel(l, p.Jurisdiction)))
 	return strings.Join(parts, " · ")
 }
 
@@ -218,20 +246,19 @@ func providerLabel(p llm.ProviderInfo) string {
 	return p.ID
 }
 
-func jurisdictionLabel(j llm.Jurisdiction) string {
+func jurisdictionLabel(l i18n.Lang, j llm.Jurisdiction) string {
 	switch j {
 	case llm.EU:
-		return "UE"
+		return i18n.T(l, "banner.jurisdiction.eu")
 	case llm.Local:
-		return "locale"
+		return i18n.T(l, "banner.jurisdiction.local")
 	}
-	return "hors UE"
+	return i18n.T(l, "banner.jurisdiction.non_eu")
 }
 
-func describe(p event.PermissionRequestedPayload) string {
+func describe(l i18n.Lang, p event.PermissionRequestedPayload) string {
 	if p.Kind == "jurisdiction" && p.Provider != nil {
-		return fmt.Sprintf("envoi à %s (juridiction %s) ; relancez avec --allow-non-eu pour l'accepter",
-			providerLabel(*p.Provider), jurisdictionLabel(p.Provider.Jurisdiction))
+		return i18n.T(l, "refused.jurisdiction", providerLabel(*p.Provider), jurisdictionLabel(l, p.Provider.Jurisdiction))
 	}
 	s := p.Tool
 	if p.Command != "" {

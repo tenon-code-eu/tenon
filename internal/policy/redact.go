@@ -1,6 +1,8 @@
 package policy
 
 import (
+	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"regexp"
 	"strings"
@@ -116,6 +118,35 @@ func (r *Redactor) AddLiteral(value string) {
 	r.literals[value] = true
 	st := step{typ: "SECRET", re: regexp.MustCompile(regexp.QuoteMeta(value))}
 	r.steps = append([]step{st}, r.steps...)
+}
+
+// AddKeyringSecret masks a key read from the system keyring: its decoded
+// value and the encoded forms go-keyring stores on macOS (and that the
+// keychain tools print): "go-keyring-base64:"+base64, "go-keyring-encoded:"+hex
+// and the bare base64. Each form shorter than 8 bytes is ignored.
+func (r *Redactor) AddKeyringSecret(value string) {
+	b64 := base64.StdEncoding.EncodeToString([]byte(value))
+	// AddLiteral prepends: the longest forms, added last, are matched first.
+	for _, v := range []string{
+		value, b64,
+		"go-keyring-encoded:" + hex.EncodeToString([]byte(value)),
+		"go-keyring-base64:" + b64,
+	} {
+		if len(value) > 0 && len(v) >= 8 {
+			r.AddLiteral(v)
+		}
+	}
+}
+
+// Reserve marks the markers [kind_1]..[kind_n] as used: the next new value
+// of that kind gets [kind_n+1]. Used on resume, so that a new secret never
+// reuses a marker already present in the loaded session. Never decreases.
+func (r *Redactor) Reserve(kind string, n int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if n > r.counters[kind] {
+		r.counters[kind] = n
+	}
 }
 
 // Redact masks s and returns the masked text with the number of masks per type.
