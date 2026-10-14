@@ -1,0 +1,250 @@
+package tui
+
+import (
+	"context"
+	"errors"
+	"io"
+	"strings"
+	"time"
+
+	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/textarea"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+
+	"codeberg.org/tenon/tenon/internal/event"
+	"codeberg.org/tenon/tenon/internal/i18n"
+	"codeberg.org/tenon/tenon/internal/llm"
+)
+
+// Options configure la TUI.
+type Options struct {
+	Lang          i18n.Lang
+	SessionID     string
+	Provider      llm.ProviderInfo
+	ContextWindow int
+	ProjectRoot   string
+}
+
+const (
+	defaultWidth   = 80
+	defaultHeight  = 24
+	inputHeight    = 3
+	statusHeight   = 1
+	ctrlCWindow    = 2 * time.Second
+	minConvHeight  = 1
+	inputPrompt    = "> "
+	quitCommand    = "/quit"
+	helpCommand    = "/help"
+	tokenRuneRatio = 4
+)
+
+// Messages internes.
+type (
+	// eventMsg porte un événement lu sur l'abonnement.
+	eventMsg event.Event
+	// subscriptionClosed signale la fermeture de l'abonnement.
+	subscriptionClosed struct{}
+	// submitDone signale la fin de Submit.
+	submitDone struct{ err error }
+)
+
+// Model est le modèle Bubble Tea de la TUI.
+type Model struct {
+	eng   Engine
+	opts  Options
+	lang  i18n.Lang
+	sub   <-chan event.Event
+	tr    *Transcript
+	input textarea.Model
+	st    styles
+
+	width, height int
+	// scrollBack est le nombre de lignes de conversation masquées sous la vue
+	// (0 : la vue suit le bas).
+	scrollBack int
+
+	// cancel annule le Submit en cours ; nil hors tour.
+	cancel    context.CancelFunc
+	lastCtrlC time.Time
+	now       func() time.Time
+}
+
+// New crée le modèle et s'abonne aux événements de eng.
+func New(eng Engine, opts Options) Model {
+	l := opts.Lang
+	if l != i18n.EN {
+		l = i18n.FR
+	}
+	opts.Lang = l
+	in := textarea.New()
+	in.Placeholder = i18n.T(l, "tui.placeholder")
+	in.Prompt = inputPrompt
+	in.ShowLineNumbers = false
+	in.CharLimit = 0
+	in.KeyMap.InsertNewline = keys.Newline
+	in.SetHeight(inputHeight)
+	in.Focus()
+	m := Model{
+		eng:   eng,
+		opts:  opts,
+		lang:  l,
+		sub:   eng.Subscribe(),
+		tr:    NewTranscript(l),
+		input: in,
+		st:    newStyles(lipgloss.DefaultRenderer()),
+		now:   time.Now,
+	}
+	m.resize(defaultWidth, defaultHeight)
+	return m
+}
+
+// Run lance la TUI en plein écran jusqu'à ce que l'utilisateur quitte.
+func Run(ctx context.Context, eng Engine, opts Options, in io.Reader, out io.Writer) error {
+	m := New(eng, opts)
+	m.st = newStyles(lipgloss.NewRenderer(out))
+	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithContext(ctx), tea.WithInput(in), tea.WithOutput(out))
+	final, err := p.Run()
+	if fm, ok := final.(Model); ok && fm.cancel != nil {
+		fm.cancel()
+	}
+	if errors.Is(err, tea.ErrProgramKilled) && ctx.Err() != nil {
+		return ctx.Err()
+	}
+	return err
+}
+
+// readEvent lit un seul événement de l'abonnement.
+func readEvent(ch <-chan event.Event) tea.Cmd {
+	return func() tea.Msg {
+		ev, ok := <-ch
+		if !ok {
+			return subscriptionClosed{}
+		}
+		return eventMsg(ev)
+	}
+}
+
+// Init lance la lecture de l'abonnement.
+func (m Model) Init() tea.Cmd { return readEvent(m.sub) }
+
+// busy indique qu'un tour est en cours (Submit n'a pas rendu la main).
+func (m Model) busy() bool { return m.cancel != nil }
+
+// Update applique un message.
+func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case eventMsg:
+		m.tr.Apply(event.Event(msg))
+		// La lecture n'est jamais suspendue, même pendant une demande de
+		// permission : l'engine bloquerait sur un tampon plein.
+		return m, readEvent(m.sub)
+	case subscriptionClosed:
+		return m, nil
+	case submitDone:
+		if m.cancel != nil {
+			m.cancel()
+			m.cancel = nil
+		}
+		if msg.err != nil && !errors.Is(msg.err, context.Canceled) {
+			m.tr.add(Item{Kind: ItemError, Text: i18n.T(m.lang, "err.prefix", msg.err)})
+		}
+		return m, nil
+	case tea.WindowSizeMsg:
+		m.resize(msg.Width, msg.Height)
+		return m, nil
+	case tea.KeyMsg:
+		return m.handleKey(msg)
+	}
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(msg)
+	return m, cmd
+}
+
+func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case key.Matches(msg, keys.Interrupt):
+		now := m.now()
+		if !m.busy() || (!m.lastCtrlC.IsZero() && now.Sub(m.lastCtrlC) < ctrlCWindow) {
+			return m.quit()
+		}
+		m.lastCtrlC = now
+		m.cancel()
+		return m, nil
+	case key.Matches(msg, keys.Cancel):
+		if m.busy() {
+			m.cancel()
+		}
+		return m, nil
+	case key.Matches(msg, keys.PageUp):
+		m.scroll(m.convHeight())
+		return m, nil
+	case key.Matches(msg, keys.PageDown):
+		m.scroll(-m.convHeight())
+		return m, nil
+	case key.Matches(msg, keys.Submit):
+		return m.submit()
+	}
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(msg)
+	return m, cmd
+}
+
+// quit annule le tour en cours éventuel et quitte.
+func (m Model) quit() (tea.Model, tea.Cmd) {
+	if m.cancel != nil {
+		m.cancel()
+	}
+	return m, tea.Quit
+}
+
+// submit traite Entrée : commandes texte, ou envoi de la saisie hors tour.
+func (m Model) submit() (tea.Model, tea.Cmd) {
+	if m.busy() {
+		return m, nil
+	}
+	text := strings.TrimSpace(m.input.Value())
+	switch text {
+	case "":
+		return m, nil
+	case quitCommand:
+		return m.quit()
+	case helpCommand:
+		m.input.Reset()
+		m.tr.notice(i18n.T(m.lang, "tui.help"))
+		m.scrollBack = 0
+		return m, nil
+	}
+	m.input.Reset()
+	m.scrollBack = 0
+	ctx, cancel := context.WithCancel(context.Background())
+	m.cancel = cancel
+	m.lastCtrlC = time.Time{}
+	eng, sid := m.eng, m.opts.SessionID
+	return m, func() tea.Msg {
+		return submitDone{err: eng.Submit(ctx, sid, text)}
+	}
+}
+
+func (m *Model) resize(w, h int) {
+	if w < 1 {
+		w = 1
+	}
+	if h < 1 {
+		h = 1
+	}
+	m.width, m.height = w, h
+	m.input.SetWidth(w)
+	m.input.SetHeight(inputHeight)
+}
+
+// convHeight renvoie le nombre de lignes de la zone de conversation.
+func (m Model) convHeight() int {
+	return max(minConvHeight, m.height-inputHeight-statusHeight)
+}
+
+// scroll déplace la vue de n lignes vers le haut (n < 0 : vers le bas).
+func (m *Model) scroll(n int) {
+	limit := max(0, len(m.conversationLines())-m.convHeight())
+	m.scrollBack = min(max(0, m.scrollBack+n), limit)
+}
