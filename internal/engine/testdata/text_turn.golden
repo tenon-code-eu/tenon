@@ -1,0 +1,6 @@
+{"id":"s_1-1","session":"s_1","seq":1,"ts":"2026-10-14T10:00:01Z","type":"SessionStarted","payload":{"provider":{"id":"mistral","name":"Mistral AI","base_url":"https://api.mistral.ai/v1","model":"mistral-large-latest","country":"FR","jurisdiction":"eu"},"project_root":"/home/dev/projet"}}
+{"id":"s_1-2","session":"s_1","seq":2,"ts":"2026-10-14T10:00:02Z","type":"UserMessage","payload":{"text":"Salut"}}
+{"id":"s_1-3","session":"s_1","seq":3,"ts":"2026-10-14T10:00:03Z","type":"AssistantDelta","payload":{"text":"Bon"}}
+{"id":"s_1-4","session":"s_1","seq":4,"ts":"2026-10-14T10:00:04Z","type":"AssistantDelta","payload":{"text":"jour !"}}
+{"id":"s_1-5","session":"s_1","seq":5,"ts":"2026-10-14T10:00:05Z","type":"AssistantMessage","payload":{"text":"Bonjour !","incomplete":false}}
+{"id":"s_1-6","session":"s_1","seq":6,"ts":"2026-10-14T10:00:06Z","type":"TurnCompleted","payload":{"iterations":1,"reason":"done"}}
