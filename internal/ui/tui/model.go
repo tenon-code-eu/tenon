@@ -87,6 +87,10 @@ type Model struct {
 	ctx context.Context
 	// prompts est la file des demandes de permission, la première affichée.
 	prompts []*permPrompt
+	// shown est la demande affichée lors du dernier changement, et shownAt
+	// l'heure (horloge now) de son affichage.
+	shown   *permPrompt
+	shownAt time.Time
 	// calls garde les appels d'outil en attente de résultat, dans l'ordre.
 	calls []pendingCall
 }

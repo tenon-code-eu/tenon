@@ -5,6 +5,7 @@ package diff
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -37,13 +38,12 @@ const (
 	// binProbe est la fenêtre d'analyse de la détection binaire.
 	binProbe = 8000
 
-	binaryText = "(fichier binaire)"
-	ellipsis   = "…"
+	ellipsis = "…"
 )
 
-// BinaryText est le texte de l'unique ligne renvoyée par Preview quand le
-// fichier courant ou le nouveau contenu est binaire.
-const BinaryText = binaryText
+// ErrBinary signale que le fichier courant ou le nouveau contenu est binaire :
+// aucun aperçu ligne à ligne n'est calculé.
+var ErrBinary = errors.New("diff : contenu binaire")
 
 // splitLines découpe en lignes ; un saut de ligne final ne crée pas de ligne vide.
 func splitLines(s string) []string {
@@ -213,7 +213,7 @@ func readCurrent(path string) (content string, huge bool) {
 }
 
 // Preview calcule l'aperçu du diff pour un appel d'outil d'écriture. Les autres
-// outils renvoient nil, 0, nil.
+// outils renvoient nil, 0, nil ; un contenu binaire renvoie ErrBinary.
 func Preview(tool string, args json.RawMessage, root string) (lines []Line, more int, err error) {
 	switch tool {
 	case "write_file":
@@ -230,7 +230,7 @@ func Preview(tool string, args json.RawMessage, root string) (lines []Line, more
 		}
 		cur, huge := readCurrent(filepath.Clean(p))
 		if isBinary(cur) || isBinary(a.Content) {
-			return []Line{{Same, binaryText}}, 0, nil
+			return nil, 0, ErrBinary
 		}
 		var all []Line
 		if huge {
@@ -251,7 +251,7 @@ func Preview(tool string, args json.RawMessage, root string) (lines []Line, more
 			return nil, 0, fmt.Errorf("arguments invalides : %w", err)
 		}
 		if isBinary(a.OldString) || isBinary(a.NewString) {
-			return []Line{{Same, binaryText}}, 0, nil
+			return nil, 0, ErrBinary
 		}
 		// replace_all : une seule occurrence suffit à l'aperçu.
 		l, m := truncate(Unified(a.OldString, a.NewString, 3))

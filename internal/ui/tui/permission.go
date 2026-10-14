@@ -6,8 +6,10 @@ package tui
 
 import (
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -24,9 +26,10 @@ import (
 // permPrompt est une demande de permission en attente de réponse. L'aperçu
 // du diff est calculé une seule fois, à la création.
 type permPrompt struct {
-	p     event.PermissionRequestedPayload
-	lines []diff.Line
-	more  int
+	p      event.PermissionRequestedPayload
+	lines  []diff.Line
+	more   int
+	binary bool
 }
 
 // pendingCall est un appel d'outil demandé dont le résultat n'est pas arrivé.
@@ -43,6 +46,24 @@ var answerKeys = map[i18n.Lang]struct{ once, session rune }{
 }
 
 const noKey = 'n'
+
+// approveDelay est le délai, après l'affichage d'une demande, pendant lequel
+// les touches d'acceptation sont ignorées : une demande arrivée pendant la
+// frappe ou juste après la réponse à la précédente n'est pas acceptée par une
+// touche destinée à autre chose. Les refus agissent immédiatement.
+const approveDelay = 500 * time.Millisecond
+
+// syncShown note l'heure d'affichage chaque fois que la demande affichée change.
+func (m *Model) syncShown() {
+	if len(m.prompts) == 0 {
+		m.shown = nil
+		return
+	}
+	if m.prompts[0] != m.shown {
+		m.shown = m.prompts[0]
+		m.shownAt = m.now()
+	}
+}
 
 // prompting indique qu'une demande de permission est affichée.
 func (m Model) prompting() bool { return len(m.prompts) > 0 }
@@ -75,12 +96,14 @@ func (m *Model) trackEvent(ev event.Event) {
 	case event.TurnCompleted:
 		m.endTurn()
 	}
+	m.syncShown()
 }
 
 // endTurn écarte les demandes et appels restants : l'engine les a oubliés.
 func (m *Model) endTurn() {
 	m.prompts = nil
 	m.calls = nil
+	m.syncShown()
 }
 
 func (m *Model) dropCall(id string) {
@@ -108,7 +131,11 @@ func (m Model) newPrompt(p event.PermissionRequestedPayload) *permPrompt {
 		return pr
 	}
 	if args := m.matchArgs(p); args != nil {
-		if lines, more, err := diff.Preview(p.Tool, args, m.opts.ProjectRoot); err == nil {
+		lines, more, err := diff.Preview(p.Tool, args, m.opts.ProjectRoot)
+		switch {
+		case errors.Is(err, diff.ErrBinary):
+			pr.binary = true
+		case err == nil:
 			pr.lines, pr.more = lines, more
 		}
 	}
@@ -147,8 +174,12 @@ func (m Model) targetMatches(args json.RawMessage, p event.PermissionRequestedPa
 }
 
 // handlePromptKey traite une touche pendant une demande : seules les touches
-// de réponse de la langue courante, Échap et Ctrl+C agissent.
+// de réponse de la langue courante, Échap et Ctrl+C agissent ; PgPréc/PgSuiv
+// font défiler la conversation. Un collage n'est jamais une réponse.
 func (m Model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.Paste {
+		return m, nil
+	}
 	switch {
 	case key.Matches(msg, keys.Interrupt):
 		// Refus d'abord, puis le comportement habituel de Ctrl+C (annulation
@@ -160,16 +191,25 @@ func (m Model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, keys.Cancel):
 		m.answer(engine.Reply{Allow: false})
 		return m, nil
+	case key.Matches(msg, keys.PageUp):
+		m.scroll(m.convHeight())
+		return m, nil
+	case key.Matches(msg, keys.PageDown):
+		m.scroll(-m.convHeight())
+		return m, nil
 	}
 	if msg.Type != tea.KeyRunes || msg.Alt || len(msg.Runes) != 1 {
 		return m, nil
 	}
 	k := answerKeys[m.lang]
+	settled := m.now().Sub(m.shownAt) >= approveDelay
 	switch msg.Runes[0] {
 	case k.once:
-		m.answer(engine.Reply{Allow: true})
+		if settled {
+			m.answer(engine.Reply{Allow: true})
+		}
 	case k.session:
-		if m.prompts[0].p.Kind == "tool" {
+		if settled && m.prompts[0].p.Kind == "tool" {
 			m.answer(engine.Reply{Allow: true, Remember: true})
 		}
 	case noKey:
@@ -183,29 +223,34 @@ func (m Model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m *Model) answer(r engine.Reply) {
 	p := m.prompts[0]
 	m.prompts = m.prompts[1:]
+	m.syncShown()
 	if err := m.eng.Respond(p.p.PermissionID, r); err != nil {
 		m.tr.notice(i18n.T(m.lang, "tui.perm.expired", err))
 	}
 }
 
-// promptLines rend le panneau de la demande affichée ; il tient dans la
-// hauteur disponible et les touches restent toujours visibles.
+// promptLines rend le panneau de la demande affichée dans la hauteur
+// disponible. Le titre, la première ligne de l'outil (outil et début de la
+// commande) et les touches restent toujours visibles : un texte trop long est
+// coupé au milieu (fin de la commande, chemins, diff) et remplacé par une ligne
+// indiquant le nombre de lignes masquées.
 func (m Model) promptLines() []string {
 	p := m.prompts[0]
 	split := func(s string) []string { return strings.Split(s, "\n") }
 
-	head := split(m.st.perm.Render(m.wrap(i18n.T(m.lang, "tui.perm.title"))))
+	top := split(m.st.perm.Render(m.wrap(i18n.T(m.lang, "tui.perm.title"))))
 	keysKey := "tui.perm.keys_tool"
+	var middle []string
 	if p.p.Kind == "tool" {
 		text := "⏺ " + p.p.Tool
 		if p.p.Command != "" {
 			text += " " + p.p.Command
 		}
-		head = append(head, split(m.st.tool.Render(m.wrap(text)))...)
+		middle = append(middle, split(m.st.tool.Render(m.wrap(text)))...)
 		for _, path := range p.p.Paths {
 			// Un chemin est un seul « mot » : coupé à la largeur, sans repli
 			// sur les espaces.
-			head = append(head, split(ansi.Hardwrap(sanitize("  "+path), m.width, true))...)
+			middle = append(middle, split(ansi.Hardwrap(sanitize("  "+path), m.width, true))...)
 		}
 	} else {
 		keysKey = "tui.perm.keys_jurisdiction"
@@ -215,52 +260,56 @@ func (m Model) promptLines() []string {
 		}
 		text := i18n.T(m.lang, "tui.perm.jurisdiction", headless.ProviderLabel(prov), prov.Country,
 			headless.JurisdictionLabel(m.lang, prov.Jurisdiction))
-		head = append(head, split(m.wrap(text))...)
+		middle = append(middle, split(m.wrap(text))...)
 	}
-
-	var body []string
-	if len(p.lines) == 1 && p.lines[0].Kind == diff.Same && p.lines[0].Text == diff.BinaryText {
-		body = append(body, m.st.notice.Render(m.truncate(i18n.T(m.lang, "tui.perm.binary"))))
-	} else {
-		for _, l := range p.lines {
-			switch l.Kind {
-			case diff.Add:
-				body = append(body, m.st.add.Render(m.truncate("+ "+l.Text)))
-			case diff.Del:
-				body = append(body, m.st.del.Render(m.truncate("- "+l.Text)))
-			default:
-				body = append(body, m.truncate("  "+l.Text))
-			}
+	if p.binary {
+		middle = append(middle, m.st.notice.Render(m.truncate(i18n.T(m.lang, "tui.perm.binary"))))
+	}
+	for _, l := range p.lines {
+		switch l.Kind {
+		case diff.Add:
+			middle = append(middle, m.st.add.Render(m.truncate("+ "+l.Text)))
+		case diff.Del:
+			middle = append(middle, m.st.del.Render(m.truncate("- "+l.Text)))
+		default:
+			middle = append(middle, m.truncate("  "+l.Text))
 		}
 	}
 	keyLines := split(m.st.perm.Render(m.wrap(i18n.T(m.lang, keysKey))))
+	moreLine := func(n int) string {
+		return m.st.notice.Render(m.truncate(i18n.T(m.lang, "tui.perm.more_lines", n)))
+	}
 
 	avail := max(1, m.height-statusHeight-minConvHeight)
-	hidden := p.more
-	moreLine := func() []string {
-		if hidden == 0 {
-			return nil
-		}
-		return []string{m.st.notice.Render(m.truncate(i18n.T(m.lang, "tui.perm.more_lines", hidden)))}
+	out := append([]string(nil), top...)
+	extra := 0
+	if p.more > 0 {
+		extra = 1
 	}
-	if len(head)+len(body)+len(moreLine())+len(keyLines) > avail {
-		// Le diff est raccourci en premier ; la ligne « … » compte pour une.
-		room := avail - len(head) - len(keyLines) - 1
-		if room < 0 {
-			room = 0
+	if len(top)+len(middle)+extra+len(keyLines) <= avail {
+		out = append(out, middle...)
+		if p.more > 0 {
+			out = append(out, moreLine(p.more))
 		}
-		if room < len(body) {
-			hidden += len(body) - room
-			body = body[:room]
-		}
+		return append(out, keyLines...)
 	}
-	out := append(append(head, body...), moreLine()...)
-	out = append(out, keyLines...)
-	if len(out) > avail {
-		// L'en-tête cède ensuite : les touches de réponse restent visibles.
-		out = out[len(out)-avail:]
+	// Une ligne pour l'indication des lignes masquées.
+	budget := avail - len(top) - len(keyLines) - 1
+	showMore := p.more > 0 && budget >= 2
+	if showMore {
+		budget--
 	}
-	return out
+	budget = max(1, budget)
+	hidden := len(middle) - budget
+	if p.more > 0 && !showMore {
+		hidden += p.more
+	}
+	out = append(out, middle[:budget]...)
+	out = append(out, m.st.notice.Render(m.truncate(i18n.T(m.lang, "tui.perm.hidden_lines", hidden))))
+	if showMore {
+		out = append(out, moreLine(p.more))
+	}
+	return append(out, keyLines...)
 }
 
 // truncate nettoie s et le coupe à la largeur (lignes de diff non repliées).

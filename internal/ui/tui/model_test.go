@@ -106,6 +106,8 @@ type harness struct {
 	m    Model
 	msgs chan tea.Msg
 	quit bool
+	// clk est l'heure renvoyée par l'horloge du modèle.
+	clk time.Time
 }
 
 func newHarness(t *testing.T, f *fakeEngine, opts Options) *harness {
@@ -114,6 +116,8 @@ func newHarness(t *testing.T, f *fakeEngine, opts Options) *harness {
 		opts.SessionID = "s"
 	}
 	h := &harness{t: t, m: New(f, opts), msgs: make(chan tea.Msg, 64)}
+	h.clk = time.Unix(1000, 0)
+	h.m.now = func() time.Time { return h.clk }
 	h.run(h.m.Init())
 	return h
 }

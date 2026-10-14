@@ -20,12 +20,20 @@ import (
 
 func runeKey(r rune) tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}} }
 
-// askPerm émet une demande de permission et attend qu'elle soit affichée.
-func askPerm(t *testing.T, h *harness, f *fakeEngine, p event.PermissionRequestedPayload) {
+// askPermNow émet une demande de permission et attend qu'elle soit affichée.
+func askPermNow(t *testing.T, h *harness, f *fakeEngine, p event.PermissionRequestedPayload) {
 	t.Helper()
 	n := len(h.m.prompts)
 	f.emit(t, event.PermissionRequested, p)
 	h.until("demande affichée", func() bool { return len(h.m.prompts) == n+1 })
+}
+
+// askPerm fait comme askPermNow puis avance l'horloge au-delà du délai
+// pendant lequel les touches d'acceptation sont ignorées.
+func askPerm(t *testing.T, h *harness, f *fakeEngine, p event.PermissionRequestedPayload) {
+	t.Helper()
+	askPermNow(t, h, f, p)
+	h.clk = h.clk.Add(time.Second)
 }
 
 func shellPerm(id string) event.PermissionRequestedPayload {
@@ -345,4 +353,128 @@ func TestReaderContinuesDuringPrompt(t *testing.T) {
 		items := h.m.tr.Items()
 		return len(items) == 1 && len(items[0].Text) == 400
 	})
+}
+
+func TestApproveIgnoredRightAfterShown(t *testing.T) {
+	f := newFake()
+	h := newHarness(t, f, Options{Lang: i18n.FR})
+	typeText(h, "bonj")
+	// La demande arrive pendant la frappe : le « o » suivant ne l'a pas vue.
+	askPermNow(t, h, f, shellPerm("p1"))
+	h.send(runeKey('o'))
+	h.send(runeKey('s'))
+	h.clk = h.clk.Add(499 * time.Millisecond)
+	h.send(runeKey('o'))
+	if got := f.answered(); len(got) != 0 {
+		t.Fatalf("acceptation avant 500 ms : %v", got)
+	}
+	if v := h.m.input.Value(); v != "bonj" {
+		t.Fatalf("saisie modifiée : %q", v)
+	}
+	h.clk = h.clk.Add(time.Millisecond)
+	h.send(runeKey('o'))
+	wantReply(t, f, "p1", engine.Reply{Allow: true})
+}
+
+func TestApproveDelayRestartsOnNextPrompt(t *testing.T) {
+	f := newFake()
+	h := newHarness(t, f, Options{Lang: i18n.FR})
+	askPerm(t, h, f, shellPerm("p1"))
+	askPermNow(t, h, f, event.PermissionRequestedPayload{PermissionID: "p2", Kind: "tool", Tool: "shell", Command: "pwd"})
+	h.send(runeKey('o'))
+	h.send(runeKey('o')) // répétition de touche : B vient de s'afficher
+	if got := f.answered(); len(got) != 1 || got[0] != "p1" {
+		t.Fatalf("réponses %v, attendu [p1]", got)
+	}
+	h.clk = h.clk.Add(600 * time.Millisecond)
+	h.send(runeKey('o'))
+	wantReply(t, f, "p2", engine.Reply{Allow: true})
+}
+
+func TestPastedKeyIgnored(t *testing.T) {
+	f := newFake()
+	h := newHarness(t, f, Options{Lang: i18n.FR})
+	askPerm(t, h, f, shellPerm("p1"))
+	for _, r := range []rune{'o', 's', 'n'} {
+		h.send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}, Paste: true})
+	}
+	if got := f.answered(); len(got) != 0 {
+		t.Fatalf("collage accepté comme réponse : %v", got)
+	}
+	if !h.m.prompting() {
+		t.Fatal("demande fermée par un collage")
+	}
+}
+
+func TestDenyImmediate(t *testing.T) {
+	f := newFake()
+	h := newHarness(t, f, Options{Lang: i18n.FR})
+	askPermNow(t, h, f, shellPerm("p1"))
+	h.send(runeKey('n'))
+	wantReply(t, f, "p1", engine.Reply{Allow: false})
+	askPermNow(t, h, f, shellPerm("p2"))
+	h.send(tea.KeyMsg{Type: tea.KeyEsc})
+	wantReply(t, f, "p2", engine.Reply{Allow: false})
+}
+
+func TestLongCommandKeepsHead(t *testing.T) {
+	f := newFake()
+	h := newHarness(t, f, Options{Lang: i18n.FR})
+	h.send(tea.WindowSizeMsg{Width: 80, Height: 24})
+	cmd := "rm -rf ~ ; " + strings.Repeat("echo rien ", 300)
+	askPerm(t, h, f, event.PermissionRequestedPayload{PermissionID: "p1", Kind: "tool", Tool: "shell", Command: cmd})
+	v := h.m.View()
+	for _, want := range []string{
+		i18n.T(i18n.FR, "tui.perm.title"), "⏺ shell rm -rf ~", "lignes masquées) …",
+		i18n.T(i18n.FR, "tui.perm.keys_tool"),
+	} {
+		if !strings.Contains(v, want) {
+			t.Fatalf("vue sans %q : %q", want, v)
+		}
+	}
+	assertWidth(t, v, 80)
+	if n := len(strings.Split(v, "\n")); n > 24 {
+		t.Fatalf("%d lignes > 24", n)
+	}
+}
+
+func TestPageKeysScrollDuringPrompt(t *testing.T) {
+	f := newFake()
+	h := newHarness(t, f, Options{Lang: i18n.FR})
+	h.send(tea.WindowSizeMsg{Width: 60, Height: 12})
+	for i := 0; i < 30; i++ {
+		f.emit(t, event.AssistantMessage, event.AssistantMessagePayload{Text: "ligne"})
+	}
+	f.emit(t, event.AssistantMessage, event.AssistantMessagePayload{Text: "DERNIERE"})
+	h.until("messages", func() bool { return len(h.m.tr.Items()) == 31 })
+	askPerm(t, h, f, shellPerm("p1"))
+	if !strings.Contains(h.m.View(), "DERNIERE") {
+		t.Fatal("la vue ne suit pas le bas")
+	}
+	h.send(tea.KeyMsg{Type: tea.KeyPgUp})
+	if strings.Contains(h.m.View(), "DERNIERE") {
+		t.Fatal("PgUp ne fait pas défiler pendant la demande")
+	}
+	h.send(tea.KeyMsg{Type: tea.KeyPgDown})
+	if !strings.Contains(h.m.View(), "DERNIERE") {
+		t.Fatal("PgDn ne revient pas en bas")
+	}
+	if got := f.answered(); len(got) != 0 || !h.m.prompting() {
+		t.Fatalf("PgUp/PgDn ont répondu : %v", got)
+	}
+}
+
+func TestBinaryWriteShowsMarker(t *testing.T) {
+	root := t.TempDir()
+	f := newFake()
+	h := newHarness(t, f, Options{Lang: i18n.EN, ProjectRoot: root})
+	h.send(tea.WindowSizeMsg{Width: 80, Height: 30})
+	args, _ := json.Marshal(map[string]string{"path": "b.bin", "content": "a\x00b"})
+	f.emit(t, event.ToolCallRequested, event.ToolCallRequestedPayload{CallID: "c1", Tool: "write_file", Args: args})
+	askPerm(t, h, f, event.PermissionRequestedPayload{
+		PermissionID: "p1", Kind: "tool", Tool: "write_file", Paths: []string{filepath.Join(root, "b.bin")},
+	})
+	if v := h.m.View(); !strings.Contains(v, "(binary file)") {
+		t.Fatalf("marqueur binaire absent : %q", v)
+	}
 }

@@ -2,6 +2,7 @@ package diff
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -112,7 +113,7 @@ func TestBinaryAndHuge(t *testing.T) {
 	root := t.TempDir()
 	args := mkArgs(t, map[string]any{"path": "b", "content": "a\x00b"})
 	lines, _, err := Preview("write_file", args, root)
-	if err != nil || len(lines) != 1 || lines[0] != (Line{Same, "(fichier binaire)"}) {
+	if !errors.Is(err, ErrBinary) || lines != nil {
 		t.Fatalf("lines=%v err=%v", lines, err)
 	}
 	// fichier existant binaire
@@ -120,9 +121,12 @@ func TestBinaryAndHuge(t *testing.T) {
 		t.Fatal(err)
 	}
 	args = mkArgs(t, map[string]any{"path": "bin", "content": "texte"})
-	lines, _, _ = Preview("write_file", args, root)
-	if len(lines) != 1 || lines[0].Text != "(fichier binaire)" {
-		t.Fatalf("existing binary: %v", lines)
+	if _, _, err := Preview("write_file", args, root); !errors.Is(err, ErrBinary) {
+		t.Fatalf("existing binary: %v", err)
+	}
+	args = mkArgs(t, map[string]any{"path": "x", "old_string": "a\x00", "new_string": "b"})
+	if _, _, err := Preview("edit_file", args, root); !errors.Is(err, ErrBinary) {
+		t.Fatalf("edit binary: %v", err)
 	}
 
 	var a, b []string
