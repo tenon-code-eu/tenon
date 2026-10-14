@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"codeberg.org/tenon/tenon/internal/event"
 )
@@ -58,7 +59,12 @@ func List(dir, projectRoot string) ([]Summary, error) {
 				if s.FirstPrompt == "" {
 					var p event.UserMessagePayload
 					if json.Unmarshal(e.Payload, &p) == nil {
-						r := []rune(p.Text)
+						r := []rune(strings.Map(func(c rune) rune {
+							if unicode.IsControl(c) {
+								return ' '
+							}
+							return c
+						}, p.Text))
 						if len(r) > promptMax {
 							r = r[:promptMax]
 						}

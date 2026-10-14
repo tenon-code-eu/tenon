@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode"
 
 	"codeberg.org/tenon/tenon/internal/event"
 )
@@ -70,7 +71,10 @@ func TestSessionFileRedacted(t *testing.T) {
 
 func TestRedactInvalidFailsClosed(t *testing.T) {
 	dir := t.TempDir()
-	w, _ := Open(dir, sidA, func(string) string { return "{pas du json" })
+	w, err := Open(dir, sidA, func(string) string { return "{pas du json" })
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer w.Close()
 	if err := w.Write(ev(t, sidA, 1, event.UserMessage, event.UserMessagePayload{Text: "x"})); err == nil {
 		t.Fatal("erreur attendue")
@@ -83,9 +87,9 @@ func TestRedactInvalidFailsClosed(t *testing.T) {
 
 func TestLoadStopsAtCorruptLine(t *testing.T) {
 	dir := t.TempDir()
-	w, _ := Open(dir, sidA, nil)
-	w.Write(ev(t, sidA, 1, event.UserMessage, event.UserMessagePayload{Text: "a"}))
-	w.Write(ev(t, sidA, 2, event.UserMessage, event.UserMessagePayload{Text: "b"}))
+	w := mustOpen(t, dir, sidA)
+	mustWrite(t, w, ev(t, sidA, 1, event.UserMessage, event.UserMessagePayload{Text: "a"}))
+	mustWrite(t, w, ev(t, sidA, 2, event.UserMessage, event.UserMessagePayload{Text: "b"}))
 	w.Close()
 	f, _ := os.OpenFile(filepath.Join(dir, sidA+".jsonl"), os.O_APPEND|os.O_WRONLY, 0o600)
 	f.WriteString(`{"id":"x","sess` + "\n")
@@ -117,20 +121,19 @@ func TestInvalidSessionID(t *testing.T) {
 
 func mkSession(t *testing.T, dir, sid, root, prompt string, turns int, mod time.Time) {
 	t.Helper()
-	w, err := Open(dir, sid, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	w := mustOpen(t, dir, sid)
 	seq := uint64(1)
-	w.Write(ev(t, sid, seq, event.SessionStarted, event.SessionStartedPayload{ProjectRoot: root}))
+	mustWrite(t, w, ev(t, sid, seq, event.SessionStarted, event.SessionStartedPayload{ProjectRoot: root}))
 	seq++
-	w.Write(ev(t, sid, seq, event.UserMessage, event.UserMessagePayload{Text: prompt}))
+	mustWrite(t, w, ev(t, sid, seq, event.UserMessage, event.UserMessagePayload{Text: prompt}))
 	for i := 0; i < turns; i++ {
 		seq++
-		w.Write(ev(t, sid, seq, event.TurnCompleted, event.TurnCompletedPayload{Reason: "done"}))
+		mustWrite(t, w, ev(t, sid, seq, event.TurnCompleted, event.TurnCompletedPayload{Reason: "done"}))
 	}
 	w.Close()
-	os.Chtimes(filepath.Join(dir, sid+".jsonl"), mod, mod)
+	if err := os.Chtimes(filepath.Join(dir, sid+".jsonl"), mod, mod); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestListFiltersProjectAndSorts(t *testing.T) {
@@ -179,7 +182,7 @@ func TestPermissions(t *testing.T) {
 	}
 	os.Chmod(dir, 0o755)
 	os.Chmod(filepath.Join(dir, sidA+".jsonl"), 0o644)
-	w, _ = Open(dir, sidA, nil)
+	w = mustOpen(t, dir, sidA)
 	w.Close()
 	ds, _ = os.Stat(dir)
 	fs, _ = os.Stat(filepath.Join(dir, sidA+".jsonl"))
@@ -190,20 +193,91 @@ func TestPermissions(t *testing.T) {
 
 func TestConcurrentWrite(t *testing.T) {
 	dir := t.TempDir()
-	w, _ := Open(dir, sidA, nil)
+	w := mustOpen(t, dir, sidA)
 	defer w.Close()
-	done := make(chan struct{})
+	var evs []event.Event
 	for i := 0; i < 8; i++ {
-		go func(i int) {
-			w.Write(ev(t, sidA, uint64(i), event.UserMessage, event.UserMessagePayload{Text: "x"}))
-			done <- struct{}{}
-		}(i)
+		evs = append(evs, ev(t, sidA, uint64(i), event.UserMessage, event.UserMessagePayload{Text: "x"}))
 	}
-	for i := 0; i < 8; i++ {
-		<-done
+	errs := make(chan error, len(evs))
+	for _, e := range evs {
+		go func(e event.Event) { errs <- w.Write(e) }(e)
+	}
+	for range evs {
+		if err := <-errs; err != nil {
+			t.Error(err)
+		}
 	}
 	got, corrupt, err := Load(dir, sidA)
 	if err != nil || corrupt || len(got) != 8 {
 		t.Fatalf("got=%d corrupt=%v err=%v", len(got), corrupt, err)
+	}
+}
+
+func TestOpenRepairsPartialLine(t *testing.T) {
+	dir := t.TempDir()
+	w := mustOpen(t, dir, sidA)
+	mustWrite(t, w, ev(t, sidA, 1, event.UserMessage, event.UserMessagePayload{Text: "a"}))
+	mustWrite(t, w, ev(t, sidA, 2, event.UserMessage, event.UserMessagePayload{Text: "b"}))
+	w.Close()
+	f, err := os.OpenFile(filepath.Join(dir, sidA+".jsonl"), os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.WriteString(`{"id":"s_`)
+	f.Close()
+	w = mustOpen(t, dir, sidA)
+	mustWrite(t, w, ev(t, sidA, 3, event.UserMessage, event.UserMessagePayload{Text: "c"}))
+	w.Close()
+	got, corrupt, err := Load(dir, sidA)
+	if err != nil || corrupt || len(got) != 3 {
+		t.Fatalf("got=%d corrupt=%v err=%v", len(got), corrupt, err)
+	}
+}
+
+func TestOpenAddsMissingNewline(t *testing.T) {
+	dir := t.TempDir()
+	w := mustOpen(t, dir, sidA)
+	mustWrite(t, w, ev(t, sidA, 1, event.UserMessage, event.UserMessagePayload{Text: "a"}))
+	w.Close()
+	p := filepath.Join(dir, sidA+".jsonl")
+	b, _ := os.ReadFile(p)
+	os.WriteFile(p, b[:len(b)-1], 0o600)
+	w = mustOpen(t, dir, sidA)
+	mustWrite(t, w, ev(t, sidA, 2, event.UserMessage, event.UserMessagePayload{Text: "b"}))
+	w.Close()
+	got, corrupt, err := Load(dir, sidA)
+	if err != nil || corrupt || len(got) != 2 {
+		t.Fatalf("got=%d corrupt=%v err=%v", len(got), corrupt, err)
+	}
+}
+
+func TestFirstPromptSanitised(t *testing.T) {
+	dir := t.TempDir()
+	mkSession(t, dir, sidA, "/p", "a\nb\x1b[31mc\td\re", 0, time.Now())
+	got, err := List(dir, "/p")
+	if err != nil || len(got) != 1 {
+		t.Fatalf("%v %v", got, err)
+	}
+	for _, r := range got[0].FirstPrompt {
+		if unicode.IsControl(r) {
+			t.Fatalf("contrôle dans %q", got[0].FirstPrompt)
+		}
+	}
+}
+
+func mustOpen(t *testing.T, dir, id string) *Writer {
+	t.Helper()
+	w, err := Open(dir, id, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return w
+}
+
+func mustWrite(t *testing.T, w *Writer, e event.Event) {
+	t.Helper()
+	if err := w.Write(e); err != nil {
+		t.Fatal(err)
 	}
 }

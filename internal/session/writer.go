@@ -50,6 +50,9 @@ func Open(dir, sessionID string, redact func(string) string) (*Writer, error) {
 		return nil, fmt.Errorf("permissions du dossier des sessions : %w", err)
 	}
 	path := filepath.Join(dir, sessionID+".jsonl")
+	if err := repair(path); err != nil {
+		return nil, err
+	}
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("ouverture de la session %s : %w", sessionID, err)
@@ -59,6 +62,49 @@ func Open(dir, sessionID string, redact func(string) string) (*Writer, error) {
 		return nil, fmt.Errorf("permissions de la session %s : %w", sessionID, err)
 	}
 	return &Writer{id: sessionID, redact: redact, f: f}, nil
+}
+
+// repair cuts an existing file at the first unreadable line (same rules as
+// Load) and makes sure it ends with a newline, so appended events stay visible.
+func repair(path string) error {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("lecture de la session : %w", err)
+	}
+	good, off := 0, 0
+	for off < len(data) {
+		next := len(data)
+		if end := bytes.IndexByte(data[off:], '\n'); end >= 0 {
+			next = off + end + 1
+		}
+		if t := bytes.TrimSpace(data[off:next]); len(t) > 0 {
+			var e event.Event
+			if json.Unmarshal(t, &e) != nil {
+				break
+			}
+		}
+		off = next
+		good = next
+	}
+	if good < len(data) {
+		if err := os.Truncate(path, int64(good)); err != nil {
+			return fmt.Errorf("réparation de la session : %w", err)
+		}
+	}
+	if good > 0 && data[good-1] != '\n' {
+		f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
+		if err != nil {
+			return fmt.Errorf("réparation de la session : %w", err)
+		}
+		defer f.Close()
+		if _, err := f.Write([]byte("\n")); err != nil {
+			return fmt.Errorf("réparation de la session : %w", err)
+		}
+	}
+	return nil
 }
 
 // Write persists e. Events of other sessions and AssistantDelta are ignored.
