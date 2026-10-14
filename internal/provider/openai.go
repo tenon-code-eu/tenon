@@ -15,7 +15,10 @@ import (
 	"codeberg.org/tenon/tenon/internal/llm"
 )
 
-const maxRetries = 3
+const (
+	maxRetries = 3
+	maxWait    = 60 * time.Second // plafond de toute attente entre essais
+)
 
 // Option configures an OpenAICompat provider.
 type Option func(*OpenAICompat)
@@ -23,20 +26,40 @@ type Option func(*OpenAICompat)
 // WithHTTPClient sets the HTTP client.
 func WithHTTPClient(c *http.Client) Option { return func(o *OpenAICompat) { o.client = c } }
 
-// WithSleep overrides the wait function used between retries.
-func WithSleep(f func(time.Duration)) Option { return func(o *OpenAICompat) { o.sleep = f } }
+// WithSleep overrides the wait function used between retries. It must return
+// ctx.Err() as soon as ctx is cancelled.
+func WithSleep(f func(context.Context, time.Duration) error) Option {
+	return func(o *OpenAICompat) { o.sleep = f }
+}
+
+// sleepCtx waits d or until ctx is cancelled.
+func sleepCtx(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
+}
 
 // OpenAICompat implements Provider for OpenAI-compatible chat completions.
 type OpenAICompat struct {
 	info   llm.ProviderInfo
 	apiKey string
 	client *http.Client
-	sleep  func(time.Duration)
+	sleep  func(context.Context, time.Duration) error
 }
 
 // NewOpenAICompat builds a provider for info.BaseURL.
 func NewOpenAICompat(info llm.ProviderInfo, apiKey string, opts ...Option) *OpenAICompat {
-	o := &OpenAICompat{info: info, apiKey: apiKey, client: &http.Client{}, sleep: time.Sleep}
+	// Never follow redirects: the request (and its Authorization header)
+	// goes only to the configured base URL; a 3xx is a non-retryable error.
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	o := &OpenAICompat{info: info, apiKey: apiKey, client: client, sleep: sleepCtx}
 	for _, opt := range opts {
 		opt(o)
 	}
@@ -154,7 +177,12 @@ func (o *OpenAICompat) connect(ctx context.Context, body []byte) (*http.Response
 		if attempt >= maxRetries {
 			return nil, fmt.Errorf("%w: %v", ErrUnavailable, lastErr)
 		}
-		o.sleep(wait)
+		if wait > maxWait {
+			wait = maxWait
+		}
+		if err := o.sleep(ctx, wait); err != nil {
+			return nil, err
+		}
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}

@@ -30,7 +30,10 @@ func newTest(t *testing.T, h http.HandlerFunc) (*OpenAICompat, *[]time.Duration)
 	t.Cleanup(srv.Close)
 	var sleeps []time.Duration
 	p := NewOpenAICompat(llm.ProviderInfo{ID: "t", BaseURL: srv.URL, Model: "m"}, "k",
-		WithSleep(func(d time.Duration) { sleeps = append(sleeps, d) }))
+		WithSleep(func(ctx context.Context, d time.Duration) error {
+			sleeps = append(sleeps, d)
+			return ctx.Err()
+		}))
 	return p, &sleeps
 }
 
@@ -244,5 +247,91 @@ func TestSlowConsumerStillGetsFinalChunk(t *testing.T) {
 	text, last := collect(t, ch)
 	if len(text) != 8 || !last.Done || last.Err != nil || len(last.ToolCalls) != 1 || last.ToolCalls[0].ID != "call_1" {
 		t.Fatalf("text=%d last=%+v", len(text), last)
+	}
+}
+
+func TestRetryAfterCapped(t *testing.T) {
+	var n int32
+	p, sleeps := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+		if atomic.AddInt32(&n, 1) == 1 {
+			w.Header().Set("Retry-After", "86400")
+			w.WriteHeader(429)
+			return
+		}
+		sse(w, `{"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}`, "[DONE]")
+	})
+	ch, err := p.Stream(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	collect(t, ch)
+	if !reflect.DeepEqual(*sleeps, []time.Duration{60 * time.Second}) {
+		t.Fatalf("sleeps=%v", *sleeps)
+	}
+}
+
+func TestForbiddenIsAuth(t *testing.T) {
+	var n int32
+	p, sleeps := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&n, 1)
+		w.WriteHeader(403)
+	})
+	_, err := p.Stream(context.Background(), req)
+	if !errors.Is(err, ErrAuth) || n != 1 || len(*sleeps) != 0 {
+		t.Fatalf("err=%v n=%d", err, n)
+	}
+}
+
+func TestNetworkErrorRetried(t *testing.T) {
+	var n int32
+	p, sleeps := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+		if atomic.AddInt32(&n, 1) == 1 {
+			conn, _, err := w.(http.Hijacker).Hijack()
+			if err == nil {
+				conn.Close()
+			}
+			return
+		}
+		sse(w, `{"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}`, "[DONE]")
+	})
+	ch, err := p.Stream(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text, _ := collect(t, ch); text != "ok" || n != 2 || len(*sleeps) != 1 {
+		t.Fatalf("text=%q n=%d sleeps=%v", text, n, *sleeps)
+	}
+}
+
+func TestRedirectNotFollowed(t *testing.T) {
+	var hit, n int32
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hit, 1)
+		sse(w, `{"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}`, "[DONE]")
+	}))
+	t.Cleanup(target.Close)
+	p, sleeps := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&n, 1)
+		http.Redirect(w, r, target.URL+"/chat/completions", http.StatusTemporaryRedirect)
+	})
+	_, err := p.Stream(context.Background(), req)
+	if err == nil || !strings.Contains(err.Error(), "307") || n != 1 || hit != 0 || len(*sleeps) != 0 {
+		t.Fatalf("err=%v n=%d hit=%d sleeps=%v", err, n, hit, *sleeps)
+	}
+}
+
+func TestCancelDuringRetryWait(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "30")
+		w.WriteHeader(503)
+	}))
+	t.Cleanup(srv.Close)
+	p := NewOpenAICompat(llm.ProviderInfo{ID: "t", BaseURL: srv.URL, Model: "m"}, "k")
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(100*time.Millisecond, cancel)
+	start := time.Now()
+	_, err := p.Stream(ctx, req)
+	if !errors.Is(err, context.Canceled) || time.Since(start) > 2*time.Second {
+		t.Fatalf("err=%v après %v", err, time.Since(start))
 	}
 }
