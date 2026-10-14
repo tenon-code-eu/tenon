@@ -35,7 +35,9 @@ func (t *turn) run(input string) error {
 	d := t.e.d
 	info := d.Provider.Info()
 	if !t.s.started {
-		if err := t.emit(event.SessionStarted, event.SessionStartedPayload{Provider: info, ProjectRoot: d.ProjectRoot}); err != nil {
+		if err := t.emit(event.SessionStarted, event.SessionStartedPayload{
+			Provider: info, ProjectRoot: d.ProjectRoot, Resumed: t.s.resumed, Instructions: d.Instructions,
+		}); err != nil {
 			return err
 		}
 		t.s.started = true

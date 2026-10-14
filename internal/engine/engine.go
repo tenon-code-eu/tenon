@@ -28,6 +28,8 @@ var (
 	ErrAuditFailure = errors.New("échec d'écriture du journal d'audit")
 	// ErrUnknownPermission : Respond avec un identifiant inconnu ou déjà résolu.
 	ErrUnknownPermission = errors.New("demande de permission inconnue")
+	// ErrSessionActive : Restore sur une session déjà utilisée dans ce processus.
+	ErrSessionActive = errors.New("session déjà active dans ce processus")
 )
 
 // Deps regroupe les dépendances de l'engine.
@@ -40,6 +42,7 @@ type Deps struct {
 	MaxIterations int
 	SystemPrompt  string
 	ProjectRoot   string
+	Instructions  []string // fichiers d'instructions chargés, recopiés dans SessionStarted
 	Now           func() time.Time
 }
 
@@ -67,6 +70,7 @@ type session struct {
 
 	id         string
 	started    bool
+	resumed    bool // reconstruite par Restore : SessionStarted{Resumed:true}
 	seq        uint64
 	permN      int
 	warned     bool

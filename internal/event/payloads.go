@@ -10,6 +10,10 @@ import (
 type SessionStartedPayload struct {
 	Provider    llm.ProviderInfo `json:"provider"`
 	ProjectRoot string           `json:"project_root"`
+	// Resumed is true when the session was rebuilt from its persisted events.
+	Resumed bool `json:"resumed,omitempty"`
+	// Instructions lists the project instruction files loaded (e.g. AGENTS.md).
+	Instructions []string `json:"instructions,omitempty"`
 }
 
 // UserMessagePayload carries text typed by the user.
