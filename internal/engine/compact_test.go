@@ -476,7 +476,9 @@ func TestForcedCompactionUsesRejectedSize(t *testing.T) {
 }
 
 func TestSummaryMasksToolArgs(t *testing.T) {
-	h := newHarness(t, euInfo, [][]llm.Chunk{text("R"), text("ok")}, window(1000))
+	// Fenêtre de 1400 : la partie résumée (environ 820 jetons) tient entière
+	// dans la requête de résumé, appels login compris.
+	h := newHarness(t, euInfo, [][]llm.Chunk{text("R"), text("ok")}, window(1400))
 	hist := longHistory()
 	hist = append([]llm.Message{
 		{Role: llm.User, Content: "connecte-toi"},
@@ -499,5 +501,85 @@ func TestSummaryMasksToolArgs(t *testing.T) {
 	}
 	if j := mustJSON(reqs[0]); strings.Contains(j, "hunter2hunter2") || strings.Contains(j, "hunter2 hunter2") {
 		t.Fatal("la requête de résumé contient le mot de passe")
+	}
+}
+
+// Après un tour context_too_large, la partie à résumer dépasse à elle seule
+// la fenêtre : la requête de résumé est tronquée pour tenir sous le seuil.
+func TestSummaryRequestTruncatedToFit(t *testing.T) {
+	h := newHarness(t, euInfo, [][]llm.Chunk{text("R"), text("ok")}, window(1200))
+	seed(t, h, "s_1", llm.Message{Role: llm.User, Content: runes(16000)})
+	evs, err := h.submit(t, "s_1", "petit", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reqs := h.prov.reqs()
+	if len(reqs) != 2 || len(reqs[0].Tools) != 0 {
+		t.Fatalf("%d requêtes", len(reqs))
+	}
+	if n := estimate(reqs[0].Messages, nil); n > 960 {
+		t.Fatalf("requête de résumé de %d jetons (limite 960)", n)
+	}
+	if s := reqs[0].Messages[1].Content; !strings.HasSuffix(s, "[… tronqué]") || !strings.HasPrefix(s, "user : ") {
+		t.Fatalf("texte à résumer : %q…", s[:40])
+	}
+	if len(ofType(evs, event.ContextCompacted)) != 1 || len(ofType(evs, event.Error)) != 0 {
+		t.Fatalf("events %v", types(evs))
+	}
+	if tc := lastTurn(t, evs); tc.Reason != "done" {
+		t.Fatalf("TurnCompleted %+v", tc)
+	}
+}
+
+// Les plus anciens messages de la partie à résumer sont omis jusqu'à ce que
+// la requête de résumé tienne sous le seuil.
+func TestSummaryRequestDropsOldest(t *testing.T) {
+	h := newHarness(t, euInfo, [][]llm.Chunk{text("R"), text("ok")}, window(1200))
+	var hist []llm.Message
+	for i := 0; i < 6; i++ {
+		hist = append(hist,
+			llm.Message{Role: llm.User, Content: fmt.Sprintf("u%d %s", i, runes(1200))},
+			llm.Message{Role: llm.Assistant, Content: fmt.Sprintf("a%d %s", i, runes(1200))})
+	}
+	seed(t, h, "s_1", hist...)
+	evs, err := h.submit(t, "s_1", "petit", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reqs := h.prov.reqs()
+	if len(reqs) != 2 || len(reqs[0].Tools) != 0 {
+		t.Fatalf("%d requêtes", len(reqs))
+	}
+	if n := estimate(reqs[0].Messages, nil); n > 960 {
+		t.Fatalf("requête de résumé de %d jetons (limite 960)", n)
+	}
+	s := reqs[0].Messages[1].Content
+	if !strings.HasPrefix(s, "[… messages plus anciens omis]\n\n") || strings.Contains(s, "u0 ") ||
+		!strings.Contains(s, "assistant : a5 ") || strings.Contains(s, "[… tronqué]") {
+		t.Fatalf("texte à résumer : %q", s)
+	}
+	if p := decode[event.ContextCompactedPayload](t, ofType(evs, event.ContextCompacted)[0]); p.Replaced != 12 {
+		t.Fatalf("ContextCompacted %+v", p)
+	}
+}
+
+// Un refus ErrContextLength de la requête de résumé termine le tour en
+// context_too_large, sans erreur du fournisseur.
+func TestSummaryContextLengthIsTooLarge(t *testing.T) {
+	h := newHarness(t, euInfo, [][]llm.Chunk{{{Done: true, Err: provider.ErrContextLength}}}, window(1000))
+	seed(t, h, "s_1", longHistory()...)
+	evs, err := h.submit(t, "s_1", "suite", nil)
+	if err != nil {
+		t.Fatalf("err %v", err)
+	}
+	if n := len(h.prov.reqs()); n != 1 {
+		t.Fatalf("%d requêtes", n)
+	}
+	e := ofType(evs, event.Error)
+	if len(e) != 1 || decode[event.ErrorPayload](t, e[0]).Code != "context_too_large" {
+		t.Fatalf("events %v", types(evs))
+	}
+	if tc := lastTurn(t, evs); tc.Reason != "context_too_large" {
+		t.Fatalf("TurnCompleted %+v", tc)
 	}
 }

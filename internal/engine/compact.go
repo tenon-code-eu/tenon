@@ -1,11 +1,13 @@
 package engine
 
 import (
+	"errors"
 	"strings"
 	"unicode/utf8"
 
 	"codeberg.org/tenon/tenon/internal/event"
 	"codeberg.org/tenon/tenon/internal/llm"
+	"codeberg.org/tenon/tenon/internal/provider"
 )
 
 const (
@@ -27,6 +29,13 @@ const (
 
 // summaryPrompt est le prompt système de la requête de résumé.
 const summaryPrompt = "Résume fidèlement la conversation suivante pour qu'un agent de code puisse la poursuivre : objectifs, décisions, fichiers modifiés, points en suspens. Réponds uniquement par le résumé."
+
+// omittedLine précède le texte à résumer quand ses plus anciens messages ont
+// été omis pour tenir dans la fenêtre.
+const omittedLine = "[… messages plus anciens omis]"
+
+// truncatedMark termine un message tronqué pour tenir dans la fenêtre.
+const truncatedMark = "[… tronqué]"
 
 // summaryPrefix précède le résumé dans le message qui remplace la partie
 // compactée.
@@ -103,6 +112,43 @@ func renderConversation(msgs []llm.Message) string {
 	return b.String()
 }
 
+// summaryInput rend old en texte pour la requête de résumé, de sorte que
+// cette requête (prompt de résumé + texte) ne dépasse pas limit jetons
+// estimés : les plus anciens messages sont omis (une ligne omittedLine le
+// signale) et, si le dernier ne tient pas seul, son rendu est tronqué
+// (truncatedMark).
+func summaryInput(old []llm.Message, limit int) string {
+	fits := func(s string) bool {
+		return estimate([]llm.Message{{Content: summaryPrompt}, {Content: s}}, nil) <= limit
+	}
+	withOmitted := func(i int, s string) string {
+		if i == 0 {
+			return s
+		}
+		return omittedLine + "\n\n" + s
+	}
+	last := len(old) - 1
+	for i := 0; i <= last; i++ {
+		if s := withOmitted(i, renderConversation(old[i:])); fits(s) {
+			return s
+		}
+	}
+	if last < 0 {
+		return ""
+	}
+	// Même seul, le dernier message ne tient pas : son rendu est tronqué au
+	// nombre de runes restant (estimate arrondit à l'entier inférieur).
+	r := []rune(withOmitted(last, renderConversation(old[last:])))
+	keep := 4*limit + 3 - utf8.RuneCountInString(summaryPrompt) - utf8.RuneCountInString(truncatedMark)
+	if keep < 0 {
+		keep = 0
+	}
+	if keep < len(r) {
+		r = r[:keep]
+	}
+	return string(r) + truncatedMark
+}
+
 // compact compacte l'historique si son estimation dépasse le seuil, ou sans
 // condition si force est vrai (le fournisseur a renvoyé ErrContextLength).
 // reason, si non vide, termine le tour : reasonTooLarge, reasonBlocked
@@ -129,13 +175,7 @@ func (t *turn) compact(info llm.ProviderInfo, defs []llm.ToolDef, force bool) (r
 	// précédent à résumer de nouveau (aucun gain possible).
 	if start <= 0 || estimate(h[:1], defs)+estimate(conv[start:], nil) > limit ||
 		(start == 1 && isSummary(conv[0])) {
-		if err := t.emit(event.Error, event.ErrorPayload{
-			Code:    reasonTooLarge,
-			Message: "contexte trop volumineux : impossible de le compacter sous la fenêtre du modèle",
-		}); err != nil {
-			return "", err
-		}
-		return reasonTooLarge, nil
+		return t.tooLarge()
 	}
 
 	// Premier passage par le contrôle sortant : les arguments d'appels
@@ -148,9 +188,15 @@ func (t *turn) compact(info llm.ProviderInfo, defs []llm.ToolDef, force bool) (r
 	if !ok {
 		return reasonBlocked, nil
 	}
+	// La requête de résumé tient elle aussi sous le seuil de la fenêtre
+	// (réduite à la taille rejetée après un refus du fournisseur).
+	sumLimit := limit
+	if l := int(d.CompactionThreshold * float64(win)); l < sumLimit {
+		sumLimit = l
+	}
 	msgs, ok, err := t.outbound(info, []llm.Message{
 		{Role: llm.System, Content: summaryPrompt},
-		{Role: llm.User, Content: renderConversation(old)},
+		{Role: llm.User, Content: summaryInput(old, sumLimit)},
 	})
 	if err != nil {
 		return "", err
@@ -165,6 +211,11 @@ func (t *turn) compact(info llm.ProviderInfo, defs []llm.ToolDef, force bool) (r
 	if provErr != nil {
 		if cerr := t.ctx.Err(); cerr != nil {
 			return reasonCancelled, cerr
+		}
+		// Le fournisseur refuse même la requête de résumé réduite : le
+		// contexte ne peut pas être compacté.
+		if errors.Is(provErr, provider.ErrContextLength) {
+			return t.tooLarge()
 		}
 		if err := t.emit(event.Error, event.ErrorPayload{Code: "provider", Message: provErr.Error()}); err != nil {
 			return "", err
@@ -182,4 +233,15 @@ func (t *turn) compact(info llm.ProviderInfo, defs []llm.ToolDef, force bool) (r
 	}
 	t.s.history = nh
 	return "", nil
+}
+
+// tooLarge émet Error{context_too_large} et renvoie reasonTooLarge.
+func (t *turn) tooLarge() (string, error) {
+	if err := t.emit(event.Error, event.ErrorPayload{
+		Code:    reasonTooLarge,
+		Message: "contexte trop volumineux : impossible de le compacter sous la fenêtre du modèle",
+	}); err != nil {
+		return "", err
+	}
+	return reasonTooLarge, nil
 }

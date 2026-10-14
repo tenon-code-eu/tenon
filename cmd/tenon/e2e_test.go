@@ -771,3 +771,41 @@ func TestContextTooLargeExit1(t *testing.T) {
 		t.Fatalf("code=%d requêtes=%d stdout=%q stderr=%q", code, len(f.requests()), out, errb)
 	}
 }
+
+// requestMessages décode les messages d'une requête envoyée au fournisseur.
+func requestMessages(t *testing.T, body string) []map[string]any {
+	t.Helper()
+	var b struct {
+		Messages []map[string]any `json:"messages"`
+	}
+	if err := json.Unmarshal([]byte(body), &b); err != nil {
+		t.Fatal(err)
+	}
+	return b.Messages
+}
+
+// Après un tour context_too_large, la reprise compacte avec une requête de
+// résumé qui tient dans la fenêtre.
+func TestResumeAfterContextTooLarge(t *testing.T) {
+	f := newFakeLLM(t, sseText("ok"))
+	e := newEnvExtra(t, f, "eu", "context_window = 1200\n")
+	if code, out, errb := e.run("-p", strings.Repeat("mot ", 4000)); code != 1 {
+		t.Fatalf("run 1 : code=%d stdout=%q stderr=%q", code, out, errb)
+	}
+	code, out, errb := e.run("--resume", "last", "-p", "petit")
+	if code != 0 {
+		t.Fatalf("run 2 : code=%d stdout=%q stderr=%q", code, out, errb)
+	}
+	reqs := f.requests()
+	if len(reqs) != 2 || !strings.Contains(reqs[0], "Résume fidèlement") {
+		t.Fatalf("requêtes : %d", len(reqs))
+	}
+	n := 0
+	for _, m := range requestMessages(t, reqs[0]) {
+		s, _ := m["content"].(string)
+		n += len([]rune(s))
+	}
+	if n/4 > 960 {
+		t.Fatalf("requête de résumé de %d jetons estimés (limite 960)", n/4)
+	}
+}
