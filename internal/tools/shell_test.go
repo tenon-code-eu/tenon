@@ -85,8 +85,15 @@ func TestShellBackgroundChildDoesNotHang(t *testing.T) {
 	if d := time.Since(start); d > 3*time.Second {
 		t.Fatalf("trop long : %v", d)
 	}
-	if !strings.Contains(res.Content, "ok") {
+	if res.IsError || !strings.Contains(res.Content, "ok") || !strings.Contains(res.Content, "[code de sortie: 0]") {
 		t.Fatalf("résultat inattendu : %+v", res)
+	}
+}
+
+func TestShellOutputCapped(t *testing.T) {
+	res := runShell(t, Shell(t.TempDir(), time.Second, 1000), `{"command":"yes"}`)
+	if len(res.Content) > 1200 || !strings.Contains(res.Content, "sortie tronquée") {
+		t.Fatalf("len=%d, contenu inattendu : %.200q", len(res.Content), res.Content)
 	}
 }
 

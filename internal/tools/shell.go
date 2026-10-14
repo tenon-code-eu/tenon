@@ -3,15 +3,16 @@
 package tools
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
+	"unicode/utf8"
 )
 
 // Shell renvoie l'outil d'exécution de commandes, ancré sur root.
@@ -78,11 +79,11 @@ func (s *shellTool) Run(ctx context.Context, args json.RawMessage) (Result, erro
 	tctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	var buf bytes.Buffer
+	buf := &capWriter{max: s.limit * utf8.UTFMax}
 	cmd := exec.CommandContext(tctx, "bash", "-c", a.Command)
 	cmd.Dir = s.root
-	cmd.Stdout = &buf
-	cmd.Stderr = &buf
+	cmd.Stdout = buf
+	cmd.Stderr = buf
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.WaitDelay = time.Second
 	cmd.Cancel = func() error { return killGroup(cmd) }
@@ -97,14 +98,17 @@ func (s *shellTool) Run(ctx context.Context, args json.RawMessage) (Result, erro
 	if ctx.Err() != nil {
 		return Result{}, ctx.Err()
 	}
-	out := Truncate(buf.String(), s.limit)
+	out := buf.String(s.limit)
 	if tctx.Err() == context.DeadlineExceeded {
 		return Result{IsError: true, Content: fmt.Sprintf("%s\n[délai dépassé après %s]", out, timeout)}, nil
 	}
 	code := 0
 	if waitErr != nil {
 		var ee *exec.ExitError
-		if errors.As(waitErr, &ee) {
+		if errors.Is(waitErr, exec.ErrWaitDelay) {
+			// Un processus d'arrière-plan gardait le tube ouvert ; la commande elle-même a réussi.
+			code = 0
+		} else if errors.As(waitErr, &ee) {
 			code = ee.ExitCode()
 		} else {
 			return fail("%s\n[erreur d'exécution : %v]", out, waitErr), nil
@@ -126,4 +130,46 @@ func killGroup(cmd *exec.Cmd) error {
 		return nil
 	}
 	return err
+}
+
+// capWriter garde au plus max octets (le début) et jette le reste sans erreur,
+// pour ne pas tuer le processus par EPIPE ni saturer la mémoire.
+type capWriter struct {
+	mu      sync.Mutex
+	max     int // <= 0 : illimité
+	buf     []byte
+	dropped bool
+}
+
+func (w *capWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.max <= 0 {
+		w.buf = append(w.buf, p...)
+		return len(p), nil
+	}
+	room := w.max - len(w.buf)
+	if room > len(p) {
+		room = len(p)
+	}
+	if room > 0 {
+		w.buf = append(w.buf, p[:room]...)
+	}
+	if room < len(p) {
+		w.dropped = true
+	}
+	return len(p), nil
+}
+
+// String renvoie la sortie tronquée à limit caractères, avec le marqueur de troncature.
+func (w *capWriter) String(limit int) string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	b := w.buf
+	if w.dropped {
+		for len(b) > 0 && !utf8.Valid(b) {
+			b = b[:len(b)-1]
+		}
+	}
+	return Truncate(string(b), limit)
 }
