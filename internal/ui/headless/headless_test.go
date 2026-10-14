@@ -242,3 +242,21 @@ func TestJSONOutputRedactionFailsClosed(t *testing.T) {
 		t.Fatalf("aucune erreur de masquage : %s", out.String())
 	}
 }
+
+func TestTextOutputFinalAnswerRedacted(t *testing.T) {
+	eng, _, _ := newEngine(t, llm.EU, text("voici SECRET"))
+	var out, errb bytes.Buffer
+	redact := func(s string) string { return strings.ReplaceAll(s, "SECRET", "[X]") }
+	code := Run(context.Background(), eng, "s_1", "salut", Options{Output: Text, Redact: redact}, &out, &errb)
+	if code != 0 || strings.Contains(out.String(), "SECRET") || !strings.Contains(out.String(), "voici [X]") {
+		t.Fatalf("code=%d stdout=%q", code, out.String())
+	}
+	// RedactText, s'il est fourni, s'applique au texte à la place de Redact.
+	eng, _, _ = newEngine(t, llm.EU, text("voici SECRET"))
+	out.Reset()
+	textOnly := func(s string) string { return strings.ReplaceAll(s, "SECRET", "[T]") }
+	Run(context.Background(), eng, "s_1", "salut", Options{Output: Text, Redact: redact, RedactText: textOnly}, &out, &errb)
+	if !strings.Contains(out.String(), "voici [T]") {
+		t.Fatalf("stdout=%q", out.String())
+	}
+}

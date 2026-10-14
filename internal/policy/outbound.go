@@ -1,7 +1,6 @@
 package policy
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -72,64 +71,18 @@ func (o *Outbound) Check(p llm.ProviderInfo, msgs []llm.Message) ([]llm.Message,
 	return out, counts, nil
 }
 
-// redactArgs masks raw JSON text. If that breaks valid JSON (a match spanning
-// an escape sequence), it falls back to masking each decoded string.
+// redactArgs masks tool-call arguments with RedactJSON. Arguments that were
+// valid JSON stay valid; if masking cannot guarantee that, the whole value is
+// replaced (fail closed).
 func (o *Outbound) redactArgs(args json.RawMessage) (json.RawMessage, map[string]int) {
 	if args == nil {
 		return nil, nil
 	}
-	text, counts := o.r.Redact(string(args))
+	text, counts := o.r.RedactJSON(string(args))
 	if json.Valid(args) && !json.Valid([]byte(text)) {
-		dec := json.NewDecoder(bytes.NewReader(args))
-		dec.UseNumber()
-		var v any
-		if err := dec.Decode(&v); err == nil {
-			counts = map[string]int{}
-			v = o.walk(v, counts)
-			var buf bytes.Buffer
-			enc := json.NewEncoder(&buf)
-			enc.SetEscapeHTML(false)
-			if err := enc.Encode(v); err == nil {
-				return json.RawMessage(bytes.TrimRight(buf.Bytes(), "\n")), counts
-			}
-		}
 		return json.RawMessage(`"[REDACTED]"`), map[string]int{"SECRET": 1}
 	}
 	return json.RawMessage(text), counts
 }
 
-func (o *Outbound) walk(v any, counts map[string]int) any {
-	merge := func(c map[string]int) {
-		for k, n := range c {
-			counts[k] += n
-		}
-	}
-	switch t := v.(type) {
-	case string:
-		s, c := o.r.Redact(t)
-		merge(c)
-		return s
-	case []any:
-		for i := range t {
-			t[i] = o.walk(t[i], counts)
-		}
-		return t
-	case map[string]any:
-		out := make(map[string]any, len(t))
-		for k, x := range t {
-			nk, c := o.r.Redact(k)
-			merge(c)
-			if xs, ok := x.(string); ok && len(xs) >= 8 && reSecretKey.MatchString(k) {
-				m := o.r.maskSecret(xs)
-				if m != xs {
-					counts["SECRET"]++
-				}
-				out[nk] = m
-				continue
-			}
-			out[nk] = o.walk(x, counts)
-		}
-		return out
-	}
-	return v
-}
+func (o *Outbound) walk(v any, counts map[string]int) any { return o.r.walk(v, counts) }

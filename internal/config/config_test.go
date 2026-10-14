@@ -226,7 +226,7 @@ func TestProjectCannotSetDefaultProvider(t *testing.T) {
 func TestGlobalRejectsUnknownKeys(t *testing.T) {
 	for body, key := range map[string]string{
 		"max_iteration = 3\n": "max_iteration",
-		"[[permission.rules]]\ntool = \"shell\"\nmatch = \"rm*\"\ndecision = \"deny\"\n": "permission.rules",
+		"[[permission.rules]]\ntool = \"shell\"\nmatch = \"rm*\"\ndecision = \"deny\"\n":             "permission.rules",
 		"[[providers]]\nid = \"x\"\nbase_url = \"http://x\"\njurisdiction = \"eu\"\nmodle = \"m\"\n": "providers.modle",
 	} {
 		_, err := Load(write(t, body), "", env(nil))

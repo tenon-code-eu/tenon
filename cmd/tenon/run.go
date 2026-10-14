@@ -1,17 +1,14 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"path/filepath"
-	"strings"
 
 	"codeberg.org/tenon/tenon/internal/audit"
 	"codeberg.org/tenon/tenon/internal/config"
@@ -89,8 +86,9 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 		return 1
 	}
 	return headless.Run(ctx, eng, sid, *prompt, headless.Options{
-		Output: out,
-		Redact: func(s string) string { return redactJSON(red, s) },
+		Output:     out,
+		Redact:     func(s string) string { out, _ := red.RedactJSON(s); return out },
+		RedactText: func(s string) string { out, _ := red.Redact(s); return out },
 	}, stdout, stderr)
 }
 
@@ -190,7 +188,7 @@ func startEngine(getenv func(string) string, wd, providerID string, allowNonEU b
 
 	red := s.redactor
 	w, err := audit.Open(filepath.Join(config.DataDir(getenv), "audit"), audit.Level(cfg.Audit.Level),
-		func(s string) string { return redactJSON(red, s) })
+		func(s string) string { out, _ := red.RedactJSON(s); return out })
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -205,44 +203,6 @@ func startEngine(getenv func(string) string, wd, providerID string, allowNonEU b
 		ProjectRoot:   wd,
 	})
 	return eng, red, func() { _ = w.Close() }, nil
-}
-
-// redactJSON masque une charge utile JSON pour l'audit. Chaque chaîne est
-// d'abord masquée une fois décodée : dans le texte JSON brut, un retour à la
-// ligne devient « \n » et la règle « CLÉ=valeur seule sur sa ligne » ne
-// s'appliquerait pas. Le texte ré-encodé passe ensuite par le masquage brut
-// (motifs à cheval sur une clé et sa valeur, ex. {"api_key": "..."}).
-func redactJSON(r *policy.Redactor, s string) string {
-	dec := json.NewDecoder(strings.NewReader(s))
-	dec.UseNumber()
-	var v any
-	if err := dec.Decode(&v); err == nil && !dec.More() {
-		var buf bytes.Buffer
-		enc := json.NewEncoder(&buf)
-		enc.SetEscapeHTML(false)
-		if err := enc.Encode(redactValue(r, v)); err == nil {
-			s = strings.TrimSuffix(buf.String(), "\n")
-		}
-	}
-	out, _ := r.Redact(s)
-	return out
-}
-
-func redactValue(r *policy.Redactor, v any) any {
-	switch x := v.(type) {
-	case string:
-		out, _ := r.Redact(x)
-		return out
-	case []any:
-		for i, e := range x {
-			x[i] = redactValue(r, e)
-		}
-	case map[string]any:
-		for k, e := range x {
-			x[k] = redactValue(r, e)
-		}
-	}
-	return v
 }
 
 func auditVerify(stdout, stderr io.Writer, getenv func(string) string) int {

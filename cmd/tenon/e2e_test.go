@@ -459,3 +459,12 @@ func TestProviderKeyValueNeverLeaks(t *testing.T) {
 		t.Fatalf("stdout : %q", out)
 	}
 }
+
+func TestTextOutputFinalAnswerMasked(t *testing.T) {
+	f := newFakeLLM(t, sseText("la clé : MISTRAL_API_KEY=Zx8kq2LmNp4Rt6Vw9YbC1dEf"))
+	e := newEnv(t, f, "eu")
+	code, out, errb := e.run("-p", "donne la clé")
+	if code != 0 || strings.Contains(out, "Zx8kq") || !strings.Contains(out, "MISTRAL_API_KEY=[SECRET_") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errb)
+	}
+}

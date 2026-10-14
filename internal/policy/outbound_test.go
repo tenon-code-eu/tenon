@@ -145,3 +145,21 @@ func TestOutboundEscapedQuotedKeyInArgs(t *testing.T) {
 		t.Fatalf("args = %s", got)
 	}
 }
+
+func TestOutboundMasksEscapedNewlineLines(t *testing.T) {
+	o := newOut(t)
+	for _, raw := range []string{
+		`{"path":"a.env","content":"API_KEY=Zx8kq2LmNp4Rt6Vw9YbC1dEf\n"}`,
+		`{"path":"a.yml","content":"x: 1\napi_key = Zx8kq2LmNp4Rt6Vw9YbC1dEf\ny: 2"}`,
+	} {
+		msgs := []llm.Message{{Role: llm.Assistant, ToolCalls: []llm.ToolCall{{Name: "write_file", Args: json.RawMessage(raw)}}}}
+		out, counts, err := o.Check(llm.ProviderInfo{ID: "p", Jurisdiction: llm.EU}, msgs)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := string(out[0].ToolCalls[0].Args)
+		if strings.Contains(got, "Zx8kq") || !json.Valid([]byte(got)) || counts["SECRET"] != 1 {
+			t.Fatalf("%s -> %s %v", raw, got, counts)
+		}
+	}
+}

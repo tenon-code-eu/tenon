@@ -25,9 +25,12 @@ const (
 // Options configure Run.
 type Options struct {
 	Output Output
-	// Redact masque une charge utile JSON avant affichage (sortie json) et les
-	// messages écrits sur stderr. nil : aucun masquage.
+	// Redact masque une charge utile JSON avant affichage (sortie json).
+	// nil : aucun masquage.
 	Redact func(string) string
+	// RedactText masque le texte libre : réponse finale (sortie texte) et
+	// messages écrits sur stderr. nil : Redact est utilisé.
+	RedactText func(string) string
 }
 
 // Codes de sortie.
@@ -46,11 +49,15 @@ func Run(ctx context.Context, eng *engine.Engine, sessionID, prompt string, opts
 	if redact == nil {
 		redact = func(s string) string { return s }
 	}
+	redactText := opts.RedactText
+	if redactText == nil {
+		redactText = redact
+	}
 	ch := eng.Subscribe()
 	errc := make(chan error, 1)
 	go func() { errc <- eng.Submit(ctx, sessionID, prompt) }()
 
-	r := &renderer{eng: eng, out: out, redact: redact, stdout: stdout, stderr: stderr}
+	r := &renderer{eng: eng, out: out, redact: redact, redactText: redactText, stdout: stdout, stderr: stderr}
 	var err error
 loop:
 	for {
@@ -72,11 +79,11 @@ loop:
 	}
 
 	if out == Text && r.final != "" {
-		fmt.Fprintln(stdout, r.final)
+		fmt.Fprintln(stdout, redactText(r.final))
 	}
 	switch {
 	case err != nil:
-		fmt.Fprint(stderr, redact(fmt.Sprintf("tenon : %v\n", err)))
+		fmt.Fprint(stderr, redactText(fmt.Sprintf("tenon : %v\n", err)))
 		return exitError
 	case r.refused:
 		return exitRefused
@@ -87,7 +94,8 @@ loop:
 type renderer struct {
 	eng            *engine.Engine
 	out            Output
-	redact         func(string) string
+	redact         func(string) string // charge utile JSON
+	redactText     func(string) string // texte libre
 	stdout, stderr io.Writer
 
 	final   string // dernier texte complet de l'assistant
@@ -184,7 +192,7 @@ func (r *renderer) decode(ev event.Event, v any) bool {
 // text écrit sur stderr en sortie texte uniquement (en JSON, tout est sur stdout).
 func (r *renderer) text(format string, a ...any) {
 	if r.out == Text {
-		fmt.Fprint(r.stderr, r.redact(fmt.Sprintf(format, a...)))
+		fmt.Fprint(r.stderr, r.redactText(fmt.Sprintf(format, a...)))
 	}
 }
 
