@@ -882,3 +882,21 @@ func TestLocalProviderSkipsKeyring(t *testing.T) {
 		t.Fatalf("fournisseur eu : %q %q", v, src)
 	}
 }
+
+// Les marqueurs d'une session reprise ne sont jamais réattribués à un autre
+// secret.
+func TestResumeMarkersDoNotCollide(t *testing.T) {
+	f := newFakeLLM(t, sseText("noté"))
+	e := newEnv(t, f, "eu")
+	if code, _, errb := e.run("-p", "MISTRAL_API_KEY=Zx8kq2LmNp4Rt6Vw9YbC1dEf"); code != 0 {
+		t.Fatalf("run 1 : code=%d stderr=%q", code, errb)
+	}
+	if code, _, errb := e.run("--resume", "last", "-p", "OTHER_TOKEN=Qw3rTy7UiOp9AsDf2GhJ4kLm"); code != 0 {
+		t.Fatalf("run 2 : code=%d stderr=%q", code, errb)
+	}
+	reqs := f.requests()
+	if len(reqs) != 2 || !strings.Contains(reqs[1], "MISTRAL_API_KEY=[SECRET_1]") ||
+		!strings.Contains(reqs[1], "OTHER_TOKEN=[SECRET_2]") {
+		t.Fatalf("requêtes : %q", reqs)
+	}
+}

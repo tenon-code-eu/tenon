@@ -12,6 +12,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"codeberg.org/tenon/tenon/internal/audit"
@@ -397,6 +399,10 @@ func startEngine(o engineOptions) (started, error) {
 		if corrupt {
 			fmt.Fprintln(o.stderr, i18n.T(lang, "resume.warning_corrupt", skippedLines(sdir, sid, len(events)), sid))
 		}
+		// Les compteurs du Redactor sont propres au processus : ceux des
+		// marqueurs déjà présents dans la session sont réservés, sinon un
+		// nouveau secret recevrait le marqueur d'un autre.
+		reserveMarkers(s.redactor, events)
 	}
 
 	perm, err := policy.NewPermissions(wd, s.rules)
@@ -454,6 +460,26 @@ func startEngine(o engineOptions) (started, error) {
 		}
 	}
 	return started{eng: eng, redactor: red, sessionID: sid, close: closeAll}, nil
+}
+
+// reMarkerKind reconnaît un marqueur de masquage et en capture le type et le
+// numéro.
+var reMarkerKind = regexp.MustCompile(`\[([A-Z_]+)_(\d+)\]`)
+
+// reserveMarkers réserve, pour chaque type, le plus grand numéro de marqueur
+// présent dans les charges utiles des événements.
+func reserveMarkers(red *policy.Redactor, events []event.Event) {
+	top := map[string]int{}
+	for _, ev := range events {
+		for _, m := range reMarkerKind.FindAllStringSubmatch(string(ev.Payload), -1) {
+			if n, err := strconv.Atoi(m[2]); err == nil && n > top[m[1]] {
+				top[m[1]] = n
+			}
+		}
+	}
+	for kind, n := range top {
+		red.Reserve(kind, n)
+	}
 }
 
 // providerKey cherche la clé du fournisseur p (environnement, puis

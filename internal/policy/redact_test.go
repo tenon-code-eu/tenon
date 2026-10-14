@@ -200,3 +200,16 @@ func TestAddKeyringSecretMasksEncodedForms(t *testing.T) {
 		t.Errorf("clé courte masquée : %q", out)
 	}
 }
+
+func TestReserveMarkers(t *testing.T) {
+	r, err := NewRedactor(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Reserve("SECRET", 3)
+	r.Reserve("SECRET", 1) // ne recule jamais
+	out, _ := r.Redact("MISTRAL_API_KEY=Zx8kq2LmNp4Rt6Vw9YbC1dEf jean.dupont@exemple.fr")
+	if out != "MISTRAL_API_KEY=[SECRET_4] [EMAIL_1]" {
+		t.Fatalf("got %q", out)
+	}
+}

@@ -138,6 +138,17 @@ func (r *Redactor) AddKeyringSecret(value string) {
 	}
 }
 
+// Reserve marks the markers [kind_1]..[kind_n] as used: the next new value
+// of that kind gets [kind_n+1]. Used on resume, so that a new secret never
+// reuses a marker already present in the loaded session. Never decreases.
+func (r *Redactor) Reserve(kind string, n int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if n > r.counters[kind] {
+		r.counters[kind] = n
+	}
+}
+
 // Redact masks s and returns the masked text with the number of masks per type.
 func (r *Redactor) Redact(s string) (string, map[string]int) {
 	counts := map[string]int{}
