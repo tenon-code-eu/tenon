@@ -142,3 +142,26 @@ func TestUnknownEventIgnored(t *testing.T) {
 		t.Fatalf("décodage = %+v", it)
 	}
 }
+
+func TestStreamingClosedOnTurnEnd(t *testing.T) {
+	ends := map[string]event.Event{
+		"turn":  ev(t, event.TurnCompleted, event.TurnCompletedPayload{Reason: "cancelled"}),
+		"error": ev(t, event.Error, event.ErrorPayload{Code: "provider", Message: "x"}),
+	}
+	for name, end := range ends {
+		tr := NewTranscript(i18n.FR)
+		tr.Apply(ev(t, event.AssistantDelta, event.AssistantDeltaPayload{Text: "a"}))
+		tr.Apply(end)
+		tr.Apply(ev(t, event.UserMessage, event.UserMessagePayload{Text: "u"}))
+		tr.Apply(ev(t, event.AssistantDelta, event.AssistantDeltaPayload{Text: "b"}))
+		var as []Item
+		for _, it := range tr.Items() {
+			if it.Kind == ItemAssistant {
+				as = append(as, it)
+			}
+		}
+		if len(as) != 2 || as[0].Streaming || as[0].Text != "a" || as[1].Text != "b" || !as[1].Streaming {
+			t.Errorf("%s : assistants = %+v", name, as)
+		}
+	}
+}

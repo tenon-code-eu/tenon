@@ -172,12 +172,12 @@ func TestSubmitErrorExit1(t *testing.T) {
 
 func TestJurisdictionLabel(t *testing.T) {
 	for j, want := range map[llm.Jurisdiction]string{llm.EU: "UE", llm.NonEU: "hors UE", llm.Local: "locale"} {
-		if got := jurisdictionLabel(i18n.FR, j); got != want {
+		if got := JurisdictionLabel(i18n.FR, j); got != want {
 			t.Fatalf("%s : %q", j, got)
 		}
 	}
 	for j, want := range map[llm.Jurisdiction]string{llm.EU: "EU", llm.NonEU: "non-EU", llm.Local: "local"} {
-		if got := jurisdictionLabel(i18n.EN, j); got != want {
+		if got := JurisdictionLabel(i18n.EN, j); got != want {
 			t.Fatalf("%s : %q", j, got)
 		}
 	}

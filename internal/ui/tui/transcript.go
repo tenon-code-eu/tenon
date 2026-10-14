@@ -9,7 +9,6 @@ import (
 
 	"codeberg.org/tenon/tenon/internal/event"
 	"codeberg.org/tenon/tenon/internal/i18n"
-	"codeberg.org/tenon/tenon/internal/llm"
 	"codeberg.org/tenon/tenon/internal/ui/headless"
 )
 
@@ -78,6 +77,16 @@ func (t *Transcript) lastStreaming() int {
 	return -1
 }
 
+// endStreaming clôt tout élément assistant encore en streaming : le moteur
+// n'émet pas d'AssistantMessage sur annulation ou erreur fournisseur.
+func (t *Transcript) endStreaming() {
+	for i := range t.items {
+		if t.items[i].Kind == ItemAssistant {
+			t.items[i].Streaming = false
+		}
+	}
+}
+
 // Apply intègre un événement ; les types inconnus sont ignorés.
 func (t *Transcript) Apply(ev event.Event) {
 	switch ev.Type {
@@ -140,7 +149,7 @@ func (t *Transcript) Apply(ev event.Event) {
 		if !t.decode(ev, &p) {
 			return
 		}
-		t.notice(i18n.T(t.lang, "warn.non_eu", providerLabel(p.Provider), jurisdictionLabel(t.lang, p.Provider.Jurisdiction)))
+		t.notice(i18n.T(t.lang, "warn.non_eu", headless.ProviderLabel(p.Provider), headless.JurisdictionLabel(t.lang, p.Provider.Jurisdiction)))
 	case event.ContextCompacted:
 		var p event.ContextCompactedPayload
 		if !t.decode(ev, &p) {
@@ -162,6 +171,7 @@ func (t *Transcript) Apply(ev event.Event) {
 		if !t.decode(ev, &p) {
 			return
 		}
+		t.endStreaming()
 		msg := p.Message
 		if p.Code == "context_too_large" {
 			msg = i18n.T(t.lang, "err.context_too_large")
@@ -173,6 +183,7 @@ func (t *Transcript) Apply(ev event.Event) {
 			return
 		}
 		t.busy = false
+		t.endStreaming()
 		switch p.Reason {
 		case "max_iterations", "incomplete", "blocked", "cancelled", "context_too_large":
 			t.notice(i18n.T(t.lang, "tui.turn_reason."+p.Reason))
@@ -245,21 +256,4 @@ func firstLine(s string) string {
 		return l
 	}
 	return ""
-}
-
-func providerLabel(p llm.ProviderInfo) string {
-	if p.Name != "" {
-		return p.Name
-	}
-	return p.ID
-}
-
-func jurisdictionLabel(l i18n.Lang, j llm.Jurisdiction) string {
-	switch j {
-	case llm.EU:
-		return i18n.T(l, "banner.jurisdiction.eu")
-	case llm.Local:
-		return i18n.T(l, "banner.jurisdiction.local")
-	}
-	return i18n.T(l, "banner.jurisdiction.non_eu")
 }
