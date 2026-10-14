@@ -68,13 +68,14 @@ func (t *globTool) Run(ctx context.Context, args json.RawMessage) (Result, error
 	if a.Pattern == "" {
 		return fail("arguments invalides : pattern requis"), nil
 	}
-	matches, err := doublestar.Glob(os.DirFS(t.root), a.Pattern)
+	matches, err := doublestar.Glob(os.DirFS(t.root), a.Pattern, doublestar.WithNoFollow())
 	if err != nil {
 		return fail("motif invalide : %v", err), nil
 	}
+	linkCache := map[string]bool{}
 	var out []string
 	for _, m := range matches {
-		if !inGit(m) {
+		if !inGit(m) && !viaSymlink(t.root, m, linkCache) {
 			out = append(out, m)
 		}
 	}
@@ -129,10 +130,14 @@ func (t *grepTool) Run(ctx context.Context, args json.RawMessage) (Result, error
 	if a.Glob != "" && !doublestar.ValidatePattern(a.Glob) {
 		return fail("motif glob invalide : %s", a.Glob), nil
 	}
+	root := t.root
+	if r, err := filepath.EvalSymlinks(root); err == nil {
+		root = r
+	}
 	var lines []string
 	truncated := false
 	errStop := errors.New("stop")
-	walkErr := filepath.WalkDir(t.root, func(p string, d fs.DirEntry, err error) error {
+	walkErr := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if cerr := ctx.Err(); cerr != nil {
 			return cerr
 		}
@@ -148,7 +153,7 @@ func (t *grepTool) Run(ctx context.Context, args json.RawMessage) (Result, error
 		if !d.Type().IsRegular() {
 			return nil
 		}
-		rel, rerr := filepath.Rel(t.root, p)
+		rel, rerr := filepath.Rel(root, p)
 		if rerr != nil {
 			return nil
 		}
@@ -186,4 +191,25 @@ func (t *grepTool) Run(ctx context.Context, args json.RawMessage) (Result, error
 		s += fmt.Sprintf("\n[… limité à %d correspondances]", maxGrepMatches)
 	}
 	return t.out(s), nil
+}
+
+// viaSymlink indique si un composant parent de rel (sous root) est un lien symbolique.
+func viaSymlink(root, rel string, cache map[string]bool) bool {
+	dir := filepath.Dir(filepath.FromSlash(rel))
+	if dir == "." {
+		return false
+	}
+	if v, ok := cache[dir]; ok {
+		return v
+	}
+	cur, res := root, false
+	for _, part := range strings.Split(dir, string(filepath.Separator)) {
+		cur = filepath.Join(cur, part)
+		if st, err := os.Lstat(cur); err != nil || st.Mode()&os.ModeSymlink != 0 {
+			res = true
+			break
+		}
+	}
+	cache[dir] = res
+	return res
 }
