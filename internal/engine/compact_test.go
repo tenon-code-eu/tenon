@@ -1,9 +1,14 @@
 package engine
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"codeberg.org/tenon/tenon/internal/event"
@@ -207,8 +212,8 @@ func TestCompactionCannotFit(t *testing.T) {
 	}
 }
 
-// forcedSetup : sous le seuil (1000 + 309 < 1600), mais une queue de 600
-// jetons maximum laisse le premier échange à résumer.
+// forcedSetup : sous le seuil (1000 + 309 < 1600) : seule une erreur
+// ErrContextLength du fournisseur déclenche la compaction.
 func forcedSetup(t *testing.T, script [][]llm.Chunk) *harness {
 	h := newHarness(t, euInfo, script, window(2000))
 	seed(t, h, "s_1",
@@ -236,11 +241,13 @@ func TestContextLengthForcesCompaction(t *testing.T) {
 	if len(reqs[1].Tools) != 0 || len(reqs[1].Messages) != 2 {
 		t.Fatalf("requête de résumé %s", mustJSON(reqs[1]))
 	}
-	if m := reqs[2].Messages; len(m) != 5 || m[1].Content != "Résumé de la conversation précédente :\n\nR" {
+	// Budget de queue : 0.3 × min(2000, 1316 rejetés) = 394 jetons ; le
+	// second échange (500) n'y tient pas, seul "suite" est conservé.
+	if m := reqs[2].Messages; len(m) != 3 || m[1].Content != "Résumé de la conversation précédente :\n\nR" {
 		t.Fatalf("nouvelle tentative %s", mustJSON(m))
 	}
 	cc := ofType(evs, event.ContextCompacted)
-	if len(cc) != 1 || decode[event.ContextCompactedPayload](t, cc[0]).Replaced != 2 {
+	if len(cc) != 1 || decode[event.ContextCompactedPayload](t, cc[0]).Replaced != 4 {
 		t.Fatalf("events %v", types(evs))
 	}
 	if len(ofType(evs, event.Error)) != 0 {
@@ -357,5 +364,140 @@ func TestRestoreTwiceEmptyLog(t *testing.T) {
 	}
 	if err := h.eng.Restore("s_1", nil); !errors.Is(err, ErrSessionActive) {
 		t.Fatalf("second Restore : %v", err)
+	}
+}
+
+// funcProvider répond selon la requête reçue et enregistre chaque requête.
+type funcProvider struct {
+	info llm.ProviderInfo
+	f    func(llm.Request) []llm.Chunk
+
+	mu       sync.Mutex
+	requests []llm.Request
+}
+
+func (p *funcProvider) Info() llm.ProviderInfo { return p.info }
+
+func (p *funcProvider) Stream(ctx context.Context, req llm.Request) (<-chan llm.Chunk, error) {
+	p.mu.Lock()
+	p.requests = append(p.requests, req)
+	p.mu.Unlock()
+	chunks := p.f(req)
+	ch := make(chan llm.Chunk, len(chunks))
+	for _, c := range chunks {
+		ch <- c
+	}
+	close(ch)
+	return ch, nil
+}
+
+func (p *funcProvider) reqs() []llm.Request {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]llm.Request(nil), p.requests...)
+}
+
+func TestLongTurnNoRepeatedCompaction(t *testing.T) {
+	n := 0
+	fp := &funcProvider{info: euInfo, f: func(req llm.Request) []llm.Chunk {
+		if len(req.Tools) == 0 {
+			return text("R")
+		}
+		n++
+		return call(fmt.Sprintf("c%d", n), "read_file", `{"path":"gros.txt"}`)
+	}}
+	h := newHarness(t, euInfo, nil, window(1000), func(d *Deps) { d.Provider = fp })
+	if err := os.WriteFile(filepath.Join(h.root, "gros.txt"), []byte(runes(400)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	seed(t, h, "s_1", longHistory()...)
+	evs, err := h.submit(t, "s_1", "lis gros.txt en boucle", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cc := ofType(evs, event.ContextCompacted)
+	if len(cc) == 0 {
+		t.Fatalf("aucune compaction : %v", types(evs))
+	}
+	for _, e := range cc {
+		p := decode[event.ContextCompactedPayload](t, e)
+		if p.TokensAfter >= p.TokensBefore || p.Replaced <= 1 {
+			t.Fatalf("compaction sans gain %+v (x%d)", p, len(cc))
+		}
+	}
+	summaries := 0
+	for _, r := range fp.reqs() {
+		if len(r.Tools) == 0 {
+			summaries++
+		}
+	}
+	if summaries != len(cc) {
+		t.Fatalf("%d requêtes de résumé pour %d compactions", summaries, len(cc))
+	}
+	if tc := lastTurn(t, evs); tc.Reason != "context_too_large" {
+		t.Fatalf("TurnCompleted %+v", tc)
+	}
+	// Aucune requête normale ne dépasse le seuil.
+	for i, r := range fp.reqs() {
+		if len(r.Tools) > 0 && estimate(r.Messages, r.Tools) > 800 {
+			t.Fatalf("requête %d au-dessus du seuil : %d", i, estimate(r.Messages, r.Tools))
+		}
+	}
+}
+
+func TestForcedCompactionUsesRejectedSize(t *testing.T) {
+	fp := &funcProvider{info: euInfo, f: func(req llm.Request) []llm.Chunk {
+		// Fenêtre réelle du modèle : 1000 jetons, bien en deçà des 32000
+		// configurés.
+		if estimate(req.Messages, req.Tools) > 1000 {
+			return []llm.Chunk{{Done: true, Err: provider.ErrContextLength}}
+		}
+		if len(req.Tools) == 0 {
+			return text("R")
+		}
+		return text("ok")
+	}}
+	h := newHarness(t, euInfo, nil, window(32000), func(d *Deps) { d.Provider = fp })
+	seed(t, h, "s_1", longHistory()...)
+	evs, err := h.submit(t, "s_1", "suite", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reqs := fp.reqs()
+	if len(reqs) != 3 || len(reqs[1].Tools) != 0 {
+		t.Fatalf("%d requêtes", len(reqs))
+	}
+	if len(ofType(evs, event.ContextCompacted)) != 1 || len(ofType(evs, event.Error)) != 0 {
+		t.Fatalf("events %v", types(evs))
+	}
+	if tc := lastTurn(t, evs); tc.Reason != "done" {
+		t.Fatalf("TurnCompleted %+v", tc)
+	}
+}
+
+func TestSummaryMasksToolArgs(t *testing.T) {
+	h := newHarness(t, euInfo, [][]llm.Chunk{text("R"), text("ok")}, window(1000))
+	hist := longHistory()
+	hist = append([]llm.Message{
+		{Role: llm.User, Content: "connecte-toi"},
+		// Le second mot de passe, avec une espace, échappe au masquage du
+		// texte brut : seul RedactJSON sur les arguments le masque.
+		{Role: llm.Assistant, ToolCalls: []llm.ToolCall{
+			{ID: "c1", Name: "login", Args: json.RawMessage(`{"password":"hunter2hunter2"}`)},
+			{ID: "c2", Name: "login", Args: json.RawMessage(`{"password": "hunter2 hunter2"}`)},
+		}},
+		{Role: llm.Tool, Content: "ok", ToolCallID: "c1"},
+		{Role: llm.Tool, Content: "ok", ToolCallID: "c2"},
+	}, hist...)
+	seed(t, h, "s_1", hist...)
+	if _, err := h.submit(t, "s_1", "suite", nil); err != nil {
+		t.Fatal(err)
+	}
+	reqs := h.prov.reqs()
+	if len(reqs) != 2 || len(reqs[0].Tools) != 0 || !strings.Contains(reqs[0].Messages[1].Content, "login") {
+		t.Fatalf("requêtes %s", mustJSON(reqs))
+	}
+	if j := mustJSON(reqs[0]); strings.Contains(j, "hunter2hunter2") || strings.Contains(j, "hunter2 hunter2") {
+		t.Fatal("la requête de résumé contient le mot de passe")
 	}
 }

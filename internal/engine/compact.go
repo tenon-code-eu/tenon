@@ -38,6 +38,12 @@ func summaryMessage(summary string) llm.Message {
 	return llm.Message{Role: llm.User, Content: summaryPrefix + summary}
 }
 
+// isSummary indique si m est un message de résumé construit par
+// summaryMessage.
+func isSummary(m llm.Message) bool {
+	return m.Role == llm.User && len(m.ToolCalls) == 0 && strings.HasPrefix(m.Content, summaryPrefix)
+}
+
 // estimate approxime le nombre de jetons : (runes des contenus, des arguments
 // d'appels d'outils et des schémas d'outils) / 4.
 func estimate(msgs []llm.Message, defs []llm.ToolDef) int {
@@ -110,10 +116,19 @@ func (t *turn) compact(info llm.ProviderInfo, defs []llm.ToolDef, force bool) (r
 	if !force && before <= limit {
 		return "", nil
 	}
+	// Après un refus du fournisseur, la taille rejetée borne la fenêtre réelle.
+	win := d.ContextWindow
+	if force && before < win {
+		win = before
+	}
 	// h[0] est le prompt système, jamais compacté.
 	conv := h[1:]
-	start := tailStart(conv, int(tailFraction*float64(d.ContextWindow)))
-	if start <= 0 || estimate(conv[start:], nil) > limit {
+	start := tailStart(conv, int(tailFraction*float64(win)))
+	// Trop volumineux : rien à résumer, une queue qui ne tient pas sous le
+	// seuil avec le prompt système et les outils, ou seulement un résumé
+	// précédent à résumer de nouveau (aucun gain possible).
+	if start <= 0 || estimate(h[:1], defs)+estimate(conv[start:], nil) > limit ||
+		(start == 1 && isSummary(conv[0])) {
 		if err := t.emit(event.Error, event.ErrorPayload{
 			Code:    reasonTooLarge,
 			Message: "contexte trop volumineux : impossible de le compacter sous la fenêtre du modèle",
@@ -123,9 +138,19 @@ func (t *turn) compact(info llm.ProviderInfo, defs []llm.ToolDef, force bool) (r
 		return reasonTooLarge, nil
 	}
 
+	// Premier passage par le contrôle sortant : les arguments d'appels
+	// d'outils sont masqués par RedactJSON avant d'être rendus en texte,
+	// comme sur le chemin normal. La requête entière y repasse ensuite.
+	old, ok, err := t.outbound(info, conv[:start])
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return reasonBlocked, nil
+	}
 	msgs, ok, err := t.outbound(info, []llm.Message{
 		{Role: llm.System, Content: summaryPrompt},
-		{Role: llm.User, Content: renderConversation(conv[:start])},
+		{Role: llm.User, Content: renderConversation(old)},
 	})
 	if err != nil {
 		return "", err
