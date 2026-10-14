@@ -75,7 +75,7 @@ type RedactionAppliedPayload struct {
 	Counts map[string]int `json:"counts"`
 }
 
-// TurnCompletedPayload ends a turn. Reason is "done", "max_iterations", "incomplete" or "blocked".
+// TurnCompletedPayload ends a turn. Reason is "done", "max_iterations", "incomplete", "blocked" or "cancelled".
 type TurnCompletedPayload struct {
 	Iterations int    `json:"iterations"`
 	Reason     string `json:"reason"`

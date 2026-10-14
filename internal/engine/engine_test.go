@@ -650,3 +650,81 @@ func TestWriteWithEscapedRedactionMarkerRefused(t *testing.T) {
 		t.Fatalf("ToolResult %+v", p)
 	}
 }
+
+func TestCancelledToolCallsKeepHistoryValid(t *testing.T) {
+	w := `{"path":"out.txt","content":"x"}`
+	h := newHarness(t, euInfo, [][]llm.Chunk{
+		calls(
+			llm.ToolCall{ID: "c1", Name: "write_file", Args: json.RawMessage(w)},
+			llm.ToolCall{ID: "c2", Name: "read_file", Args: json.RawMessage(`{"path":"a.txt"}`)},
+		),
+		text("ok"),
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var evs []event.Event
+	done := make(chan struct{})
+	collected := make(chan struct{})
+	go func() {
+		defer close(collected)
+		for {
+			select {
+			case ev := <-h.sub:
+				evs = append(evs, ev)
+				if ev.Type == event.PermissionRequested {
+					cancel()
+				}
+			case <-done:
+				for {
+					select {
+					case ev := <-h.sub:
+						evs = append(evs, ev)
+					default:
+						return
+					}
+				}
+			}
+		}
+	}()
+	err := h.eng.Submit(ctx, "s_1", "écris")
+	close(done)
+	<-collected
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err %v", err)
+	}
+	if tc := lastTurn(t, evs); tc.Reason != "cancelled" || tc.Iterations != 1 {
+		t.Fatalf("TurnCompleted %+v", tc)
+	}
+
+	// La session reste utilisable : chaque tool_call a sa réponse.
+	if _, err := h.submit(t, "s_1", "encore", nil); err != nil {
+		t.Fatal(err)
+	}
+	reqs := h.prov.reqs()
+	if len(reqs) != 2 {
+		t.Fatalf("%d requêtes", len(reqs))
+	}
+	answered := map[string]bool{}
+	var ids []string
+	for _, m := range reqs[1].Messages {
+		if m.Role == llm.Tool {
+			answered[m.ToolCallID] = true
+		}
+		if m.Role == llm.Assistant {
+			for _, c := range m.ToolCalls {
+				ids = append(ids, c.ID)
+			}
+		}
+	}
+	if len(ids) != 2 {
+		t.Fatalf("tool_calls %v", ids)
+	}
+	for _, id := range ids {
+		if !answered[id] {
+			t.Fatalf("tool_call %s sans réponse : %+v", id, reqs[1].Messages)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(h.root, "out.txt")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("fichier écrit après annulation")
+	}
+}

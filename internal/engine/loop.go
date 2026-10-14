@@ -64,6 +64,7 @@ func (t *turn) run(input string) error {
 		}
 		if provErr != nil {
 			if cerr := t.ctx.Err(); cerr != nil {
+				t.cancelled(iter)
 				return cerr
 			}
 			if errors.Is(provErr, provider.ErrIncomplete) {
@@ -83,20 +84,43 @@ func (t *turn) run(input string) error {
 
 		t.s.history = append(t.s.history, llm.Message{Role: llm.Assistant, Content: text, ToolCalls: calls})
 		if err := t.emit(event.AssistantMessage, event.AssistantMessagePayload{Text: text, ToolCalls: safeCalls(calls)}); err != nil {
+			t.closeCalls(calls, err)
 			return err
 		}
 		if len(calls) == 0 {
 			return t.done(iter, "done")
 		}
-		for _, c := range calls {
+		for i, c := range calls {
 			res, err := t.runTool(c)
 			if err != nil {
+				t.closeCalls(calls[i:], err)
+				if t.ctx.Err() != nil {
+					t.cancelled(iter)
+				}
 				return err
 			}
 			t.s.history = append(t.s.history, llm.Message{Role: llm.Tool, Content: res.Content, ToolCallID: c.ID})
 		}
 	}
 	return t.done(d.MaxIterations, "max_iterations")
+}
+
+// closeCalls ajoute à l'historique une réponse synthétique pour chaque appel
+// d'outil resté sans résultat : sans elle, la requête suivante de la session
+// contiendrait des tool_calls sans réponse, refusés par les API compatibles
+// OpenAI (HTTP 400).
+func (t *turn) closeCalls(calls []llm.ToolCall, cause error) {
+	for _, c := range calls {
+		t.s.history = append(t.s.history, llm.Message{
+			Role: llm.Tool, Content: "annulé : " + cause.Error(), ToolCallID: c.ID,
+		})
+	}
+}
+
+// cancelled clôt le tour dans le journal après une annulation du contexte.
+// Au mieux : une erreur d'émission (audit déjà en échec) est ignorée.
+func (t *turn) cancelled(iter int) {
+	_ = t.done(iter, "cancelled")
 }
 
 // outbound applique le contrôle sortant à l'historique et renvoie la copie
