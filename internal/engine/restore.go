@@ -17,10 +17,12 @@ const interruptedMsg = "annulé : session interrompue"
 // Restore reconstruit l'état en mémoire d'une session à partir de ses
 // événements persistés (session.Load), dans l'ordre. À appeler avant tout
 // Submit de cette session ; renvoie ErrSessionActive si la session a déjà un
-// état dans cet Engine.
+// état dans cet Engine (y compris après un premier Restore).
 //
 // L'historique est reconstruit depuis UserMessage, AssistantMessage et
-// ToolResult, tels quels (payloads masqués). Tout appel d'outil resté sans
+// ToolResult, tels quels (payloads masqués) ; ContextCompacted remplace les
+// Replaced premiers messages (prompt système exclu) par le message de résumé,
+// et un Replaced hors bornes rend le journal invalide (erreur). Tout appel d'outil resté sans
 // ToolResult reçoit une réponse synthétique avant le message suivant de
 // l'utilisateur ou de l'assistant, et après le dernier événement. Le compteur
 // de séquence et celui des demandes de permission reprennent aux plus grandes
@@ -30,7 +32,7 @@ func (e *Engine) Restore(sessionID string, events []event.Event) error {
 	s := e.session(sessionID)
 	s.turn.Lock()
 	defer s.turn.Unlock()
-	if s.started || len(s.history) > 1 {
+	if s.started || s.resumed || len(s.history) > 1 {
 		return fmt.Errorf("%w : %s", ErrSessionActive, sessionID)
 	}
 
@@ -87,6 +89,21 @@ func (e *Engine) Restore(sessionID string, events []event.Event) error {
 					break
 				}
 			}
+		case event.ContextCompacted:
+			var p event.ContextCompactedPayload
+			if err := unmarshalPayload(ev, &p); err != nil {
+				return err
+			}
+			closePending()
+			// history[0] est le prompt système, jamais compacté.
+			if p.Replaced < 1 || p.Replaced > len(history)-1 {
+				return fmt.Errorf("événement %s (%s) invalide : %d messages remplacés sur %d",
+					ev.ID, ev.Type, p.Replaced, len(history)-1)
+			}
+			rest := history[1+p.Replaced:]
+			nh := make([]llm.Message, 0, 2+len(rest))
+			nh = append(nh, history[0], summaryMessage(p.Summary))
+			history = append(nh, rest...)
 		case event.PermissionRequested:
 			var p event.PermissionRequestedPayload
 			if err := unmarshalPayload(ev, &p); err != nil {

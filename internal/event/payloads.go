@@ -21,6 +21,16 @@ type UserMessagePayload struct {
 	Text string `json:"text"`
 }
 
+// ContextCompactedPayload records a context compaction: the first Replaced
+// conversation messages (the system prompt excluded) were replaced by one user
+// message carrying Summary. Token counts are estimates.
+type ContextCompactedPayload struct {
+	Summary      string `json:"summary"`
+	Replaced     int    `json:"replaced"`
+	TokensBefore int    `json:"tokens_before"`
+	TokensAfter  int    `json:"tokens_after"`
+}
+
 // AssistantDeltaPayload carries a streamed fragment of an assistant reply.
 type AssistantDeltaPayload struct {
 	Text string `json:"text"`
@@ -82,7 +92,7 @@ type RedactionAppliedPayload struct {
 	Counts map[string]int `json:"counts"`
 }
 
-// TurnCompletedPayload ends a turn. Reason is "done", "max_iterations", "incomplete", "blocked" or "cancelled".
+// TurnCompletedPayload ends a turn. Reason is "done", "max_iterations", "incomplete", "blocked", "cancelled" or "context_too_large".
 type TurnCompletedPayload struct {
 	Iterations int    `json:"iterations"`
 	Reason     string `json:"reason"`

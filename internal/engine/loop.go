@@ -48,21 +48,41 @@ func (t *turn) run(input string) error {
 	}
 
 	for iter := 1; iter <= d.MaxIterations; iter++ {
-		msgs, ok, err := t.outbound(info)
-		if err != nil {
-			return err
-		}
-		if !ok {
-			return t.done(iter-1, "blocked")
-		}
-
 		var defs []llm.ToolDef
 		if d.Tools != nil {
 			defs = d.Tools.Defs()
 		}
-		text, calls, provErr, err := t.stream(llm.Request{Model: info.Model, Messages: msgs, Tools: defs})
-		if err != nil {
+		if stop, err := t.compactOrStop(info, defs, false, iter-1); stop || err != nil {
 			return err
+		}
+
+		var (
+			text      string
+			calls     []llm.ToolCall
+			provErr   error
+			compacted bool
+		)
+		for {
+			msgs, ok, err := t.outbound(info, t.s.history)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				return t.done(iter-1, "blocked")
+			}
+			text, calls, provErr, err = t.stream(llm.Request{Model: info.Model, Messages: msgs, Tools: defs}, true)
+			if err != nil {
+				return err
+			}
+			// Contexte trop long pour le fournisseur : une compaction forcée,
+			// puis une seule nouvelle tentative.
+			if compacted || !errors.Is(provErr, provider.ErrContextLength) || t.ctx.Err() != nil {
+				break
+			}
+			compacted = true
+			if stop, err := t.compactOrStop(info, defs, true, iter); stop || err != nil {
+				return err
+			}
 		}
 		if provErr != nil {
 			if cerr := t.ctx.Err(); cerr != nil {
@@ -125,13 +145,31 @@ func (t *turn) cancelled(iter int) {
 	_ = t.done(iter, "cancelled")
 }
 
-// outbound applique le contrôle sortant à l'historique et renvoie la copie
-// masquée à envoyer. ok vaut false si l'utilisateur refuse la juridiction.
-func (t *turn) outbound(info llm.ProviderInfo) (msgs []llm.Message, ok bool, err error) {
+// compactOrStop appelle compact et, si la compaction termine le tour, émet
+// TurnCompleted avec iter itérations. stop indique la fin du tour ; err est
+// l'erreur à renvoyer par Submit.
+func (t *turn) compactOrStop(info llm.ProviderInfo, defs []llm.ToolDef, force bool, iter int) (stop bool, err error) {
+	reason, err := t.compact(info, defs, force)
+	switch {
+	case reason == reasonCancelled:
+		t.cancelled(iter)
+		return true, err
+	case err != nil:
+		return true, err
+	case reason != "":
+		return true, t.done(iter, reason)
+	}
+	return false, nil
+}
+
+// outbound applique le contrôle sortant à in (historique ou requête de
+// résumé) et renvoie la copie masquée à envoyer. ok vaut false si
+// l'utilisateur refuse la juridiction.
+func (t *turn) outbound(info llm.ProviderInfo, in []llm.Message) (msgs []llm.Message, ok bool, err error) {
 	d := t.e.d
 	var counts map[string]int
 	for asked := false; ; asked = true {
-		msgs, counts, err = d.Outbound.Check(info, t.s.history)
+		msgs, counts, err = d.Outbound.Check(info, in)
 		if err == nil {
 			break
 		}
@@ -174,7 +212,8 @@ func (t *turn) outbound(info llm.ProviderInfo) (msgs []llm.Message, ok bool, err
 
 // stream appelle le fournisseur et draine le flux jusqu'à sa fermeture.
 // provErr est l'erreur du fournisseur ; err une erreur d'émission (fatale).
-func (t *turn) stream(req llm.Request) (text string, calls []llm.ToolCall, provErr, err error) {
+// deltas indique s'il faut émettre AssistantDelta (faux pour un résumé).
+func (t *turn) stream(req llm.Request, deltas bool) (text string, calls []llm.ToolCall, provErr, err error) {
 	ctx, cancel := context.WithCancel(t.ctx)
 	defer cancel()
 	ch, perr := t.e.d.Provider.Stream(ctx, req)
@@ -186,7 +225,7 @@ func (t *turn) stream(req llm.Request) (text string, calls []llm.ToolCall, provE
 	for c := range ch {
 		if c.Text != "" {
 			sb.WriteString(c.Text)
-			if err := t.emit(event.AssistantDelta, event.AssistantDeltaPayload{Text: c.Text}); err != nil {
+			if err := t.delta(deltas, c.Text); err != nil {
 				// Annule le flux puis le draine en arrière-plan pour libérer
 				// le goroutine du fournisseur.
 				cancel()
@@ -210,6 +249,14 @@ func (t *turn) stream(req llm.Request) (text string, calls []llm.ToolCall, provE
 		calls = nil
 	}
 	return sb.String(), calls, provErr, nil
+}
+
+// delta émet AssistantDelta si emit est vrai (faux pour un résumé).
+func (t *turn) delta(emit bool, text string) error {
+	if !emit {
+		return nil
+	}
+	return t.emit(event.AssistantDelta, event.AssistantDeltaPayload{Text: text})
 }
 
 // ask enregistre la demande, émet PermissionRequested, attend Respond ou
