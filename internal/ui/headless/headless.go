@@ -45,7 +45,8 @@ const (
 
 // Run soumet prompt à eng dans la session sessionID et renvoie le code de
 // sortie : 3 si une action a été refusée (permission, politique) ou le tour
-// bloqué, 1 si Submit échoue, sinon 0.
+// bloqué, 1 si Submit échoue ou si le tour n'a pas pu tourner (contexte trop
+// volumineux), sinon 0.
 func Run(ctx context.Context, eng *engine.Engine, sessionID, prompt string, opts Options, stdout, stderr io.Writer) int {
 	out := opts.Output
 	redact := opts.Redact
@@ -92,6 +93,8 @@ loop:
 	case err != nil:
 		fmt.Fprint(stderr, redactText(i18n.T(lang, "err.prefix", err)+"\n"))
 		return exitError
+	case r.failed:
+		return exitError
 	case r.refused:
 		return exitRefused
 	}
@@ -108,6 +111,7 @@ type renderer struct {
 
 	final   string // dernier texte complet de l'assistant
 	refused bool
+	failed  bool // le tour n'a pas pu tourner (context_too_large)
 }
 
 func (r *renderer) handle(ev event.Event) {
@@ -158,6 +162,10 @@ func (r *renderer) handle(ev event.Event) {
 			case "blocked":
 				r.refused = true
 				r.text("%s\n", i18n.T(r.lang, "turn.blocked"))
+			case "context_too_large":
+				// Une erreur, pas un refus de la politique : l'Error qui
+				// précède l'a déjà expliquée.
+				r.failed = true
 			case "max_iterations", "incomplete", "cancelled":
 				r.text("%s\n", i18n.T(r.lang, "turn.ended", p.Reason))
 			}

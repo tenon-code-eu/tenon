@@ -762,3 +762,12 @@ func TestKeyFromKeyring(t *testing.T) {
 		t.Fatalf("fournisseur inconnu : code=%d", code)
 	}
 }
+
+func TestContextTooLargeExit1(t *testing.T) {
+	f := newFakeLLM(t, sseText("ok"))
+	e := newEnvExtra(t, f, "eu", "context_window = 1200\n")
+	code, out, errb := e.run("-p", strings.Repeat("mot ", 4000))
+	if code != 1 || len(f.requests()) != 0 {
+		t.Fatalf("code=%d requêtes=%d stdout=%q stderr=%q", code, len(f.requests()), out, errb)
+	}
+}

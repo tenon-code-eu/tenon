@@ -337,3 +337,29 @@ func TestDefaultLangIsFrench(t *testing.T) {
 		t.Fatalf("stderr=%q", errb.String())
 	}
 }
+
+// Un tour qui n'a pas pu tourner (contexte trop volumineux) est une erreur :
+// code 1, aucune requête.
+func TestContextTooLargeExit1(t *testing.T) {
+	root := t.TempDir()
+	perm, err := policy.NewPermissions(root, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := policy.NewRedactor(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := &scripted{info: llm.ProviderInfo{ID: "t", Model: "m-1", Jurisdiction: llm.EU}, script: [][]llm.Chunk{text("ok")}}
+	eng := engine.New(engine.Deps{
+		Provider: p, Permissions: perm, Outbound: policy.NewOutbound(r),
+		ProjectRoot: root, ContextWindow: 100,
+	})
+	for _, out := range []Output{Text, JSON} {
+		var stdout, errb bytes.Buffer
+		code := Run(context.Background(), eng, "s_"+string(out), strings.Repeat("mot ", 400), Options{Output: out}, &stdout, &errb)
+		if code != 1 || p.calls() != 0 {
+			t.Fatalf("%s : code=%d appels=%d stderr=%q", out, code, p.calls(), errb.String())
+		}
+	}
+}
