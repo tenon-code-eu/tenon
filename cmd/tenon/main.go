@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/signal"
 )
@@ -15,7 +16,8 @@ func main() {
 
 	wd, err := os.Getwd()
 	if err != nil {
-		wd = "."
+		fmt.Fprintf(os.Stderr, "tenon : dossier courant illisible : %v\n", err)
+		os.Exit(1)
 	}
 
 	os.Exit(run(ctx, os.Args[1:], os.Stdout, os.Stderr, os.Getenv, wd))
