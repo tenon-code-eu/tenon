@@ -300,3 +300,21 @@ func TestOpenChmodsExistingDir(t *testing.T) {
 		t.Fatalf("perm=%v", fi.Mode().Perm())
 	}
 }
+
+func TestOpenChmodsExistingFiles(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "audit")
+	os.MkdirAll(dir, 0o700)
+	p := filepath.Join(dir, "2026-10-13.jsonl")
+	if err := os.WriteFile(p, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	os.Chmod(p, 0o644)
+	w, err := Open(dir, Full, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.Close()
+	if fi, _ := os.Stat(p); fi.Mode().Perm() != 0o600 {
+		t.Fatalf("perm=%v", fi.Mode().Perm())
+	}
+}

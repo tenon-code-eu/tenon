@@ -69,8 +69,8 @@ type Writer struct {
 	syncFn  func(*os.File) error
 }
 
-// Open creates dir (0700, chmod'ed if it already exists) and checks the
-// chain tail. An unparsable last line is an error.
+// Open creates dir (0700, chmod'ed if it already exists), chmods existing
+// *.jsonl files to 0600 and checks the chain tail. An unparsable last line is an error.
 func Open(dir string, level Level, redact func(string) string) (*Writer, error) {
 	if level != Full && level != Metadata {
 		return nil, fmt.Errorf("niveau d'audit inconnu : %q", level)
@@ -80,6 +80,17 @@ func Open(dir string, level Level, redact func(string) string) (*Writer, error) 
 	}
 	if err := os.Chmod(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("permissions du dossier d'audit : %w", err)
+	}
+	// Des journaux créés par une version antérieure ou à la main peuvent être
+	// lisibles par d'autres : on les ramène à 0600.
+	files, err := listFiles(dir)
+	if err != nil {
+		return nil, fmt.Errorf("lecture du dossier d'audit : %w", err)
+	}
+	for _, f := range files {
+		if err := os.Chmod(filepath.Join(dir, f), 0o600); err != nil {
+			return nil, fmt.Errorf("permissions du journal d'audit %s : %w", f, err)
+		}
 	}
 	if _, _, err := readTail(dir); err != nil {
 		return nil, err
