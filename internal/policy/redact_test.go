@@ -1,6 +1,8 @@
 package policy
 
 import (
+	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"reflect"
 	"strings"
@@ -170,5 +172,31 @@ func TestRedactLiteral(t *testing.T) {
 	}
 	if got, _ := r.Redact("rien ici"); got != "rien ici" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+// Une clé lue dans le trousseau est masquée sous sa forme décodée et sous
+// les formes encodées que go-keyring stocke (et que « security
+// find-generic-password -w » affiche) sur macOS.
+func TestAddKeyringSecretMasksEncodedForms(t *testing.T) {
+	r, err := NewRedactor(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const key = "cle-du-trousseau-42"
+	b64 := base64.StdEncoding.EncodeToString([]byte(key))
+	hx := hex.EncodeToString([]byte(key))
+	r.AddKeyringSecret(key)
+	for _, in := range []string{key, "go-keyring-base64:" + b64, "go-keyring-encoded:" + hx, b64, "x " + b64 + " y"} {
+		out, _ := r.Redact(in)
+		if strings.Contains(out, key) || strings.Contains(out, b64) || strings.Contains(out, hx) || !strings.Contains(out, "[SECRET_") {
+			t.Errorf("%q → %q", in, out)
+		}
+	}
+	// Formes de moins de 8 caractères : ignorées.
+	r2, _ := NewRedactor(nil)
+	r2.AddKeyringSecret("abc")
+	if out, _ := r2.Redact("abc YWJj"); out != "abc YWJj" {
+		t.Errorf("clé courte masquée : %q", out)
 	}
 }

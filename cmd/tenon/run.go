@@ -330,16 +330,24 @@ func startEngine(o engineOptions) (started, error) {
 		Country: pc.Country, Jurisdiction: llm.Jurisdiction(pc.Jurisdiction),
 	}
 	// Environnement d'abord, puis trousseau. Un trousseau illisible ne bloque
-	// pas : la clé est considérée absente.
-	apiKey, source, err := secrets.Lookup(pc.ID, pc.APIKeyEnv, getenv)
-	if err != nil {
-		fmt.Fprintln(o.stderr, i18n.T(lang, "warn.keyring", err))
-		apiKey = ""
+	// pas : la clé est considérée absente. Les clés de TOUS les fournisseurs
+	// configurés sont masquées (un outil peut afficher celle d'un autre) :
+	// celles de l'environnement par loadSetup, celles du trousseau ici, sous
+	// leur forme décodée et sous les formes encodées de go-keyring.
+	var apiKey string
+	var keyErr error
+	for _, p := range cfg.Providers {
+		v, source, err := providerKey(p, getenv)
+		if p.ID == pc.ID {
+			apiKey, keyErr = v, err
+		}
+		if err == nil && source == "keyring" {
+			s.redactor.AddKeyringSecret(v)
+		}
 	}
-	// Une clé du trousseau est masquée comme celles de l'environnement
-	// (loadSetup les a déjà ajoutées).
-	if source == "keyring" && len(apiKey) >= 8 {
-		s.redactor.AddLiteral(apiKey)
+	if keyErr != nil {
+		fmt.Fprintln(o.stderr, i18n.T(lang, "warn.keyring", keyErr))
+		apiKey = ""
 	}
 	if apiKey == "" && info.Jurisdiction != llm.Local {
 		if pc.APIKeyEnv == "" {
@@ -446,6 +454,16 @@ func startEngine(o engineOptions) (started, error) {
 		}
 	}
 	return started{eng: eng, redactor: red, sessionID: sid, close: closeAll}, nil
+}
+
+// providerKey cherche la clé du fournisseur p (environnement, puis
+// trousseau). Un fournisseur local sans api_key_env n'a pas de clé : le
+// trousseau n'est pas consulté.
+func providerKey(p config.Provider, getenv func(string) string) (value, source string, err error) {
+	if llm.Jurisdiction(p.Jurisdiction) == llm.Local && p.APIKeyEnv == "" {
+		return "", "", nil
+	}
+	return secrets.Lookup(p.ID, p.APIKeyEnv, getenv)
 }
 
 // sameProject indique si le premier SessionStarted de events désigne wd

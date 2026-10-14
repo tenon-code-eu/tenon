@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -18,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"codeberg.org/tenon/tenon/internal/config"
 	"codeberg.org/tenon/tenon/internal/event"
 	"github.com/zalando/go-keyring"
 )
@@ -807,5 +810,75 @@ func TestResumeAfterContextTooLarge(t *testing.T) {
 	}
 	if n/4 > 960 {
 		t.Fatalf("requête de résumé de %d jetons estimés (limite 960)", n/4)
+	}
+}
+
+// La clé d'un autre fournisseur configuré, lue dans le trousseau, est masquée
+// sous ses formes encodées quand un outil l'affiche.
+func TestOtherProviderKeyringKeyNeverLeaks(t *testing.T) {
+	keyring.MockInit()
+	t.Cleanup(keyring.MockInit)
+	const key = "cle-autre-fournisseur-77"
+	b64 := base64.StdEncoding.EncodeToString([]byte(key))
+	hx := hex.EncodeToString([]byte(key))
+	if err := keyring.Set("tenon", "autre", key); err != nil {
+		t.Fatal(err)
+	}
+	cmd := "echo go-keyring-base64:" + b64 + " go-keyring-encoded:" + hx
+	f := newFakeLLM(t, sseCall("shell", `{"command":"`+cmd+`"}`), sseText("fini"))
+	e := newEnvExtra(t, f, "eu", `
+[[providers]]
+id = "autre"
+name = "Autre"
+base_url = "http://127.0.0.1:1"
+model = "m"
+country = "FR"
+jurisdiction = "eu"
+
+[[permissions.rules]]
+tool = "shell"
+match = "echo *"
+decision = "allow"
+`)
+	code, out, errb := e.run("-p", "affiche", "--output", "json")
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errb)
+	}
+	ents, err := os.ReadDir(e.sessionsDir())
+	if err != nil || len(ents) != 1 {
+		t.Fatalf("sessions : %v %v", ents, err)
+	}
+	sess, err := os.ReadFile(filepath.Join(e.sessionsDir(), ents[0].Name()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reqs := f.requests()
+	if len(reqs) != 2 || !strings.Contains(reqs[1], `"role":"tool"`) {
+		t.Fatalf("requêtes : %q", reqs)
+	}
+	for name, s := range map[string]string{
+		"requêtes": strings.Join(reqs, "\n"), "audit": e.auditContents(), "session": string(sess), "stdout": out,
+	} {
+		for _, form := range []string{key, b64, hx} {
+			if strings.Contains(s, form) {
+				t.Errorf("%s contient %q : %s", name, form, s)
+			}
+		}
+	}
+}
+
+// Un fournisseur local sans api_key_env ne consulte pas le trousseau.
+func TestLocalProviderSkipsKeyring(t *testing.T) {
+	keyring.MockInit()
+	t.Cleanup(keyring.MockInit)
+	if err := keyring.Set("tenon", "ollama", "cle-locale-inutile"); err != nil {
+		t.Fatal(err)
+	}
+	v, src, err := providerKey(config.Provider{ID: "ollama", Jurisdiction: "local"}, func(string) string { return "" })
+	if v != "" || src != "" || err != nil {
+		t.Fatalf("providerKey : %q %q %v", v, src, err)
+	}
+	if v, src, _ := providerKey(config.Provider{ID: "ollama", Jurisdiction: "eu"}, func(string) string { return "" }); v == "" || src != "keyring" {
+		t.Fatalf("fournisseur eu : %q %q", v, src)
 	}
 }
