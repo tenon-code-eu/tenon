@@ -41,6 +41,10 @@ const (
 	ellipsis   = "…"
 )
 
+// BinaryText est le texte de l'unique ligne renvoyée par Preview quand le
+// fichier courant ou le nouveau contenu est binaire.
+const BinaryText = binaryText
+
 // splitLines découpe en lignes ; un saut de ligne final ne crée pas de ligne vide.
 func splitLines(s string) []string {
 	if s == "" {

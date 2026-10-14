@@ -12,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"codeberg.org/tenon/tenon/internal/engine"
 	"codeberg.org/tenon/tenon/internal/event"
 	"codeberg.org/tenon/tenon/internal/i18n"
 	"codeberg.org/tenon/tenon/internal/llm"
@@ -81,6 +82,13 @@ type Model struct {
 	userSeen  bool
 	lastCtrlC time.Time
 	now       func() time.Time
+
+	// ctx est le contexte de Run, parent du contexte de chaque tour.
+	ctx context.Context
+	// prompts est la file des demandes de permission, la première affichée.
+	prompts []*permPrompt
+	// calls garde les appels d'outil en attente de résultat, dans l'ordre.
+	calls []pendingCall
 }
 
 // New crée le modèle et s'abonne aux événements de eng.
@@ -107,6 +115,7 @@ func New(eng Engine, opts Options) Model {
 		input: in,
 		st:    newStyles(lipgloss.DefaultRenderer()),
 		now:   time.Now,
+		ctx:   context.Background(),
 	}
 	m.resize(defaultWidth, defaultHeight)
 	return m
@@ -115,6 +124,9 @@ func New(eng Engine, opts Options) Model {
 // Run lance la TUI en plein écran jusqu'à ce que l'utilisateur quitte.
 func Run(ctx context.Context, eng Engine, opts Options, in io.Reader, out io.Writer) error {
 	m := New(eng, opts)
+	// Le tour dérive du contexte de Run : une sortie anormale du programme
+	// (panique comprise) l'annule aussi.
+	m.ctx = ctx
 	m.st = newStyles(lipgloss.NewRenderer(out))
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithContext(ctx), tea.WithInput(in), tea.WithOutput(out))
 	final, err := p.Run()
@@ -181,6 +193,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.userSeen = true
 		}
 		m.tr.Apply(event.Event(msg))
+		m.trackEvent(event.Event(msg))
 		// La lecture n'est jamais suspendue, même pendant une demande de
 		// permission : l'engine bloquerait sur un tampon plein.
 		return m, readEvent(m.sub)
@@ -192,7 +205,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cancel = nil
 		}
 		m.done = nil
-		if msg.err != nil && !m.userSeen {
+		m.endTurn()
+		// Seul l'échec d'audit garantit que le message n'est pas parti ; pour
+		// toute autre erreur, son UserMessage peut simplement ne pas être lu
+		// encore, et le restaurer pousserait à l'envoyer deux fois.
+		if errors.Is(msg.err, engine.ErrAuditFailure) && !m.userSeen {
 			m.restoreInput()
 		}
 		m.sent, m.userSeen = "", false
@@ -212,6 +229,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.prompting() {
+		return m.handlePromptKey(msg)
+	}
 	switch {
 	case key.Matches(msg, keys.Interrupt):
 		now := m.now()
@@ -267,7 +287,7 @@ func (m Model) submit() (tea.Model, tea.Cmd) {
 	}
 	m.input.Reset()
 	m.scrollBack = 0
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(m.ctx)
 	done := make(chan struct{})
 	m.cancel, m.done = cancel, done
 	m.sent, m.userSeen = text, false
@@ -305,9 +325,22 @@ func (m *Model) resize(w, h int) {
 	m.input.SetHeight(inputHeight)
 }
 
+// bottomLines rend la zone sous la conversation : le panneau de la demande de
+// permission affichée, sinon la saisie (conservée telle quelle).
+func (m Model) bottomLines() []string {
+	if m.prompting() {
+		return m.promptLines()
+	}
+	return strings.Split(m.input.View(), "\n")
+}
+
 // convHeight renvoie le nombre de lignes de la zone de conversation.
 func (m Model) convHeight() int {
-	return max(minConvHeight, m.height-inputHeight-statusHeight)
+	bottom := inputHeight
+	if m.prompting() {
+		bottom = len(m.promptLines())
+	}
+	return max(minConvHeight, m.height-bottom-statusHeight)
 }
 
 // scroll déplace la vue de n lignes vers le haut (n < 0 : vers le bas).

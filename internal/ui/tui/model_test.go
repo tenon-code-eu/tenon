@@ -24,11 +24,16 @@ type fakeEngine struct {
 	ch       chan event.Event
 	onSubmit func(ctx context.Context, f *fakeEngine) error
 
-	mu       sync.Mutex
-	inputs   []string
-	ctxs     []context.Context
-	replies  map[string]engine.Reply
-	returned chan struct{}
+	mu      sync.Mutex
+	inputs  []string
+	ctxs    []context.Context
+	replies map[string]engine.Reply
+	order   []string // identifiants répondus, dans l'ordre
+	// liveAtRespond indique, par réponse, si le contexte du tour en cours
+	// était encore actif au moment de Respond.
+	liveAtRespond []bool
+	respondErr    error
+	returned      chan struct{}
 }
 
 func newFake() *fakeEngine {
@@ -52,8 +57,27 @@ func (f *fakeEngine) Submit(ctx context.Context, sessionID, input string) error 
 func (f *fakeEngine) Respond(id string, r engine.Reply) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.respondErr != nil {
+		return f.respondErr
+	}
 	f.replies[id] = r
+	f.order = append(f.order, id)
+	live := len(f.ctxs) > 0 && f.ctxs[len(f.ctxs)-1].Err() == nil
+	f.liveAtRespond = append(f.liveAtRespond, live)
 	return nil
+}
+
+func (f *fakeEngine) reply(id string) (engine.Reply, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	r, ok := f.replies[id]
+	return r, ok
+}
+
+func (f *fakeEngine) answered() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.order...)
 }
 
 func (f *fakeEngine) emit(t *testing.T, typ event.Type, payload any) {
@@ -571,6 +595,38 @@ func TestSubmitFailureRestoresInput(t *testing.T) {
 	if v := h.m.input.Value(); v != "à renvoyer" {
 		t.Fatalf("saisie non restaurée : %q", v)
 	}
+}
+
+func TestSubmitOtherFailureKeepsInputEmpty(t *testing.T) {
+	// Seul l'échec d'audit garantit que rien n'est parti : pour toute autre
+	// erreur, le message a pu être envoyé avant que son UserMessage soit lu.
+	f := newFake()
+	f.onSubmit = func(context.Context, *fakeEngine) error { return errors.New("fournisseur indisponible") }
+	h := newHarness(t, f, Options{Lang: i18n.FR})
+	typeText(h, "déjà parti")
+	enter(h)
+	h.until("tour terminé", func() bool { return len(f.submitted()) == 1 && !h.m.busy() })
+	if v := h.m.input.Value(); v != "" {
+		t.Fatalf("saisie restaurée sur une erreur autre que l'audit : %q", v)
+	}
+}
+
+func TestTurnContextDerivesFromRunContext(t *testing.T) {
+	f := newFake()
+	f.onSubmit = blockUntilCancel
+	h := newHarness(t, f, Options{Lang: i18n.FR})
+	parent, cancel := context.WithCancel(context.Background())
+	h.m.ctx = parent
+	typeText(h, "long")
+	enter(h)
+	h.until("Submit appelé", func() bool { return f.lastCtx() != nil })
+	cancel()
+	select {
+	case <-f.lastCtx().Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("l'annulation du contexte de Run n'annule pas le tour")
+	}
+	h.until("tour terminé", func() bool { return !h.m.busy() })
 }
 
 func TestSubmitFailureAfterUserMessageKeepsInputEmpty(t *testing.T) {

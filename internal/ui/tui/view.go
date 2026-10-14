@@ -19,6 +19,7 @@ const tabSpaces = "    "
 type styles struct {
 	banner, user, assistant, tool, notice, err, busy, status lipgloss.Style
 	eu, local, nonEU                                         lipgloss.Style
+	perm, add, del                                           lipgloss.Style
 }
 
 func newStyles(r *lipgloss.Renderer) styles {
@@ -34,6 +35,9 @@ func newStyles(r *lipgloss.Renderer) styles {
 		eu:        r.NewStyle().Reverse(true).Foreground(lipgloss.Color("2")),
 		local:     r.NewStyle().Reverse(true).Foreground(lipgloss.Color("4")),
 		nonEU:     r.NewStyle().Reverse(true).Foreground(lipgloss.Color("208")),
+		perm:      r.NewStyle().Bold(true).Foreground(lipgloss.Color("3")),
+		add:       r.NewStyle().Foreground(lipgloss.Color("2")),
+		del:       r.NewStyle().Foreground(lipgloss.Color("1")),
 	}
 }
 
@@ -50,7 +54,7 @@ func (m Model) View() string {
 		lines = append(lines, "")
 	}
 	lines = append(lines, visible...)
-	lines = append(lines, strings.Split(m.input.View(), "\n")...)
+	lines = append(lines, m.bottomLines()...)
 	lines = append(lines, m.statusBar())
 	if len(lines) > m.height {
 		lines = lines[len(lines)-m.height:]
