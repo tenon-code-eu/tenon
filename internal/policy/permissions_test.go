@@ -198,3 +198,66 @@ func TestMatchWildcard(t *testing.T) {
 		}
 	}
 }
+
+func TestDenyCaseInsensitive(t *testing.T) {
+	p, root := newPerms(t, []Rule{{"*", "*", Allow}, {"*", "secrets/*", Deny}})
+	for _, name := range []string{"Secrets/k", "SECRETS/k", "secrets/k"} {
+		c := Call{Tool: "write_file", Risk: tools.Write, Target: tools.Target{Paths: []string{filepath.Join(root, name)}}}
+		if got := p.Check(c); got != Deny {
+			t.Errorf("%s: got %v", name, got)
+		}
+	}
+}
+
+func TestAllowMustMatchEveryPath(t *testing.T) {
+	p, root := newPerms(t, []Rule{{"write_file", "src/*", Allow}})
+	mk := func(names ...string) Call {
+		var ps []string
+		for _, n := range names {
+			ps = append(ps, filepath.Join(root, n))
+		}
+		return Call{Tool: "write_file", Risk: tools.Write, Target: tools.Target{Paths: ps}}
+	}
+	if got := p.Check(mk("src/a", "Makefile")); got != Ask {
+		t.Errorf("mixed: got %v", got)
+	}
+	if got := p.Check(mk("src/a", "src/b")); got != Allow {
+		t.Errorf("all match: got %v", got)
+	}
+}
+
+func TestEscapeRegressions(t *testing.T) {
+	base := t.TempDir()
+	root := filepath.Join(base, "proj")
+	other := filepath.Join(base, "project2")
+	for _, d := range []string{root, other, filepath.Join(base, "real")} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// link1 -> link2 -> real (outside root)
+	if err := os.Symlink(filepath.Join(base, "real"), filepath.Join(root, "link2")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(root, "link2"), filepath.Join(root, "link1")); err != nil {
+		t.Fatal(err)
+	}
+	p, err := NewPermissions(root, []Rule{{"*", "*", Allow}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// relative path is joined to root: ../proj/a lands back inside root.
+	if got := p.Check(readCall("../proj/a")); got != Allow {
+		t.Errorf("relative ../proj/a (inside): got %v", got)
+	}
+	for name, path := range map[string]string{
+		"prefix collision":    filepath.Join(other, "x"),
+		"relative escape":     "../project2/x",
+		"trailing slash link": filepath.Join(root, "link2") + "/",
+		"link chain child":    filepath.Join(root, "link1", "nope", "x"),
+	} {
+		if got := p.Check(readCall(path)); got != Ask {
+			t.Errorf("%s: read got %v", name, got)
+		}
+	}
+}

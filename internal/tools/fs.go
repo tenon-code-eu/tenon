@@ -14,18 +14,38 @@ import (
 )
 
 // FS renvoie les outils fichiers et recherche ancrés sur root.
-func FS(root string, limit int) []Tool {
-	b := base{root: root, limit: limit}
+func FS(root string, limit int, opts ...Option) []Tool {
+	var o options
+	for _, opt := range opts {
+		opt(&o)
+	}
+	b := base{root: root, limit: limit, filter: o.readFilter}
 	return []Tool{
 		&readFile{b}, &writeFile{b}, &editFile{b},
 		&globTool{b}, &grepTool{b},
 	}
 }
 
-type base struct {
-	root  string
-	limit int
+type options struct {
+	readFilter func(tool, absPath string) bool
 }
+
+// Option configure FS.
+type Option func(*options)
+
+// WithReadFilter fait ignorer à grep et glob les fichiers pour lesquels f
+// renvoie false.
+func WithReadFilter(f func(tool, absPath string) bool) Option {
+	return func(o *options) { o.readFilter = f }
+}
+
+type base struct {
+	root   string
+	limit  int
+	filter func(tool, absPath string) bool
+}
+
+func (b base) allowed(tool, abs string) bool { return b.filter == nil || b.filter(tool, abs) }
 
 func (b base) resolve(p string) string {
 	if filepath.IsAbs(p) {

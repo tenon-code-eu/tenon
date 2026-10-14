@@ -94,7 +94,10 @@ func (p *Permissions) Check(c Call) Decision {
 		infos[i] = p.inspect(raw)
 	}
 
-	matches := func(r Rule, includeLexical bool) bool {
+	// matches : deny (fold=true) compare sans casse et sur toutes les formes ;
+	// allow/ask comparent la forme résolue, sensible à la casse. Un deny
+	// correspond si UN chemin correspond ; allow/ask exigent TOUS les chemins.
+	matches := func(r Rule, fold bool) bool {
 		if r.Tool != "*" && r.Tool != c.Tool {
 			return false
 		}
@@ -104,14 +107,38 @@ func (p *Permissions) Check(c Call) Decision {
 		if c.Target.Command != "" {
 			return matchWildcard(r.Match, c.Target.Command)
 		}
-		for _, in := range infos {
-			for _, cand := range p.candidates(in, includeLexical) {
-				if matchWildcard(r.Match, cand) {
+		pat := r.Match
+		if fold {
+			pat = strings.ToLower(pat)
+		}
+		pathMatches := func(in pathInfo) bool {
+			for _, cand := range p.candidates(in, fold) {
+				if fold {
+					cand = strings.ToLower(cand)
+				}
+				if matchWildcard(pat, cand) {
 					return true
 				}
 			}
+			return false
 		}
-		return false
+		if fold {
+			for _, in := range infos {
+				if pathMatches(in) {
+					return true
+				}
+			}
+			return false
+		}
+		if len(infos) == 0 {
+			return false
+		}
+		for _, in := range infos {
+			if !pathMatches(in) {
+				return false
+			}
+		}
+		return true
 	}
 
 	// deny : aussi sur la forme lexicale, pour ne pas être contourné par un lien.

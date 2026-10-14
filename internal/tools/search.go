@@ -75,7 +75,7 @@ func (t *globTool) Run(ctx context.Context, args json.RawMessage) (Result, error
 	linkCache := map[string]bool{}
 	var out []string
 	for _, m := range matches {
-		if !inGit(m) && !viaSymlink(t.root, m, linkCache) {
+		if !inGit(m) && !viaSymlink(t.root, m, linkCache) && t.allowed("glob", filepath.Join(t.root, filepath.FromSlash(m))) {
 			out = append(out, m)
 		}
 	}
@@ -162,6 +162,9 @@ func (t *grepTool) Run(ctx context.Context, args json.RawMessage) (Result, error
 			if ok, _ := doublestar.Match(a.Glob, rel); !ok {
 				return nil
 			}
+		}
+		if !t.allowed("grep", p) {
+			return nil
 		}
 		data, rerr := os.ReadFile(p)
 		if rerr != nil || isBinary(data) {

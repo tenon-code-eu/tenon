@@ -60,3 +60,32 @@ func TestGrepSymlinkedRoot(t *testing.T) {
 		t.Fatalf("got %+v", res)
 	}
 }
+
+func TestReadFilterGrepGlob(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "a.txt"), "secret\n")
+	write(t, filepath.Join(root, ".env"), "secret\n")
+	filter := WithReadFilter(func(tool, abs string) bool { return filepath.Base(abs) != ".env" })
+	var grep, glob Tool
+	for _, tl := range FS(root, 30000, filter) {
+		switch tl.Name() {
+		case "grep":
+			grep = tl
+		case "glob":
+			glob = tl
+		}
+	}
+	res := run(t, grep, `{"pattern":"secret"}`)
+	if res.IsError || strings.TrimSpace(res.Content) != "a.txt:1:secret" {
+		t.Fatalf("grep: %+v", res)
+	}
+	res = run(t, glob, `{"pattern":"**"}`)
+	if strings.Contains(res.Content, ".env") || !strings.Contains(res.Content, "a.txt") {
+		t.Fatalf("glob: %+v", res)
+	}
+	// sans filtre : comportement inchangé
+	res = run(t, find(t, root, "grep"), `{"pattern":"secret"}`)
+	if !strings.Contains(res.Content, ".env") {
+		t.Fatalf("sans filtre: %+v", res)
+	}
+}
