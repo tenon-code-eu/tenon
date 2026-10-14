@@ -77,7 +77,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 		return 1
 	}
 
-	eng, closeFn, err := startEngine(getenv, wd, *providerID, *allowNonEU)
+	eng, red, closeFn, err := startEngine(getenv, wd, *providerID, *allowNonEU)
 	if err != nil {
 		fmt.Fprintf(stderr, "tenon : %v\n", err)
 		return 1
@@ -88,7 +88,10 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 		fmt.Fprintf(stderr, "tenon : %v\n", err)
 		return 1
 	}
-	return headless.Run(ctx, eng, sid, *prompt, out, stdout, stderr)
+	return headless.Run(ctx, eng, sid, *prompt, headless.Options{
+		Output: out,
+		Redact: func(s string) string { return redactJSON(red, s) },
+	}, stdout, stderr)
 }
 
 // setup est la configuration chargée et convertie pour la politique.
@@ -125,11 +128,12 @@ func loadSetup(getenv func(string) string, wd string) (setup, error) {
 }
 
 // startEngine assemble configuration, fournisseur, politique, outils et audit.
-// closeFn ferme le journal d'audit.
-func startEngine(getenv func(string) string, wd, providerID string, allowNonEU bool) (*engine.Engine, func(), error) {
+// Le Redactor renvoyé est celui de l'audit et d'Outbound ; closeFn ferme le
+// journal d'audit.
+func startEngine(getenv func(string) string, wd, providerID string, allowNonEU bool) (*engine.Engine, *policy.Redactor, func(), error) {
 	s, err := loadSetup(getenv, wd)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	cfg := s.cfg
 
@@ -138,7 +142,7 @@ func startEngine(getenv func(string) string, wd, providerID string, allowNonEU b
 	}
 	pc, ok := cfg.Provider(providerID)
 	if !ok {
-		return nil, nil, fmt.Errorf("fournisseur inconnu %q", providerID)
+		return nil, nil, nil, fmt.Errorf("fournisseur inconnu %q", providerID)
 	}
 	info := llm.ProviderInfo{
 		ID: pc.ID, Name: pc.Name, BaseURL: pc.BaseURL, Model: pc.Model,
@@ -150,14 +154,14 @@ func startEngine(getenv func(string) string, wd, providerID string, allowNonEU b
 	}
 	if apiKey == "" && info.Jurisdiction != llm.Local {
 		if pc.APIKeyEnv == "" {
-			return nil, nil, fmt.Errorf("fournisseur %q : api_key_env non défini", pc.ID)
+			return nil, nil, nil, fmt.Errorf("fournisseur %q : api_key_env non défini", pc.ID)
 		}
-		return nil, nil, fmt.Errorf("variable %s absente", pc.APIKeyEnv)
+		return nil, nil, nil, fmt.Errorf("variable %s absente", pc.APIKeyEnv)
 	}
 
 	perm, err := policy.NewPermissions(wd, s.rules)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	out := policy.NewOutbound(s.redactor)
 	if allowNonEU {
@@ -178,7 +182,7 @@ func startEngine(getenv func(string) string, wd, providerID string, allowNonEU b
 	w, err := audit.Open(filepath.Join(config.DataDir(getenv), "audit"), audit.Level(cfg.Audit.Level),
 		func(s string) string { return redactJSON(red, s) })
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	eng := engine.New(engine.Deps{
@@ -190,7 +194,7 @@ func startEngine(getenv func(string) string, wd, providerID string, allowNonEU b
 		MaxIterations: cfg.MaxIterations,
 		ProjectRoot:   wd,
 	})
-	return eng, func() { _ = w.Close() }, nil
+	return eng, red, func() { _ = w.Close() }, nil
 }
 
 // redactJSON masque une charge utile JSON pour l'audit. Chaque chaîne est

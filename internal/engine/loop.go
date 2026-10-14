@@ -257,20 +257,29 @@ func (t *turn) runTool(c llm.ToolCall) (tools.Result, error) {
 	}); err != nil {
 		return tools.Result{}, err
 	}
-	res, err := t.decideAndRun(c)
+	res, denied, err := t.decideAndRun(c)
 	if err != nil {
 		return tools.Result{}, err
 	}
 	if err := t.emit(event.ToolResult, event.ToolResultPayload{
 		CallID: c.ID, Tool: c.Name, Content: res.Content, IsError: res.IsError,
 		Path: res.Path, HashBefore: res.HashBefore, HashAfter: res.HashAfter,
+		Denied: denied,
 	}); err != nil {
 		return tools.Result{}, err
 	}
 	return res, nil
 }
 
-func (t *turn) decideAndRun(c llm.ToolCall) (tools.Result, error) {
+// Valeurs de ToolResultPayload.Denied.
+const (
+	deniedPolicy = "policy"
+	deniedUser   = "user"
+)
+
+// decideAndRun renvoie aussi l'origine d'un refus (deniedPolicy, deniedUser)
+// ou "" si l'appel n'a pas été refusé.
+func (t *turn) decideAndRun(c llm.ToolCall) (tools.Result, string, error) {
 	d := t.e.d
 	var tool tools.Tool
 	ok := false
@@ -278,13 +287,13 @@ func (t *turn) decideAndRun(c llm.ToolCall) (tools.Result, error) {
 		tool, ok = d.Tools.Get(c.Name)
 	}
 	if !ok {
-		return toolError("outil inconnu : %s", c.Name), nil
+		return toolError("outil inconnu : %s", c.Name), "", nil
 	}
 	// Les marqueurs de masquage ne sont jamais restaurés : les écrire
 	// remplacerait la vraie valeur par le marqueur.
 	if tool.Risk() == tools.Write {
 		if m := findMarker(c.Args); m != "" {
-			return toolError("contenu masqué : impossible d'écrire un marqueur de masquage (%s)", m), nil
+			return toolError("contenu masqué : impossible d'écrire un marqueur de masquage (%s)", m), deniedPolicy, nil
 		}
 	}
 	target, err := tool.Target(c.Args)
@@ -293,7 +302,7 @@ func (t *turn) decideAndRun(c llm.ToolCall) (tools.Result, error) {
 		if !strings.HasPrefix(msg, "arguments invalides") {
 			msg = "arguments invalides : " + msg
 		}
-		return tools.Result{IsError: true, Content: msg}, nil
+		return tools.Result{IsError: true, Content: msg}, "", nil
 	}
 	switch d.Permissions.Check(policy.Call{Tool: c.Name, Risk: tool.Risk(), Target: target}) {
 	case policy.Allow:
@@ -304,23 +313,23 @@ func (t *turn) decideAndRun(c llm.ToolCall) (tools.Result, error) {
 				Kind: "tool", Tool: c.Name, Paths: target.Paths, Command: target.Command,
 			})
 			if err != nil {
-				return tools.Result{}, err
+				return tools.Result{}, "", err
 			}
 			if !r.Allow {
-				return toolError("action refusée par l'utilisateur"), nil
+				return toolError("action refusée par l'utilisateur"), deniedUser, nil
 			}
 			if r.Remember {
 				t.s.remembered[key] = true
 			}
 		}
 	default:
-		return toolError("action refusée par la politique"), nil
+		return toolError("action refusée par la politique"), deniedPolicy, nil
 	}
 	res, err := tool.Run(t.ctx, c.Args)
 	if err != nil {
-		return tools.Result{}, err
+		return tools.Result{}, "", err
 	}
-	return res, nil
+	return res, "", nil
 }
 
 // safeArgs garantit un JSON valide pour les payloads d'événements : des

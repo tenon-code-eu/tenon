@@ -77,6 +77,12 @@ type env struct {
 
 func newEnv(t *testing.T, f *fakeLLM, jurisdiction string) *env {
 	t.Helper()
+	return newEnvExtra(t, f, jurisdiction, "")
+}
+
+// newEnvExtra ajoute extra (TOML) à la fin de la configuration globale.
+func newEnvExtra(t *testing.T, f *fakeLLM, jurisdiction, extra string) *env {
+	t.Helper()
 	base := t.TempDir()
 	e := &env{
 		t:  t,
@@ -108,7 +114,7 @@ api_key_env = "TEST_KEY"
 model = "test-model"
 country = "FR"
 jurisdiction = %q
-`, url, jurisdiction)
+`, url, jurisdiction) + extra
 	e.writeFile(filepath.Join(base, "config", "tenon", "config.toml"), cfg)
 	return e
 }
@@ -367,4 +373,31 @@ func TestInvalidOutput(t *testing.T) {
 	if code != 1 || !strings.Contains(errb, "xml") {
 		t.Fatalf("code=%d stderr=%q", code, errb)
 	}
+}
+
+func TestHeadlessPolicyDenyExit3(t *testing.T) {
+	f := newFakeLLM(t, sseCall("write_file", `{"path":"x.txt","content":"pirate"}`), sseText("ok"))
+	e := newEnvExtra(t, f, "eu", `
+[[permissions.rules]]
+tool = "write_file"
+decision = "deny"
+
+`)
+	code, _, errb := e.run("-p", "écris x.txt")
+	if code != 3 {
+		t.Fatalf("code=%d stderr=%q", code, errb)
+	}
+	if _, err := os.Stat(filepath.Join(e.wd, "x.txt")); !os.IsNotExist(err) {
+		t.Fatalf("fichier écrit : %v", err)
+	}
+}
+
+func TestJSONOutputNeverLeaksSecret(t *testing.T) {
+	f := newFakeLLM(t, sseText("noté"))
+	e := newEnv(t, f, "eu")
+	code, out, errb := e.run("-p", "MISTRAL_API_KEY=Zx8kq2LmNp4Rt6Vw9YbC1dEf", "--output", "json")
+	if code != 0 || strings.Contains(out, "Zx8kq") || !strings.Contains(out, "[SECRET_1]") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errb)
+	}
+	decodeEvents(t, out)
 }

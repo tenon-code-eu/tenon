@@ -22,6 +22,14 @@ const (
 	JSON Output = "json"
 )
 
+// Options configure Run.
+type Options struct {
+	Output Output
+	// Redact masque une charge utile JSON avant affichage (sortie json) et les
+	// messages écrits sur stderr. nil : aucun masquage.
+	Redact func(string) string
+}
+
 // Codes de sortie.
 const (
 	exitOK      = 0
@@ -30,14 +38,19 @@ const (
 )
 
 // Run soumet prompt à eng dans la session sessionID et renvoie le code de
-// sortie : 3 si une permission a été refusée ou le tour bloqué, 1 si Submit
-// échoue, sinon 0.
-func Run(ctx context.Context, eng *engine.Engine, sessionID, prompt string, out Output, stdout, stderr io.Writer) int {
+// sortie : 3 si une action a été refusée (permission, politique) ou le tour
+// bloqué, 1 si Submit échoue, sinon 0.
+func Run(ctx context.Context, eng *engine.Engine, sessionID, prompt string, opts Options, stdout, stderr io.Writer) int {
+	out := opts.Output
+	redact := opts.Redact
+	if redact == nil {
+		redact = func(s string) string { return s }
+	}
 	ch := eng.Subscribe()
 	errc := make(chan error, 1)
 	go func() { errc <- eng.Submit(ctx, sessionID, prompt) }()
 
-	r := &renderer{eng: eng, out: out, stdout: stdout, stderr: stderr}
+	r := &renderer{eng: eng, out: out, redact: redact, stdout: stdout, stderr: stderr}
 	var err error
 loop:
 	for {
@@ -63,7 +76,7 @@ loop:
 	}
 	switch {
 	case err != nil:
-		fmt.Fprintf(stderr, "tenon : %v\n", err)
+		fmt.Fprint(stderr, redact(fmt.Sprintf("tenon : %v\n", err)))
 		return exitError
 	case r.refused:
 		return exitRefused
@@ -74,6 +87,7 @@ loop:
 type renderer struct {
 	eng            *engine.Engine
 	out            Output
+	redact         func(string) string
 	stdout, stderr io.Writer
 
 	final   string // dernier texte complet de l'assistant
@@ -82,9 +96,7 @@ type renderer struct {
 
 func (r *renderer) handle(ev event.Event) {
 	if r.out == JSON {
-		if b, err := json.Marshal(ev); err == nil {
-			fmt.Fprintf(r.stdout, "%s\n", b)
-		}
+		r.printJSON(ev)
 	}
 	switch ev.Type {
 	case event.SessionStarted:
@@ -107,6 +119,14 @@ func (r *renderer) handle(ev event.Event) {
 		// Respond n'échoue que si la demande est déjà résolue (contexte annulé).
 		_ = r.eng.Respond(p.PermissionID, engine.Reply{Allow: false})
 		r.text("refusé (mode non interactif) : %s\n", describe(p))
+	case event.ToolResult:
+		var p event.ToolResultPayload
+		if r.decode(ev, &p) && p.Denied != "" {
+			r.refused = true
+			if p.Denied == "policy" {
+				r.text("refusé par la politique : %s\n", p.Tool)
+			}
+		}
 	case event.AssistantMessage:
 		var p event.AssistantMessagePayload
 		if r.decode(ev, &p) && p.Text != "" {
@@ -131,6 +151,27 @@ func (r *renderer) handle(ev event.Event) {
 	}
 }
 
+// printJSON écrit ev sur une ligne, charge utile masquée. Si le masquage rend
+// la charge illisible, un événement Error{redaction} remplace l'original
+// (fermeture par défaut : rien n'est écrit en clair).
+func (r *renderer) printJSON(ev event.Event) {
+	masked := r.redact(string(ev.Payload))
+	if json.Valid([]byte(masked)) {
+		ev.Payload = json.RawMessage(masked)
+	} else {
+		ev.Type = event.Error
+		ev.Payload, _ = json.Marshal(event.ErrorPayload{
+			Code:    "redaction",
+			Message: "événement masqué illisible : non affiché",
+		})
+	}
+	b, err := json.Marshal(ev)
+	if err != nil {
+		b = []byte(`{"type":"Error","payload":{"code":"redaction","message":"événement non affichable"}}`)
+	}
+	fmt.Fprintf(r.stdout, "%s\n", b)
+}
+
 // decode lit la charge utile ; une charge illisible est signalée sur stderr.
 func (r *renderer) decode(ev event.Event, v any) bool {
 	if err := json.Unmarshal(ev.Payload, v); err != nil {
@@ -143,7 +184,7 @@ func (r *renderer) decode(ev event.Event, v any) bool {
 // text écrit sur stderr en sortie texte uniquement (en JSON, tout est sur stdout).
 func (r *renderer) text(format string, a ...any) {
 	if r.out == Text {
-		fmt.Fprintf(r.stderr, format, a...)
+		fmt.Fprint(r.stderr, r.redact(fmt.Sprintf(format, a...)))
 	}
 }
 

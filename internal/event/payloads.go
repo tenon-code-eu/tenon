@@ -54,7 +54,9 @@ type PermissionResolvedPayload struct {
 	Remember     bool   `json:"remember"`
 }
 
-// ToolResultPayload records the outcome of a tool run.
+// ToolResultPayload records the outcome of a tool run. Denied is "policy"
+// when the permission engine or a policy guard refused the call, "user" when
+// the user refused a permission request, and empty otherwise.
 type ToolResultPayload struct {
 	CallID     string `json:"call_id"`
 	Tool       string `json:"tool"`
@@ -63,6 +65,7 @@ type ToolResultPayload struct {
 	Path       string `json:"path"`
 	HashBefore string `json:"hash_before"`
 	HashAfter  string `json:"hash_after"`
+	Denied     string `json:"denied,omitempty"`
 }
 
 // JurisdictionWarningPayload warns that a provider lies outside the preferred jurisdiction.

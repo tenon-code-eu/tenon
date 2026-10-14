@@ -337,7 +337,7 @@ func TestToolCallAskDeniedByReply(t *testing.T) {
 		t.Fatalf("fichier créé malgré le refus : %v", err)
 	}
 	p := decode[event.ToolResultPayload](t, ofType(evs, event.ToolResult)[0])
-	if !p.IsError || !strings.Contains(p.Content, "refusée par l'utilisateur") {
+	if !p.IsError || !strings.Contains(p.Content, "refusée par l'utilisateur") || p.Denied != "user" {
 		t.Fatalf("ToolResult %+v", p)
 	}
 	if err := h.eng.Respond("s_1-p1", Reply{Allow: true}); !errors.Is(err, ErrUnknownPermission) {
@@ -601,7 +601,7 @@ func TestWriteWithRedactionMarkerRefused(t *testing.T) {
 	}
 	p := decode[event.ToolResultPayload](t, ofType(evs, event.ToolResult)[0])
 	want := "contenu masqué : impossible d'écrire un marqueur de masquage ([SECRET_1])"
-	if !p.IsError || p.Content != want {
+	if !p.IsError || p.Content != want || p.Denied != "policy" {
 		t.Fatalf("ToolResult %+v", p)
 	}
 	if tc := lastTurn(t, evs); tc.Reason != "done" {
@@ -726,5 +726,43 @@ func TestCancelledToolCallsKeepHistoryValid(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(h.root, "out.txt")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("fichier écrit après annulation")
+	}
+}
+
+func TestToolCallDeniedByPolicyRule(t *testing.T) {
+	h := newHarness(t, euInfo, [][]llm.Chunk{
+		call("c1", "write_file", `{"path":"out.txt","content":"x"}`),
+		call("c2", "read_file", `{"path":"absent.txt"}`),
+		text("ok"),
+	}, func(d *Deps) {
+		perms, err := policy.NewPermissions(d.ProjectRoot, []policy.Rule{{Tool: "write_file", Decision: policy.Deny}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		d.Permissions = perms
+	})
+	evs, err := h.submit(t, "s_1", "écris", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ofType(evs, event.PermissionRequested)) != 0 {
+		t.Fatalf("permission demandée : %v", types(evs))
+	}
+	if _, err := os.Stat(filepath.Join(h.root, "out.txt")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("fichier créé malgré la règle deny : %v", err)
+	}
+	rs := ofType(evs, event.ToolResult)
+	if len(rs) != 2 {
+		t.Fatalf("events %v", types(evs))
+	}
+	if p := decode[event.ToolResultPayload](t, rs[0]); !p.IsError || p.Denied != "policy" {
+		t.Fatalf("ToolResult deny %+v", p)
+	}
+	// Une erreur d'outil ordinaire n'est pas un refus.
+	if p := decode[event.ToolResultPayload](t, rs[1]); !p.IsError || p.Denied != "" {
+		t.Fatalf("ToolResult erreur %+v", p)
+	}
+	if !strings.Contains(string(rs[1].Payload), `"is_error":true`) || strings.Contains(string(rs[1].Payload), `"denied"`) {
+		t.Fatalf("payload %s", rs[1].Payload)
 	}
 }
