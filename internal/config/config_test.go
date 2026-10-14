@@ -243,3 +243,54 @@ func TestProjectErrorUsesFullKeyPath(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestDefaultsCompaction(t *testing.T) {
+	c := Defaults(env(nil))
+	if c.CompactionThreshold != 0.8 {
+		t.Fatalf("seuil = %v", c.CompactionThreshold)
+	}
+	p, _ := c.Provider("mistral")
+	if p.Window() != 128000 {
+		t.Fatalf("fenêtre mistral = %d", p.Window())
+	}
+}
+
+func TestWindowFallback(t *testing.T) {
+	if w := (Provider{}).Window(); w != 32000 {
+		t.Fatalf("fenêtre = %d", w)
+	}
+}
+
+func TestCompactionThresholdRange(t *testing.T) {
+	for _, v := range []string{"0", "1", "1.5", "-0.1"} {
+		if _, err := Load(write(t, "compaction_threshold = "+v+"\n"), "", env(nil)); err == nil {
+			t.Errorf("seuil %s accepté", v)
+		}
+	}
+	c, err := Load(write(t, "compaction_threshold = 0.5\n"), "", env(nil))
+	if err != nil || c.CompactionThreshold != 0.5 {
+		t.Fatalf("0.5 : %v %v", c.CompactionThreshold, err)
+	}
+}
+
+func TestNegativeContextWindow(t *testing.T) {
+	g := write(t, `
+[[providers]]
+id = "acme"
+name = "Acme"
+base_url = "https://api.acme.example/v1"
+model = "m"
+context_window = -1
+`)
+	if _, err := Load(g, "", env(nil)); err == nil {
+		t.Fatal("context_window négatif accepté")
+	}
+}
+
+func TestProjectCannotSetCompaction(t *testing.T) {
+	p := write(t, "compaction_threshold = 0.5\n")
+	_, err := Load("", p, env(nil))
+	if err == nil || !strings.Contains(err.Error(), "clé non autorisée") {
+		t.Fatalf("err = %v", err)
+	}
+}

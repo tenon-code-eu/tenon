@@ -13,15 +13,18 @@ import (
 )
 
 type Config struct {
-	Lang            string      `toml:"lang"`
-	DefaultProvider string      `toml:"default_provider"`
-	MaxIterations   int         `toml:"max_iterations"`
-	ShellTimeout    Duration    `toml:"shell_timeout"`
-	OutputLimit     int         `toml:"output_limit"`
-	Audit           Audit       `toml:"audit"`
-	Providers       []Provider  `toml:"providers"`
-	Permissions     Permissions `toml:"permissions"`
-	Redaction       Redaction   `toml:"redaction"`
+	Lang            string   `toml:"lang"`
+	DefaultProvider string   `toml:"default_provider"`
+	MaxIterations   int      `toml:"max_iterations"`
+	ShellTimeout    Duration `toml:"shell_timeout"`
+	OutputLimit     int      `toml:"output_limit"`
+	// CompactionThreshold : part de la fenêtre de contexte au-delà de
+	// laquelle l'historique est compacté. Clé globale uniquement.
+	CompactionThreshold float64     `toml:"compaction_threshold"`
+	Audit               Audit       `toml:"audit"`
+	Providers           []Provider  `toml:"providers"`
+	Permissions         Permissions `toml:"permissions"`
+	Redaction           Redaction   `toml:"redaction"`
 }
 
 type Audit struct {
@@ -59,6 +62,17 @@ type Provider struct {
 	ContextWindow int    `toml:"context_window"`
 }
 
+// defaultWindow : fenêtre de contexte (jetons) si le fournisseur n'en déclare pas.
+const defaultWindow = 32000
+
+// Window renvoie la fenêtre de contexte du fournisseur, ou 32000 si non renseignée.
+func (p Provider) Window() int {
+	if p.ContextWindow == 0 {
+		return defaultWindow
+	}
+	return p.ContextWindow
+}
+
 // Rule.Decision : "allow" | "ask" | "deny".
 type Rule struct {
 	Tool     string `toml:"tool"`
@@ -88,13 +102,14 @@ func Defaults(getenv func(string) string) Config {
 		lang = "en"
 	}
 	return Config{
-		Lang:            lang,
-		DefaultProvider: "mistral",
-		MaxIterations:   50,
-		ShellTimeout:    Duration{2 * time.Minute},
-		OutputLimit:     30000,
-		Audit:           Audit{Level: "full"},
-		Providers:       presets(),
+		Lang:                lang,
+		DefaultProvider:     "mistral",
+		MaxIterations:       50,
+		ShellTimeout:        Duration{2 * time.Minute},
+		OutputLimit:         30000,
+		CompactionThreshold: 0.8,
+		Audit:               Audit{Level: "full"},
+		Providers:           presets(),
 	}
 }
 
@@ -125,7 +140,13 @@ func (c Config) validate() error {
 	default:
 		return fmt.Errorf("config : audit.level invalide %q (full|metadata)", c.Audit.Level)
 	}
+	if c.CompactionThreshold <= 0 || c.CompactionThreshold >= 1 {
+		return fmt.Errorf("config : compaction_threshold invalide %v (]0,1[)", c.CompactionThreshold)
+	}
 	for _, p := range c.Providers {
+		if p.ContextWindow < 0 {
+			return fmt.Errorf("config : context_window négatif pour le fournisseur %q", p.ID)
+		}
 		switch p.Jurisdiction {
 		case "eu", "non-eu", "local":
 		default:
