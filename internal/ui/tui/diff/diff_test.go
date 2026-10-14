@@ -82,7 +82,9 @@ func TestPreviewWriteNewFile(t *testing.T) {
 
 func TestPreviewWriteExisting(t *testing.T) {
 	root := t.TempDir()
-	os.WriteFile(filepath.Join(root, "f.txt"), []byte("a\nb\n"), 0o644)
+	if err := os.WriteFile(filepath.Join(root, "f.txt"), []byte("a\nb\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	args := mkArgs(t, map[string]any{"path": "f.txt", "content": "a\nc\n"})
 	lines, _, err := Preview("write_file", args, root)
 	if err != nil {
@@ -114,7 +116,9 @@ func TestBinaryAndHuge(t *testing.T) {
 		t.Fatalf("lines=%v err=%v", lines, err)
 	}
 	// fichier existant binaire
-	os.WriteFile(filepath.Join(root, "bin"), []byte("x\x00y"), 0o644)
+	if err := os.WriteFile(filepath.Join(root, "bin"), []byte("x\x00y"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	args = mkArgs(t, map[string]any{"path": "bin", "content": "texte"})
 	lines, _, _ = Preview("write_file", args, root)
 	if len(lines) != 1 || lines[0].Text != "(fichier binaire)" {
@@ -126,7 +130,9 @@ func TestBinaryAndHuge(t *testing.T) {
 		a = append(a, fmt.Sprintf("old%d", i))
 		b = append(b, fmt.Sprintf("new%d", i))
 	}
-	os.WriteFile(filepath.Join(root, "big"), []byte(strings.Join(a, "\n")), 0o644)
+	if err := os.WriteFile(filepath.Join(root, "big"), []byte(strings.Join(a, "\n")), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	args = mkArgs(t, map[string]any{"path": "big", "content": strings.Join(b, "\n")})
 	start := time.Now()
 	lines, more, err := Preview("write_file", args, root)
@@ -157,7 +163,9 @@ func TestPreviewInvalidArgs(t *testing.T) {
 func TestPreviewNonRegularIgnored(t *testing.T) {
 	root := t.TempDir()
 	// un répertoire n'est pas un fichier régulier : "avant" vide
-	os.Mkdir(filepath.Join(root, "d"), 0o755)
+	if err := os.Mkdir(filepath.Join(root, "d"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	args := mkArgs(t, map[string]any{"path": "d", "content": "a"})
 	lines, _, err := Preview("write_file", args, root)
 	if err != nil || len(lines) != 1 || lines[0].Kind != Add {
@@ -172,5 +180,24 @@ func TestPreviewHugeFile(t *testing.T) {
 	lines, more, err := Preview("write_file", args, root)
 	if err != nil || len(lines) != MaxLines || more <= 0 || lines[0].Kind != Del {
 		t.Fatalf("len=%d more=%d err=%v", len(lines), more, err)
+	}
+}
+
+func TestPreviewSymlinkFollowed(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "real.txt"), []byte("a\nb\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("real.txt", filepath.Join(root, "link")); err != nil {
+		t.Fatal(err)
+	}
+	args := mkArgs(t, map[string]any{"path": "link", "content": "a\nX\n"})
+	lines, _, err := Preview("write_file", args, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Line{{Same, "a"}, {Del, "b"}, {Add, "X"}}
+	if fmt.Sprint(lines) != fmt.Sprint(want) {
+		t.Fatalf("got %v", lines)
 	}
 }

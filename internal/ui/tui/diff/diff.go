@@ -180,11 +180,12 @@ func truncate(l []Line) ([]Line, int) {
 	return l[:MaxLines], len(l) - MaxLines
 }
 
-// readCurrent lit le contenu actuel d'un fichier sans jamais écrire. Un fichier
-// absent, non régulier (FIFO, périphérique, lien, répertoire) ou illisible vaut
-// « vide ». huge est vrai si le fichier dépasse maxRead octets.
+// readCurrent lit le contenu actuel d'un fichier sans jamais écrire. Les liens
+// symboliques sont suivis (l'écriture atterrit sur la cible). Un fichier absent,
+// non régulier (FIFO, périphérique, répertoire, y compris via un lien) ou
+// illisible vaut « vide ». huge est vrai si le fichier dépasse maxRead octets.
 func readCurrent(path string) (content string, huge bool) {
-	fi, err := os.Lstat(path)
+	fi, err := os.Stat(path)
 	if err != nil || !fi.Mode().IsRegular() {
 		return "", false
 	}
