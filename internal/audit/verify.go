@@ -54,6 +54,11 @@ func Verify(dir string) (string, int, error) {
 				f.Close()
 				return "", total, fmt.Errorf("%s:%d : empreinte invalide, ligne altérée", name, n)
 			}
+			l.Hash = want
+			if re, err := json.Marshal(l); err != nil || !bytes.Equal(re, raw) {
+				f.Close()
+				return "", total, fmt.Errorf("%s:%d : ligne non canonique", name, n)
+			}
 			prev = l.Hash
 			total++
 			if !complete {

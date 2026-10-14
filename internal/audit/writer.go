@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
+	"syscall"
 
 	"codeberg.org/tenon/tenon/internal/event"
 )
@@ -51,20 +52,25 @@ func computeHash(l line) (string, error) {
 	return "sha256:" + hex.EncodeToString(h.Sum(nil)), nil
 }
 
-// Writer appends chained, fsynced lines. Safe for concurrent use.
+// Writer appends chained, fsynced lines. Safe for concurrent use, and across
+// processes sharing the same dir (exclusive flock on <dir>/.lock per Write;
+// the chain tail is re-read from disk inside the lock).
 type Writer struct {
-	mu       sync.Mutex
-	dir      string
-	level    Level
-	redact   func(string) string
-	f        *os.File
-	fname    string
-	lastHash string
-	closed   bool
+	mu     sync.Mutex
+	dir    string
+	level  Level
+	redact func(string) string
+	lock   *os.File
+	broken error
+	closed bool
+
+	// test seams
+	writeFn func(*os.File, []byte) (int, error)
+	syncFn  func(*os.File) error
 }
 
-// Open creates dir (0700) and resumes the chain from the last line of the
-// most recent file. An unparsable last line is an error.
+// Open creates dir (0700, chmod'ed if it already exists) and checks the
+// chain tail. An unparsable last line is an error.
 func Open(dir string, level Level, redact func(string) string) (*Writer, error) {
 	if level != Full && level != Metadata {
 		return nil, fmt.Errorf("niveau d'audit inconnu : %q", level)
@@ -72,42 +78,99 @@ func Open(dir string, level Level, redact func(string) string) (*Writer, error) 
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("création du dossier d'audit : %w", err)
 	}
-	files, err := listFiles(dir)
-	if err != nil {
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return nil, fmt.Errorf("permissions du dossier d'audit : %w", err)
+	}
+	if _, _, err := readTail(dir); err != nil {
 		return nil, err
 	}
-	last := genesis
+	lk, err := os.OpenFile(filepath.Join(dir, ".lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("ouverture du verrou d'audit : %w", err)
+	}
+	return &Writer{
+		dir: dir, level: level, redact: redact, lock: lk,
+		writeFn: func(f *os.File, b []byte) (int, error) { return f.Write(b) },
+		syncFn:  func(f *os.File) error { return f.Sync() },
+	}, nil
+}
+
+// readTail returns the newest file name ("" if none) and the hash of the
+// last line of the chain (genesis if none).
+func readTail(dir string) (string, string, error) {
+	files, err := listFiles(dir)
+	if err != nil {
+		return "", "", fmt.Errorf("lecture du dossier d'audit : %w", err)
+	}
+	newest := ""
+	if len(files) > 0 {
+		newest = files[len(files)-1]
+	}
 	for i := len(files) - 1; i >= 0; i-- {
-		data, err := os.ReadFile(filepath.Join(dir, files[i]))
+		path := filepath.Join(dir, files[i])
+		raw, err := lastLine(path)
 		if err != nil {
-			return nil, fmt.Errorf("lecture de %s : %w", files[i], err)
+			return "", "", fmt.Errorf("lecture de %s : %w", files[i], err)
 		}
-		data = bytes.TrimRight(data, "\n")
-		if len(data) == 0 {
+		if len(raw) == 0 {
 			continue
-		}
-		raw := data
-		n := 1
-		if idx := bytes.LastIndexByte(data, '\n'); idx >= 0 {
-			raw = data[idx+1:]
-			n = bytes.Count(data, []byte("\n")) + 1
 		}
 		var l line
 		if err := json.Unmarshal(raw, &l); err != nil || l.Hash == "" {
-			return nil, fmt.Errorf("%s:%d : dernière ligne du journal illisible, chaîne non reprise", files[i], n)
+			n := 0
+			if data, rerr := os.ReadFile(path); rerr == nil {
+				n = bytes.Count(bytes.TrimRight(data, "\n"), []byte("\n")) + 1
+			}
+			return "", "", fmt.Errorf("%s:%d : dernière ligne du journal illisible, chaîne non reprise", files[i], n)
 		}
-		last = l.Hash
-		break
+		return newest, l.Hash, nil
 	}
-	return &Writer{dir: dir, level: level, redact: redact, lastHash: last}, nil
+	return newest, genesis, nil
 }
 
-// Write appends e to the log and fsyncs. On error the chain is unchanged.
+// lastLine returns the last non-empty line of the file without reading it all.
+func lastLine(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	size := st.Size()
+	chunk := int64(4096)
+	for {
+		start := size - chunk
+		if start < 0 {
+			start = 0
+		}
+		buf := make([]byte, size-start)
+		if _, err := f.ReadAt(buf, start); err != nil {
+			return nil, err
+		}
+		buf = bytes.TrimRight(buf, "\n")
+		if i := bytes.LastIndexByte(buf, '\n'); i >= 0 {
+			return buf[i+1:], nil
+		}
+		if start == 0 {
+			return buf, nil
+		}
+		chunk *= 2
+	}
+}
+
+// Write appends e to the log and fsyncs. After a failed write the Writer is
+// broken and every later Write fails (fail closed).
 func (w *Writer) Write(e event.Event) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.closed {
 		return errors.New("journal d'audit fermé")
+	}
+	if w.broken != nil {
+		return fmt.Errorf("journal d'audit inutilisable après erreur : %w", w.broken)
 	}
 	payload := e.Payload
 	if len(payload) == 0 {
@@ -139,7 +202,17 @@ func (w *Writer) Write(e event.Event) error {
 	if err != nil {
 		return err
 	}
-	l := line{Seq: e.Seq, TS: string(bytes.Trim(tb, `"`)), Session: e.Session, Type: e.Type, Payload: pl, Prev: w.lastHash}
+
+	if err := syscall.Flock(int(w.lock.Fd()), syscall.LOCK_EX); err != nil {
+		return fmt.Errorf("verrou du journal d'audit : %w", err)
+	}
+	defer syscall.Flock(int(w.lock.Fd()), syscall.LOCK_UN)
+
+	newest, last, err := readTail(w.dir)
+	if err != nil {
+		return err
+	}
+	l := line{Seq: e.Seq, TS: string(bytes.Trim(tb, `"`)), Session: e.Session, Type: e.Type, Payload: pl, Prev: last}
 	h, err := computeHash(l)
 	if err != nil {
 		return err
@@ -151,40 +224,50 @@ func (w *Writer) Write(e event.Event) error {
 	}
 	out = append(out, '\n')
 
+	// The file name never goes backwards, whatever the clock does.
 	name := ts.Format("2006-01-02") + ".jsonl"
-	if w.f == nil || w.fname != name {
-		if w.f != nil {
-			if err := w.f.Close(); err != nil {
-				return fmt.Errorf("fermeture de %s : %w", w.fname, err)
-			}
-			w.f = nil
+	if newest > name {
+		name = newest
+	}
+	f, err := os.OpenFile(filepath.Join(w.dir, name), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return fmt.Errorf("ouverture de %s : %w", name, err)
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		return fmt.Errorf("lecture de %s : %w", name, err)
+	}
+	size := st.Size()
+	werr := func() error {
+		if _, err := w.writeFn(f, out); err != nil {
+			return fmt.Errorf("écriture du journal d'audit : %w", err)
 		}
-		f, err := os.OpenFile(filepath.Join(w.dir, name), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-		if err != nil {
-			return fmt.Errorf("ouverture de %s : %w", name, err)
+		if err := w.syncFn(f); err != nil {
+			return fmt.Errorf("fsync du journal d'audit : %w", err)
 		}
-		w.f, w.fname = f, name
+		return nil
+	}()
+	if werr != nil {
+		if terr := f.Truncate(size); terr != nil {
+			werr = fmt.Errorf("%w (retour arrière impossible : %v)", werr, terr)
+		}
+		w.broken = werr
+		return werr
 	}
-	if _, err := w.f.Write(out); err != nil {
-		return fmt.Errorf("écriture du journal d'audit : %w", err)
-	}
-	if err := w.f.Sync(); err != nil {
-		return fmt.Errorf("fsync du journal d'audit : %w", err)
-	}
-	w.lastHash = h
 	return nil
 }
 
-// Close closes the current file.
+// Close releases the lock file.
 func (w *Writer) Close() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.closed = true
-	if w.f == nil {
+	if w.lock == nil {
 		return nil
 	}
-	err := w.f.Close()
-	w.f = nil
+	err := w.lock.Close()
+	w.lock = nil
 	return err
 }
 

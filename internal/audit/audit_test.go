@@ -192,3 +192,111 @@ func TestVerifyEmptyOrMissing(t *testing.T) {
 		}
 	}
 }
+
+func tamperLine2(t *testing.T, f func(string) string) error {
+	t.Helper()
+	dir := t.TempDir()
+	writeN(t, dir, 3)
+	p := filepath.Join(dir, "2026-10-14.jsonl")
+	lines := readLines(t, p)
+	lines[1] = f(lines[1])
+	os.WriteFile(p, []byte(strings.Join(lines, "\n")+"\n"), 0o600)
+	_, _, err := Verify(dir)
+	return err
+}
+
+func TestNonCanonicalLineDetected(t *testing.T) {
+	cases := map[string]func(string) string{
+		"extra field": func(s string) string { return strings.TrimSuffix(s, "}") + `,"note":"x"}` },
+		"dup payload": func(s string) string { return strings.TrimSuffix(s, "}") + `,"payload":{"text":"salut"}}` },
+		"key case":    func(s string) string { return strings.Replace(s, `"session"`, `"SESSION"`, 1) },
+	}
+	for name, f := range cases {
+		err := tamperLine2(t, f)
+		if err == nil || !strings.Contains(err.Error(), "2026-10-14.jsonl:2") {
+			t.Errorf("%s: err=%v", name, err)
+		}
+	}
+}
+
+func TestClockBackwardsKeepsFile(t *testing.T) {
+	dir := t.TempDir()
+	w, _ := Open(dir, Full, nil)
+	w.Write(mk(t, 1, day1.Add(24*time.Hour), "a"))
+	w.Write(mk(t, 2, day1, "b"))
+	w.Close()
+	m, _ := filepath.Glob(filepath.Join(dir, "*.jsonl"))
+	if len(m) != 1 || filepath.Base(m[0]) != "2026-10-15.jsonl" {
+		t.Fatalf("files=%v", m)
+	}
+	if _, n, err := Verify(dir); err != nil || n != 2 {
+		t.Fatalf("err=%v n=%d", err, n)
+	}
+}
+
+func TestTwoWritersSameDir(t *testing.T) {
+	dir := t.TempDir()
+	a, _ := Open(dir, Full, nil)
+	b, _ := Open(dir, Full, nil)
+	for i := 0; i < 5; i++ {
+		if err := a.Write(mk(t, uint64(i), day1, "a")); err != nil {
+			t.Fatal(err)
+		}
+		if err := b.Write(mk(t, uint64(i), day1, "b")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a.Close()
+	b.Close()
+	if _, n, err := Verify(dir); err != nil || n != 10 {
+		t.Fatalf("err=%v n=%d", err, n)
+	}
+}
+
+func TestFailedWriteTruncatesAndBreaks(t *testing.T) {
+	for _, mode := range []string{"write", "sync"} {
+		dir := t.TempDir()
+		w, _ := Open(dir, Full, nil)
+		if err := w.Write(mk(t, 1, day1, "a")); err != nil {
+			t.Fatal(err)
+		}
+		p := filepath.Join(dir, "2026-10-14.jsonl")
+		before, _ := os.ReadFile(p)
+		if mode == "write" {
+			w.writeFn = func(f *os.File, b []byte) (int, error) {
+				f.Write(b[:10])
+				return 10, os.ErrInvalid
+			}
+		} else {
+			w.syncFn = func(*os.File) error { return os.ErrInvalid }
+		}
+		if err := w.Write(mk(t, 2, day1, "b")); err == nil {
+			t.Fatalf("%s: want error", mode)
+		}
+		after, _ := os.ReadFile(p)
+		if string(after) != string(before) {
+			t.Fatalf("%s: not truncated: %q", mode, after)
+		}
+		if err := w.Write(mk(t, 3, day1, "c")); err == nil {
+			t.Fatalf("%s: writer should be broken", mode)
+		}
+		w.Close()
+		if _, n, err := Verify(dir); err != nil || n != 1 {
+			t.Fatalf("%s: err=%v n=%d", mode, err, n)
+		}
+	}
+}
+
+func TestOpenChmodsExistingDir(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "audit")
+	os.Mkdir(dir, 0o755)
+	os.Chmod(dir, 0o755)
+	w, err := Open(dir, Full, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.Close()
+	if fi, _ := os.Stat(dir); fi.Mode().Perm() != 0o700 {
+		t.Fatalf("perm=%v", fi.Mode().Perm())
+	}
+}
