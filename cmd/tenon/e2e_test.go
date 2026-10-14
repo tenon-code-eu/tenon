@@ -22,6 +22,7 @@ import (
 
 	"codeberg.org/tenon/tenon/internal/config"
 	"codeberg.org/tenon/tenon/internal/event"
+	"codeberg.org/tenon/tenon/internal/i18n"
 	"github.com/zalando/go-keyring"
 )
 
@@ -899,4 +900,59 @@ func TestResumeMarkersDoNotCollide(t *testing.T) {
 		!strings.Contains(reqs[1], "OTHER_TOKEN=[SECRET_2]") {
 		t.Fatalf("requêtes : %q", reqs)
 	}
+}
+
+// Les messages des nouveaux chemins principaux suivent --lang en.
+func TestEnglishCLIMessages(t *testing.T) {
+	f := newFakeLLM(t, sseText("ok"))
+	e := newEnv(t, f, "eu")
+	french := []string{"aucune", "trouvée", "invalide", "clé vide", "lecture", "afficher", "fournisseur", "instructions du projet", "usage :"}
+	check := func(name string, errb string, want ...string) {
+		t.Helper()
+		for _, w := range want {
+			if !strings.Contains(errb, w) {
+				t.Errorf("%s : stderr=%q, attendu %q", name, errb, w)
+			}
+		}
+		for _, w := range french {
+			if strings.Contains(errb, w) {
+				t.Errorf("%s : stderr en français (%q) : %q", name, w, errb)
+			}
+		}
+	}
+	code, _, errb := e.run("--lang", "en", "--resume", "s_000000000000", "-p", "x")
+	if code != 1 || errb != "tenon: session s_000000000000: no session found\n" {
+		t.Errorf("session inconnue : code=%d stderr=%q", code, errb)
+	}
+	code, _, errb = e.run("--lang", "en", "--resume", "pas-un-id", "-p", "x")
+	check("identifiant invalide", errb, "invalid session ID")
+	code, _, errb = e.run("--lang", "en", "--resume", "last", "-p", "x")
+	check("aucune session", errb, "no session")
+	code, _, errb = e.runStdin("\n", "--lang", "en", "key", "set", "test")
+	check("clé vide", errb, "empty key")
+	if code != 1 {
+		t.Errorf("clé vide : code=%d", code)
+	}
+	code, _, errb = e.run("--lang", "en", "-h")
+	check("aide", errb, "usage: tenon", "print the version and exit", "<provider>")
+	code, _, errb = e.run("-lang=en", "-h")
+	check("aide -lang=", errb, "usage: tenon")
+	if _, err := readKey(i18n.EN, "test", nil, io.Discard); err == nil || err.Error() != "reading the key: standard input missing" {
+		t.Errorf("readKey sans stdin : %v", err)
+	}
+	if len(f.requests()) != 0 {
+		t.Errorf("%d requêtes", len(f.requests()))
+	}
+
+	agents := filepath.Join(e.wd, "AGENTS.md")
+	e.writeFile(agents, "x")
+	if err := os.Chmod(agents, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(agents, 0o600) })
+	if _, err := os.ReadFile(agents); err == nil {
+		t.Skip("fichier illisible lisible (root ?)")
+	}
+	code, _, errb = e.run("--lang", "en", "-p", "x")
+	check("instructions illisibles", errb, "project instructions: ")
 }

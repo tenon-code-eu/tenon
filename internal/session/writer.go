@@ -17,13 +17,16 @@ import (
 // ErrNoSession means no matching session exists.
 var ErrNoSession = errors.New("aucune session trouvée")
 
+// ErrInvalidID means a session ID is not of the form s_<12 hex digits>.
+var ErrInvalidID = errors.New("identifiant de session invalide")
+
 var idRe = regexp.MustCompile(`^s_[0-9a-f]{12}$`)
 
 var _ event.Sink = (*Writer)(nil)
 
 func validID(id string) error {
 	if !idRe.MatchString(id) {
-		return fmt.Errorf("identifiant de session invalide : %q", id)
+		return fmt.Errorf("%w : %q", ErrInvalidID, id)
 	}
 	return nil
 }

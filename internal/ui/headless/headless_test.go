@@ -363,3 +363,17 @@ func TestContextTooLargeExit1(t *testing.T) {
 		}
 	}
 }
+
+// Error{context_too_large} est rendu depuis le catalogue, pas depuis le
+// message (français) de l'événement.
+func TestContextTooLargeMessageLocalised(t *testing.T) {
+	var out, errb bytes.Buffer
+	r := &renderer{out: Text, lang: i18n.EN, redact: func(s string) string { return s },
+		redactText: func(s string) string { return s }, stdout: &out, stderr: &errb}
+	r.handle(emitted(t, event.Error, event.ErrorPayload{
+		Code: "context_too_large", Message: "contexte trop volumineux : impossible de le compacter sous la fenêtre du modèle",
+	}))
+	if errb.String() != "error (context_too_large): context too large: it cannot be compacted below the model's window\n" {
+		t.Fatalf("stderr=%q", errb.String())
+	}
+}

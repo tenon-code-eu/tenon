@@ -35,21 +35,20 @@ import (
 // run exécute la CLI et retourne le code de sortie. stdin ne sert qu'à
 // « tenon key set ».
 func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(string) string, wd string) int {
+	// La langue de l'aide est connue avant l'analyse des options : --lang
+	// est lu directement dans args.
+	hl, _ := uiLang(argLang(args), getenv, wd)
 	fs := flag.NewFlagSet("tenon", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	showVersion := fs.Bool("version", false, "afficher la version et quitter")
-	prompt := fs.String("p", "", "exécuter ce prompt sans interface interactive")
-	output := fs.String("output", string(headless.Text), "format de sortie : text ou json")
-	allowNonEU := fs.Bool("allow-non-eu", false, "autoriser l'envoi à un fournisseur hors UE")
-	providerID := fs.String("provider", "", "identifiant du fournisseur (défaut : default_provider)")
-	langFlag := fs.String("lang", "", "langue de l'interface : fr ou en (défaut : lang de la configuration)")
-	resume := fs.String("resume", "", "reprendre une session : son identifiant ou last (avec -p)")
+	showVersion := fs.Bool("version", false, i18n.T(hl, "flag.version"))
+	prompt := fs.String("p", "", i18n.T(hl, "flag.p"))
+	output := fs.String("output", string(headless.Text), i18n.T(hl, "flag.output"))
+	allowNonEU := fs.Bool("allow-non-eu", false, i18n.T(hl, "flag.allow_non_eu"))
+	providerID := fs.String("provider", "", i18n.T(hl, "flag.provider"))
+	langFlag := fs.String("lang", "", i18n.T(hl, "flag.lang"))
+	resume := fs.String("resume", "", i18n.T(hl, "flag.resume"))
 	fs.Usage = func() {
-		fmt.Fprintln(stderr, `usage : tenon -p "<prompt>" [--resume <id|last>] [--lang fr|en] [--output text|json] [--allow-non-eu] [--provider <id>]`)
-		fmt.Fprintln(stderr, "        tenon sessions [--lang fr|en]")
-		fmt.Fprintln(stderr, "        tenon key set|delete <fournisseur>")
-		fmt.Fprintln(stderr, "        tenon audit verify")
-		fmt.Fprintln(stderr, "        tenon config check")
+		fmt.Fprintln(stderr, i18n.T(hl, "usage"))
 		fs.PrintDefaults()
 	}
 
@@ -70,7 +69,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	if len(rest) > 0 && rest[0] == "sessions" {
 		sub := flag.NewFlagSet("tenon sessions", flag.ContinueOnError)
 		sub.SetOutput(stderr)
-		sub.StringVar(langFlag, "lang", *langFlag, "langue de l'interface : fr ou en")
+		sub.StringVar(langFlag, "lang", *langFlag, i18n.T(hl, "flag.lang"))
 		if err := sub.Parse(rest[1:]); err != nil {
 			if errors.Is(err, flag.ErrHelp) {
 				return 0
@@ -148,6 +147,27 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	}, stdout, stderr)
 }
 
+// argLang renvoie la valeur de -lang/--lang dans args (forme séparée ou
+// avec « = »), ou "" ; l'analyse s'arrête à « -- ».
+func argLang(args []string) string {
+	for i, a := range args {
+		if a == "--" {
+			break
+		}
+		switch {
+		case a == "-lang" || a == "--lang":
+			if i+1 < len(args) {
+				return args[i+1]
+			}
+		case strings.HasPrefix(a, "-lang="):
+			return strings.TrimPrefix(a, "-lang=")
+		case strings.HasPrefix(a, "--lang="):
+			return strings.TrimPrefix(a, "--lang=")
+		}
+	}
+	return ""
+}
+
 // uiLang renvoie la langue de l'interface : --lang, sinon lang de la
 // configuration (dont la valeur par défaut suit $LANG). Une configuration
 // illisible n'empêche pas de choisir une langue : son erreur sera signalée
@@ -215,6 +235,10 @@ func keyCommand(lang i18n.Lang, action, providerID string, stdin io.Reader, stdo
 		fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", err))
 		return 1
 	}
+	if key == "" {
+		fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", i18n.T(lang, "err.empty_key")))
+		return 1
+	}
 	if err := secrets.Set(providerID, key); err != nil {
 		fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", err))
 		return 1
@@ -231,16 +255,16 @@ func readKey(lang i18n.Lang, providerID string, stdin io.Reader, stderr io.Write
 		b, err := term.ReadPassword(int(f.Fd()))
 		fmt.Fprintln(stderr)
 		if err != nil {
-			return "", fmt.Errorf("lecture de la clé : %w", err)
+			return "", errors.New(i18n.T(lang, "err.read_key", err))
 		}
 		return strings.TrimSpace(string(b)), nil
 	}
 	if stdin == nil {
-		return "", errors.New("lecture de la clé : entrée standard absente")
+		return "", errors.New(i18n.T(lang, "err.read_key", i18n.T(lang, "err.no_stdin")))
 	}
 	line, err := bufio.NewReader(stdin).ReadString('\n')
 	if err != nil && !errors.Is(err, io.EOF) {
-		return "", fmt.Errorf("lecture de la clé : %w", err)
+		return "", errors.New(i18n.T(lang, "err.read_key", err))
 	}
 	return strings.TrimSpace(line), nil
 }
@@ -360,7 +384,7 @@ func startEngine(o engineOptions) (started, error) {
 
 	files, err := instructions.Load(wd)
 	if err != nil {
-		return started{}, fmt.Errorf("instructions du projet : %w", err)
+		return started{}, errors.New(i18n.T(lang, "err.instructions", err))
 	}
 	names := make([]string, 0, len(files))
 	for _, f := range files {
@@ -379,6 +403,9 @@ func startEngine(o engineOptions) (started, error) {
 		}
 	case "last":
 		if sid, err = session.Latest(sdir, wd); err != nil {
+			if errors.Is(err, session.ErrNoSession) {
+				return started{}, errors.New(i18n.T(lang, "err.no_session_project"))
+			}
 			return started{}, err
 		}
 	default:
@@ -387,14 +414,19 @@ func startEngine(o engineOptions) (started, error) {
 	if o.resume != "" {
 		var corrupt bool
 		events, corrupt, err = session.Load(sdir, sid)
-		if err != nil {
+		switch {
+		case errors.Is(err, session.ErrInvalidID):
+			return started{}, errors.New(i18n.T(lang, "err.invalid_session_id", sid))
+		case errors.Is(err, session.ErrNoSession):
+			return started{}, errors.New(i18n.T(lang, "err.no_session", sid))
+		case err != nil:
 			return started{}, fmt.Errorf("session %s : %w", sid, err)
 		}
 		// Comme List et Latest, la reprise est limitée aux sessions du projet
 		// courant : une session d'un autre projet est traitée comme absente,
 		// avant toute ouverture de son fichier ou requête au fournisseur.
 		if !sameProject(events, wd) {
-			return started{}, fmt.Errorf("session %s : %w", sid, session.ErrNoSession)
+			return started{}, errors.New(i18n.T(lang, "err.no_session", sid))
 		}
 		if corrupt {
 			fmt.Fprintln(o.stderr, i18n.T(lang, "resume.warning_corrupt", skippedLines(sdir, sid, len(events)), sid))

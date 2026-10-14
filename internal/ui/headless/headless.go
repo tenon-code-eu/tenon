@@ -173,7 +173,11 @@ func (r *renderer) handle(ev event.Event) {
 	case event.Error:
 		var p event.ErrorPayload
 		if r.decode(ev, &p) {
-			r.text("%s\n", i18n.T(r.lang, "err.event", p.Code, p.Message))
+			msg := p.Message
+			if p.Code == "context_too_large" {
+				msg = i18n.T(r.lang, "err.context_too_large")
+			}
+			r.text("%s\n", i18n.T(r.lang, "err.event", p.Code, msg))
 		}
 	case event.ContextCompacted:
 		var p event.ContextCompactedPayload
