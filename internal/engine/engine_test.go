@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"codeberg.org/tenon/tenon/internal/event"
+	"codeberg.org/tenon/tenon/internal/i18n"
 	"codeberg.org/tenon/tenon/internal/llm"
 	"codeberg.org/tenon/tenon/internal/policy"
 	"codeberg.org/tenon/tenon/internal/provider"
@@ -764,5 +765,11 @@ func TestToolCallDeniedByPolicyRule(t *testing.T) {
 	}
 	if !strings.Contains(string(rs[1].Payload), `"is_error":true`) || strings.Contains(string(rs[1].Payload), `"denied"`) {
 		t.Fatalf("payload %s", rs[1].Payload)
+	}
+}
+
+func TestEngineDefaultIsFrench(t *testing.T) {
+	if DefaultSystemPrompt != i18n.SystemPrompt(i18n.FR) {
+		t.Fatal("DefaultSystemPrompt doit égaler le prompt FR")
 	}
 }
