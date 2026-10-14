@@ -175,7 +175,10 @@ func TestPreviewNonRegularIgnored(t *testing.T) {
 
 func TestPreviewHugeFile(t *testing.T) {
 	root := t.TempDir()
-	os.WriteFile(filepath.Join(root, "h"), []byte(strings.Repeat("x\n", 600*1024)), 0o644) // > 1 MiB
+	// > 1 MiB
+	if err := os.WriteFile(filepath.Join(root, "h"), []byte(strings.Repeat("x\n", 600*1024)), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	args := mkArgs(t, map[string]any{"path": "h", "content": "y\n"})
 	lines, more, err := Preview("write_file", args, root)
 	if err != nil || len(lines) != MaxLines || more <= 0 || lines[0].Kind != Del {
