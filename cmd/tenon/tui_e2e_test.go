@@ -340,3 +340,103 @@ func TestTUIRedactWired(t *testing.T) {
 		t.Fatalf("Redact ne masque pas : %q", got)
 	}
 }
+
+// syncBuffer est un bytes.Buffer utilisable depuis plusieurs goroutines.
+type syncBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
+}
+
+// Le vrai tui.Run, lancé par run() : un message contenant un secret
+// déclenche une demande d'écriture ; Ctrl+C deux fois la refuse, annule le
+// tour et quitte avec le code 0. Le journal d'audit reste vérifiable, le
+// secret n'apparaît ni dans l'audit, ni dans la session, ni dans les
+// requêtes, et le fichier n'est pas écrit.
+func TestTUIRealRunCancelMidPrompt(t *testing.T) {
+	const secret = "MISTRAL_API_KEY=Zx8kq2LmNp4Rt6Vw9YbC1dEf"
+	f := newFakeLLM(t, sseCall("write_file", `{"path":"x.txt","content":"salut\n"}`), sseText("terminé"))
+	e := newEnv(t, f, "eu")
+	inR, inW := io.Pipe()
+	defer inW.Close()
+	var out, errb syncBuffer
+	codec := make(chan int, 1)
+	go func() {
+		codec <- run(context.Background(), nil, inR, &out, &errb,
+			func(k string) string { return e.vars[k] }, e.wd, func() bool { return true })
+	}()
+	write := func(s string) {
+		t.Helper()
+		if _, err := inW.Write([]byte(s)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	waitOut := func(s string) {
+		t.Helper()
+		deadline := time.After(tuiTimeout)
+		for !strings.Contains(out.String(), s) {
+			select {
+			case <-deadline:
+				t.Fatalf("sortie sans %q :\n%s", s, out.String())
+			case <-time.After(10 * time.Millisecond):
+			}
+		}
+	}
+	waitOut("juridiction UE")
+	write("écris x.txt " + secret)
+	write("\r")
+	waitOut("Autoriser cette action ?")
+	write("\x03")
+	write("\x03")
+	var code int
+	select {
+	case code = <-codec:
+	case <-time.After(tuiTimeout):
+		t.Fatal("la TUI ne s'est pas arrêtée après Ctrl+C deux fois")
+	}
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, errb.String())
+	}
+	if _, err := os.Stat(filepath.Join(e.wd, "x.txt")); !os.IsNotExist(err) {
+		t.Fatalf("fichier écrit malgré le refus : %v", err)
+	}
+	if c, o, eb := e.run("audit", "verify"); c != 0 || !strings.HasPrefix(o, "OK : ") {
+		t.Fatalf("audit verify : code=%d stdout=%q stderr=%q", c, o, eb)
+	}
+	a := e.auditContents()
+	if !strings.Contains(a, "write_file") || strings.Contains(a, "Zx8kq") {
+		t.Fatalf("audit : write_file absent ou secret présent :\n%s", a)
+	}
+	ents, err := e.sessionFiles()
+	if err != nil || len(ents) != 1 {
+		t.Fatalf("sessions : %v %v", ents, err)
+	}
+	b, err := os.ReadFile(filepath.Join(e.sessionsDir(), ents[0].Name()))
+	if err != nil || strings.Contains(string(b), "Zx8kq") || !strings.Contains(string(b), "[SECRET_1]") {
+		t.Fatalf("session : %v\n%s", err, b)
+	}
+	// La demande a été refusée, pas acceptée puis annulée.
+	if !strings.Contains(string(b), `"allowed":false`) || strings.Contains(string(b), `"allowed":true`) {
+		t.Fatalf("session sans refus de la demande :\n%s", b)
+	}
+	reqs := f.requests()
+	if len(reqs) == 0 {
+		t.Fatal("aucune requête")
+	}
+	for _, r := range reqs {
+		if strings.Contains(r, "Zx8kq") {
+			t.Fatalf("secret envoyé : %s", r)
+		}
+	}
+}
