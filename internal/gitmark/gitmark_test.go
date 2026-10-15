@@ -529,6 +529,39 @@ func TestMarkSkipsEmptyMessage(t *testing.T) {
 	if b, _ := os.ReadFile(msg); !strings.Contains(string(b), marked) {
 		t.Fatalf("message non marqué : %q", b)
 	}
+	// Conventional Commits : le sujet n'est jamais un trailer.
+	for _, m := range []string{
+		"feat: ajoute x\n",
+		"fix: y\n\nSigned-off-by: A <a@b>\n",
+		"feat: x\nRefs: #12\n",
+	} {
+		writeFile(t, msg, m)
+		if err := Mark(msg, repo, sdir); err != nil {
+			t.Fatal(err)
+		}
+		if b, _ := os.ReadFile(msg); !strings.Contains(string(b), marked) {
+			t.Fatalf("message %q non marqué : %q", m, b)
+		}
+	}
+}
+
+func TestIsEmptyMessage(t *testing.T) {
+	hash := []string{"#"}
+	for m, want := range map[string]bool{
+		"":                                   true,
+		"\n\n# c\n":                          true,
+		"\n\nSigned-off-by: A <a@b>\n# c\n":  true, // commit -s, éditeur quitté
+		"# c\nfeat: x\n":                     false,
+		"feat: x\n":                          false,
+		"fix: y\n\nSigned-off-by: A <a@b>\n": false,
+		"Signed-off-by: A <a@b>\n":           false, // sujet tapé tel quel
+		"titre\n# ------------------------ >8 ------------------------\n": false,
+		"# ------------------------ >8 ------------------------\ntitre\n": true,
+	} {
+		if got := isEmptyMessage(m, hash); got != want {
+			t.Fatalf("isEmptyMessage(%q) = %v, attendu %v", m, got, want)
+		}
+	}
 }
 
 func TestMarkIgnoresTrailerConfig(t *testing.T) {

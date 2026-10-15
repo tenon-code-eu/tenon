@@ -257,6 +257,39 @@ func TestCommitMsgHookFlows(t *testing.T) {
 		t.Fatalf("message (-F) : %q", m)
 	}
 
+	// Conventional Commits.
+	stage("package a // 4\n")
+	if out, err := commit("true", "-m", "feat: ajoute x"); err != nil {
+		t.Fatalf("commit feat : %v\n%s", err, out)
+	}
+	if m := lastMsg(); !strings.HasPrefix(m, "feat: ajoute x"+trailers) {
+		t.Fatalf("message (feat) : %q", m)
+	}
+	stage("package a // 5\n")
+	if out, err := commit("true", "-m", "fix: y", "-m", "Signed-off-by: A <a@b>"); err != nil {
+		t.Fatalf("commit fix : %v\n%s", err, out)
+	}
+	if m := lastMsg(); !strings.HasPrefix(m, "fix: y\n\nSigned-off-by: A <a@b>\nAI-Assisted-By: tenon (test-model, Test SAS, FR)\nAI-Session: s_") {
+		t.Fatalf("message (fix) : %q", m)
+	}
+
+	// commit -s, éditeur quitté sans écrire : abandonné.
+	stage("package a // 6\n")
+	head := func() string {
+		out, err := exec.Command("git", "-C", e.wd, "rev-parse", "HEAD").Output()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(out)
+	}
+	before := head()
+	if out, err := commit("true", "-s"); err == nil {
+		t.Fatalf("commit -s vide accepté : %s", out)
+	}
+	if head() != before {
+		t.Fatal("un commit a été créé")
+	}
+
 	// --amend --no-edit : pas de doublon.
 	if out, err := commit("true", "--amend", "--no-edit"); err != nil {
 		t.Fatalf("amend : %v\n%s", err, out)

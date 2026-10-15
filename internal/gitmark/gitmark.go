@@ -303,29 +303,47 @@ const scissors = " ------------------------ >8 ------------------------"
 // reTrailerLine reconnaît une ligne « Clé: valeur » de trailer.
 var reTrailerLine = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]*:`)
 
-// isEmptyMessage indique si msg ne contient que des lignes vides, des
-// commentaires (lignes commençant par un des prefixes), des lignes de
-// trailer, ou rien avant la ligne de coupe : git abandonnerait alors le
-// commit, et des trailers ajoutés l'en empêcheraient.
+// isEmptyMessage indique si git abandonnerait le commit de message msg (des
+// trailers ajoutés l'en empêcheraient). Les commentaires (lignes commençant
+// par un des prefixes) et tout ce qui suit la ligne de coupe sont ignorés.
+// Comme pour git, le sujet (première ligne) n'est jamais un trailer : le
+// message est vide s'il n'a aucune ligne non blanche, ou si son sujet est
+// vide et que ses seules lignes sont des trailers (« git commit -s » quitté
+// sans rien écrire).
 func isEmptyMessage(msg string, prefixes []string) bool {
+	var lines []string
 	for _, line := range strings.Split(msg, "\n") {
 		line = strings.TrimRight(line, "\r")
-		comment := false
+		comment, cut := false, false
 		for _, p := range prefixes {
 			if strings.HasPrefix(line, p) {
-				if line == p+scissors {
-					return true
-				}
-				comment = true
+				comment, cut = true, line == p+scissors
 				break
 			}
 		}
-		if comment || strings.TrimSpace(line) == "" || reTrailerLine.MatchString(line) {
+		if cut {
+			break
+		}
+		if !comment {
+			lines = append(lines, line)
+		}
+	}
+	content := false
+	onlyTrailers := true
+	for _, l := range lines {
+		if strings.TrimSpace(l) == "" {
 			continue
 		}
-		return false
+		content = true
+		if !reTrailerLine.MatchString(l) {
+			onlyTrailers = false
+		}
 	}
-	return true
+	if !content {
+		return true
+	}
+	subjectEmpty := strings.TrimSpace(lines[0]) == ""
+	return subjectEmpty && onlyTrailers
 }
 
 // autoCommentChars sont les caractères que git peut choisir avec
