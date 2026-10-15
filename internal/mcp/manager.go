@@ -15,7 +15,9 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -56,7 +58,9 @@ type Options struct {
 	ConnectTimeout time.Duration       // 15 s par défaut
 	OutputLimit    int
 	Consent        func(serverID string) bool // juridiction ; nil = toujours vrai
-	Root           string                     // racine du projet : répertoire de travail des serveurs stdio
+	// Root est la racine du projet, transmise aux serveurs stdio par
+	// TENON_PROJECT_ROOT ; leur répertoire de travail est HOME.
+	Root string
 
 	// AllowNonEU est le consentement d'avance (--allow-non-eu) : sans lui, les
 	// outils d'un serveur hors UE exigent une validation humaine (ForceAsk).
@@ -279,9 +283,19 @@ func connect(ctx context.Context, decl config.MCPServer, opts Options) (*server,
 		if len(decl.Command) == 0 {
 			return nil, nil, errors.New("commande vide")
 		}
-		cmd := exec.Command(decl.Command[0], decl.Command[1:]...)
-		cmd.Env = minimalEnv(decl, opts.Getenv)
-		cmd.Dir = opts.Root
+		// Rien n'est résolu depuis le projet (non fiable) : ni la commande, ni
+		// le répertoire de travail (python -m, node script.js, npx…).
+		home := opts.Getenv("HOME")
+		if home == "" {
+			return nil, nil, errors.New("HOME non défini : serveur stdio non lancé")
+		}
+		bin, err := resolveCommand(decl.Command[0], opts.Getenv("PATH"))
+		if err != nil {
+			return nil, nil, err
+		}
+		cmd := exec.Command(bin, decl.Command[1:]...)
+		cmd.Env = minimalEnv(decl, opts.Getenv, opts.Root)
+		cmd.Dir = home
 		cmd.SysProcAttr = procAttr()
 		srv.proc = &procTransport{inner: &sdk.CommandTransport{Command: cmd, TerminateDuration: killDelay}}
 		transport = srv.proc
@@ -337,10 +351,40 @@ func timeoutErr(ctx context.Context, err error) error {
 	return err
 }
 
-// minimalEnv : PATH, HOME, LANG et les seules variables env_from (non vides).
-func minimalEnv(decl config.MCPServer, getenv func(string) string) []string {
+// envProjectRoot transmet la racine du projet aux serveurs stdio.
+const envProjectRoot = "TENON_PROJECT_ROOT"
+
+// resolveCommand renvoie le chemin absolu de l'exécutable name : absolu tel
+// quel, ou nom nu cherché dans les seules entrées absolues de path ; un chemin
+// relatif (./srv, bin/srv) est refusé.
+func resolveCommand(name, path string) (string, error) {
+	if filepath.IsAbs(name) {
+		return name, nil
+	}
+	if strings.ContainsRune(name, '/') {
+		return "", fmt.Errorf("commande %q : chemin absolu ou nom nu attendu", name)
+	}
+	for _, dir := range filepath.SplitList(path) {
+		// « . » ou une entrée vide désigneraient le dossier courant : le projet.
+		if !filepath.IsAbs(dir) {
+			continue
+		}
+		p := filepath.Join(dir, name)
+		if fi, err := os.Stat(p); err == nil && fi.Mode().IsRegular() && fi.Mode()&0o111 != 0 {
+			return p, nil
+		}
+	}
+	return "", fmt.Errorf("commande %q introuvable dans PATH", name)
+}
+
+// minimalEnv : PATH, HOME, LANG, les seules variables env_from (non vides)
+// et TENON_PROJECT_ROOT (racine du projet, si connue).
+func minimalEnv(decl config.MCPServer, getenv func(string) string, root string) []string {
 	env := []string{}
-	seen := map[string]bool{}
+	seen := map[string]bool{envProjectRoot: true}
+	if root != "" {
+		env = append(env, envProjectRoot+"="+root)
+	}
 	for _, k := range append([]string{"PATH", "HOME", "LANG"}, decl.EnvFrom...) {
 		if seen[k] {
 			continue

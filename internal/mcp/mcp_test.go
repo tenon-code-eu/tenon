@@ -277,8 +277,53 @@ func TestStdioMinimalEnv(t *testing.T) {
 	if strings.Contains(out, "SECRET_PARENT") || strings.Contains(out, "fuite") {
 		t.Fatalf("variable non listée transmise :\n%s", out)
 	}
-	if !strings.Contains(out, "PWD=") || !strings.Contains(out, "PWD="+mustEval(t, root)+"\n") {
+	// Répertoire de travail : HOME, jamais la racine (non fiable) du projet,
+	// transmise seulement par TENON_PROJECT_ROOT.
+	if !strings.Contains(out, "PWD="+mustEval(t, getenv("HOME"))+"\n") {
 		t.Fatalf("répertoire de travail :\n%s", out)
+	}
+	if !strings.Contains(out, "\nTENON_PROJECT_ROOT="+root+"\n") {
+		t.Fatalf("TENON_PROJECT_ROOT absent :\n%s", out)
+	}
+}
+
+// Sans HOME, un serveur stdio n'est pas lancé.
+func TestStdioNoHomeRefused(t *testing.T) {
+	srv, getenv := stdioServer(t, "srv", "", map[string]string{"HOME": ""})
+	m, down := start(t, []config.MCPServer{srv}, Options{Getenv: getenv, Root: t.TempDir()})
+	if len(down) != 1 || down[0].Server != "srv" || !strings.Contains(down[0].Error, "HOME") || len(m.Tools()) != 0 {
+		t.Fatalf("down %v", down)
+	}
+}
+
+// Une commande nue absente de PATH, ou relative, n'est jamais résolue depuis
+// le projet (non fiable) : le serveur n'est pas lancé et le fichier du
+// projet jamais exécuté, même avec « . » ou une entrée vide dans PATH.
+func TestStdioCommandNotFromProject(t *testing.T) {
+	project := t.TempDir()
+	marker := filepath.Join(t.TempDir(), "exécuté")
+	script := "#!/bin/sh\n/usr/bin/touch '" + marker + "'\n"
+	for _, p := range []string{filepath.Join(project, "srv"), filepath.Join(project, "bin", "srv")} {
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Chdir(project)
+	env := map[string]string{"PATH": t.TempDir() + ":.::bin", "HOME": t.TempDir()}
+	var servers []config.MCPServer
+	for i, c := range []string{"srv", "./srv", "bin/srv"} {
+		servers = append(servers, config.MCPServer{ID: "s" + strconv.Itoa(i), Transport: "stdio", Command: []string{c}, Jurisdiction: "local"})
+	}
+	m, down := start(t, servers, Options{Getenv: func(k string) string { return env[k] }, Root: project, ConnectTimeout: 2 * time.Second})
+	if len(down) != 3 || len(m.Tools()) != 0 {
+		t.Fatalf("down %v", down)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("fichier du projet exécuté (%v)", err)
 	}
 }
 

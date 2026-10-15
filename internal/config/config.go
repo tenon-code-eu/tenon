@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 )
 
@@ -88,6 +89,10 @@ func (m MCP) validate() error {
 		case "stdio":
 			if len(s.Command) == 0 || s.Command[0] == "" {
 				return fmt.Errorf("config : command requis pour le serveur MCP stdio %q", s.ID)
+			}
+			// Un chemin relatif serait résolu depuis le projet, non fiable.
+			if c := s.Command[0]; !filepath.IsAbs(c) && strings.ContainsRune(c, '/') {
+				return fmt.Errorf("config : command du serveur MCP stdio %q : chemin absolu ou nom nu (cherché dans PATH) requis, pas %q", s.ID, c)
 			}
 		case "http":
 			if err := validateMCPURL(s.ID, s.URL); err != nil {

@@ -392,3 +392,19 @@ func TestProjectCannotDeclareMCP(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+// Command[0] relatif avec séparateur (./srv, bin/srv) : résolu depuis le
+// dépôt, refusé ; chemin absolu ou nom nu (cherché dans PATH) acceptés.
+func TestMCPStdioRelativeCommand(t *testing.T) {
+	srv := func(cmd string) string {
+		return "[[mcp.servers]]\nid = \"a\"\ntransport = \"stdio\"\ncommand = [\"" + cmd + "\"]\n"
+	}
+	for _, c := range []string{"./srv", "bin/srv", "../srv"} {
+		mcpErr(t, srv(c), "chemin absolu")
+	}
+	for _, c := range []string{"/usr/local/bin/srv", "srv"} {
+		if _, err := Load(write(t, srv(c)), "", env(nil)); err != nil {
+			t.Fatalf("%s : %v", c, err)
+		}
+	}
+}
