@@ -138,7 +138,7 @@ Types v1 : `SessionStarted`, `UserMessage`, `ContextCompacted`, `JurisdictionWar
 
 - L'engine ne fait jamais d'entrée/sortie terminal. Une permission à demander devient `PermissionRequested` ; l'interface répond via `Respond()`.
 - Les outils MCP implémentent `Tool` : ils passent par la même `Policy` et le même audit que les outils internes. Risque par défaut : `Network` ou `Exec`, donc `Ask`.
-- Aucun message ne part vers un fournisseur ou un serveur MCP distant sans passer par `Policy.CheckOutbound`.
+- Aucun message ne part vers un fournisseur sans passer par `Policy.CheckOutbound`. Les arguments d'un appel MCP sont produits par le modèle, qui ne voit que du texte déjà masqué ; la juridiction d'un serveur MCP est contrôlée par la règle ci-dessous (§6.3).
 
 ## 5. Flux d'un tour d'agent
 
@@ -220,7 +220,9 @@ jurisdiction = "eu"
 - **Préconfigurés :** Mistral (FR), Scaleway (FR), OVHcloud AI Endpoints (FR) en `eu` ; Ollama et vLLM en `local`. Fournisseur par défaut : Mistral. Les noms de modèles des préréglages sont mis à jour à chaque release.
 - **Définition :** `jurisdiction` applique le critère 3 du §1 : elle désigne le **droit applicable à l'opérateur**, pas l'emplacement du datacenter. Un opérateur soumis à une loi extraterritoriale d'accès aux données est classé `non-eu`, même si ses serveurs sont situés dans l'UE.
 - **Fournisseur personnalisé :** sans déclaration, traité comme `non-eu`. La valeur déclarée n'est pas vérifiable techniquement ; la documentation le dit.
-- **Serveurs MCP HTTP distants :** même champ `jurisdiction`, même règle par défaut (`non-eu`).
+- **Serveurs MCP :** déclarés uniquement dans la configuration globale (un dépôt ne peut pas en ajouter). Un serveur HTTP doit déclarer `jurisdiction` (sinon refus de démarrer) ; un serveur stdio vaut `local` par défaut — ce qui ne dit rien de l'endroit où ce programme local envoie ensuite ses données : déclarez-le `non-eu` s'il relaie un service hors UE.
+- **Consentement MCP :** un serveur `non-eu` ou de juridiction inconnue n'est ni lancé ni contacté sans `--allow-non-eu` (il est signalé comme ignoré ; en headless, le code de sortie reste 0 puisque ses outils n'existent pas). Avec le flag, le consentement vaut pour les fournisseurs **et** les serveurs MCP hors UE de l'exécution. En défense en profondeur, un outil `non-eu` sans consentement d'avance exige toujours une validation humaine (`ForceAsk`), qu'aucune règle `allow` ne lève.
+- **Serveurs stdio :** lancés depuis le dossier personnel (`HOME`), jamais depuis le projet ; la racine du projet est transmise par la variable `TENON_PROJECT_ROOT` ; la commande doit être un chemin absolu ou un nom résolu dans le `PATH` de tenon. Environnement minimal (`PATH`, `HOME`, `LANG`, `env_from`).
 - **Clés API :** lues depuis une variable d'environnement ou le trousseau système, jamais depuis le fichier de configuration.
 
 ### 6.4 Masquage
