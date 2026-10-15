@@ -29,12 +29,17 @@ import (
 	"codeberg.org/tenon/tenon/internal/session"
 	"codeberg.org/tenon/tenon/internal/tools"
 	"codeberg.org/tenon/tenon/internal/ui/headless"
+	"codeberg.org/tenon/tenon/internal/ui/tui"
 	"golang.org/x/term"
 )
 
-// run exécute la CLI et retourne le code de sortie. stdin ne sert qu'à
-// « tenon key set ».
-func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(string) string, wd string) int {
+// startTUI lance l'interface interactive ; remplacée dans les tests.
+var startTUI = tui.Run
+
+// run exécute la CLI et retourne le code de sortie. stdin sert à
+// « tenon key set » et à l'interface interactive ; isTerminal indique que
+// l'entrée et la sortie standard sont des terminaux.
+func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(string) string, wd string, isTerminal func() bool) int {
 	// La langue de l'aide est connue avant l'analyse des options : --lang
 	// est lu directement dans args.
 	hl, _ := uiLang(argLang(args), getenv, wd)
@@ -85,6 +90,12 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		return 1
 	}
 
+	// --resume ne vaut que pour une conversation (interface interactive ou -p).
+	if *resume != "" && len(rest) > 0 && rest[0] != "sessions" {
+		fmt.Fprintln(stderr, i18n.T(lang, "err.no_prompt"))
+		return 1
+	}
+
 	switch {
 	case len(rest) == 2 && rest[0] == "audit" && rest[1] == "verify":
 		return auditVerify(lang, stdout, stderr, getenv)
@@ -120,8 +131,10 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	}
 
 	if *prompt == "" {
-		fmt.Fprintln(stderr, i18n.T(lang, "err.no_prompt"))
-		return 1
+		return runInteractive(ctx, fs, lang, engineOptions{
+			getenv: getenv, wd: wd, providerID: *providerID, allowNonEU: *allowNonEU,
+			lang: lang, resume: *resume, stderr: stderr,
+		}, stdin, stdout, stderr, isTerminal)
 	}
 	out := headless.Output(*output)
 	if out != headless.Text && out != headless.JSON {
@@ -145,6 +158,46 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		Redact:     func(s string) string { out, _ := red.RedactJSON(s); return out },
 		RedactText: func(s string) string { out, _ := red.Redact(s); return out },
 	}, stdout, stderr)
+}
+
+// runInteractive ouvre l'interface interactive (tenon sans -p). --output et
+// l'absence de terminal sont refusés avant toute autre opération.
+func runInteractive(ctx context.Context, fs *flag.FlagSet, lang i18n.Lang, o engineOptions, stdin io.Reader, stdout, stderr io.Writer, isTerminal func() bool) int {
+	output := false
+	fs.Visit(func(f *flag.Flag) { output = output || f.Name == "output" })
+	if output {
+		fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", i18n.T(lang, "err.output_requires_p")))
+		return 1
+	}
+	if isTerminal == nil || !isTerminal() {
+		fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", i18n.T(lang, "err.no_tty")))
+		return 1
+	}
+
+	st, err := startEngine(o)
+	if err != nil {
+		fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", err))
+		return 1
+	}
+	// Les sinks sont fermés après le retour de la TUI, qui attend la fin du
+	// tour en cours.
+	defer st.close()
+	err = startTUI(ctx, st.eng, tui.Options{
+		Lang:          lang,
+		SessionID:     st.sessionID,
+		Provider:      st.provider,
+		ContextWindow: st.contextWindow,
+		ProjectRoot:   o.wd,
+	}, stdin, stdout)
+	switch {
+	case errors.Is(err, tui.ErrTurnNotFinished):
+		fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", i18n.T(lang, "err.turn_not_finished")))
+		return 1
+	case err != nil:
+		fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", err))
+		return 1
+	}
+	return 0
 }
 
 // argLang renvoie la valeur de -lang/--lang dans args (forme séparée ou
@@ -331,6 +384,9 @@ type started struct {
 	redactor  *policy.Redactor // celui de l'audit, de la session et d'Outbound
 	sessionID string
 	close     func() // ferme le journal d'audit et le fichier de session
+	// provider et contextWindow décrivent le fournisseur choisi (barre d'état).
+	provider      llm.ProviderInfo
+	contextWindow int
 }
 
 // startEngine assemble configuration, fournisseur, politique, outils, audit et
@@ -494,7 +550,10 @@ func startEngine(o engineOptions) (started, error) {
 			return started{}, fmt.Errorf("session %s : %w", sid, err)
 		}
 	}
-	return started{eng: eng, redactor: red, sessionID: sid, close: closeAll}, nil
+	return started{
+		eng: eng, redactor: red, sessionID: sid, close: closeAll,
+		provider: info, contextWindow: pc.Window(),
+	}, nil
 }
 
 // reMarkerKind reconnaît un marqueur de masquage et en capture le type et le

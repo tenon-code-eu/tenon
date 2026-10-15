@@ -161,7 +161,7 @@ func (e *env) run(args ...string) (int, string, string) {
 func (e *env) runStdin(stdin string, args ...string) (int, string, string) {
 	e.t.Helper()
 	var out, errb bytes.Buffer
-	code := run(context.Background(), args, strings.NewReader(stdin), &out, &errb, func(k string) string { return e.vars[k] }, e.wd)
+	code := run(context.Background(), args, strings.NewReader(stdin), &out, &errb, func(k string) string { return e.vars[k] }, e.wd, func() bool { return false })
 	return code, out.String(), errb.String()
 }
 
@@ -395,10 +395,11 @@ func TestGrepSkipsSensitiveFiles(t *testing.T) {
 	}
 }
 
-func TestNoPromptExit1(t *testing.T) {
+// --resume avec une sous-commande garde le message err.no_prompt.
+func TestResumeWithSubcommand(t *testing.T) {
 	e := newEnv(t, nil, "eu")
-	code, _, errb := e.run()
-	if code != 1 || !strings.Contains(errb, `l'interface interactive arrive bientôt : utilisez -p "<prompt>"`) {
+	code, _, errb := e.run("--resume", "last", "audit", "verify")
+	if code != 1 || !strings.Contains(errb, "--resume ne s'utilise pas avec une sous-commande") {
 		t.Fatalf("code=%d stderr=%q", code, errb)
 	}
 }

@@ -652,3 +652,15 @@ func TestSubmitFailureAfterUserMessageKeepsInputEmpty(t *testing.T) {
 		t.Fatalf("saisie restaurée alors que le message est parti : %q", v)
 	}
 }
+
+// Options.Now remplace l'horloge du modèle (tests).
+func TestOptionsNow(t *testing.T) {
+	at := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	m := New(newFake(), Options{Now: func() time.Time { return at }})
+	if got := m.now(); !got.Equal(at) {
+		t.Fatalf("now = %v, attendu %v", got, at)
+	}
+	if New(newFake(), Options{}).now == nil {
+		t.Fatal("horloge par défaut absente")
+	}
+}

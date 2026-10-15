@@ -25,6 +25,9 @@ type Options struct {
 	Provider      llm.ProviderInfo
 	ContextWindow int
 	ProjectRoot   string
+	// Now remplace l'horloge (délai d'armement des acceptations, double
+	// Ctrl+C). Réservé aux tests ; nil : time.Now.
+	Now func() time.Time
 }
 
 const (
@@ -120,6 +123,9 @@ func New(eng Engine, opts Options) Model {
 		st:    newStyles(lipgloss.DefaultRenderer()),
 		now:   time.Now,
 		ctx:   context.Background(),
+	}
+	if opts.Now != nil {
+		m.now = opts.Now
 	}
 	m.resize(defaultWidth, defaultHeight)
 	return m
