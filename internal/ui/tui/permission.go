@@ -53,6 +53,10 @@ const noKey = 'n'
 // touche destinée à autre chose. Les refus agissent immédiatement.
 const approveDelay = 500 * time.Millisecond
 
+// minApproveWidth est la largeur minimale pour accepter une demande : en deçà,
+// la première ligne de l'outil ne montre pas assez de la commande ou du chemin.
+const minApproveWidth = 40
+
 // syncShown note l'heure d'affichage chaque fois que la demande affichée change.
 func (m *Model) syncShown() {
 	if len(m.prompts) == 0 {
@@ -205,11 +209,11 @@ func (m Model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	settled := m.now().Sub(m.shownAt) >= approveDelay
 	switch msg.Runes[0] {
 	case k.once:
-		if settled {
+		if settled && m.promptHeadVisible() {
 			m.answer(engine.Reply{Allow: true})
 		}
 	case k.session:
-		if settled && m.prompts[0].p.Kind == "tool" {
+		if settled && m.promptHeadVisible() && m.prompts[0].p.Kind == "tool" {
 			m.answer(engine.Reply{Allow: true, Remember: true})
 		}
 	case noKey:
@@ -229,17 +233,43 @@ func (m *Model) answer(r engine.Reply) {
 	}
 }
 
-// promptLines rend le panneau de la demande affichée dans la hauteur
+// promptHeadVisible indique que l'image rendue pour la taille courante montre
+// l'en-tête de la demande (titre et première ligne de l'outil, de la commande
+// ou du chemin) : le panneau complet tient sous la conversation et la largeur
+// suffit. Sinon les touches d'acceptation sont ignorées ; les refus agissent.
+// View et le traitement des touches s'appuient tous deux sur ce calcul.
+func (m Model) promptHeadVisible() bool {
+	return m.width >= minApproveWidth && len(m.fullPromptLines())+statusHeight <= m.height
+}
+
+// promptLines rend le panneau : complet si son en-tête est visible, sinon
+// l'indication d'agrandir le terminal suivie des touches (refus possible).
+func (m Model) promptLines() []string {
+	if m.promptHeadVisible() {
+		return m.fullPromptLines()
+	}
+	split := func(s string) []string { return strings.Split(s, "\n") }
+	out := split(m.st.perm.Render(m.wrap(i18n.T(m.lang, "tui.perm.too_small"))))
+	return append(out, split(m.st.perm.Render(m.wrap(i18n.T(m.lang, m.promptKeysKey()))))...)
+}
+
+func (m Model) promptKeysKey() string {
+	if m.prompts[0].p.Kind == "tool" {
+		return "tui.perm.keys_tool"
+	}
+	return "tui.perm.keys_jurisdiction"
+}
+
+// fullPromptLines rend le panneau de la demande affichée dans la hauteur
 // disponible. Le titre, la première ligne de l'outil (outil et début de la
 // commande) et les touches restent toujours visibles : un texte trop long est
 // coupé au milieu (fin de la commande, chemins, diff) et remplacé par une ligne
 // indiquant le nombre de lignes masquées.
-func (m Model) promptLines() []string {
+func (m Model) fullPromptLines() []string {
 	p := m.prompts[0]
 	split := func(s string) []string { return strings.Split(s, "\n") }
 
 	top := split(m.st.perm.Render(m.wrap(i18n.T(m.lang, "tui.perm.title"))))
-	keysKey := "tui.perm.keys_tool"
 	var middle []string
 	if p.p.Kind == "tool" {
 		text := "⏺ " + p.p.Tool
@@ -253,7 +283,6 @@ func (m Model) promptLines() []string {
 			middle = append(middle, split(ansi.Hardwrap(sanitize("  "+path), m.width, true))...)
 		}
 	} else {
-		keysKey = "tui.perm.keys_jurisdiction"
 		var prov llm.ProviderInfo
 		if p.p.Provider != nil {
 			prov = *p.p.Provider
@@ -275,7 +304,7 @@ func (m Model) promptLines() []string {
 			middle = append(middle, m.truncate("  "+l.Text))
 		}
 	}
-	keyLines := split(m.st.perm.Render(m.wrap(i18n.T(m.lang, keysKey))))
+	keyLines := split(m.st.perm.Render(m.wrap(i18n.T(m.lang, m.promptKeysKey()))))
 	moreLine := func(n int) string {
 		return m.st.notice.Render(m.truncate(i18n.T(m.lang, "tui.perm.more_lines", n)))
 	}
@@ -299,13 +328,15 @@ func (m Model) promptLines() []string {
 	if showMore {
 		budget--
 	}
-	budget = max(1, budget)
+	budget = min(max(1, budget), len(middle))
 	hidden := len(middle) - budget
 	if p.more > 0 && !showMore {
 		hidden += p.more
 	}
 	out = append(out, middle[:budget]...)
-	out = append(out, m.st.notice.Render(m.truncate(i18n.T(m.lang, "tui.perm.hidden_lines", hidden))))
+	if hidden > 0 {
+		out = append(out, m.st.notice.Render(m.truncate(i18n.T(m.lang, "tui.perm.hidden_lines", hidden))))
+	}
 	if showMore {
 		out = append(out, moreLine(p.more))
 	}

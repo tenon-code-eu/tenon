@@ -478,3 +478,59 @@ func TestBinaryWriteShowsMarker(t *testing.T) {
 		t.Fatalf("marqueur binaire absent : %q", v)
 	}
 }
+
+func dangerousPerm(id string) event.PermissionRequestedPayload {
+	return event.PermissionRequestedPayload{
+		PermissionID: id, Kind: "tool", Tool: "shell",
+		Command: "rm -rf ~ ; " + strings.Repeat("echo rien ", 300),
+	}
+}
+
+func TestTooSmallTerminalBlocksApproval(t *testing.T) {
+	for _, sz := range []tea.WindowSizeMsg{{Width: 80, Height: 3}, {Width: 12, Height: 12}} {
+		f := newFake()
+		h := newHarness(t, f, Options{Lang: i18n.FR})
+		h.send(sz)
+		askPerm(t, h, f, dangerousPerm("p1"))
+		v := h.m.View()
+		if !strings.Contains(strings.ReplaceAll(v, "\n", " "), "agrandissez") {
+			t.Fatalf("%dx%d : indication absente : %q", sz.Width, sz.Height, v)
+		}
+		assertWidth(t, v, sz.Width)
+		if n := len(strings.Split(v, "\n")); n > sz.Height {
+			t.Fatalf("%dx%d : %d lignes", sz.Width, sz.Height, n)
+		}
+		h.send(runeKey('o'))
+		h.send(runeKey('s'))
+		if got := f.answered(); len(got) != 0 {
+			t.Fatalf("%dx%d : acceptation sans en-tête visible : %v", sz.Width, sz.Height, got)
+		}
+		h.send(runeKey('n'))
+		wantReply(t, f, "p1", engine.Reply{Allow: false})
+	}
+}
+
+func TestEnlargeAllowsApproval(t *testing.T) {
+	f := newFake()
+	h := newHarness(t, f, Options{Lang: i18n.FR})
+	h.send(tea.WindowSizeMsg{Width: 80, Height: 3})
+	askPerm(t, h, f, dangerousPerm("p1"))
+	h.send(tea.WindowSizeMsg{Width: 80, Height: 24})
+	v := h.m.View()
+	if strings.Contains(v, "agrandissez") || !strings.Contains(v, "⏺ shell rm -rf ~") {
+		t.Fatalf("vue 80x24 : %q", v)
+	}
+	h.send(runeKey('o'))
+	wantReply(t, f, "p1", engine.Reply{Allow: true})
+}
+
+func TestJurisdictionSmallNoZeroMarker(t *testing.T) {
+	f := newFake()
+	h := newHarness(t, f, Options{Lang: i18n.FR})
+	h.send(tea.WindowSizeMsg{Width: 80, Height: 4})
+	prov := &llm.ProviderInfo{ID: "openai", Name: "OpenAI", Country: "US", Jurisdiction: llm.NonEU}
+	askPerm(t, h, f, event.PermissionRequestedPayload{PermissionID: "j1", Kind: "jurisdiction", Provider: prov})
+	if v := h.m.View(); strings.Contains(v, "0 lignes") || strings.Contains(v, "masquées") {
+		t.Fatalf("marqueur vide affiché : %q", v)
+	}
+}
