@@ -1,0 +1,146 @@
+# Exemple complet de configuration globale de tenon.
+#
+# Emplacement : $XDG_CONFIG_HOME/tenon/config.toml,
+#               sinon ~/.config/tenon/config.toml.
+# Vérification : tenon config check
+#
+# Ce fichier ne contient aucun secret. Les clés d'API et les jetons sont lus
+# dans des variables d'environnement (désignées ici par leur nom) ou dans le
+# trousseau système (tenon key set <fournisseur>).
+#
+# Toute clé inconnue ou mal orthographiée est refusée au chargement.
+# Les clés absentes gardent leur valeur par défaut.
+
+# Langue de l'interface et du prompt système : "fr" ou "en".
+# Défaut : "en" si $LANG commence par "en", sinon "fr".
+lang = "fr"
+
+# Fournisseur utilisé sans --provider. Doit exister (préréglage ou [[providers]]).
+default_provider = "mistral"
+
+# Nombre maximal d'itérations (appels au modèle) par tour.
+max_iterations = 50
+
+# Délai maximal d'une commande shell, et d'un appel d'outil MCP.
+shell_timeout = "2m"
+
+# Taille maximale (en caractères) de la sortie d'un outil ; au-delà, elle est tronquée.
+output_limit = 30000
+
+# Part de la fenêtre de contexte au-delà de laquelle l'historique est résumé.
+# Valeur strictement comprise entre 0 et 1.
+compaction_threshold = 0.8
+
+[audit]
+# "full" : contenu des événements (masqué).
+# "metadata" : empreinte SHA-256 et taille de chaque charge utile, sans contenu.
+level = "full"
+
+# --- Fournisseurs ---------------------------------------------------------
+#
+# Préréglages intégrés : mistral, scaleway, ovhcloud (juridiction "eu"),
+# ollama et vllm (juridiction "local").
+#
+# Un bloc [[providers]] dont l'id est celui d'un préréglage REMPLACE tout le
+# préréglage : renseignez alors tous les champs.
+#
+# jurisdiction désigne le droit applicable à l'opérateur, pas l'emplacement
+# des serveurs : "eu", "non-eu" ou "local". Sans valeur, un fournisseur
+# déclaré ici est traité comme "non-eu". La valeur n'est pas vérifiée par
+# tenon : elle engage celui qui l'écrit.
+
+[[providers]]
+id = "passerelle"                          # nom utilisé par --provider
+name = "Passerelle interne"                # affiché dans la bannière
+base_url = "https://llm.exemple.eu/v1"     # point d'accès compatible OpenAI
+api_key_env = "PASSERELLE_API_KEY"         # nom de la variable, jamais la clé
+model = "mistral-small-latest"
+country = "FR"
+jurisdiction = "eu"
+context_window = 32000                     # en jetons ; 32000 si absent
+
+# --- Permissions ----------------------------------------------------------
+#
+# Défauts : lecture dans le projet autorisée ; écriture, shell et outils MCP
+# soumis à validation ; tout accès hors du projet et toute lecture de .env*,
+# *.pem ou id_rsa* soumis à validation.
+#
+# tool : read_file, write_file, edit_file, grep, glob, shell,
+#        mcp__<serveur>__<outil>, ou "*" pour tous les outils.
+# match : motif où * remplace n'importe quelle suite de caractères (/ et
+#         espaces compris). Il porte sur la commande (shell, MCP) ou sur le
+#         chemin, relatif à la racine du projet. Vide : tout appel de l'outil.
+# decision : "allow", "ask" ou "deny". deny l'emporte toujours.
+#
+# Une règle allow sur une commande ne couvre jamais une commande enchaînée
+# (; & | ` $( > < ou saut de ligne absents du motif).
+
+[[permissions.rules]]
+tool = "shell"
+match = "go test *"
+decision = "allow"
+
+[[permissions.rules]]
+tool = "shell"
+match = "rm -rf *"
+decision = "deny"
+
+[[permissions.rules]]
+tool = "*"
+match = "secrets/*"
+decision = "deny"
+
+# --- Masquage -------------------------------------------------------------
+#
+# S'ajoute aux règles intégrées (clés et jetons, clés privées, IBAN, NIR,
+# e-mail, téléphone). Expression régulière Go ; la correspondance entière est
+# remplacée par un marqueur [<NOM>_<n>], ici [TICKET_1], [TICKET_2]…
+
+[[redaction.rules]]
+name = "ticket"
+pattern = 'TICKET-[0-9]{6}'
+
+# --- Serveurs MCP ---------------------------------------------------------
+#
+# Déclarés seulement ici : la configuration d'un projet ne peut pas en ajouter.
+# id : [a-z0-9_-], 32 caractères au plus. Les outils sont exposés au modèle
+# sous le nom mcp__<id>__<outil>.
+#
+# risk règle la permission par défaut des outils du serveur :
+#   "read" : autorisés sans demande ;
+#   "write", "exec", "network" : soumis à validation.
+#   Sans valeur : "exec" pour stdio, "network" pour http.
+#
+# Un serveur "non-eu" n'est ni lancé ni contacté sans --allow-non-eu.
+
+# Serveur stdio : un programme local lancé par tenon.
+[[mcp.servers]]
+id = "docs"
+transport = "stdio"
+# Chemin absolu, ou nom nu cherché dans les dossiers absolus du PATH.
+command = ["mcp-docs-server", "--readonly"]
+# Variables transmises au serveur, en plus de PATH, HOME, LANG et
+# TENON_PROJECT_ROOT. Leurs valeurs sont masquées partout.
+env_from = ["DOCS_INDEX_TOKEN"]
+# Défaut "local" pour un serveur stdio. Déclarez "non-eu" s'il relaie un
+# service situé hors de l'UE.
+jurisdiction = "local"
+risk = "read"
+# Liste blanche facultative des outils exposés.
+tools = ["search", "fetch_page"]
+
+# Serveur HTTP (MCP « streamable HTTP »).
+[[mcp.servers]]
+id = "tickets"
+transport = "http"
+# https obligatoire, sauf vers localhost, 127.0.0.1 ou ::1.
+# Ni identifiant, ni requête, ni fragment dans l'URL.
+url = "https://mcp.exemple.eu/mcp"
+# Nom de la variable qui contient le jeton envoyé en « Authorization: Bearer ».
+bearer_env = "TICKETS_MCP_TOKEN"
+# Obligatoire pour un serveur http.
+jurisdiction = "eu"
+country = "FR"
+risk = "network"
+# true : serveur déclaré mais ni lancé ni contacté.
+disabled = false

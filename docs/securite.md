@@ -1,0 +1,161 @@
+# Sécurité, souveraineté et limites
+
+Ce document dit ce que tenon garantit, et surtout ce qu'il ne garantit pas.
+Il décrit le comportement du code actuel.
+Le mode d'emploi détaillé est dans [utilisation.md](utilisation.md).
+
+## Souveraineté : critères retenus
+
+La souveraineté de tenon ne repose pas sur la nationalité des fournisseurs.
+Elle repose sur quatre critères vérifiables.
+Un service utilisé **par défaut** pour faire fonctionner, construire ou distribuer tenon doit les remplir tous :
+
+1. **Ouvert** : logiciel open source, ou protocole ouvert et documenté.
+2. **Auto-hébergeable** : vous pouvez le remplacer par votre propre instance.
+3. **Droit applicable européen** : l'opérateur n'est soumis à aucune loi extraterritoriale qui permettrait à une autorité non européenne d'accéder aux données (par exemple CLOUD Act, FISA section 702).
+4. **Données maîtrisées** : aucun transfert de données hors de l'UE sans votre consentement explicite, tracé dans le journal d'audit.
+
+Un service qui ne remplit pas ces critères reste utilisable.
+Il n'est jamais utilisé par défaut, et son usage est toujours explicite et tracé.
+
+Conséquences dans tenon :
+
+- Les fournisseurs préconfigurés sont européens (`eu`) ou locaux (`local`). Le fournisseur par défaut est Mistral AI.
+- Un fournisseur ou un serveur MCP `non-eu` exige votre accord : question dans l'interface interactive pour un fournisseur, option `--allow-non-eu` sinon.
+- Les bibliothèques sont vendorées : la compilation depuis les sources ne demande aucun proxy de modules (`GOFLAGS=-mod=vendor`).
+
+## Ce que tenon garantit
+
+### Journal d'audit
+
+- Chaque événement (message, appel d'outil, permission, résultat, erreur) est écrit dans `~/.local/share/tenon/audit/AAAA-MM-JJ.jsonl`, avec `fsync`.
+- Chaque ligne contient l'empreinte SHA-256 de la ligne précédente. La première ligne a `prev = "sha256:0"`.
+- `tenon audit verify` détecte une ligne modifiée, insérée ou supprimée au milieu du journal.
+- Le contenu est masqué avant écriture. Avec `audit.level = "metadata"`, seules l'empreinte et la taille de chaque charge utile sont gardées.
+- Si l'écriture échoue, tenon n'exécute plus aucune action : la conformité passe avant la continuité.
+
+### Permissions
+
+- Chaque appel d'outil passe par le moteur de permissions avant exécution.
+- Par défaut, seule la lecture dans le projet est autorisée sans demande. Lire `.env*`, `*.pem` ou `id_rsa*`, ou accéder hors du projet, demande toujours une validation.
+- Une règle `deny` l'emporte toujours. Sur un chemin, elle s'applique aussi à la forme avant résolution des liens symboliques, sans tenir compte de la casse.
+- Un dépôt ne peut pas assouplir les règles : sa configuration ne peut contenir ni règle `allow`, ni fournisseur, ni serveur MCP.
+- En mode non interactif, toute demande de validation devient un refus.
+- Dans l'interface interactive, la validation exige un délai de calme de 500 ms, une commande entière visible et au moins 40 colonnes (voir [utilisation.md](utilisation.md#valider-une-action)).
+
+### Masquage
+
+- Les secrets (clés d'API, jetons, clés privées, valeurs de type `.env`) et des données personnelles (IBAN, NIR, e-mail, téléphone français) sont remplacés par des marqueurs : `[SECRET_1]`, `[EMAIL_1]`…
+- Le masquage s'applique à tout ce qui part vers le fournisseur, au journal d'audit, aux sessions et aux sorties affichées.
+- Les clés d'API des fournisseurs configurés et les valeurs `env_from` / `bearer_env` des serveurs MCP sont masquées à l'identique, même sans forme reconnaissable.
+- Les marqueurs ne sont jamais restaurés. Un appel MCP dont les arguments contiennent un marqueur est refusé.
+
+### Transparence
+
+- Le modèle, le fournisseur, le pays et la juridiction sont affichés au démarrage, dans la barre d'état et dans l'événement `SessionStarted` de la sortie JSON.
+- Les commits qui contiennent des fichiers écrits par l'agent reçoivent les trailers `AI-Assisted-By` et `AI-Session` (voir [utilisation.md](utilisation.md#marquage-git-du-code-produit)).
+
+## Limites connues
+
+### Les permissions ne sont pas un bac à sable
+
+Une commande shell autorisée s'exécute **avec vos droits**, dans le dossier du projet.
+Elle peut lire, modifier ou envoyer tout ce que vous pouvez lire, modifier ou envoyer.
+Une règle `allow` large (`tool = "shell"`, `match = "*"`) donne ce pouvoir au modèle sans validation.
+Il en va de même pour un serveur MCP stdio : c'est un programme lancé avec vos droits.
+L'isolation système n'existe pas dans cette version.
+
+### La juridiction est déclarative
+
+tenon ne vérifie pas la juridiction d'un fournisseur ou d'un serveur.
+Il applique la valeur écrite dans la configuration.
+Une erreur de déclaration (`eu` pour un opérateur soumis au CLOUD Act) supprime la protection.
+Par prudence, un fournisseur ajouté sans `jurisdiction` est traité comme `non-eu`.
+
+### Serveur stdio `local`
+
+Un serveur MCP stdio vaut `local` par défaut.
+Cela décrit l'endroit où tourne le programme, pas l'endroit où il envoie ensuite vos données.
+Si le programme relaie un service hors de l'UE, déclarez-le `jurisdiction = "non-eu"`.
+
+### Le masquage est approximatif
+
+- La détection repose sur des expressions régulières. Elle oublie des secrets au format inconnu et masque parfois du texte ordinaire.
+- La détection des données personnelles est partielle. tenon ne garantit pas la conformité au RGPD.
+- La réponse du modèle arrive par fragments (`AssistantDelta`). Chaque fragment est masqué séparément : un secret coupé entre deux fragments peut apparaître en clair dans les fragments du journal d'audit et de la sortie `--output json`. Le message final complet (`AssistantMessage`) est masqué d'un seul tenant.
+- Une clé d'API ou une valeur `env_from` / `bearer_env` de moins de 8 caractères n'est pas masquée telle quelle, pour ne pas masquer du texte ordinaire.
+
+Ajoutez vos propres règles avec `[[redaction.rules]]`.
+
+### Troncature de fin du journal
+
+Supprimer les **dernières** lignes du journal ne casse pas la chaîne : `tenon audit verify` ne peut pas le détecter.
+Parade : notez régulièrement le dernier hash affiché par `tenon audit verify` hors de la machine (ticket, dépôt séparé, message signé).
+Plus tard, vérifiez que ce hash figure toujours dans le journal, par exemple avec `grep`.
+S'il a disparu, des lignes ont été retirées.
+
+### Sosies visuels et terminal
+
+Le panneau de validation rend visibles les caractères invisibles, de largeur nulle, bidirectionnels et les espaces inhabituelles (`[U+XXXX]`).
+Il ne peut pas tout montrer :
+
+- les lettres sosies (cyrillique `а` au lieu de latin `a`, faux guillemets, faux tirets) restent affichées telles quelles. Un avertissement signale seulement qu'une commande shell contient un caractère non ASCII ;
+- un domaine sosie dans une URL n'est pas détecté ;
+- certains terminaux réordonnent le texte bidirectionnel ou dessinent mal les marques combinantes : le rendu dépend aussi de votre terminal et de sa police.
+
+Lisez la commande. En cas de doute, refusez.
+
+### Marquage git
+
+- Le marquage repose sur les fichiers de session. Une session supprimée n'est plus prise en compte.
+- La correspondance se fait par chemin : un fichier écrit une fois par l'agent est marqué à chaque commit où il est indexé, même si un humain l'a entièrement réécrit depuis.
+- `git commit --no-verify`, un hook absent ou `tenon` absent du `PATH` donnent un commit non marqué. Les commits de fusion ne sont pas marqués.
+
+Le marquage est une aide à la traçabilité, pas une preuve.
+
+### Outils de build et réseau
+
+Compiler tenon depuis les sources ne contacte aucun service : les dépendances sont vendorées.
+Deux étapes de la chaîne de développement font exception :
+
+- les outils de build lancés par `go run <module>@<version>` (analyse statique, SBOM, paquets) sont téléchargés depuis les dépôts sources (`GOPROXY=direct`), et leurs empreintes sont vérifiées auprès de `sum.golang.org`, opéré par Google ;
+- `govulncheck` interroge la base de vulnérabilités `vuln.go.dev`, opérée par Google.
+
+Ces services ne reçoivent aucune donnée de vos sessions.
+Avec la configuration par défaut de Go (sans `GOPROXY=direct`), les modules passent aussi par `proxy.golang.org`, opéré par Google.
+
+## Récupération
+
+### Journal d'audit corrompu
+
+Symptômes : `tenon audit verify` signale `fichier:ligne`, ou tenon refuse de démarrer avec « dernière ligne du journal illisible, chaîne non reprise ».
+
+Ne modifiez pas le journal en place : il sert de preuve.
+
+1. Quittez toutes les instances de tenon.
+2. Mettez le journal de côté, sans le modifier :
+   ```
+   mkdir -p ~/tenon-audit-2026-10-15/tenon
+   mv ~/.local/share/tenon/audit ~/tenon-audit-2026-10-15/tenon/audit
+   ```
+3. Vérifiez la copie pour noter l'endroit exact de la faute :
+   ```
+   XDG_DATA_HOME=~/tenon-audit-2026-10-15 tenon audit verify
+   ```
+4. Relancez tenon : un nouveau journal commence avec `prev = "sha256:0"`.
+5. Consignez l'incident (date, faute signalée, dernier hash connu) à côté de la copie.
+
+Une dernière ligne coupée (arrêt brutal pendant une écriture) produit le même symptôme.
+La procédure reste la même.
+
+### Session corrompue
+
+À la reprise (`tenon --resume`), tenon lit la session jusqu'à la dernière ligne lisible et affiche un avertissement.
+Le fichier est coupé à la première ligne illisible.
+L'original complet est gardé dans `~/.local/share/tenon/sessions/<id>.jsonl.corrupt`.
+
+Si la reprise échoue malgré tout, démarrez une nouvelle session.
+Le contenu de l'ancienne reste lisible dans son fichier JSONL et dans le journal d'audit.
+
+Une session « déjà ouverte dans un autre terminal » est verrouillée par un autre processus tenon.
+Fermez-le avant de reprendre la session.
