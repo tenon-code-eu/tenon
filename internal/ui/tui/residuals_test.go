@@ -69,7 +69,7 @@ func headCommand(m Model, tool string, n int) []string {
 // commandShown indique que la vue montre la ligne de l'outil et la commande
 // entière, chaque ligne d'origine reconstituée à l'identique (blancs compris).
 func commandShown(m Model, cmd string) bool {
-	want := splitLines(sanitize(cmd))
+	want := splitLines(escapeMarker(sanitize(cmd)))
 	want[0] = "⏺ shell " + want[0]
 	if cmd == "" {
 		want[0] = "⏺ shell"
@@ -111,7 +111,7 @@ func TestCommandLineNeverWiderThanTerminal(t *testing.T) {
 // dans l'ordre et aucune ligne du panneau ne dépasse la largeur.
 func TestApprovableImpliesWholeCommandVisible(t *testing.T) {
 	rng := rand.New(rand.NewSource(42))
-	pieces := []string{"a", "b", "z", "-", ";", "|", "/", "{", "}", "~", " ", " ", "  ", "\t", "世", "界", "€", "\n",
+	pieces := []string{"a", "b", "z", "-", ";", "|", "/", "{", "}", "~", " ", " ", "  ", "\t", "世", "界", "€", "\n", "↪ ", "↪",
 		strings.Repeat("x", 37), strings.Repeat("y", 79), strings.Repeat("w", 118), strings.Repeat("界", 30)}
 	approvable := 0
 	for i := 0; i < 400; i++ {
@@ -228,4 +228,37 @@ func TestToolNameRedacted(t *testing.T) {
 	f.emit(t, event.ToolResult, event.ToolResultPayload{CallID: "c1", Tool: name, Content: "ok"})
 	h.until("résultat", func() bool { return strings.Contains(h.m.View(), "[ok]") })
 	assertNoSecret(t, "résultat", h.m.View())
+}
+
+// Le marqueur de suite venu du texte est rendu « [U+21AA] » : une vraie
+// ligne de la commande (séparateur pour bash) ne se fait pas passer pour la
+// suite d'une ligne coupée.
+func TestMarkerInTextEscaped(t *testing.T) {
+	stripped := func(m Model) []string {
+		var out []string
+		for _, l := range m.promptLines() {
+			out = append(out, strings.TrimRight(ansi.Strip(l), " "))
+		}
+		return out
+	}
+	m := shellModel("echo a\n↪ b", 80, 40)
+	lines := stripped(m)
+	if !slices.Contains(lines, "[U+21AA] b") {
+		t.Fatalf("ligne « [U+21AA] b » absente :\n%s", strings.Join(lines, "\n"))
+	}
+	q := strings.Repeat("q", 27)
+	real := shellModel("echo "+q+"\n↪ b", 40, 40)
+	soft := shellModel("echo "+q+"b", 40, 40)
+	rl, sl := stripped(real), stripped(soft)
+	if slices.Equal(rl, sl) {
+		t.Fatalf("panneaux identiques :\n%s", strings.Join(rl, "\n"))
+	}
+	if !slices.Contains(sl, "↪ b") || !slices.Contains(rl, "[U+21AA] b") {
+		t.Fatalf("coupure ou ligne réelle mal rendue :\n%s\n--\n%s", strings.Join(rl, "\n"), strings.Join(sl, "\n"))
+	}
+	for _, l := range rl {
+		if strings.HasPrefix(l, contMarker) {
+			t.Fatalf("ligne réelle rendue comme une suite :\n%s", strings.Join(rl, "\n"))
+		}
+	}
 }

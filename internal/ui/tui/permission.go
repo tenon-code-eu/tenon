@@ -460,6 +460,14 @@ const minBlankRun = 3
 // largeur : une coupure se distingue d'un vrai saut de ligne et d'une espace.
 const contMarker = "↪ "
 
+// markerEscape remplace, dans le texte de l'en-tête (outil, commande,
+// chemins), le caractère du marqueur : une ligne de la commande commençant
+// par « ↪ » (un vrai saut de ligne, séparateur pour bash) se ferait passer
+// pour la suite d'une ligne coupée. Le seul « ↪ » affiché est le marqueur.
+const markerEscape = "[U+21AA]"
+
+func escapeMarker(s string) string { return strings.ReplaceAll(s, "↪", markerEscape) }
+
 // headLines rend l'en-tête de la demande : nombre de lignes de la commande
 // s'il y en a plusieurs, outil et commande, chemins ; ou le texte de la
 // juridiction. collapse regroupe les suites de plus de deux lignes vides de
@@ -488,7 +496,7 @@ func (m Model) headLines(p *permPrompt, collapse bool) []string {
 	if cmd != "" {
 		text += " " + cmd
 	}
-	for _, l := range splitLines(text) {
+	for _, l := range splitLines(escapeMarker(text)) {
 		for _, piece := range breakLine(l, m.width) {
 			out = append(out, m.st.tool.Render(piece))
 		}
@@ -498,7 +506,7 @@ func (m Model) headLines(p *permPrompt, collapse bool) []string {
 		out = append(out, splitLines(m.st.notice.Render(m.wrap(i18n.T(m.lang, "tui.perm.not_sandbox"))))...)
 	}
 	for _, path := range p.paths {
-		for _, l := range splitLines(sanitize("  " + path)) {
+		for _, l := range splitLines(escapeMarker(sanitize("  " + path))) {
 			out = append(out, breakLine(l, m.width)...)
 		}
 	}
