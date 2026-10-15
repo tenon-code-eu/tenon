@@ -511,16 +511,21 @@ func escapedInHead(r rune) bool {
 		unicode.Is(unicode.Cf, r) || unicode.IsSpace(r) || r == '↪' || r == '␠' || blankLike(r)
 }
 
-// blankLike reconnaît les caractères qui s'affichent comme un blanc ou rien
-// sans être des blancs ni des caractères de format : remplissages hangul,
-// braille vide, séparateur de voyelles mongol, joint de graphèmes, voyelles
-// inhérentes khmères, sélecteurs de variante.
+// blankLike reconnaît, par catégories Unicode, les caractères qui
+// s'affichent comme un blanc ou rien sans être des blancs ni des caractères
+// de format : ignorables par défaut (remplissages hangul, joint de graphèmes,
+// voyelles inhérentes khmères, plages réservées), sélecteurs de variante
+// (mongols compris), caractères à usage privé et caractères non attribués.
+// S'y ajoutent le braille vide (U+2800) et le remplissage khitan (U+16FE4),
+// hors de ces catégories.
 func blankLike(r rune) bool {
-	switch r {
-	case 0x115F, 0x1160, 0x3164, 0xFFA0, 0x2800, 0x180E, 0x034F, 0x17B4, 0x17B5:
+	if r == 0x2800 || r == 0x16FE4 {
 		return true
 	}
-	return (r >= 0xFE00 && r <= 0xFE0F) || (r >= 0xE0100 && r <= 0xE01EF)
+	return unicode.In(r, unicode.Other_Default_Ignorable_Code_Point, unicode.Variation_Selector, unicode.Co) ||
+		// Non attribué : hors de toute catégorie (unicode.C de Go inclut les
+		// non attribués, d'où son absence ; Cc, Cf et Co sont traités ailleurs).
+		!unicode.In(r, unicode.L, unicode.M, unicode.N, unicode.P, unicode.S, unicode.Z)
 }
 
 // headLines rend l'en-tête de la demande : nombre de lignes de la commande
@@ -569,6 +574,11 @@ func (m Model) headLines(p *permPrompt, collapse bool) []string {
 	if p.p.Tool == "shell" {
 		// Risque rappelé par la spécification : pas de bac à sable.
 		out = append(out, splitLines(m.st.notice.Render(m.wrap(i18n.T(m.lang, "tui.perm.not_sandbox"))))...)
+		// Sosies de guillemets, tirets… : information seule, sans effet sur
+		// l'acceptation.
+		if !isASCII(p.command) {
+			out = append(out, splitLines(m.st.notice.Render(m.wrap(i18n.T(m.lang, "tui.perm.non_ascii"))))...)
+		}
 	}
 	for _, path := range p.paths {
 		for _, l := range splitLines("  " + path) {
@@ -576,6 +586,16 @@ func (m Model) headLines(p *permPrompt, collapse bool) []string {
 		}
 	}
 	return out
+}
+
+// isASCII indique que s ne contient que des octets ASCII.
+func isASCII(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] >= utf8.RuneSelf {
+			return false
+		}
+	}
+	return true
 }
 
 // breakTokens assemble les jetons d'une ligne de l'en-tête en morceaux de la

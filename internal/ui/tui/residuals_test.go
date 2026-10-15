@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
+	"unicode"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -21,7 +23,12 @@ import (
 
 // shellModel rend un modèle w×h affichant la demande d'exécution de cmd.
 func shellModel(cmd string, w, h int) Model {
-	m := New(newFake(), Options{Lang: i18n.FR, SessionID: "s"})
+	return shellModelLang(i18n.FR, cmd, w, h)
+}
+
+// shellModelLang est shellModel dans la langue lang.
+func shellModelLang(lang i18n.Lang, cmd string, w, h int) Model {
+	m := New(newFake(), Options{Lang: lang, SessionID: "s"})
 	m.resize(w, h)
 	pr, _ := m.newPrompt(event.PermissionRequestedPayload{PermissionID: "p", Kind: "tool", Tool: "shell", Command: cmd})
 	m.prompts = []*permPrompt{pr}
@@ -138,7 +145,7 @@ func TestApprovableImpliesWholeCommandVisible(t *testing.T) {
 	rng := rand.New(rand.NewSource(42))
 	pieces := []string{"a", "b", "z", "-", ";", "|", "/", "\\", "{", "}", "~", "[", " ", " ", "  ", "\t", "\r", "\u00a0",
 		"\u200b", "\u3000", "\u2028", "\x1b", "\xff", "世", "界", "€", "\n", "↪ ", "↪", "[U+21AA]", "[0x41]", "␠", "\u115f", "\u1160", "\u3164", "\uffa0", "\u2800", "\u180e", "\u034f", "\u17b4", "\u17b5",
-		"\ufe0f", "\U000E0100", "\u0301", "e\u0301",
+		"\ufe0f", "\U000E0100", "\u0301", "e\u0301", "\u180b", "\U000E0002", "\U00016FE4", "\ue000",
 		strings.Repeat("x", 37), strings.Repeat("y", 79), strings.Repeat("w", 118), strings.Repeat("界", 30)}
 	seen := map[string]bool{}
 	var cmds []string
@@ -362,7 +369,7 @@ func TestSecretSplitByZeroWidthNotReassembled(t *testing.T) {
 // Chacun est échappé et la commande diffère de ses sosies (espace ou rien).
 func TestBlankLookAlikesEscaped(t *testing.T) {
 	runes := []rune{0x115F, 0x1160, 0x3164, 0xFFA0, 0x2800, 0x180E, 0x034F, 0x17B4, 0x17B5,
-		0xFE00, 0xFE0F, 0xE0100, 0xE01EF}
+		0xFE00, 0xFE0F, 0xE0100, 0xE01EF, 0x180B, 0xE0002, 0x16FE4, 0xE000}
 	space, absent := shellModel("cd /tmp ; rm -rf *", 80, 40), shellModel("cd /tmp; rm -rf *", 80, 40)
 	for _, r := range runes {
 		cmd := "cd /tmp" + string(r) + "; rm -rf *"
@@ -389,5 +396,113 @@ func TestBlankLookAlikesEscaped(t *testing.T) {
 		if !slices.Contains(v, c.want) {
 			t.Fatalf("%q : ligne %q absente :\n%s", c.cmd, c.want, strings.Join(v, "\n"))
 		}
+	}
+}
+
+// tableRanges renvoie les intervalles fermés, triés et fusionnés, couverts
+// par les tables.
+func tableRanges(tabs ...*unicode.RangeTable) [][2]rune {
+	var rs [][2]rune
+	add := func(lo, hi, stride rune) {
+		if stride == 1 {
+			rs = append(rs, [2]rune{lo, hi})
+			return
+		}
+		for r := lo; r <= hi; r += stride {
+			rs = append(rs, [2]rune{r, r})
+		}
+	}
+	for _, t := range tabs {
+		for _, r := range t.R16 {
+			add(rune(r.Lo), rune(r.Hi), rune(r.Stride))
+		}
+		for _, r := range t.R32 {
+			add(rune(r.Lo), rune(r.Hi), rune(r.Stride))
+		}
+	}
+	slices.SortFunc(rs, func(a, b [2]rune) int { return int(a[0] - b[0]) })
+	var out [][2]rune
+	for _, r := range rs {
+		if n := len(out); n > 0 && r[0] <= out[n-1][1]+1 {
+			out[n-1][1] = max(out[n-1][1], r[1])
+			continue
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+// Balayage de l'espace des codes, par intervalles : aucun caractère
+// ignorable par défaut, sélecteur de variante, à usage privé ou non attribué
+// n'est rendu tel quel après une base visible.
+func TestInvisibleCategoriesEscapedAfterBase(t *testing.T) {
+	start := time.Now()
+	// Non attribués : trous entre les catégories (unicode.C de Go inclut les
+	// non attribués, d'où les sous-catégories explicites).
+	assigned := tableRanges(unicode.L, unicode.M, unicode.N, unicode.P, unicode.S, unicode.Z,
+		unicode.Cc, unicode.Cf, unicode.Co, unicode.Cs)
+	targets := tableRanges(unicode.Other_Default_Ignorable_Code_Point, unicode.Variation_Selector, unicode.Co)
+	next := rune(0)
+	for _, a := range append(assigned, [2]rune{unicode.MaxRune + 1, unicode.MaxRune + 1}) {
+		if a[0] > next {
+			targets = append(targets, [2]rune{next, a[0] - 1})
+		}
+		next = a[1] + 1
+	}
+	// Chaque caractère passe par le prédicat d'échappement de headTokens
+	// (aucun n'est l'un des cas qui le précèdent : octet invalide, « [ »,
+	// espace) ; le rendu complet est vérifié aux bornes de chaque intervalle et
+	// tous les 97 caractères, pour rester rapide sous -race.
+	checked := 0
+	for _, rg := range targets {
+		for r := rg[0]; r <= rg[1]; r++ {
+			checked++
+			if !escapedInHead(r) {
+				t.Fatalf("U+%04X non échappé dans l'en-tête", r)
+			}
+			if r != rg[0] && r != rg[1] && r%97 != 0 {
+				continue
+			}
+			if toks := headTokens("a" + string(r)); len(toks) != 2 || toks[1] != fmt.Sprintf("[U+%04X]", r) {
+				t.Fatalf("U+%04X rendu %q après une base visible", r, toks)
+			}
+		}
+	}
+	if checked < 900000 {
+		t.Fatalf("seulement %d caractères vérifiés", checked)
+	}
+	t.Logf("%d caractères vérifiés en %v", checked, time.Since(start))
+}
+
+// Une commande shell contenant un caractère non ASCII (sosies de guillemets,
+// de tirets…) est signalée par une ligne d'information ; une commande ASCII
+// ne l'est pas. Les règles d'acceptation ne changent pas.
+func TestShellNonASCIINotice(t *testing.T) {
+	for _, lang := range []i18n.Lang{i18n.FR, i18n.EN} {
+		notice := i18n.T(lang, "tui.perm.non_ascii")
+		for _, c := range []struct {
+			cmd  string
+			want bool
+		}{
+			{"echo \u201chi\u201d", true},
+			{"cd /tmp\u00a0; ls", true},
+			{"ls caf\u00e9", true},
+			{"rm \xff", true},
+			{"ls -la; echo 'hi' \"x\"", false},
+			{"", false},
+		} {
+			m := shellModelLang(lang, c.cmd, 100, 40)
+			v := strings.Join(visibleLines(m), "\n")
+			if got := strings.Contains(v, notice); got != c.want {
+				t.Fatalf("%s %q : avertissement présent=%v, attendu %v :\n%s", lang, c.cmd, got, c.want, v)
+			}
+			if c.cmd != "" && (!m.approvable() || !commandShown(m, c.cmd)) {
+				t.Fatalf("%s %q : acceptable=%v, panneau :\n%s", lang, c.cmd, m.approvable(), v)
+			}
+		}
+	}
+	if fr, en := i18n.T(i18n.FR, "tui.perm.non_ascii"), i18n.T(i18n.EN, "tui.perm.non_ascii"); fr != "attention : la commande contient des caractères non ASCII" ||
+		en != "warning: the command contains non-ASCII characters" {
+		t.Fatalf("textes : %q / %q", fr, en)
 	}
 }
