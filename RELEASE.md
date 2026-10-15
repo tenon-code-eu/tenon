@@ -52,10 +52,23 @@ Une version qui ne remplit pas un point n'est pas publiée.
 
 | Élément | Source | Date | Valeur |
 |---|---|---|---|
-| `LICENSE` (EUPL-1.2) | | | |
-| `mistral` : URL, modèle, fenêtre | | | |
-| `scaleway` : URL, modèle, fenêtre | | | |
-| `ovhcloud` : URL, modèle, fenêtre | | | |
-| `ollama` : URL, modèle, fenêtre | | | |
-| `vllm` : URL, modèle, fenêtre | | | |
+| `LICENSE` (EUPL-1.2) | Commission européenne, version texte (« TXT-80 ») liée depuis <https://interoperable-europe.ec.europa.eu/collection/eupl/eupl-text-eupl-12> : <https://joinup.ec.europa.eu/sites/default/files/custom-page/attachment/2020-03/EUPL-1.2%20EN.txt> | 2026-10-15 | copie octet pour octet, SHA-256 `6fc9e709ccbfe0d77fbffa2427a983282be2eb88e47b1cdb49f21a83b4d1e665` |
+| `mistral` : URL | <https://docs.mistral.ai/api> (exemples `https://api.mistral.ai/v1/chat/completions`) | 2026-10-15 | `https://api.mistral.ai/v1` |
+| `mistral` : modèle, fenêtre | <https://docs.mistral.ai/getting-started/models/models_overview/> et <https://docs.mistral.ai/models/mistral-medium-3-5-26-04> : « optimized for agentic and coding use cases », noms d'API `mistral-medium-3-5`, `mistral-medium-3`, `mistral-medium-latest`, contexte « 256k ». Devstral 2 et Devstral Medium/Small sont dépréciés, remplacés par Mistral Medium 3.5 ; Codestral 25.08 sert à la complétion | 2026-10-15 | `mistral-medium-3-5`, `256000` |
+| `scaleway` : URL | <https://www.scaleway.com/en/docs/generative-apis/quickstart/> (`base_url = "https://api.scaleway.ai/v1"`) | 2026-10-15 | `https://api.scaleway.ai/v1` |
+| `scaleway` : modèle, fenêtre | <https://www.scaleway.com/en/docs/generative-apis/reference-content/supported-models/> : `mistral-medium-3.5-128b`, Serverless « Yes », « 180k » (« During the preview stage, the context is limited to 180k ») ; fonction d'appel d'outils « Yes ». `devstral-small-2505` est en fin de vie (EOL 14/11/2025) ; `devstral-2-123b-instruct-2512` (EOL 01/08/2026) et `qwen3-coder-30b-a3b-instruct` (EOL 01/10/2026) aussi | 2026-10-15 | `mistral-medium-3.5-128b`, `180000` |
+| `ovhcloud` : URL, modèle, fenêtre | Catalogue officiel <https://catalog.endpoints.ai.ovh.net/rest/v1/models_v2> (documenté par <https://docs.ovhcloud.com/en/guides/public-cloud/ai-machine-learning/ai-endpoints-catalog-api>) : `name` `Qwen3.8-27B`, `router_base_url` `https://oai.endpoints.kepler.ai.cloud.ovh.net/v1`, `context` « 262k », `function_calling: true`, cas d'usage `code_chat`, statut `live`, centre de données FR. Le nom `name` est celui passé en `model` dans les exemples de <https://docs.ovhcloud.com/en/guides/public-cloud/ai-machine-learning/ai-endpoints-responses-api>. `Mistral-Small-3.2-24B-Instruct-2506` est marqué `available: false` | 2026-10-15 | `https://oai.endpoints.kepler.ai.cloud.ovh.net/v1`, `Qwen3.8-27B`, `262000` |
+| `ollama` : URL, modèle | <https://docs.ollama.com/api/openai-compatibility> (`http://localhost:11434/v1/`) ; <https://ollama.com/library/devstral> (« the best open source model for coding agents », `ollama run devstral`, 128K) | 2026-10-15 | `http://localhost:11434/v1`, `devstral` |
+| `ollama` : fenêtre | <https://docs.ollama.com/context-length> : 4k (< 24 GiB VRAM), 32k (24-48 GiB), 256k (≥ 48 GiB) ; 64000 au moins conseillé pour les outils de code | 2026-10-15 | **non vérifiable** : `32000` conservé, voir ci-dessous |
+| `vllm` : URL | <https://docs.vllm.ai/en/latest/cli/serve/> (`--port` « Default: 8000 ») ; <https://docs.vllm.ai/en/latest/serving/online_serving/openai_compatible_server/> (`base_url = "http://localhost:8000/v1"`) | 2026-10-15 | `http://localhost:8000/v1` |
+| `vllm` : modèle, fenêtre | <https://docs.vllm.ai/en/latest/cli/serve/> : `--served-model-name` (« If not specified, the model name will be the same as the --model argument »), `--max-model-len` (« If unspecified, will be automatically derived from the model config ») | 2026-10-15 | **non vérifiable** : `default` et `32000` conservés, voir ci-dessous |
 | Disponibilité du nom `tenon` | | | |
+
+### Valeurs non vérifiées (`TODO(release)` restants)
+
+Ces valeurs dépendent du serveur local de l'utilisateur. Aucune documentation ne fixe une valeur universelle.
+L'utilisateur les règle par un bloc `[[providers]]` (`model`, `context_window`).
+
+- `ollama`, `ContextWindow = 32000` : la fenêtre effective est celle du serveur (`OLLAMA_CONTEXT_LENGTH`, par défaut 4k, 32k ou 256k selon la VRAM), pas celle du modèle (128K). Une valeur supérieure à celle du serveur ferait tronquer la conversation sans compaction.
+- `vllm`, `Model = "default"` : vLLM répond au nom donné par `--served-model-name`, sinon au chemin passé à `--model`. Aucun nom par défaut n'est documenté.
+- `vllm`, `ContextWindow = 32000` : la fenêtre effective est `--max-model-len`, sinon celle de la configuration du modèle servi.
