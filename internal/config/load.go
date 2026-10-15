@@ -41,6 +41,12 @@ func Load(globalPath, projectPath string, getenv func(string) string) (Config, e
 		cfg.Audit = g.Audit
 		cfg.CompactionThreshold = g.CompactionThreshold
 		cfg.Permissions, cfg.Redaction = g.Permissions, g.Redaction
+		cfg.MCP = g.MCP
+		for i := range cfg.MCP.Servers {
+			if s := &cfg.MCP.Servers[i]; s.Transport == "stdio" && s.Jurisdiction == "" {
+				s.Jurisdiction = "local"
+			}
+		}
 		for _, p := range g.Providers {
 			if p.Jurisdiction == "" {
 				p.Jurisdiction = "non-eu"
