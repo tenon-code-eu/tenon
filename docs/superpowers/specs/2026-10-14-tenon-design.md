@@ -325,4 +325,5 @@ tenon -p "corrige les tests qui échouent" [--output text|json] [--allow-non-eu]
 | Masquage des données personnelles incomplet | Documentation explicite ; regex personnalisables |
 | Troncature de fin du journal indétectable | Ancrage manuel v1, automatique plus tard |
 | Qualité des modèles UE/locaux parfois inférieure aux modèles propriétaires de pointe | Endpoints ouverts ; architecture indépendante du modèle |
+| Sosies visuels dans une commande à valider (lettres cyrilliques, faux guillemets, domaines sosies, réordonnancement bidirectionnel par le terminal, marques combinantes sans glyphe dans la police) | Les invisibles et blancs sont affichés `[U+XXXX]` ; une commande shell non ASCII affiche un avertissement ; les sosies de lettres restent une limite inhérente, documentée |
 | Disponibilité du nom `tenon` | Vérifier Codeberg, domaines `.fr`/`.eu`, marques INPI et EUIPO avant publication |
