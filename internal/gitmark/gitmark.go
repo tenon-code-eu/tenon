@@ -229,6 +229,12 @@ func MarkContext(ctx context.Context, msgFile, dir, sessionsDir string) error {
 	if err != nil {
 		return err
 	}
+	// Commit de merge : il reprend du code déjà marqué sur sa branche.
+	if _, err := git(ctx, root, "rev-parse", "-q", "--verify", "MERGE_HEAD"); err == nil {
+		return nil
+	} else if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	content, err := os.ReadFile(msg)
 	if err != nil {
 		return err

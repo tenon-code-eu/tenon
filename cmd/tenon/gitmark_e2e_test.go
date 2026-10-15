@@ -201,12 +201,15 @@ func TestCommitMsgHookFlows(t *testing.T) {
 	for _, k := range []string{"XDG_CONFIG_HOME", "XDG_DATA_HOME", "HOME"} {
 		vars = append(vars, k+"="+e.vars[k])
 	}
-	commit := func(editor string, args ...string) (string, error) {
-		cmd := exec.Command("git", append([]string{"commit", "-q"}, args...)...)
+	gitHook := func(editor string, args ...string) (string, error) {
+		cmd := exec.Command("git", args...)
 		cmd.Dir = e.wd
 		cmd.Env = append(os.Environ(), append(vars, "GIT_EDITOR="+editor)...)
 		out, err := cmd.CombinedOutput()
 		return string(out), err
+	}
+	commit := func(editor string, args ...string) (string, error) {
+		return gitHook(editor, append([]string{"commit", "-q"}, args...)...)
 	}
 	lastMsg := func() string {
 		out, err := exec.Command("git", "-C", e.wd, "log", "-1", "--format=%B").Output()
@@ -297,5 +300,68 @@ func TestCommitMsgHookFlows(t *testing.T) {
 	m := lastMsg()
 	if strings.Count(m, "AI-Assisted-By:") != 1 || strings.Count(m, "AI-Session:") != 1 {
 		t.Fatalf("message (amend) : %q", m)
+	}
+
+	// Merge : la branche side porte un fichier de l'agent (commit marqué),
+	// le commit de merge n'est pas marqué.
+	gitIn(t, e.wd, "checkout", "-q", "-b", "side")
+	stage("package a // 7\n")
+	if out, err := commit("true", "-m", "side"); err != nil {
+		t.Fatalf("commit side : %v\n%s", err, out)
+	}
+	if m := lastMsg(); !strings.HasPrefix(m, "side"+trailers) {
+		t.Fatalf("message (side) : %q", m)
+	}
+	gitIn(t, e.wd, "checkout", "-q", "-")
+	e.writeFile(filepath.Join(e.wd, "c.txt"), "c\n")
+	gitIn(t, e.wd, "add", "c.txt")
+	if out, err := commit("true", "-m", "principal"); err != nil {
+		t.Fatalf("commit principal : %v\n%s", err, out)
+	}
+	if out, err := gitHook("true", "merge", "-q", "--no-ff", "side"); err != nil {
+		t.Fatalf("merge : %v\n%s", err, out)
+	}
+	if m := lastMsg(); !strings.HasPrefix(m, "Merge branch 'side'") || strings.Contains(m, "AI-") {
+		t.Fatalf("message (merge) : %q", m)
+	}
+}
+
+func TestGitMarkSkipsConfig(t *testing.T) {
+	isolateGit(t)
+	e := newEnv(t, nil, "eu")
+	gitIn(t, e.wd, "init", "-q")
+	// Une FIFO à la place de la configuration du projet bloquerait sa
+	// lecture : « git mark » ne lit aucune configuration.
+	if err := os.MkdirAll(filepath.Join(e.wd, ".tenon"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Mkfifo(filepath.Join(e.wd, ".tenon", "config.toml"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	origT := markTimeout
+	defer func() { markTimeout = origT }()
+	markTimeout = 500 * time.Millisecond
+	msg := filepath.Join(t.TempDir(), "MSG")
+	e.writeFile(msg, "titre\n")
+	type res struct {
+		code     int
+		out, err string
+	}
+	done := make(chan res, 1)
+	go func() {
+		var out, errb strings.Builder
+		code := run(context.Background(), []string{"git", "mark", msg}, strings.NewReader(""), &out, &errb, func(k string) string { return e.vars[k] }, e.wd, func() bool { return false })
+		done <- res{code, out.String(), errb.String()}
+	}()
+	select {
+	case r := <-done:
+		if r.code != 0 || r.out != "" || r.err != "" {
+			t.Fatalf("code=%d stdout=%q stderr=%q", r.code, r.out, r.err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("tenon git mark bloqué par la configuration")
+	}
+	if b, _ := os.ReadFile(msg); string(b) != "titre\n" {
+		t.Fatalf("message modifié : %q", b)
 	}
 }

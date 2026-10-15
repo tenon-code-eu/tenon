@@ -44,6 +44,12 @@ var startTUI = tui.Run
 // « tenon key set » et à l'interface interactive ; isTerminal indique que
 // l'entrée et la sortie standard sont des terminaux.
 func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(string) string, wd string, isTerminal func() bool) int {
+	// « tenon git mark » (hook commit-msg) passe avant toute lecture de
+	// configuration : il n'a pas besoin de langue, et tout son travail reste
+	// sous le délai de markTimeout.
+	if len(args) >= 2 && args[0] == "git" && args[1] == "mark" {
+		return gitMark(ctx, args[2:], stderr, getenv, wd)
+	}
 	// La langue de l'aide est connue avant l'analyse des options : --lang
 	// est lu directement dans args.
 	hl, _ := uiLang(argLang(args), getenv, wd)
@@ -128,6 +134,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		}
 		return listSessions(lang, stdout, stderr, getenv, wd)
 	case len(rest) >= 2 && rest[0] == "git" && rest[1] == "mark":
+		// Précédé d'options globales (le hook n'en passe aucune).
 		return gitMark(ctx, rest[2:], stderr, getenv, wd)
 	case len(rest) >= 2 && rest[0] == "git" && rest[1] == "install-hook":
 		return gitInstallHook(lang, rest[2:], stdout, stderr, wd)
