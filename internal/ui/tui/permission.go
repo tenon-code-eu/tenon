@@ -314,7 +314,7 @@ func (m *Model) answer(r engine.Reply) {
 // agissent. View et le traitement des touches s'appuient tous deux sur ce
 // calcul.
 func (m Model) approvable() bool {
-	return m.promptPanel().approvable
+	return m.prompting() && m.promptPanel().approvable
 }
 
 // promptLines rend le panneau de la demande affichée.
@@ -327,7 +327,7 @@ type panel struct {
 }
 
 func (m Model) promptKeysKey() string {
-	if m.prompts[0].p.Kind == "tool" {
+	if m.prompting() && m.prompts[0].p.Kind == "tool" {
 		return "tui.perm.keys_tool"
 	}
 	return "tui.perm.keys_jurisdiction"
@@ -344,6 +344,9 @@ func splitLines(s string) []string { return strings.Split(s, "\n") }
 // d'une indication ; si même cela ne tient pas, seuls l'indication
 // d'agrandir le terminal et les touches sont affichés.
 func (m Model) promptPanel() panel {
+	if !m.prompting() {
+		return panel{}
+	}
 	p := m.prompts[0]
 	top := splitLines(m.st.perm.Render(m.wrap(i18n.T(m.lang, "tui.perm.title"))))
 	keyLines := splitLines(m.st.perm.Render(m.wrap(i18n.T(m.lang, m.promptKeysKey()))))
@@ -385,7 +388,7 @@ func (m Model) fullPanel(p *permPrompt, top, keyLines []string, avail int) ([]st
 	head := m.headLines(p, false)
 	body := m.bodyLines(p)
 	fixed := len(top) + len(head) + len(keyLines)
-	if fixed > avail {
+	if fixed > avail || !within(m.width, top, head) {
 		return nil, false
 	}
 	rest := avail - fixed
@@ -427,6 +430,20 @@ func (m Model) fullPanel(p *permPrompt, top, keyLines []string, avail int) ([]st
 	return append(out, keyLines...), true
 }
 
+// within indique qu'aucune ligne des groupes ne dépasse la largeur w : une
+// ligne plus large serait tronquée par View et un caractère de la commande ou
+// d'un chemin serait masqué.
+func within(w int, groups ...[]string) bool {
+	for _, g := range groups {
+		for _, l := range g {
+			if ansi.StringWidth(l) > w {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 func (m Model) hiddenLine(n int) string {
 	return m.st.notice.Render(m.truncate(i18n.T(m.lang, "tui.perm.hidden_lines", n)))
 }
@@ -445,9 +462,11 @@ func (m Model) headLines(p *permPrompt, collapse bool) []string {
 		if p.p.Provider != nil {
 			prov = *p.p.Provider
 		}
-		text := i18n.T(m.lang, "tui.perm.jurisdiction", headless.ProviderLabel(prov), prov.Country,
-			headless.JurisdictionLabel(m.lang, prov.Jurisdiction))
-		return splitLines(m.wrap(m.redact(text)))
+		// Chaque champ est masqué seul : une règle ancrée en fin de ligne ne
+		// reconnaîtrait pas un secret suivi du reste du texte.
+		text := i18n.T(m.lang, "tui.perm.jurisdiction", m.redact(headless.ProviderLabel(prov)), m.redact(prov.Country),
+			m.redact(headless.JurisdictionLabel(m.lang, prov.Jurisdiction)))
+		return splitLines(m.wrap(text))
 	}
 	var out []string
 	cmd := sanitize(p.command)
