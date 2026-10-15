@@ -36,14 +36,20 @@ type permPrompt struct {
 	lines   []diff.Line
 	more    int
 	binary  bool
+	// noChange : l'écriture ne change rien ; unavailable : pas d'aperçu
+	// (appel non retrouvé, arguments illisibles).
+	noChange    bool
+	unavailable bool
 }
 
 // previewMsg porte l'aperçu calculé pour la demande pr.
 type previewMsg struct {
-	pr     *permPrompt
-	lines  []diff.Line
-	more   int
-	binary bool
+	pr          *permPrompt
+	lines       []diff.Line
+	more        int
+	binary      bool
+	noChange    bool
+	unavailable bool
 }
 
 // pendingCall est un appel d'outil demandé dont le résultat n'est pas arrivé.
@@ -142,6 +148,7 @@ func (m *Model) applyPreview(msg previewMsg) {
 			continue
 		}
 		p.lines, p.more, p.binary, p.ready = msg.lines, msg.more, msg.binary, true
+		p.noChange, p.unavailable = msg.noChange, msg.unavailable
 		if p == m.prompts[0] {
 			m.armedAt = m.now()
 		}
@@ -187,6 +194,7 @@ func (m Model) newPrompt(p event.PermissionRequestedPayload) (*permPrompt, tea.C
 	}
 	args := m.matchArgs(p)
 	if args == nil {
+		pr.unavailable = true
 		return pr, nil
 	}
 	pr.ready = false
@@ -197,7 +205,11 @@ func (m Model) newPrompt(p event.PermissionRequestedPayload) (*permPrompt, tea.C
 		switch {
 		case errors.Is(err, diff.ErrBinary):
 			msg.binary = true
-		case err == nil:
+		case err != nil:
+			msg.unavailable = true
+		case len(lines) == 0:
+			msg.noChange = true
+		default:
 			msg.lines, msg.more = lines, more
 		}
 		return msg
@@ -450,6 +462,10 @@ func (m Model) headLines(p *permPrompt, collapse bool) []string {
 		text += " " + cmd
 	}
 	out = append(out, splitLines(m.st.tool.Render(m.wrap(text)))...)
+	if p.p.Tool == "shell" {
+		// Risque rappelé par la spécification : pas de bac à sable.
+		out = append(out, splitLines(m.st.notice.Render(m.wrap(i18n.T(m.lang, "tui.perm.not_sandbox"))))...)
+	}
 	for _, path := range p.paths {
 		// Un chemin est un seul « mot » : coupé à la largeur, sans repli
 		// sur les espaces.
@@ -489,8 +505,13 @@ func (m Model) bodyLines(p *permPrompt) []string {
 	if !p.ready {
 		out = append(out, m.st.notice.Render(m.truncate(i18n.T(m.lang, "tui.perm.preview_loading"))))
 	}
-	if p.binary {
-		out = append(out, m.st.notice.Render(m.truncate(i18n.T(m.lang, "tui.perm.binary"))))
+	for _, k := range []struct {
+		on  bool
+		key string
+	}{{p.binary, "tui.perm.binary"}, {p.noChange, "tui.perm.no_change"}, {p.unavailable, "tui.perm.preview_unavailable"}} {
+		if k.on {
+			out = append(out, m.st.notice.Render(m.truncate(i18n.T(m.lang, k.key))))
+		}
 	}
 	for _, l := range p.lines {
 		switch l.Kind {

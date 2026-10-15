@@ -713,3 +713,50 @@ func TestPreviewAsync(t *testing.T) {
 	h.send(runeKey('o'))
 	wantReply(t, f, "p1", engine.Reply{Allow: true})
 }
+
+// Une écriture sans changement ou sans aperçu l'indique explicitement.
+func TestPreviewNoChangeOrUnavailable(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "f.txt"), []byte("même\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, lang := range []i18n.Lang{i18n.FR, i18n.EN} {
+		f := newFake()
+		h := newHarness(t, f, Options{Lang: lang, ProjectRoot: root})
+		h.send(tea.WindowSizeMsg{Width: 80, Height: 30})
+		args, _ := json.Marshal(map[string]string{"path": "f.txt", "content": "même\n"})
+		f.emit(t, event.ToolCallRequested, event.ToolCallRequestedPayload{CallID: "c1", Tool: "write_file", Args: args})
+		askPerm(t, h, f, event.PermissionRequestedPayload{
+			PermissionID: "p1", Kind: "tool", Tool: "write_file", Paths: []string{filepath.Join(root, "f.txt")},
+		})
+		if v := h.m.View(); !strings.Contains(v, i18n.T(lang, "tui.perm.no_change")) {
+			t.Fatalf("%s : « aucun changement » absent :\n%s", lang, v)
+		}
+		h.send(runeKey('n'))
+		// Aucun appel correspondant : aperçu indisponible.
+		askPerm(t, h, f, event.PermissionRequestedPayload{
+			PermissionID: "p2", Kind: "tool", Tool: "edit_file", Paths: []string{filepath.Join(root, "autre.txt")},
+		})
+		if v := h.m.View(); !strings.Contains(v, i18n.T(lang, "tui.perm.preview_unavailable")) {
+			t.Fatalf("%s : « aperçu indisponible » absent :\n%s", lang, v)
+		}
+	}
+}
+
+// Le panneau d'une commande shell rappelle qu'elle s'exécute sans bac à sable.
+func TestShellPromptNotSandbox(t *testing.T) {
+	for _, lang := range []i18n.Lang{i18n.FR, i18n.EN} {
+		f := newFake()
+		h := newHarness(t, f, Options{Lang: lang})
+		h.send(tea.WindowSizeMsg{Width: 100, Height: 30})
+		askPerm(t, h, f, shellPerm("p1"))
+		if v := h.m.View(); !strings.Contains(v, i18n.T(lang, "tui.perm.not_sandbox")) {
+			t.Fatalf("%s : avertissement absent :\n%s", lang, v)
+		}
+		askPerm(t, h, f, event.PermissionRequestedPayload{PermissionID: "p2", Kind: "tool", Tool: "write_file", Paths: []string{"/x"}})
+		h.send(runeKey('n'))
+		if v := h.m.View(); strings.Contains(v, i18n.T(lang, "tui.perm.not_sandbox")) {
+			t.Fatalf("%s : avertissement hors shell :\n%s", lang, v)
+		}
+	}
+}
