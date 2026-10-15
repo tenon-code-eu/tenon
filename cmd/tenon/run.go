@@ -22,6 +22,7 @@ import (
 	"codeberg.org/tenon/tenon/internal/config"
 	"codeberg.org/tenon/tenon/internal/engine"
 	"codeberg.org/tenon/tenon/internal/event"
+	"codeberg.org/tenon/tenon/internal/gitmark"
 	"codeberg.org/tenon/tenon/internal/i18n"
 	"codeberg.org/tenon/tenon/internal/instructions"
 	"codeberg.org/tenon/tenon/internal/llm"
@@ -126,6 +127,10 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 			return 1
 		}
 		return listSessions(lang, stdout, stderr, getenv, wd)
+	case len(rest) >= 2 && rest[0] == "git" && rest[1] == "mark":
+		return gitMark(rest[2:], stderr, getenv, wd)
+	case len(rest) >= 2 && rest[0] == "git" && rest[1] == "install-hook":
+		return gitInstallHook(lang, rest[2:], stdout, stderr, wd)
 	case len(rest) == 3 && rest[0] == "key" && (rest[1] == "set" || rest[1] == "delete"):
 		return keyCommand(lang, rest[1], rest[2], stdin, stdout, stderr, getenv, wd)
 	case len(rest) > 0:
@@ -801,4 +806,48 @@ func newSessionID() (string, error) {
 		return "", fmt.Errorf("identifiant de session : %w", err)
 	}
 	return "s_" + hex.EncodeToString(b), nil
+}
+
+// gitMark ajoute les trailers de l'agent au message de commit args[0]. Appelé
+// par le hook prepare-commit-msg, il ne doit jamais bloquer un commit : code 0
+// dans tous les cas, erreur écrite seulement si TENON_DEBUG=1.
+func gitMark(args []string, stderr io.Writer, getenv func(string) string, wd string) int {
+	var err error
+	if len(args) != 1 || args[0] == "" {
+		err = fmt.Errorf("usage : tenon git mark <fichier-message>")
+	} else {
+		err = gitmark.Mark(args[0], wd, sessionsDir(getenv))
+	}
+	if err != nil && getenv("TENON_DEBUG") == "1" {
+		fmt.Fprintln(stderr, "tenon git mark :", err)
+	}
+	return 0
+}
+
+// gitInstallHook installe le hook prepare-commit-msg du dépôt contenant wd.
+func gitInstallHook(lang i18n.Lang, args []string, stdout, stderr io.Writer, wd string) int {
+	fs := flag.NewFlagSet("tenon git install-hook", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	force := fs.Bool("force", false, i18n.T(lang, "flag.force"))
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 1
+	}
+	if fs.NArg() > 0 {
+		fmt.Fprintln(stderr, i18n.T(lang, "err.unexpected_args", fs.Arg(0)))
+		return 1
+	}
+	path, err := gitmark.InstallHook(wd, *force)
+	switch {
+	case errors.Is(err, gitmark.ErrHookExists):
+		fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", i18n.T(lang, "git.hook_exists", path)))
+		return 1
+	case err != nil:
+		fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", err))
+		return 1
+	}
+	fmt.Fprintln(stdout, i18n.T(lang, "git.hook_installed", path))
+	return 0
 }
