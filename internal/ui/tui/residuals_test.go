@@ -2,6 +2,7 @@ package tui
 
 import (
 	"encoding/json"
+	"fmt"
 	"math/rand"
 	"path/filepath"
 	"regexp"
@@ -136,7 +137,8 @@ func TestCommandLineNeverWiderThanTerminal(t *testing.T) {
 func TestApprovableImpliesWholeCommandVisible(t *testing.T) {
 	rng := rand.New(rand.NewSource(42))
 	pieces := []string{"a", "b", "z", "-", ";", "|", "/", "\\", "{", "}", "~", "[", " ", " ", "  ", "\t", "\r", "\u00a0",
-		"\u200b", "\u3000", "\u2028", "\x1b", "\xff", "世", "界", "€", "\n", "↪ ", "↪", "[U+21AA]", "[0x41]", "␠",
+		"\u200b", "\u3000", "\u2028", "\x1b", "\xff", "世", "界", "€", "\n", "↪ ", "↪", "[U+21AA]", "[0x41]", "␠", "\u115f", "\u1160", "\u3164", "\uffa0", "\u2800", "\u180e", "\u034f", "\u17b4", "\u17b5",
+		"\ufe0f", "\U000E0100", "\u0301", "e\u0301",
 		strings.Repeat("x", 37), strings.Repeat("y", 79), strings.Repeat("w", 118), strings.Repeat("界", 30)}
 	seen := map[string]bool{}
 	var cmds []string
@@ -352,5 +354,40 @@ func TestSecretSplitByZeroWidthNotReassembled(t *testing.T) {
 	v := strings.Join(visibleLines(m), "\n")
 	if !strings.Contains(v, "AKIA[U+200B]IOSFODNN7EXAMPLE") || strings.Contains(v, "AKIAIOSFODNN7EXAMPLE") {
 		t.Fatalf("panneau :\n%s", v)
+	}
+}
+
+// Caractères d'apparence blanche ou de largeur nulle hors des catégories
+// générales : « cd /tmpㅤ; rm -rf * » ressemblait à « cd /tmp ; rm -rf * ».
+// Chacun est échappé et la commande diffère de ses sosies (espace ou rien).
+func TestBlankLookAlikesEscaped(t *testing.T) {
+	runes := []rune{0x115F, 0x1160, 0x3164, 0xFFA0, 0x2800, 0x180E, 0x034F, 0x17B4, 0x17B5,
+		0xFE00, 0xFE0F, 0xE0100, 0xE01EF}
+	space, absent := shellModel("cd /tmp ; rm -rf *", 80, 40), shellModel("cd /tmp; rm -rf *", 80, 40)
+	for _, r := range runes {
+		cmd := "cd /tmp" + string(r) + "; rm -rf *"
+		m := shellModel(cmd, 80, 40)
+		v := visibleLines(m)
+		if slices.Equal(v, visibleLines(space)) || slices.Equal(v, visibleLines(absent)) {
+			t.Fatalf("U+%04X : panneau identique à un sosie :\n%s", r, strings.Join(v, "\n"))
+		}
+		if esc := fmt.Sprintf("[U+%04X]", r); !strings.Contains(strings.Join(v, "\n"), esc) {
+			t.Fatalf("U+%04X : %s absent :\n%s", r, esc, strings.Join(v, "\n"))
+		}
+		if !m.approvable() || !commandShown(m, cmd) {
+			t.Fatalf("U+%04X : acceptable=%v, panneau :\n%s", r, m.approvable(), strings.Join(v, "\n"))
+		}
+	}
+	// Filet général : un caractère de largeur nulle en début de ligne ou après
+	// un blanc est échappé ; attaché à une base visible, il est gardé.
+	for _, c := range []struct{ cmd, want string }{
+		{"\u0301ls", "⏺ shell [U+0301]ls"},
+		{"ls \u0301x", "⏺ shell ls [U+0301]x"},
+		{"cafe\u0301", "⏺ shell cafe\u0301"},
+	} {
+		v := visibleLines(shellModel(c.cmd, 80, 40))
+		if !slices.Contains(v, c.want) {
+			t.Fatalf("%q : ligne %q absente :\n%s", c.cmd, c.want, strings.Join(v, "\n"))
+		}
 	}
 }

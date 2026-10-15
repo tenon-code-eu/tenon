@@ -474,30 +474,53 @@ const spaceGlyph = "␠"
 // écrit « [U+XXXX] » ; un octet invalide « [0xXX] » ; un « [ » suivi de « U+ »
 // ou « 0x » est lui-même échappé, si bien que le rendu se relit sans
 // équivoque. Les autres caractères visibles sont inchangés.
+//
+// S'y ajoutent les caractères d'apparence blanche ou invisibles hors de ces
+// catégories (blankLike) et, en filet général, tout caractère de largeur
+// nulle qui n'est pas une marque attachée à une base visible : en début de
+// ligne, après un blanc ou après un échappement.
 func headTokens(s string) []string {
 	out := make([]string, 0, len(s))
+	base := false // le jeton précédent est un caractère visible (ou sa marque)
 	for i := 0; i < len(s); {
 		r, n := utf8.DecodeRuneInString(s[i:])
+		i += n
 		switch {
 		case r == utf8.RuneError && n == 1:
-			out = append(out, fmt.Sprintf("[0x%02X]", s[i]))
-		case r == '[' && (strings.HasPrefix(s[i+1:], "U+") || strings.HasPrefix(s[i+1:], "0x")):
+			out = append(out, fmt.Sprintf("[0x%02X]", s[i-n]))
+			base = false
+		case r == '[' && (strings.HasPrefix(s[i:], "U+") || strings.HasPrefix(s[i:], "0x")):
 			out = append(out, "[U+005B]")
+			base = false
 		case r == ' ':
 			out = append(out, " ")
-		case escapedInHead(r):
+			base = false
+		case escapedInHead(r), ansi.StringWidth(string(r)) == 0 && !base:
 			out = append(out, fmt.Sprintf("[U+%04X]", r))
+			base = false
 		default:
 			out = append(out, string(r))
+			base = true
 		}
-		i += n
 	}
 	return out
 }
 
 func escapedInHead(r rune) bool {
 	return r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f) || r == utf8.RuneError ||
-		unicode.Is(unicode.Cf, r) || unicode.IsSpace(r) || r == '↪' || r == '␠'
+		unicode.Is(unicode.Cf, r) || unicode.IsSpace(r) || r == '↪' || r == '␠' || blankLike(r)
+}
+
+// blankLike reconnaît les caractères qui s'affichent comme un blanc ou rien
+// sans être des blancs ni des caractères de format : remplissages hangul,
+// braille vide, séparateur de voyelles mongol, joint de graphèmes, voyelles
+// inhérentes khmères, sélecteurs de variante.
+func blankLike(r rune) bool {
+	switch r {
+	case 0x115F, 0x1160, 0x3164, 0xFFA0, 0x2800, 0x180E, 0x034F, 0x17B4, 0x17B5:
+		return true
+	}
+	return (r >= 0xFE00 && r <= 0xFE0F) || (r >= 0xE0100 && r <= 0xE01EF)
 }
 
 // headLines rend l'en-tête de la demande : nombre de lignes de la commande
