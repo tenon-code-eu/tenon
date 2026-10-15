@@ -14,11 +14,17 @@ jobs:
       GOPROXY: direct
       GOSUMDB: sum.golang.org
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Autoriser le dépôt pour git
-        run: git config --global --add safe.directory "$PWD"
+      - name: Récupérer le dépôt
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          git config --global --add safe.directory "$PWD"
+          git init -q .
+          git remote add origin "${{ github.server_url }}/${{ github.repository }}"
+          auth="$(printf 'x-access-token:%s' "$TOKEN" | base64 | tr -d '\n')"
+          git -c "http.extraheader=Authorization: Basic $auth" fetch -q --tags origin "${{ github.sha }}"
+          git checkout -q --detach "${{ github.sha }}"
       - name: Contrôles (vet, test, lint, vuln)
         run: make ci
       - name: Build reproductible

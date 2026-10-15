@@ -1,5 +1,6 @@
 # Makefile de tenon : construction reproductible, qualité, CI.
-# Compatible GNU make et outils BSD (macOS) ; scripts en POSIX sh.
+# Nécessite GNU make (sur macOS : `gmake` ou `make` 3.81+) ; les outils
+# userland BSD (macOS) fonctionnent ; scripts en POSIX sh.
 
 # Code du projet : dépendances vendorisées.
 export GOFLAGS := -mod=vendor
@@ -15,10 +16,12 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 SOURCE_DATE_EPOCH ?= $(shell git log -1 --format=%ct 2>/dev/null || echo 0)
 export SOURCE_DATE_EPOCH
 
-# Options de build reproductible (voir scripts/repro-check.sh, qui les reprend).
+# Options de build reproductible. Ce Makefile fait foi : scripts/repro-check.sh
+# reprend BUILD_FLAGS et LDFLAGS depuis l'environnement.
 BUILD_ENV := CGO_ENABLED=0
 BUILD_FLAGS := -trimpath -buildvcs=false
 LDFLAGS := -s -w -buildid= -X main.version=$(VERSION)
+export VERSION BUILD_FLAGS LDFLAGS
 
 TARGETS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
 
@@ -44,7 +47,7 @@ build:
 	$(BUILD_ENV) go build $(BUILD_FLAGS) -ldflags "$(LDFLAGS)" -o dist/tenon ./cmd/tenon
 
 repro-check:
-	VERSION="$(VERSION)" TARGETS="$(TARGETS)" sh scripts/repro-check.sh
+	TARGETS="$(TARGETS)" sh scripts/repro-check.sh
 
 clean:
 	rm -rf dist

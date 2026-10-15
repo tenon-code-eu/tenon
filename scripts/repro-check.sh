@@ -8,6 +8,10 @@ VERSION="${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo d
 SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$(git log -1 --format=%ct)}"
 TARGETS="${TARGETS:-linux/amd64 linux/arm64 darwin/amd64 darwin/arm64}"
 export SOURCE_DATE_EPOCH
+# Le Makefile fait foi : BUILD_FLAGS et LDFLAGS viennent de l'environnement.
+# Valeurs par défaut identiques, pour un lancement direct du script.
+BUILD_FLAGS="${BUILD_FLAGS:--trimpath -buildvcs=false}"
+LDFLAGS="${LDFLAGS:--s -w -buildid= -X main.version=$VERSION}"
 export GOFLAGS="${GOFLAGS:--mod=vendor}"
 
 if command -v sha256sum >/dev/null 2>&1; then
@@ -18,15 +22,16 @@ fi
 
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/tenon-repro.XXXXXX")"
 # Les caches Go sont en lecture seule : les rendre inscriptibles avant suppression.
-trap 'chmod -R u+w "$tmp" 2>/dev/null || true; rm -rf "$tmp"' EXIT INT TERM
+trap 'chmod -R u+w "$tmp" 2>/dev/null || true; rm -rf "$tmp"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 build() { # cible dossier_sortie dossier_cache
 	os="${1%/*}"
 	arch="${1#*/}"
 	mkdir -p "$2" "$3"
 	CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" GOCACHE="$3" \
-		go build -trimpath -buildvcs=false \
-		-ldflags "-s -w -buildid= -X main.version=$VERSION" \
+		go build $BUILD_FLAGS -ldflags "$LDFLAGS" \
 		-o "$2/tenon" ./cmd/tenon
 }
 
