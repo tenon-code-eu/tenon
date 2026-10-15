@@ -62,7 +62,7 @@ ifeq ($(ALLOW_VULN),1)
 else
 	$(MAKE) vuln
 endif
-	ALLOW_VULN="$(ALLOW_VULN)" TARGETS="$(TARGETS)" sh scripts/release.sh
+	VULN_CHECKED=$(if $(filter 1,$(ALLOW_VULN)),,1) ALLOW_VULN="$(ALLOW_VULN)" TARGETS="$(TARGETS)" sh scripts/release.sh
 
 clean:
 	rm -rf dist

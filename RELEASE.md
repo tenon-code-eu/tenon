@@ -20,10 +20,10 @@ Une version qui ne remplit pas un point n'est pas publiée.
 
 ## 2. Construction
 
-- [ ] Créer le tag annoté : `git tag -a vX.Y.Z -m "tenon vX.Y.Z"`.
+- [ ] Créer le tag annoté : `git tag -a vX.Y.Z -m "tenon vX.Y.Z"`. Un tag léger est refusé. Pour un essai à blanc, créer de même un tag annoté jetable (`git tag -a v0.0.0-test -m essai`) dans un clone, avec `ALLOW_VULN=1`.
 - [ ] Lancer `make release VERSION=vX.Y.Z` depuis un arbre propre, avec Go 1.26.6 ou plus récent. La cible exécute d'abord `make vuln` : si `govulncheck` échoue, la release s'arrête.
 - [ ] **Ne jamais** utiliser `ALLOW_VULN=1` pour une vraie release. Cette variable ne sert qu'aux essais locaux : elle saute `make vuln`, écrit `dist/UNSAFE-DRY-RUN` et le script refuse alors de signer. Un `dist/` contenant ce fichier ne se publie pas.
-- [ ] Archives : générées avec GNU tar si `tar` ou `gtar` est GNU, sinon avec bsdtar (macOS) depuis un dossier d'assemblage à dates fixes. Les deux chemins sont déterministes, mais leurs octets peuvent différer : publier les archives d'une seule machine, et refaire la vérification de reproductibilité avec le même outil.
+- [ ] Archives : générées avec GNU tar si `tar` ou `gtar` est GNU, sinon avec bsdtar (macOS) depuis un dossier d'assemblage à dates fixes. Les deux chemins sont déterministes, mais leurs octets peuvent différer : publier les archives d'une seule machine, et refaire la vérification de reproductibilité avec le même outil. Les implémentations de gzip diffèrent elles aussi : publier depuis un seul environnement documenté (système, versions de tar et de gzip).
 - [ ] Vérifier dans `dist/` :
   - 4 archives `.tar.gz` (`linux/amd64`, `linux/arm64`, `darwin/amd64`, `darwin/arm64`) contenant `tenon`, `LICENSE`, `README.md` et `docs/` ;
   - les paquets `.deb` et `.rpm` pour `linux/amd64` et `linux/arm64` ;

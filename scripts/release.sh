@@ -18,8 +18,14 @@ root="$(pwd)"
 die() { printf 'release : %s\n' "$*" >&2; exit 1; }
 
 # --- 1. Garde-fous -----------------------------------------------------------
+# Le contrôle des vulnérabilités ne se contourne pas en appelant le script :
+# VULN_CHECKED=1 (posé par le Makefile après `make vuln`) ou ALLOW_VULN=1 (essai).
+[ "${VULN_CHECKED:-}" = 1 ] || [ "${ALLOW_VULN:-}" = 1 ] ||
+	die "refusé : passer par \`make release\` (contrôle govulncheck obligatoire)."
 [ -z "$(git status --porcelain)" ] || die "l'arbre git n'est pas propre."
 head_commit="$(git rev-parse HEAD)"
+[ "$(git cat-file -t "refs/tags/$VERSION" 2>/dev/null)" = tag ] ||
+	die "le tag $VERSION n'est pas un tag annoté (git tag -a)."
 tag_commit="$(git rev-parse -q --verify "refs/tags/$VERSION^{commit}")" ||
 	die "le tag $VERSION n'existe pas."
 [ "$tag_commit" = "$head_commit" ] || die "le tag $VERSION ne pointe pas sur HEAD."
@@ -57,17 +63,24 @@ fi
 # README.md, docs/ sans docs/superpowers, qui ne sert qu'au développement).
 make_archive() { # nom
 	name="$1"
-	( cd "$dist" && find "$name" | LC_ALL=C sort >"$tmp/list" )
+	( cd "$dist" && find "$name" >"$tmp/list.raw" )
+	LC_ALL=C sort "$tmp/list.raw" >"$tmp/list"
+	[ -s "$tmp/list" ] || die "liste vide pour $name."
 	if [ -n "$gnutar" ]; then
 		"$gnutar" -C "$dist" --sort=name --mtime="@$SOURCE_DATE_EPOCH" \
 			--owner=0 --group=0 --numeric-owner --format=gnu \
-			--no-recursion -T "$tmp/list" -cf - | gzip -n >"$dist/$name.tar.gz"
+			--no-recursion -T "$tmp/list" -cf "$tmp/a.tar"
 	else
 		# bsdtar : sans métadonnées macOS, propriétaire fixe, ordre de la liste triée.
 		COPYFILE_DISABLE=1 tar -C "$dist" --format gnutar --no-recursion \
 			--uid 0 --gid 0 --uname root --gname root --numeric-owner \
-			-T "$tmp/list" -cf - | gzip -n >"$dist/$name.tar.gz"
+			-T "$tmp/list" -cf "$tmp/a.tar"
 	fi
+	# Pas de pipefail en POSIX sh : une étape par commande, contrôlée par set -e.
+	gzip -n <"$tmp/a.tar" >"$dist/$name.tar.gz"
+	gzip -t "$dist/$name.tar.gz"
+	tar -tzf "$dist/$name.tar.gz" >"$tmp/check"
+	[ -s "$tmp/check" ] || die "archive vide : $name.tar.gz."
 }
 
 for t in $TARGETS; do
@@ -79,7 +92,8 @@ for t in $TARGETS; do
 	CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" \
 		go build $BUILD_FLAGS -ldflags "$LDFLAGS" -o "$stage/tenon" ./cmd/tenon
 	# Fichiers suivis par git uniquement, à l'état du commit.
-	git archive --format=tar HEAD LICENSE README.md docs ':!docs/superpowers' | tar -x -C "$stage"
+	git archive --format=tar -o "$tmp/src.tar" HEAD LICENSE README.md docs ':!docs/superpowers'
+	tar -xf "$tmp/src.tar" -C "$stage"
 	# Modes et dates fixes, indépendants de l'umask et de l'horloge.
 	find "$stage" -type d -exec chmod 755 {} +
 	find "$stage" -type f -exec chmod 644 {} +
@@ -113,8 +127,24 @@ GOFLAGS= GOPROXY=direct \
 
 # --- 5. Sommes de contrôle ---------------------------------------------------------
 ( cd "$dist" && find . -maxdepth 1 -type f \
-	\( -name '*.tar.gz' -o -name '*.deb' -o -name '*.rpm' -o -name '*.cdx.json' \) |
-	sed 's|^\./||' | LC_ALL=C sort >"$tmp/artefacts" )
+	\( -name '*.tar.gz' -o -name '*.deb' -o -name '*.rpm' -o -name '*.cdx.json' \) \
+	>"$tmp/artefacts.raw" )
+sed 's|^\./||' "$tmp/artefacts.raw" >"$tmp/artefacts.nom"
+LC_ALL=C sort "$tmp/artefacts.nom" >"$tmp/artefacts"
+# Jeu exact attendu : une archive par cible, deb et rpm par cible linux, un SBOM.
+expected=""
+for t in $TARGETS; do
+	os="${t%/*}"; arch="${t#*/}"; name="tenon_${VERSION}_${os}_${arch}"
+	expected="$expected$name.tar.gz
+"
+	if [ "$os" = linux ]; then expected="$expected$name.deb
+$name.rpm
+"; fi
+done
+expected="$expected""tenon_${VERSION}.cdx.json
+"
+printf '%s' "$expected" | LC_ALL=C sort >"$tmp/expected"
+cmp -s "$tmp/expected" "$tmp/artefacts" || die "jeu d'artefacts inattendu dans $dist/."
 : >"$dist/SHA256SUMS"
 while IFS= read -r f; do
 	printf '%s  %s\n' "$(hash_file "$dist/$f")" "$f" >>"$dist/SHA256SUMS"
