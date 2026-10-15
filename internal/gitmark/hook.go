@@ -10,10 +10,20 @@ import (
 	"strings"
 )
 
-// HookScript est le hook prepare-commit-msg installé par InstallHook : sans
-// tenon, pour un merge ou en cas d'erreur, il sort avec 0 sans toucher au
-// message.
+// HookScript est le hook commit-msg installé par InstallHook. Il s'exécute
+// après l'éditeur : un message laissé vide reste vide (Mark n'y touche pas)
+// et le commit est abandonné. Sans tenon ou en cas d'erreur, il sort avec 0
+// sans toucher au message.
 const HookScript = `#!/bin/sh
+# tenon : marquage du code produit par l'agent (ne bloque jamais le commit)
+command -v tenon >/dev/null 2>&1 || exit 0
+tenon git mark "$1" >/dev/null 2>&1 || true
+exit 0
+`
+
+// legacyHookScript est l'ancien hook prepare-commit-msg de tenon, retiré par
+// InstallHook : avant l'éditeur, il rendait non vide un message abandonné.
+const legacyHookScript = `#!/bin/sh
 # tenon : marquage du code produit par l'agent (ne bloque jamais le commit)
 case "$2" in merge) exit 0 ;; esac
 command -v tenon >/dev/null 2>&1 || exit 0
@@ -21,14 +31,22 @@ tenon git mark "$1" >/dev/null 2>&1 || true
 exit 0
 `
 
-// ErrHookExists signale un hook prepare-commit-msg différent déjà installé.
-var ErrHookExists = errors.New("un hook prepare-commit-msg existe déjà")
+// hookName est le hook installé ; legacyHookName celui des versions
+// précédentes.
+const (
+	hookName       = "commit-msg"
+	legacyHookName = "prepare-commit-msg"
+)
 
-// InstallHook installe HookScript (mode 0755) comme hook prepare-commit-msg
+// ErrHookExists signale un hook commit-msg différent déjà installé.
+var ErrHookExists = errors.New("un hook commit-msg existe déjà")
+
+// InstallHook installe HookScript (mode 0755) comme hook commit-msg
 // dans le dossier de hooks effectif du dépôt contenant repoRoot (core.hooksPath
 // respecté) et renvoie son chemin. Un hook identique est laissé tel quel ; un
 // hook différent donne ErrHookExists, sauf avec force : il est alors renommé
-// en prepare-commit-msg.bak (un .bak précédent est écrasé).
+// en commit-msg.bak (un .bak précédent est écrasé). Un ancien hook
+// prepare-commit-msg de tenon (identique à legacyHookScript) est supprimé.
 func InstallHook(repoRoot string, force bool) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), Timeout)
 	defer cancel()
@@ -49,10 +67,10 @@ func InstallHook(repoRoot string, force bool) (string, error) {
 	if !filepath.IsAbs(dir) {
 		dir = filepath.Join(top, dir)
 	}
-	path := filepath.Join(dir, "prepare-commit-msg")
+	path := filepath.Join(dir, hookName)
 
 	if cur, err := os.ReadFile(path); err == nil && bytes.Equal(cur, []byte(HookScript)) {
-		return path, nil
+		return path, removeLegacy(dir)
 	}
 	// Tout autre fichier (ou lien, même cassé) occupe la place.
 	if _, err := os.Lstat(path); err == nil {
@@ -83,5 +101,22 @@ func InstallHook(repoRoot string, force bool) (string, error) {
 	if err := os.Chmod(path, 0o755); err != nil {
 		return path, fmt.Errorf("droits du hook : %w", err)
 	}
-	return path, nil
+	return path, removeLegacy(dir)
+}
+
+// removeLegacy supprime l'ancien hook prepare-commit-msg de tenon ; un autre
+// hook prepare-commit-msg est conservé.
+func removeLegacy(dir string) error {
+	p := filepath.Join(dir, legacyHookName)
+	fi, err := os.Lstat(p)
+	if err != nil || !fi.Mode().IsRegular() {
+		return nil
+	}
+	if cur, err := os.ReadFile(p); err != nil || !bytes.Equal(cur, []byte(legacyHookScript)) {
+		return nil
+	}
+	if err := os.Remove(p); err != nil {
+		return fmt.Errorf("suppression de l'ancien hook %s : %w", legacyHookName, err)
+	}
+	return nil
 }

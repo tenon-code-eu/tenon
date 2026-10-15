@@ -2,12 +2,14 @@ package gitmark
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -256,6 +258,17 @@ func TestOddPaths(t *testing.T) {
 	writeSession(t, sdir, fakeSession{id: "s_000000000001", root: repo, provider: evil, results: results})
 	gitRun(t, repo, nil, "add", ".")
 
+	// Chaque chemin, pris seul, correspond.
+	ws, err := AgentWrites(sdir, repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range names {
+		if got := Trailers([]string{n}, repo, ws); len(got) != 2 {
+			t.Fatalf("%q non détecté : %q", n, got)
+		}
+	}
+
 	msg := filepath.Join(t.TempDir(), "MSG")
 	writeFile(t, msg, "titre\n")
 	if err := Mark(msg, repo, sdir); err != nil {
@@ -292,7 +305,7 @@ func TestInstallHook(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := filepath.Join(repo, ".git", "hooks", "prepare-commit-msg"); path != want {
+	if want := filepath.Join(repo, ".git", "hooks", "commit-msg"); path != want {
 		t.Fatalf("chemin %q, attendu %q", path, want)
 	}
 	checkHook(t, path)
@@ -304,7 +317,7 @@ func TestInstallHook(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := filepath.Join(repo2, "mes-hooks", "prepare-commit-msg"); path != want {
+	if want := filepath.Join(repo2, "mes-hooks", "commit-msg"); path != want {
 		t.Fatalf("chemin %q, attendu %q", path, want)
 	}
 	checkHook(t, path)
@@ -327,7 +340,6 @@ func checkHook(t *testing.T, path string) {
 	}
 	want := "#!/bin/sh\n" +
 		"# tenon : marquage du code produit par l'agent (ne bloque jamais le commit)\n" +
-		"case \"$2\" in merge) exit 0 ;; esac\n" +
 		"command -v tenon >/dev/null 2>&1 || exit 0\n" +
 		"tenon git mark \"$1\" >/dev/null 2>&1 || true\n" +
 		"exit 0\n"
@@ -345,7 +357,7 @@ func checkHook(t *testing.T, path string) {
 
 func TestInstallKeepsExistingHook(t *testing.T) {
 	repo := newRepo(t)
-	hook := filepath.Join(repo, ".git", "hooks", "prepare-commit-msg")
+	hook := filepath.Join(repo, ".git", "hooks", "commit-msg")
 	writeFile(t, hook, "#!/bin/sh\necho mien\n")
 
 	if _, err := InstallHook(repo, false); !errors.Is(err, ErrHookExists) {
@@ -412,4 +424,152 @@ func TestHookNeverBlocks(t *testing.T) {
 		t.Fatal(err)
 	}
 	commit(bin, "b.txt", "tenon en panne")
+}
+
+// agentRepo prépare un dépôt dont a.go, indexé, a été écrit par l'agent.
+func agentRepo(t *testing.T) (repo, sdir string) {
+	t.Helper()
+	repo = newRepo(t)
+	sdir = filepath.Join(t.TempDir(), "sessions")
+	writeSession(t, sdir, fakeSession{id: "s_000000000001", root: repo, provider: mistral, results: []event.ToolResultPayload{
+		{CallID: "c1", Tool: "write_file", Path: filepath.Join(repo, "a.go")},
+	}})
+	writeFile(t, filepath.Join(repo, "a.go"), "package a\n")
+	gitRun(t, repo, nil, "add", "a.go")
+	return repo, sdir
+}
+
+const marked = "AI-Assisted-By: tenon (devstral, Mistral AI, FR)\nAI-Session: s_000000000001\n"
+
+func TestAgentWritesSkipsNonRegular(t *testing.T) {
+	repo, sdir := agentRepo(t)
+	if err := syscall.Mkfifo(filepath.Join(sdir, "s_00000000000f.jsonl"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(sdir, "s_00000000000f.jsonl"), filepath.Join(sdir, "s_00000000000e.jsonl")); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan []Write, 1)
+	go func() {
+		ws, _ := AgentWrites(sdir, repo)
+		done <- ws
+	}()
+	select {
+	case ws := <-done:
+		if len(ws) != 1 {
+			t.Fatalf("écritures : %+v", ws)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("AgentWrites bloqué sur une FIFO")
+	}
+}
+
+func TestMarkContextSlowReader(t *testing.T) {
+	repo, sdir := agentRepo(t)
+	release, entered := make(chan struct{}), make(chan struct{}, 1)
+	orig := loadSession
+	loadSession = func(dir, id string) ([]event.Event, bool, error) {
+		entered <- struct{}{}
+		<-release // lecteur bloqué, sourd au contexte
+		return nil, false, errors.New("trop tard")
+	}
+	defer func() {
+		<-entered // loadSession a été lue avant le rétablissement
+		loadSession = orig
+		close(release)
+	}()
+
+	msg := filepath.Join(t.TempDir(), "MSG")
+	writeFile(t, msg, "titre\n")
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	err := MarkContext(ctx, msg, repo, sdir)
+	if err == nil || time.Since(start) > 3*time.Second {
+		t.Fatalf("err=%v durée=%v", err, time.Since(start))
+	}
+	if b, _ := os.ReadFile(msg); string(b) != "titre\n" {
+		t.Fatalf("message modifié : %q", b)
+	}
+}
+
+func TestMarkSkipsEmptyMessage(t *testing.T) {
+	repo, sdir := agentRepo(t)
+	for _, m := range []string{
+		"",
+		"\n\n",
+		"\n# Please enter the commit message\n#\n",
+		"\n\nSigned-off-by: Test <test@example.invalid>\n# commentaire\n",
+		"# ------------------------ >8 ------------------------\ndiff --git a/a.go b/a.go\n+package a\n",
+	} {
+		msg := filepath.Join(t.TempDir(), "MSG")
+		writeFile(t, msg, m)
+		if err := Mark(msg, repo, sdir); err != nil {
+			t.Fatal(err)
+		}
+		if b, _ := os.ReadFile(msg); string(b) != m {
+			t.Fatalf("message vide modifié : %q → %q", m, b)
+		}
+	}
+	// Avec un core.commentChar personnalisé.
+	gitRun(t, repo, nil, "config", "core.commentChar", ";")
+	msg := filepath.Join(t.TempDir(), "MSG")
+	writeFile(t, msg, "\n; commentaire\n")
+	if err := Mark(msg, repo, sdir); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(msg); string(b) != "\n; commentaire\n" {
+		t.Fatalf("message vide modifié : %q", b)
+	}
+	// Un vrai message est marqué, même avec des commentaires.
+	writeFile(t, msg, "titre\n; commentaire\n")
+	if err := Mark(msg, repo, sdir); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(msg); !strings.Contains(string(b), marked) {
+		t.Fatalf("message non marqué : %q", b)
+	}
+}
+
+func TestMarkIgnoresTrailerConfig(t *testing.T) {
+	repo, sdir := agentRepo(t)
+	gitRun(t, repo, nil, "config", "trailer.separators", "#")
+	gitRun(t, repo, nil, "config", "trailer.where", "start")
+	msg := filepath.Join(t.TempDir(), "MSG")
+	writeFile(t, msg, "titre\n\nSigned-off-by: Test <test@example.invalid>\n")
+	if err := Mark(msg, repo, sdir); err != nil {
+		t.Fatal(err)
+	}
+	want := "titre\n\nSigned-off-by: Test <test@example.invalid>\n" + marked
+	if b, _ := os.ReadFile(msg); string(b) != want {
+		t.Fatalf("message :\n%q\nattendu\n%q", b, want)
+	}
+}
+
+func TestInstallRemovesLegacyHook(t *testing.T) {
+	repo := newRepo(t)
+	hooks := filepath.Join(repo, ".git", "hooks")
+	legacy := "#!/bin/sh\n" +
+		"# tenon : marquage du code produit par l'agent (ne bloque jamais le commit)\n" +
+		"case \"$2\" in merge) exit 0 ;; esac\n" +
+		"command -v tenon >/dev/null 2>&1 || exit 0\n" +
+		"tenon git mark \"$1\" >/dev/null 2>&1 || true\n" +
+		"exit 0\n"
+	writeFile(t, filepath.Join(hooks, "prepare-commit-msg"), legacy)
+	if _, err := InstallHook(repo, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(filepath.Join(hooks, "prepare-commit-msg")); !os.IsNotExist(err) {
+		t.Fatalf("ancien hook tenon conservé : %v", err)
+	}
+	checkHook(t, filepath.Join(hooks, "commit-msg"))
+
+	// Un prepare-commit-msg qui n'est pas celui de tenon est conservé.
+	writeFile(t, filepath.Join(hooks, "prepare-commit-msg"), "#!/bin/sh\necho autre\n")
+	if _, err := InstallHook(repo, false); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(hooks, "prepare-commit-msg")); string(b) != "#!/bin/sh\necho autre\n" {
+		t.Fatalf("hook tiers modifié : %q", b)
+	}
 }

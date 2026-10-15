@@ -34,6 +34,12 @@ import (
 func TestMain(m *testing.M) {
 	mcptest.Main()
 	keyring.MockInit()
+	// Relancé avec TENON_TEST_CLI=1, le binaire de test joue la CLI tenon
+	// (hook git des tests).
+	if os.Getenv("TENON_TEST_CLI") == "1" {
+		wd, _ := os.Getwd()
+		os.Exit(run(context.Background(), os.Args[1:], os.Stdin, os.Stdout, os.Stderr, os.Getenv, wd, func() bool { return false }))
+	}
 	os.Exit(m.Run())
 }
 

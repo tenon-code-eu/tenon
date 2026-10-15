@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -20,6 +21,9 @@ import (
 	"codeberg.org/tenon/tenon/internal/event"
 	"codeberg.org/tenon/tenon/internal/session"
 )
+
+// loadSession lit une session ; remplacée dans les tests.
+var loadSession = session.Load
 
 // Timeout borne une exécution complète de Mark.
 const Timeout = 5 * time.Second
@@ -34,9 +38,16 @@ type Write struct {
 // AgentWrites renvoie les écritures réussies (ToolResult write_file ou
 // edit_file, sans erreur, avec un chemin) de toutes les sessions du projet
 // projectRoot : sessions ouvertes à sa racine ou dans un de ses
-// sous-dossiers. Les sessions illisibles sont ignorées ; un dossier absent
+// sous-dossiers. Les sessions illisibles et les entrées qui ne sont pas des
+// fichiers réguliers (FIFO, lien, dossier…) sont ignorées ; un dossier absent
 // donne une liste vide.
 func AgentWrites(sessionsDir, projectRoot string) ([]Write, error) {
+	return agentWrites(context.Background(), sessionsDir, projectRoot)
+}
+
+// agentWrites est AgentWrites, interrompu entre deux sessions quand ctx
+// expire.
+func agentWrites(ctx context.Context, sessionsDir, projectRoot string) ([]Write, error) {
 	ents, err := os.ReadDir(sessionsDir)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
@@ -45,15 +56,21 @@ func AgentWrites(sessionsDir, projectRoot string) ([]Write, error) {
 		return nil, fmt.Errorf("lecture du dossier des sessions : %w", err)
 	}
 	root := canonical(projectRoot)
+	load := loadSession
 	var out []Write
 	for _, de := range ents {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		id, ok := strings.CutSuffix(de.Name(), ".jsonl")
-		if !ok || de.IsDir() {
+		// Une FIFO bloquerait l'ouverture : fichiers réguliers seulement
+		// (type lu par ReadDir, sans suivre les liens).
+		if !ok || !de.Type().IsRegular() {
 			continue
 		}
 		// Load valide l'identifiant ; une session endommagée garde ses
 		// événements lisibles.
-		evs, _, err := session.Load(sessionsDir, id)
+		evs, _, err := load(sessionsDir, id)
 		if err != nil {
 			continue
 		}
@@ -191,11 +208,19 @@ func sanitize(s string) string {
 
 // Mark ajoute au fichier msgFile les trailers des fichiers indexés du dépôt
 // contenant dir écrits par l'agent (sessions de sessionsDir). Sans
-// correspondance, le message n'est pas modifié. L'exécution est bornée par
-// Timeout.
+// correspondance, ou si le message est vide (seulement des commentaires, des
+// lignes vides et des trailers : le commit doit rester abandonné), le message
+// n'est pas modifié. L'exécution est bornée par Timeout.
 func Mark(msgFile, dir, sessionsDir string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), Timeout)
 	defer cancel()
+	return MarkContext(ctx, msgFile, dir, sessionsDir)
+}
+
+// MarkContext est Mark borné par ctx : une fois ctx expiré, il rend la main
+// sans attendre une lecture de session bloquée, et le message n'est plus
+// modifié.
+func MarkContext(ctx context.Context, msgFile, dir, sessionsDir string) error {
 	msg, err := filepath.Abs(msgFile)
 	if err != nil {
 		return err
@@ -203,6 +228,13 @@ func Mark(msgFile, dir, sessionsDir string) error {
 	root, err := toplevel(ctx, dir)
 	if err != nil {
 		return err
+	}
+	content, err := os.ReadFile(msg)
+	if err != nil {
+		return err
+	}
+	if isEmptyMessage(string(content), commentPrefixes(ctx, root)) {
+		return nil
 	}
 	out, err := git(ctx, root, "-c", "core.quotepath=off", "diff", "--cached", "--name-only", "-z")
 	if err != nil {
@@ -217,24 +249,109 @@ func Mark(msgFile, dir, sessionsDir string) error {
 	if len(staged) == 0 {
 		return nil
 	}
-	writes, err := AgentWrites(sessionsDir, root)
-	if err != nil {
-		return err
+
+	// La lecture des sessions (système de fichiers) ne prend pas de
+	// contexte : elle est abandonnée, et non attendue, quand ctx expire.
+	type result struct {
+		writes []Write
+		err    error
 	}
-	if ctx.Err() != nil {
+	done := make(chan result, 1)
+	go func() {
+		w, err := agentWrites(ctx, sessionsDir, root)
+		done <- result{w, err}
+	}()
+	var writes []Write
+	select {
+	case r := <-done:
+		if r.err != nil {
+			return r.err
+		}
+		writes = r.writes
+	case <-ctx.Done():
 		return ctx.Err()
 	}
+
 	trailers := Trailers(staged, root, writes)
 	if len(trailers) == 0 {
 		return nil
 	}
-	args := []string{"interpret-trailers", "--in-place", "--if-exists", "addIfDifferent"}
+	// La configuration trailer.* du dépôt est neutralisée : séparateur « : »,
+	// trailers en fin de message.
+	args := []string{
+		"-c", "trailer.separators=:", "-c", "trailer.where=end", "-c", "core.quotepath=off",
+		"interpret-trailers", "--in-place", "--where", "end", "--if-exists", "addIfDifferent", "--if-missing", "add",
+	}
 	for _, t := range trailers {
 		args = append(args, "--trailer", t)
 	}
 	args = append(args, "--", msg)
+	// Dernier point de décision : après expiration, aucune écriture. git
+	// interpret-trailers --in-place remplace le fichier d'un bloc (fichier
+	// temporaire renommé) : un git tué ne laisse pas de message à moitié écrit.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	_, err = git(ctx, root, args...)
 	return err
+}
+
+// scissors est la ligne de coupe de « git commit -v » (après le préfixe de
+// commentaire) : tout ce qui suit est ignoré.
+const scissors = " ------------------------ >8 ------------------------"
+
+// reTrailerLine reconnaît une ligne « Clé: valeur » de trailer.
+var reTrailerLine = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]*:`)
+
+// isEmptyMessage indique si msg ne contient que des lignes vides, des
+// commentaires (lignes commençant par un des prefixes), des lignes de
+// trailer, ou rien avant la ligne de coupe : git abandonnerait alors le
+// commit, et des trailers ajoutés l'en empêcheraient.
+func isEmptyMessage(msg string, prefixes []string) bool {
+	for _, line := range strings.Split(msg, "\n") {
+		line = strings.TrimRight(line, "\r")
+		comment := false
+		for _, p := range prefixes {
+			if strings.HasPrefix(line, p) {
+				if line == p+scissors {
+					return true
+				}
+				comment = true
+				break
+			}
+		}
+		if comment || strings.TrimSpace(line) == "" || reTrailerLine.MatchString(line) {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+// autoCommentChars sont les caractères que git peut choisir avec
+// core.commentChar=auto.
+const autoCommentChars = "#;@!$%^&|:"
+
+// commentPrefixes renvoie les préfixes de commentaire du dépôt :
+// core.commentString, sinon core.commentChar, sinon « # ». Avec « auto »,
+// tous les caractères possibles sont retenus.
+func commentPrefixes(ctx context.Context, root string) []string {
+	v := "#"
+	for _, key := range []string{"core.commentChar", "core.commentString"} {
+		if out, err := git(ctx, root, "config", "--get", key); err == nil {
+			if s := strings.TrimSuffix(string(out), "\n"); s != "" {
+				v = s
+			}
+		}
+	}
+	if v == "auto" {
+		out := make([]string, 0, len(autoCommentChars))
+		for _, c := range autoCommentChars {
+			out = append(out, string(c))
+		}
+		return out
+	}
+	return []string{v}
 }
 
 // git exécute git dans dir (argv explicite, aucun shell) et renvoie sa
@@ -242,6 +359,8 @@ func Mark(msgFile, dir, sessionsDir string) error {
 func git(ctx context.Context, dir string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
+	// Un descendant qui garde les tubes ouverts ne retient pas Wait.
+	cmd.WaitDelay = time.Second
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	if err := cmd.Run(); err != nil {

@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
 
 // gitIn exécute git dans dir, isolé de la configuration de l'utilisateur.
@@ -86,10 +89,10 @@ func TestGitInstallHookCLI(t *testing.T) {
 	e := newEnv(t, nil, "eu")
 	gitIn(t, e.wd, "init", "-q")
 	code, out, errb := e.run("--lang", "en", "git", "install-hook")
-	if code != 0 || !strings.HasPrefix(out, "hook installed: ") || !strings.Contains(out, "prepare-commit-msg") {
+	if code != 0 || !strings.HasPrefix(out, "hook installed: ") || !strings.Contains(out, "commit-msg") {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errb)
 	}
-	hook := filepath.Join(e.wd, ".git", "hooks", "prepare-commit-msg")
+	hook := filepath.Join(e.wd, ".git", "hooks", "commit-msg")
 	e.writeFile(hook, "#!/bin/sh\nexit 0\n")
 	code, _, errb = e.run("git", "install-hook")
 	if code != 1 || !strings.Contains(errb, "--force") {
@@ -104,5 +107,162 @@ func TestGitInstallHookCLI(t *testing.T) {
 	// Sous-commande inconnue.
 	if code, _, _ = e.run("git", "frobnicate"); code != 1 {
 		t.Fatalf("code=%d", code)
+	}
+}
+
+// agentEnv : dépôt git dont a.go, indexé, a été écrit par l'agent lors d'un
+// tour headless.
+func agentEnv(t *testing.T) *env {
+	t.Helper()
+	isolateGit(t)
+	f := newFakeLLM(t, sseCall("write_file", `{"path":"a.go","content":"package a\n"}`), sseText("fini"))
+	e := newEnvExtra(t, f, "eu", `
+[[permissions.rules]]
+tool = "write_file"
+decision = "allow"
+`)
+	gitIn(t, e.wd, "init", "-q")
+	if code, _, errb := e.run("-p", "écris a.go"); code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, errb)
+	}
+	gitIn(t, e.wd, "add", "a.go")
+	return e
+}
+
+func TestGitMarkProcessTimeout(t *testing.T) {
+	e := agentEnv(t)
+	release := make(chan struct{})
+	defer close(release)
+	origF, origT := markFunc, markTimeout
+	defer func() { markFunc, markTimeout = origF, origT }()
+	// Lecture lente, sourde au contexte.
+	markFunc = func(ctx context.Context, msg, dir, sdir string) error {
+		<-release
+		return nil
+	}
+	markTimeout = 200 * time.Millisecond
+
+	msg := filepath.Join(t.TempDir(), "MSG")
+	e.writeFile(msg, "titre\n")
+	start := time.Now()
+	code, out, errb := e.run("git", "mark", msg)
+	if code != 0 || out != "" || errb != "" || time.Since(start) > 3*time.Second {
+		t.Fatalf("code=%d stdout=%q stderr=%q durée=%v", code, out, errb, time.Since(start))
+	}
+	if b, _ := os.ReadFile(msg); string(b) != "titre\n" {
+		t.Fatalf("message modifié : %q", b)
+	}
+}
+
+func TestGitMarkFIFOInSessions(t *testing.T) {
+	e := agentEnv(t)
+	if err := syscall.Mkfifo(filepath.Join(e.sessionsDir(), "s_00000000000f.jsonl"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	msg := filepath.Join(t.TempDir(), "MSG")
+	e.writeFile(msg, "titre\n")
+	start := time.Now()
+	code, _, errb := e.run("git", "mark", msg)
+	if code != 0 || time.Since(start) > 6*time.Second {
+		t.Fatalf("code=%d stderr=%q durée=%v", code, errb, time.Since(start))
+	}
+	// La FIFO est ignorée : la session régulière marque le message.
+	if b, _ := os.ReadFile(msg); !strings.Contains(string(b), "AI-Session: s_") {
+		t.Fatalf("message : %q", b)
+	}
+}
+
+func TestCommitMsgHookFlows(t *testing.T) {
+	e := agentEnv(t)
+	if code, _, errb := e.run("git", "install-hook"); code != 0 {
+		t.Fatalf("install-hook : code=%d stderr=%q", code, errb)
+	}
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin := t.TempDir()
+	e.writeFile(filepath.Join(bin, "tenon"), "#!/bin/sh\nexec \""+self+"\" \"$@\"\n")
+	editor := filepath.Join(bin, "editor")
+	e.writeFile(editor, "#!/bin/sh\nprintf 'msg\\n' > \"$1\"\n")
+	for _, f := range []string{"tenon", "editor"} {
+		if err := os.Chmod(filepath.Join(bin, f), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	vars := []string{
+		"PATH=" + bin + string(os.PathListSeparator) + filepath.Dir(gitPath),
+		"TENON_TEST_CLI=1",
+	}
+	for _, k := range []string{"XDG_CONFIG_HOME", "XDG_DATA_HOME", "HOME"} {
+		vars = append(vars, k+"="+e.vars[k])
+	}
+	commit := func(editor string, args ...string) (string, error) {
+		cmd := exec.Command("git", append([]string{"commit", "-q"}, args...)...)
+		cmd.Dir = e.wd
+		cmd.Env = append(os.Environ(), append(vars, "GIT_EDITOR="+editor)...)
+		out, err := cmd.CombinedOutput()
+		return string(out), err
+	}
+	lastMsg := func() string {
+		out, err := exec.Command("git", "-C", e.wd, "log", "-1", "--format=%B").Output()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(out)
+	}
+	stage := func(content string) {
+		e.writeFile(filepath.Join(e.wd, "a.go"), content)
+		gitIn(t, e.wd, "add", "a.go")
+	}
+	const trailers = "\n\nAI-Assisted-By: tenon (test-model, Test SAS, FR)\nAI-Session: s_"
+
+	// Éditeur quitté sans rien écrire : le commit est abandonné.
+	if out, err := commit("true"); err == nil {
+		t.Fatalf("commit vide accepté : %s", out)
+	}
+	if err := exec.Command("git", "-C", e.wd, "rev-parse", "-q", "--verify", "HEAD").Run(); err == nil {
+		t.Fatal("un commit a été créé")
+	}
+
+	// Éditeur qui écrit « msg ».
+	if out, err := commit(editor); err != nil {
+		t.Fatalf("commit : %v\n%s", err, out)
+	}
+	if m := lastMsg(); !strings.HasPrefix(m, "msg"+trailers) {
+		t.Fatalf("message (éditeur) : %q", m)
+	}
+
+	// -m
+	stage("package a // 2\n")
+	if out, err := commit("true", "-m", "deux"); err != nil {
+		t.Fatalf("commit -m : %v\n%s", err, out)
+	}
+	if m := lastMsg(); !strings.HasPrefix(m, "deux"+trailers) {
+		t.Fatalf("message (-m) : %q", m)
+	}
+
+	// -F
+	stage("package a // 3\n")
+	file := filepath.Join(t.TempDir(), "MSG")
+	e.writeFile(file, "trois\n")
+	if out, err := commit("true", "-F", file); err != nil {
+		t.Fatalf("commit -F : %v\n%s", err, out)
+	}
+	if m := lastMsg(); !strings.HasPrefix(m, "trois"+trailers) {
+		t.Fatalf("message (-F) : %q", m)
+	}
+
+	// --amend --no-edit : pas de doublon.
+	if out, err := commit("true", "--amend", "--no-edit"); err != nil {
+		t.Fatalf("amend : %v\n%s", err, out)
+	}
+	m := lastMsg()
+	if strings.Count(m, "AI-Assisted-By:") != 1 || strings.Count(m, "AI-Session:") != 1 {
+		t.Fatalf("message (amend) : %q", m)
 	}
 }

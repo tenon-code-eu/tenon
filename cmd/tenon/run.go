@@ -128,7 +128,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		}
 		return listSessions(lang, stdout, stderr, getenv, wd)
 	case len(rest) >= 2 && rest[0] == "git" && rest[1] == "mark":
-		return gitMark(rest[2:], stderr, getenv, wd)
+		return gitMark(ctx, rest[2:], stderr, getenv, wd)
 	case len(rest) >= 2 && rest[0] == "git" && rest[1] == "install-hook":
 		return gitInstallHook(lang, rest[2:], stdout, stderr, wd)
 	case len(rest) == 3 && rest[0] == "key" && (rest[1] == "set" || rest[1] == "delete"):
@@ -808,15 +808,34 @@ func newSessionID() (string, error) {
 	return "s_" + hex.EncodeToString(b), nil
 }
 
+// markFunc et markTimeout : marquage et délai de « tenon git mark »,
+// remplacés dans les tests.
+var (
+	markFunc    = gitmark.MarkContext
+	markTimeout = gitmark.Timeout
+)
+
 // gitMark ajoute les trailers de l'agent au message de commit args[0]. Appelé
-// par le hook prepare-commit-msg, il ne doit jamais bloquer un commit : code 0
-// dans tous les cas, erreur écrite seulement si TENON_DEBUG=1.
-func gitMark(args []string, stderr io.Writer, getenv func(string) string, wd string) int {
+// par le hook commit-msg, il ne doit jamais bloquer un commit : code 0 dans
+// tous les cas, erreur écrite seulement si TENON_DEBUG=1. L'exécution entière
+// est bornée par markTimeout : passé ce délai, la main est rendue sans
+// attendre le marquage, qui ne modifie plus le message (son contexte a
+// expiré).
+func gitMark(ctx context.Context, args []string, stderr io.Writer, getenv func(string) string, wd string) int {
 	var err error
 	if len(args) != 1 || args[0] == "" {
-		err = fmt.Errorf("usage : tenon git mark <fichier-message>")
+		err = errors.New("usage : tenon git mark <fichier-message>")
 	} else {
-		err = gitmark.Mark(args[0], wd, sessionsDir(getenv))
+		ctx, cancel := context.WithTimeout(ctx, markTimeout)
+		defer cancel()
+		mark, sdir := markFunc, sessionsDir(getenv)
+		done := make(chan error, 1)
+		go func() { done <- mark(ctx, args[0], wd, sdir) }()
+		select {
+		case err = <-done:
+		case <-ctx.Done():
+			err = ctx.Err()
+		}
 	}
 	if err != nil && getenv("TENON_DEBUG") == "1" {
 		fmt.Fprintln(stderr, "tenon git mark :", err)
