@@ -1062,3 +1062,51 @@ func TestResumeLockedSession(t *testing.T) {
 		t.Fatalf("requêtes envoyées malgré le verrou : %d -> %d", before, len(f.requests()))
 	}
 }
+
+// Le verrou de la session est pris avant sa lecture : une session ouverte
+// ailleurs (dont la dernière ligne est en cours d'écriture) n'est ni lue ni
+// signalée comme endommagée.
+func TestResumeLockedBeforeLoad(t *testing.T) {
+	f := newFakeLLM(t, sseText("ok"))
+	e := newEnv(t, f, "eu")
+	if code, _, errb := e.run("-p", "bonjour"); code != 0 {
+		t.Fatalf("run 1 : code=%d stderr=%q", code, errb)
+	}
+	ents, err := e.sessionFiles()
+	if err != nil || len(ents) != 1 {
+		t.Fatalf("sessions : %v %v", ents, err)
+	}
+	id := strings.TrimSuffix(ents[0].Name(), ".jsonl")
+	held, err := session.Open(e.sessionsDir(), id, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Close()
+	// L'autre processus est en train d'écrire une ligne.
+	p := filepath.Join(e.sessionsDir(), id+".jsonl")
+	fh, err := os.OpenFile(p, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fh.WriteString(`{"type":"assistant_mes`); err != nil {
+		t.Fatal(err)
+	}
+	fh.Close()
+	before := len(f.requests())
+
+	for _, args := range [][]string{{"--lang", "en", "--resume", id, "-p", "x"}, {"--lang", "en", "--resume", "last", "-p", "x"}} {
+		code, _, errb := e.run(args...)
+		if code != 1 || !strings.Contains(errb, "session "+id+" is already open in another terminal") {
+			t.Fatalf("%v : code=%d stderr=%q", args, code, errb)
+		}
+		if strings.Contains(errb, "unreadable") {
+			t.Fatalf("%v : session lue malgré le verrou : %q", args, errb)
+		}
+	}
+	if len(f.requests()) != before {
+		t.Fatalf("requêtes envoyées malgré le verrou : %d -> %d", before, len(f.requests()))
+	}
+	if _, err := os.Stat(p + ".corrupt"); !os.IsNotExist(err) {
+		t.Fatalf("session réparée malgré le verrou : %v", err)
+	}
+}

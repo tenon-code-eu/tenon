@@ -408,3 +408,44 @@ func TestDifferentSessionsIndependent(t *testing.T) {
 	}
 	wb.Close()
 }
+
+// Le verrou pris par Acquire exclut un autre Acquire jusqu'à Release ou
+// jusqu'à la fermeture du Writer à qui Open l'a confié.
+func TestAcquireThenOpen(t *testing.T) {
+	dir := t.TempDir()
+	if err := Exists(dir, sidA); !errors.Is(err, ErrNoSession) {
+		t.Fatalf("Exists = %v, attendu ErrNoSession", err)
+	}
+	if err := Exists(dir, "x"); !errors.Is(err, ErrInvalidID) {
+		t.Fatalf("Exists = %v, attendu ErrInvalidID", err)
+	}
+	l, err := Acquire(dir, sidA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Acquire(dir, sidA); !errors.Is(err, ErrLocked) {
+		t.Fatalf("2e Acquire : %v, attendu ErrLocked", err)
+	}
+	l.Release()
+	l, err = Acquire(dir, sidA)
+	if err != nil {
+		t.Fatalf("Acquire après Release : %v", err)
+	}
+	w, err := l.Open(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.Release() // sans effet : le verrou appartient au Writer
+	if _, err := Acquire(dir, sidA); !errors.Is(err, ErrLocked) {
+		t.Fatalf("Acquire pendant le Writer : %v, attendu ErrLocked", err)
+	}
+	if err := Exists(dir, sidA); err != nil {
+		t.Fatalf("Exists après Open : %v", err)
+	}
+	w.Close()
+	l2, err := Acquire(dir, sidA)
+	if err != nil {
+		t.Fatalf("Acquire après Close : %v", err)
+	}
+	l2.Release()
+}

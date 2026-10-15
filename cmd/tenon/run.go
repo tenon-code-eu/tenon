@@ -454,11 +454,25 @@ func startEngine(o engineOptions) (started, error) {
 		names = append(names, f.Name)
 	}
 
-	// La session à reprendre est lue avant l'ouverture du writer, qui tronque
-	// un fichier endommagé à sa première ligne illisible.
+	// La session à reprendre est verrouillée avant d'être lue (aucun autre
+	// processus ne l'écrit pendant la lecture), puis lue avant l'ouverture du
+	// writer, qui tronque un fichier endommagé à sa première ligne illisible.
 	sdir := sessionsDir(getenv)
 	var sid string
 	var events []event.Event
+	var lock *session.Lock
+	defer func() {
+		// Sans effet une fois le verrou confié au writer.
+		if lock != nil {
+			lock.Release()
+		}
+	}()
+	lockErr := func(err error) error {
+		if errors.Is(err, session.ErrLocked) {
+			return errors.New(i18n.T(lang, "err.session_locked", sid))
+		}
+		return err
+	}
 	switch o.resume {
 	case "":
 		if sid, err = newSessionID(); err != nil {
@@ -475,15 +489,26 @@ func startEngine(o engineOptions) (started, error) {
 		sid = o.resume
 	}
 	if o.resume != "" {
+		resumeErr := func(err error) error {
+			switch {
+			case errors.Is(err, session.ErrInvalidID):
+				return errors.New(i18n.T(lang, "err.invalid_session_id", sid))
+			case errors.Is(err, session.ErrNoSession):
+				return errors.New(i18n.T(lang, "err.no_session", sid))
+			}
+			return fmt.Errorf("session %s : %w", sid, err)
+		}
+		// Une session absente ne crée ni dossier ni verrou.
+		if err := session.Exists(sdir, sid); err != nil {
+			return started{}, resumeErr(err)
+		}
+		if lock, err = session.Acquire(sdir, sid); err != nil {
+			return started{}, lockErr(err)
+		}
 		var corrupt bool
 		events, corrupt, err = session.Load(sdir, sid)
-		switch {
-		case errors.Is(err, session.ErrInvalidID):
-			return started{}, errors.New(i18n.T(lang, "err.invalid_session_id", sid))
-		case errors.Is(err, session.ErrNoSession):
-			return started{}, errors.New(i18n.T(lang, "err.no_session", sid))
-		case err != nil:
-			return started{}, fmt.Errorf("session %s : %w", sid, err)
+		if err != nil {
+			return started{}, resumeErr(err)
 		}
 		// Comme List et Latest, la reprise est limitée aux sessions du projet
 		// courant : une session d'un autre projet est traitée comme absente,
@@ -525,12 +550,15 @@ func startEngine(o engineOptions) (started, error) {
 	if err != nil {
 		return started{}, err
 	}
-	sw, err := session.Open(sdir, sid, redactJSON)
+	if lock == nil {
+		if lock, err = session.Acquire(sdir, sid); err != nil {
+			_ = w.Close()
+			return started{}, lockErr(err)
+		}
+	}
+	sw, err := lock.Open(redactJSON)
 	if err != nil {
 		_ = w.Close()
-		if errors.Is(err, session.ErrLocked) {
-			return started{}, errors.New(i18n.T(lang, "err.session_locked", sid))
-		}
 		return started{}, err
 	}
 	closeAll := func() {
