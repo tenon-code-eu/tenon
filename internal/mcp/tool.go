@@ -8,7 +8,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net"
+	"net/url"
 	"strings"
+	"syscall"
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -83,8 +87,17 @@ func (t *mcpTool) Run(ctx context.Context, args json.RawMessage) (tools.Result, 
 		if errors.Is(tctx.Err(), context.DeadlineExceeded) {
 			return tools.Result{IsError: true, Content: fmt.Sprintf("[délai dépassé après %s]", t.opts.CallTimeout)}, nil
 		}
+		if t.srv.closing.Load() {
+			// Fermeture volontaire (Manager.Close) : pas de signalement hors service.
+			return tools.Result{IsError: true, Content: "serveur MCP " + id + " fermé"}, nil
+		}
 		var werr *jsonrpc.Error
-		if errors.As(err, &werr) {
+		switch {
+		case isNetworkErr(err):
+		case hasWireCode(err, codeRejected):
+			// Refus transitoire du transport (statut 429/5xx, en-têtes…) : erreur, serveur en service.
+			return tools.Result{IsError: true, Content: "serveur MCP " + id + " : " + cleanText(err.Error())}, nil
+		case errors.As(err, &werr):
 			return tools.Result{IsError: true, Content: "erreur du serveur MCP " + id + " : " + cleanText(werr.Message)}, nil
 		}
 		r := tools.Result{IsError: true, Content: "serveur MCP " + id + " indisponible : " + cleanText(err.Error())}
@@ -97,6 +110,52 @@ func (t *mcpTool) Run(ctx context.Context, args json.RawMessage) (tools.Result, 
 		Content: tools.Truncate(render(res), t.opts.OutputLimit),
 		IsError: res.IsError,
 	}, nil
+}
+
+// codeRejected est le code JSON-RPC par lequel le SDK signale une requête
+// rejetée par le transport (jsonrpc2.ErrRejected), qu'elle ait ou non atteint le serveur.
+const codeRejected = -32005
+
+// hasWireCode indique si une erreur JSON-RPC de code code figure dans la chaîne de err.
+func hasWireCode(err error, code int64) bool {
+	return walkErr(err, func(e error) bool {
+		w, ok := e.(*jsonrpc.Error)
+		return ok && w.Code == code
+	})
+}
+
+// isNetworkErr indique si err provient d'une panne réseau ou d'un flux coupé
+// (connexion refusée ou réinitialisée, fin de flux inattendue).
+func isNetworkErr(err error) bool {
+	return walkErr(err, func(e error) bool {
+		switch e.(type) {
+		case *net.OpError, *url.Error:
+			return true
+		}
+		return e == io.EOF || e == io.ErrUnexpectedEOF || e == syscall.ECONNRESET ||
+			e == syscall.ECONNREFUSED || e == syscall.EPIPE
+	})
+}
+
+// walkErr parcourt l'arbre des erreurs enveloppées de err.
+func walkErr(err error, match func(error) bool) bool {
+	if err == nil {
+		return false
+	}
+	if match(err) {
+		return true
+	}
+	switch u := err.(type) {
+	case interface{ Unwrap() error }:
+		return walkErr(u.Unwrap(), match)
+	case interface{ Unwrap() []error }:
+		for _, e := range u.Unwrap() {
+			if walkErr(e, match) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // render concatène les parties texte et résume les autres.

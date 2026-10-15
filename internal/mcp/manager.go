@@ -5,10 +5,12 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -36,7 +38,16 @@ const (
 	maxSchema = 64 << 10
 	// maxDescription est la longueur maximale (caractères) d'une description.
 	maxDescription = 1024
+	// maxSchemaDepth est la profondeur d'imbrication maximale d'un inputSchema.
+	maxSchemaDepth = 32
+	// maxToolsPerServer est le nombre maximal d'outils exposés par serveur.
+	maxToolsPerServer = 128
+	// maxListed borne le nombre d'outils lus dans tools/list (allowlist comprise).
+	maxListed = 4096
 )
+
+// maxBody est la taille maximale (octets) d'un corps de réponse HTTP (variable pour les tests).
+var maxBody int64 = 16 << 20
 
 // Options règle la connexion aux serveurs MCP.
 type Options struct {
@@ -68,6 +79,7 @@ type server struct {
 	session  *sdk.ClientSession
 	proc     *procTransport // nil hors stdio
 	down     atomic.Bool
+	closing  atomic.Bool // Manager.Close en cours : pas de ServerDown
 	reported atomic.Bool
 	once     sync.Once
 	closeErr error
@@ -120,15 +132,21 @@ func Start(ctx context.Context, servers []config.MCPServer, opts Options) (*Mana
 			continue
 		}
 		m.servers = append(m.servers, r.srv)
+		exposed := 0
 		for _, t := range r.tools {
 			if len(decl.Tools) > 0 && !slices.Contains(decl.Tools, t.Name) {
 				continue
+			}
+			if exposed == maxToolsPerServer {
+				m.warnings = append(m.warnings, fmt.Sprintf("serveur MCP %s : plus de %d outils, les suivants sont ignorés", decl.ID, maxToolsPerServer))
+				break
 			}
 			sch, err := validSchema(t.InputSchema)
 			if err != nil {
 				m.warnings = append(m.warnings, fmt.Sprintf("serveur MCP %s : outil %q ignoré (%v)", decl.ID, cleanText(t.Name), err))
 				continue
 			}
+			exposed++
 			name := ToolName(decl.ID, t.Name, taken)
 			m.tools = append(m.tools, &mcpTool{
 				srv:    r.srv,
@@ -160,6 +178,9 @@ func (m *Manager) Warnings() []string { return slices.Clone(m.warnings) }
 func (m *Manager) Close() error {
 	errs := make([]error, len(m.servers))
 	var wg sync.WaitGroup
+	for _, s := range m.servers {
+		s.closing.Store(true)
+	}
 	for i, s := range m.servers {
 		wg.Add(1)
 		go func() {
@@ -222,7 +243,7 @@ func connect(ctx context.Context, decl config.MCPServer, opts Options) (*server,
 		cmd := exec.Command(decl.Command[0], decl.Command[1:]...)
 		cmd.Env = minimalEnv(decl, opts.Getenv)
 		cmd.Dir = opts.Root
-		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		cmd.SysProcAttr = procAttr()
 		srv.proc = &procTransport{inner: &sdk.CommandTransport{Command: cmd, TerminateDuration: killDelay}}
 		transport = srv.proc
 	case decl.Transport == "http":
@@ -257,6 +278,9 @@ func connect(ctx context.Context, decl config.MCPServer, opts Options) (*server,
 			return nil, nil, timeoutErr(cctx, err)
 		}
 		list = append(list, t)
+		if len(list) >= maxListed {
+			break // pagination sans fin d'un serveur hostile
+		}
 	}
 	return srv, list, nil
 }
@@ -302,7 +326,10 @@ func secretsOf(servers []config.MCPServer, getenv func(string) string) []string 
 	}
 	for _, s := range servers {
 		for _, k := range s.EnvFrom {
-			add(k)
+			// PATH, HOME, LANG sont transmises d'office et ne sont pas des secrets.
+			if k != "PATH" && k != "HOME" && k != "LANG" {
+				add(k)
+			}
 		}
 		add(s.BearerEnv)
 	}
@@ -335,6 +362,10 @@ func validSchema(s any) (json.RawMessage, error) {
 	if len(raw) > maxSchema {
 		return nil, fmt.Errorf("schéma de plus de %d Ko", maxSchema>>10)
 	}
+	// Passe lexicale bon marché avant l'analyse complète, coûteuse sur un schéma très imbriqué.
+	if jsonDepth(raw) > maxSchemaDepth {
+		return nil, fmt.Errorf("schéma imbriqué sur plus de %d niveaux", maxSchemaDepth)
+	}
 	var sch jsonschema.Schema
 	if err := json.Unmarshal(raw, &sch); err != nil {
 		return nil, errors.New("schéma JSON invalide")
@@ -345,15 +376,39 @@ func validSchema(s any) (json.RawMessage, error) {
 	return raw, nil
 }
 
+// jsonDepth renvoie la profondeur d'imbrication maximale de raw (JSON valide).
+func jsonDepth(raw []byte) int {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	depth, maxDepth := 0, 0
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			return maxDepth
+		}
+		switch tok {
+		case json.Delim('{'), json.Delim('['):
+			depth++
+			if depth > maxDepth {
+				maxDepth = depth
+				if maxDepth > maxSchemaDepth {
+					return maxDepth
+				}
+			}
+		case json.Delim('}'), json.Delim(']'):
+			depth--
+		}
+	}
+}
+
 // httpClient : aucun suivi de redirection, délais bornés, jeton Bearer si défini.
 func httpClient(token string, opts Options) *http.Client {
 	base := http.DefaultTransport.(*http.Transport).Clone()
 	base.DialContext = (&net.Dialer{Timeout: opts.ConnectTimeout}).DialContext
 	base.TLSHandshakeTimeout = opts.ConnectTimeout
 	base.ResponseHeaderTimeout = opts.CallTimeout + opts.ConnectTimeout
-	var rt http.RoundTripper = base
+	var rt http.RoundTripper = &capBody{base: base, max: maxBody}
 	if token != "" {
-		rt = &bearer{base: base, token: token}
+		rt = &bearer{base: rt, token: token}
 	}
 	return &http.Client{
 		Transport:     rt,
@@ -371,6 +426,45 @@ func (b *bearer) RoundTrip(r *http.Request) (*http.Response, error) {
 	r.Header.Set("Authorization", "Bearer "+b.token)
 	return b.base.RoundTrip(r)
 }
+
+// capBody borne la taille des corps de réponse HTTP.
+type capBody struct {
+	base http.RoundTripper
+	max  int64
+}
+
+func (c *capBody) RoundTrip(r *http.Request) (*http.Response, error) {
+	resp, err := c.base.RoundTrip(r)
+	if err == nil && resp.Body != nil {
+		resp.Body = &limitedBody{rc: resp.Body, left: c.max}
+	}
+	return resp, err
+}
+
+var errBodyTooLarge = fmt.Errorf("réponse HTTP de plus de %d Mo", maxBody>>20)
+
+// limitedBody renvoie une erreur dès que plus de left octets ont été lus.
+type limitedBody struct {
+	rc   io.ReadCloser
+	left int64
+}
+
+func (l *limitedBody) Read(p []byte) (int, error) {
+	if l.left < 0 {
+		return 0, errBodyTooLarge
+	}
+	if int64(len(p)) > l.left+1 {
+		p = p[:l.left+1]
+	}
+	n, err := l.rc.Read(p)
+	l.left -= int64(n)
+	if l.left < 0 {
+		return 0, errBodyTooLarge
+	}
+	return n, err
+}
+
+func (l *limitedBody) Close() error { return l.rc.Close() }
 
 // procTransport enveloppe CommandTransport pour connaître le groupe de processus.
 type procTransport struct {

@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -457,4 +459,163 @@ func mustEval(t *testing.T, p string) string {
 		t.Fatal(err)
 	}
 	return r
+}
+
+// httpEcho démarre un serveur HTTP streamable de test ; fail(true) le fait répondre 503.
+func httpEcho(t *testing.T, body func(*sdk.Server)) (*httptest.Server, *atomic.Bool) {
+	t.Helper()
+	s := sdk.NewServer(&sdk.Implementation{Name: "h", Version: "1"}, nil)
+	body(s)
+	h := sdk.NewStreamableHTTPHandler(func(*http.Request) *sdk.Server { return s }, nil)
+	var unavailable atomic.Bool
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if unavailable.Load() {
+			http.Error(w, "indisponible", http.StatusServiceUnavailable)
+			return
+		}
+		h.ServeHTTP(w, r)
+	}))
+	t.Cleanup(ts.Close)
+	return ts, &unavailable
+}
+
+func TestHTTPServerGoneMarksDown(t *testing.T) {
+	ts, _ := httpEcho(t, echoServer)
+	decl := config.MCPServer{ID: "web", Transport: "http", URL: ts.URL + "/mcp", Jurisdiction: "eu"}
+	m, _ := start(t, []config.MCPServer{decl}, Options{ConnectTimeout: 3 * time.Second, CallTimeout: 3 * time.Second})
+	tl := toolByName(t, m, "mcp__web__echo")
+	if res := run(t, tl, `{"text":"a"}`); res.IsError {
+		t.Fatalf("premier appel %+v", res)
+	}
+	ts.CloseClientConnections()
+	ts.Close()
+	res := run(t, tl, `{"text":"b"}`)
+	if !res.IsError || res.ServerDown != "web" {
+		t.Fatalf("serveur fermé %+v", res)
+	}
+	res = run(t, tl, `{"text":"c"}`)
+	if !res.IsError || res.Content != "serveur MCP web indisponible" || res.ServerDown != "" {
+		t.Fatalf("appel suivant %+v", res)
+	}
+}
+
+func TestHTTP503NotDown(t *testing.T) {
+	ts, unavailable := httpEcho(t, echoServer)
+	decl := config.MCPServer{ID: "web", Transport: "http", URL: ts.URL + "/mcp", Jurisdiction: "eu"}
+	m, _ := start(t, []config.MCPServer{decl}, Options{ConnectTimeout: 3 * time.Second, CallTimeout: 3 * time.Second})
+	tl := toolByName(t, m, "mcp__web__echo")
+	unavailable.Store(true)
+	res := run(t, tl, `{"text":"a"}`)
+	if !res.IsError || res.ServerDown != "" || strings.Contains(res.Content, "indisponible :") {
+		t.Fatalf("503 %+v", res)
+	}
+	if !strings.Contains(res.Content, "Service Unavailable") {
+		t.Fatalf("contenu opaque %q", res.Content)
+	}
+	unavailable.Store(false)
+	if res := run(t, tl, `{"text":"b"}`); res.IsError || res.Content != "écho : b" {
+		t.Fatalf("après 503 %+v", res)
+	}
+}
+
+func TestHTTPBodyCapped(t *testing.T) {
+	old := maxBody
+	maxBody = 4096
+	defer func() { maxBody = old }()
+	ts, _ := httpEcho(t, echoServer)
+	decl := config.MCPServer{ID: "web", Transport: "http", URL: ts.URL + "/mcp", Jurisdiction: "eu"}
+	m, down := start(t, []config.MCPServer{decl}, Options{ConnectTimeout: 3 * time.Second, CallTimeout: 3 * time.Second})
+	if len(down) != 0 {
+		t.Fatalf("down %v", down)
+	}
+	tl := toolByName(t, m, "mcp__web__echo")
+	big := strings.Repeat("z", 10000)
+	res := run(t, tl, `{"text":"`+big+`"}`)
+	if !res.IsError || strings.Contains(res.Content, big) {
+		t.Fatalf("corps non borné : IsError=%v len=%d", res.IsError, len(res.Content))
+	}
+}
+
+func TestLimitedBodyBoundary(t *testing.T) {
+	read := func(n int) error {
+		l := &limitedBody{rc: io.NopCloser(strings.NewReader(strings.Repeat("x", n))), left: 10}
+		_, err := io.ReadAll(l)
+		return err
+	}
+	if err := read(10); err != nil {
+		t.Fatalf("10 octets : %v", err)
+	}
+	if err := read(11); !errors.Is(err, errBodyTooLarge) {
+		t.Fatalf("11 octets : %v", err)
+	}
+}
+
+func TestDeepSchemaSkippedFast(t *testing.T) {
+	// {"not":{"not":…}} : 6500 niveaux en moins de 64 Ko.
+	deep := any(map[string]any{})
+	for range 6500 {
+		deep = map[string]any{"not": deep}
+	}
+	if b, _ := json.Marshal(deep); len(b) > maxSchema {
+		t.Fatalf("schéma de test trop gros : %d", len(b))
+	}
+	t0 := time.Now()
+	_, err := validSchema(map[string]any{"type": "object", "not": deep})
+	if el := time.Since(t0); err == nil || el > 100*time.Millisecond {
+		t.Fatalf("schéma profond : err=%v en %v", err, el)
+	}
+	// Profondeur raisonnable acceptée.
+	ok := any(map[string]any{"type": "string"})
+	for range 5 {
+		ok = map[string]any{"type": "object", "properties": map[string]any{"a": ok}}
+	}
+	if _, err := validSchema(ok); err != nil {
+		t.Fatalf("schéma de profondeur 11 refusé : %v", err)
+	}
+}
+
+func TestToolCapPerServer(t *testing.T) {
+	setup := func(s *sdk.Server) {
+		for i := range 130 {
+			s.AddTool(&sdk.Tool{Name: "t" + strconv.Itoa(i), InputSchema: objectSchema},
+				func(context.Context, *sdk.CallToolRequest) (*sdk.CallToolResult, error) { return textResult(""), nil })
+		}
+	}
+	m, _ := start(t, []config.MCPServer{httpDecl("mem")}, Options{dial: memServer(t, setup)})
+	if n := len(m.Tools()); n != 128 {
+		t.Fatalf("%d outils exposés", n)
+	}
+	if w := m.Warnings(); len(w) != 1 || !strings.Contains(w[0], "128") {
+		t.Fatalf("avertissements %v", w)
+	}
+}
+
+func TestCloseNoServerDown(t *testing.T) {
+	srv, getenv := stdioServer(t, "srv", "", nil)
+	m, _ := Start(context.Background(), []config.MCPServer{srv}, Options{Getenv: getenv, ConnectTimeout: 10 * time.Second, CallTimeout: 10 * time.Second})
+	tl := toolByName(t, m, "mcp__srv__sleep")
+	done := make(chan tools.Result, 1)
+	go func() {
+		res, _ := tl.Run(context.Background(), json.RawMessage(`{}`))
+		done <- res
+	}()
+	time.Sleep(200 * time.Millisecond) // l'appel est en cours
+	_ = m.Close()
+	select {
+	case res := <-done:
+		if !res.IsError || res.ServerDown != "" {
+			t.Fatalf("appel interrompu par Close %+v", res)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("appel toujours bloqué après Close")
+	}
+}
+
+func TestSecretsExcludeBaseEnv(t *testing.T) {
+	env := map[string]string{"PATH": "/usr/bin", "HOME": "/home/x", "LANG": "C", "TOK": "s"}
+	servers := []config.MCPServer{{ID: "s", Transport: "stdio", Command: []string{"x"}, EnvFrom: []string{"PATH", "HOME", "LANG", "TOK"}, Disabled: true}}
+	m, _ := start(t, servers, Options{Getenv: func(k string) string { return env[k] }})
+	if got := m.Secrets(); len(got) != 1 || got[0] != "s" {
+		t.Fatalf("secrets %q", got)
+	}
 }
