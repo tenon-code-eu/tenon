@@ -13,6 +13,7 @@ BUILD_FLAGS="${BUILD_FLAGS:--trimpath -buildvcs=false}"
 LDFLAGS="${LDFLAGS:--s -w -buildid= -X main.version=$VERSION}"
 export GOFLAGS="${GOFLAGS:--mod=vendor}"
 dist=dist
+root="$(pwd)"
 
 die() { printf 'release : %s\n' "$*" >&2; exit 1; }
 
@@ -94,19 +95,20 @@ for t in $TARGETS; do
 	[ "$os" = linux ] || continue
 	name="tenon_${VERSION}_${os}_${arch}"
 	for fmt in deb rpm; do
-		NFPM_ARCH="$arch" NFPM_VERSION="${VERSION#v}" TENON_STAGE="$dist/$name" \
-			GOFLAGS= GOPROXY=direct \
+		# nfpm résout `src` depuis le dossier courant : se placer dans l'assemblage.
+		( cd "$dist/$name" &&
+			NFPM_ARCH="$arch" NFPM_VERSION="${VERSION#v}" GOFLAGS= GOPROXY=direct \
 			go run "github.com/goreleaser/nfpm/v2/cmd/nfpm@$NFPM_VERSION_TOOL" package \
-			--packager "$fmt" --config packaging/nfpm.yaml \
-			--target "$dist/$name.$fmt"
+			--packager "$fmt" --config "$root/packaging/nfpm.yaml" \
+			--target "$root/$dist/$name.$fmt" )
 	done
 done
 
 # --- 4. SBOM CycloneDX -----------------------------------------------------------
-# -reproducible : sans horodatage ni numéro de série aléatoires.
+# -noserial -notimestamp : pas de numéro de série ni d'horodatage (reproductible).
 GOFLAGS= GOPROXY=direct \
 	go run "github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@$CYCLONEDX_GOMOD_VERSION" \
-	app -json -licenses -reproducible -main cmd/tenon \
+	app -json -licenses -noserial -notimestamp -main cmd/tenon \
 	-output "$dist/tenon_${VERSION}.cdx.json" .
 
 # --- 5. Sommes de contrôle ---------------------------------------------------------

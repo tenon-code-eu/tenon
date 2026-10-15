@@ -15,18 +15,18 @@ description: |
 homepage: https://codeberg.org/tenon/tenon
 license: EUPL-1.2
 contents:
-  - src: "${TENON_STAGE}/tenon"
+  - src: "./tenon"
     dst: /usr/bin/tenon
     file_info:
       mode: 0755
-  - src: "${TENON_STAGE}/LICENSE"
+  - src: "./LICENSE"
     dst: /usr/share/doc/tenon/LICENSE
     file_info:
       mode: 0644
-  - src: "${TENON_STAGE}/README.md"
+  - src: "./README.md"
     dst: /usr/share/doc/tenon/README.md
     file_info:
       mode: 0644
-  - src: "${TENON_STAGE}/docs"
+  - src: "./docs"
     dst: /usr/share/doc/tenon/docs
     type: tree
