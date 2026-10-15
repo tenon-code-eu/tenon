@@ -1,0 +1,25 @@
+# CI Forgejo Actions (Codeberg ou instance auto-hébergée).
+# L'image golang:1.26 vient de Docker Hub ; un miroir de registre européen
+# peut la remplacer (par exemple registry.example.eu/golang:1.26).
+name: ci
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: docker
+    container: golang:1.26
+    env:
+      GOPROXY: direct
+      GOSUMDB: sum.golang.org
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Autoriser le dépôt pour git
+        run: git config --global --add safe.directory "$PWD"
+      - name: Contrôles (vet, test, lint, vuln)
+        run: make ci
+      - name: Build reproductible
+        run: make repro-check
