@@ -230,7 +230,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.WindowSizeMsg:
-		before := m.prompting() && m.promptHeadVisible()
+		before := m.prompting() && m.approvable()
 		m.resize(msg.Width, msg.Height)
 		m.rearmIf(before)
 		return m, nil

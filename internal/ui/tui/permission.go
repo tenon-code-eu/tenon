@@ -7,6 +7,7 @@ package tui
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"time"
@@ -75,7 +76,7 @@ func (m *Model) syncShown() {
 // (par exemple après un agrandissement du terminal) : before est l'état
 // d'avant le changement.
 func (m *Model) rearmIf(before bool) {
-	if m.prompting() && !before && m.promptHeadVisible() {
+	if m.prompting() && !before && m.approvable() {
 		m.armedAt = m.now()
 	}
 }
@@ -223,11 +224,11 @@ func (m Model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	k := answerKeys[m.lang]
 	switch msg.Runes[0] {
 	case k.once:
-		if settled && m.promptHeadVisible() {
+		if settled && m.approvable() {
 			m.answer(engine.Reply{Allow: true})
 		}
 	case k.session:
-		if settled && m.promptHeadVisible() && m.prompts[0].p.Kind == "tool" {
+		if settled && m.approvable() && m.prompts[0].p.Kind == "tool" {
 			m.answer(engine.Reply{Allow: true, Remember: true})
 		}
 	case noKey:
@@ -247,24 +248,24 @@ func (m *Model) answer(r engine.Reply) {
 	}
 }
 
-// promptHeadVisible indique que l'image rendue pour la taille courante montre
-// l'en-tête de la demande (titre et première ligne de l'outil, de la commande
-// ou du chemin) : le panneau complet tient sous la conversation et la largeur
-// suffit. Sinon les touches d'acceptation sont ignorées ; les refus agissent.
-// View et le traitement des touches s'appuient tous deux sur ce calcul.
-func (m Model) promptHeadVisible() bool {
-	return m.width >= minApproveWidth && len(m.fullPromptLines())+statusHeight <= m.height
+// approvable indique que la demande affichée peut être acceptée : la largeur
+// suffit et l'image rendue pour la taille courante montre la commande
+// entière, tous les chemins (ou le texte entier de la juridiction), sans
+// regroupement de lignes vides. Seules les lignes du diff peuvent être
+// coupées. Sinon les touches d'acceptation sont ignorées ; les refus
+// agissent. View et le traitement des touches s'appuient tous deux sur ce
+// calcul.
+func (m Model) approvable() bool {
+	return m.promptPanel().approvable
 }
 
-// promptLines rend le panneau : complet si son en-tête est visible, sinon
-// l'indication d'agrandir le terminal suivie des touches (refus possible).
-func (m Model) promptLines() []string {
-	if m.promptHeadVisible() {
-		return m.fullPromptLines()
-	}
-	split := func(s string) []string { return strings.Split(s, "\n") }
-	out := split(m.st.perm.Render(m.wrap(i18n.T(m.lang, "tui.perm.too_small"))))
-	return append(out, split(m.st.perm.Render(m.wrap(i18n.T(m.lang, m.promptKeysKey()))))...)
+// promptLines rend le panneau de la demande affichée.
+func (m Model) promptLines() []string { return m.promptPanel().lines }
+
+// panel est le panneau rendu pour la taille courante.
+type panel struct {
+	lines      []string
+	approvable bool
 }
 
 func (m Model) promptKeysKey() string {
@@ -274,87 +275,185 @@ func (m Model) promptKeysKey() string {
 	return "tui.perm.keys_jurisdiction"
 }
 
-// fullPromptLines rend le panneau de la demande affichée dans la hauteur
-// disponible. Le titre, la première ligne de l'outil (outil et début de la
-// commande) et les touches restent toujours visibles : un texte trop long est
-// coupé au milieu (fin de la commande, chemins, diff) et remplacé par une ligne
-// indiquant le nombre de lignes masquées.
-func (m Model) fullPromptLines() []string {
-	p := m.prompts[0]
-	split := func(s string) []string { return strings.Split(s, "\n") }
+func splitLines(s string) []string { return strings.Split(s, "\n") }
 
-	top := split(m.st.perm.Render(m.wrap(i18n.T(m.lang, "tui.perm.title"))))
-	var middle []string
-	if p.p.Kind == "tool" {
-		text := "⏺ " + p.p.Tool
+// promptPanel rend le panneau de la demande affichée dans la hauteur
+// disponible. Complet (acceptable) si le titre, l'en-tête entier (commande,
+// chemins) et les touches tiennent : seules les lignes du diff sont alors
+// coupées, avec une ligne indiquant le nombre de lignes masquées. Sinon le
+// panneau ne permet que le refus : l'en-tête est montré avec ses lignes vides
+// regroupées (la fin de la commande reste visible), coupé au besoin, suivi
+// d'une indication ; si même cela ne tient pas, seuls l'indication
+// d'agrandir le terminal et les touches sont affichés.
+func (m Model) promptPanel() panel {
+	p := m.prompts[0]
+	top := splitLines(m.st.perm.Render(m.wrap(i18n.T(m.lang, "tui.perm.title"))))
+	keyLines := splitLines(m.st.perm.Render(m.wrap(i18n.T(m.lang, m.promptKeysKey()))))
+	avail := max(1, m.height-statusHeight-minConvHeight)
+
+	if m.width >= minApproveWidth {
+		if out, ok := m.fullPanel(p, top, keyLines, avail); ok {
+			return panel{lines: out, approvable: true}
+		}
+		hintKey := "tui.perm.too_small"
 		if p.p.Command != "" {
-			text += " " + p.p.Command
+			hintKey = "tui.perm.command_too_long"
 		}
-		middle = append(middle, split(m.st.tool.Render(m.wrap(text)))...)
-		for _, path := range p.p.Paths {
-			// Un chemin est un seul « mot » : coupé à la largeur, sans repli
-			// sur les espaces.
-			middle = append(middle, split(ansi.Hardwrap(sanitize("  "+path), m.width, true))...)
+		hint := splitLines(m.st.notice.Render(m.wrap(i18n.T(m.lang, hintKey))))
+		head := m.headLines(p, true)
+		fixed := len(top) + len(hint) + len(keyLines)
+		out := append([]string(nil), top...)
+		switch {
+		case fixed+len(head) <= avail:
+			out = append(out, head...)
+			out = append(out, hint...)
+			return panel{lines: append(out, keyLines...)}
+		case fixed+2 <= avail:
+			budget := avail - fixed - 1
+			out = append(out, head[:budget]...)
+			out = append(out, m.hiddenLine(len(head)-budget))
+			out = append(out, hint...)
+			return panel{lines: append(out, keyLines...)}
 		}
-	} else {
+	}
+	out := splitLines(m.st.perm.Render(m.wrap(i18n.T(m.lang, "tui.perm.too_small"))))
+	return panel{lines: append(out, keyLines...)}
+}
+
+// fullPanel rend le panneau complet si le titre, l'en-tête entier et les
+// touches tiennent dans avail lignes, avec au moins une ligne pour le diff
+// (ou l'indication de ses lignes masquées) s'il y en a un.
+func (m Model) fullPanel(p *permPrompt, top, keyLines []string, avail int) ([]string, bool) {
+	head := m.headLines(p, false)
+	body := m.bodyLines(p)
+	fixed := len(top) + len(head) + len(keyLines)
+	if fixed > avail {
+		return nil, false
+	}
+	rest := avail - fixed
+	moreLine := func(n int) string {
+		return m.st.notice.Render(m.truncate(i18n.T(m.lang, "tui.perm.more_lines", n)))
+	}
+	out := append(append([]string(nil), top...), head...)
+	extra := 0
+	if p.more > 0 {
+		extra = 1
+	}
+	switch {
+	case len(body)+extra <= rest:
+		out = append(out, body...)
+		if p.more > 0 {
+			out = append(out, moreLine(p.more))
+		}
+	case rest < 1:
+		// Pas même la place d'indiquer que le diff est masqué.
+		return nil, false
+	default:
+		// Une ligne pour l'indication des lignes masquées.
+		budget := rest - 1
+		showMore := p.more > 0 && budget >= 2
+		if showMore {
+			budget--
+		}
+		budget = min(budget, len(body))
+		hidden := len(body) - budget
+		if p.more > 0 && !showMore {
+			hidden += p.more
+		}
+		out = append(out, body[:budget]...)
+		out = append(out, m.hiddenLine(hidden))
+		if showMore {
+			out = append(out, moreLine(p.more))
+		}
+	}
+	return append(out, keyLines...), true
+}
+
+func (m Model) hiddenLine(n int) string {
+	return m.st.notice.Render(m.truncate(i18n.T(m.lang, "tui.perm.hidden_lines", n)))
+}
+
+// minBlankRun est la longueur à partir de laquelle une suite de lignes vides
+// de la commande est regroupée en une seule ligne « ⏎ × N ».
+const minBlankRun = 3
+
+// headLines rend l'en-tête de la demande : nombre de lignes de la commande
+// s'il y en a plusieurs, outil et commande, chemins ; ou le texte de la
+// juridiction. collapse regroupe les suites de plus de deux lignes vides de
+// la commande.
+func (m Model) headLines(p *permPrompt, collapse bool) []string {
+	if p.p.Kind != "tool" {
 		var prov llm.ProviderInfo
 		if p.p.Provider != nil {
 			prov = *p.p.Provider
 		}
 		text := i18n.T(m.lang, "tui.perm.jurisdiction", headless.ProviderLabel(prov), prov.Country,
 			headless.JurisdictionLabel(m.lang, prov.Jurisdiction))
-		middle = append(middle, split(m.wrap(text))...)
+		return splitLines(m.wrap(text))
 	}
+	var out []string
+	cmd := sanitize(p.p.Command)
+	if n := len(splitLines(cmd)); cmd != "" && n > 1 {
+		out = append(out, m.st.notice.Render(m.truncate(i18n.T(m.lang, "tui.perm.command_lines", n))))
+	}
+	if collapse {
+		cmd = collapseBlank(cmd)
+	}
+	text := "⏺ " + p.p.Tool
+	if cmd != "" {
+		text += " " + cmd
+	}
+	out = append(out, splitLines(m.st.tool.Render(m.wrap(text)))...)
+	for _, path := range p.p.Paths {
+		// Un chemin est un seul « mot » : coupé à la largeur, sans repli
+		// sur les espaces.
+		out = append(out, splitLines(ansi.Hardwrap(sanitize("  "+path), m.width, true))...)
+	}
+	return out
+}
+
+// collapseBlank remplace chaque suite d'au moins minBlankRun lignes vides
+// (ou faites d'espaces) par une ligne « ⏎ × N ».
+func collapseBlank(s string) string {
+	lines := splitLines(s)
+	out := make([]string, 0, len(lines))
+	for i := 0; i < len(lines); {
+		j := i
+		for j < len(lines) && strings.TrimSpace(lines[j]) == "" {
+			j++
+		}
+		switch n := j - i; {
+		case n >= minBlankRun:
+			out = append(out, fmt.Sprintf("⏎ × %d", n))
+			i = j
+		case n > 0:
+			out = append(out, lines[i:j]...)
+			i = j
+		default:
+			out = append(out, lines[i])
+			i++
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
+// bodyLines rend le corps de la demande : marqueur binaire et lignes du diff.
+func (m Model) bodyLines(p *permPrompt) []string {
+	var out []string
 	if p.binary {
-		middle = append(middle, m.st.notice.Render(m.truncate(i18n.T(m.lang, "tui.perm.binary"))))
+		out = append(out, m.st.notice.Render(m.truncate(i18n.T(m.lang, "tui.perm.binary"))))
 	}
 	for _, l := range p.lines {
 		switch l.Kind {
 		case diff.Add:
-			middle = append(middle, m.st.add.Render(m.truncate("+ "+l.Text)))
+			out = append(out, m.st.add.Render(m.truncate("+ "+l.Text)))
 		case diff.Del:
-			middle = append(middle, m.st.del.Render(m.truncate("- "+l.Text)))
+			out = append(out, m.st.del.Render(m.truncate("- "+l.Text)))
 		default:
-			middle = append(middle, m.truncate("  "+l.Text))
+			out = append(out, m.truncate("  "+l.Text))
 		}
 	}
-	keyLines := split(m.st.perm.Render(m.wrap(i18n.T(m.lang, m.promptKeysKey()))))
-	moreLine := func(n int) string {
-		return m.st.notice.Render(m.truncate(i18n.T(m.lang, "tui.perm.more_lines", n)))
-	}
-
-	avail := max(1, m.height-statusHeight-minConvHeight)
-	out := append([]string(nil), top...)
-	extra := 0
-	if p.more > 0 {
-		extra = 1
-	}
-	if len(top)+len(middle)+extra+len(keyLines) <= avail {
-		out = append(out, middle...)
-		if p.more > 0 {
-			out = append(out, moreLine(p.more))
-		}
-		return append(out, keyLines...)
-	}
-	// Une ligne pour l'indication des lignes masquées.
-	budget := avail - len(top) - len(keyLines) - 1
-	showMore := p.more > 0 && budget >= 2
-	if showMore {
-		budget--
-	}
-	budget = min(max(1, budget), len(middle))
-	hidden := len(middle) - budget
-	if p.more > 0 && !showMore {
-		hidden += p.more
-	}
-	out = append(out, middle[:budget]...)
-	if hidden > 0 {
-		out = append(out, m.st.notice.Render(m.truncate(i18n.T(m.lang, "tui.perm.hidden_lines", hidden))))
-	}
-	if showMore {
-		out = append(out, moreLine(p.more))
-	}
-	return append(out, keyLines...)
+	return out
 }
 
 // truncate nettoie s et le coupe à la largeur (lignes de diff non repliées).
