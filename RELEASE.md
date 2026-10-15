@@ -34,7 +34,7 @@ Une version qui ne remplit pas un point n'est pas publiée.
 
 ## 3. Signature
 
-- [ ] Signer avec minisign : `MINISIGN_KEY=<chemin de la clé secrète> make release VERSION=vX.Y.Z`. Sans `MINISIGN_KEY`, la cible affiche « signature ignorée » : **ne pas publier** dans cet état.
+- [ ] Signer avec minisign : `MINISIGN_KEY=<chemin de la clé secrète> make release VERSION=vX.Y.Z`. Sans `MINISIGN_KEY`, la cible affiche « signature ignorée » : **ne pas publier** dans cet état. Avec `MINISIGN_KEY` mais sans `minisign` installé, la release échoue.
 - [ ] Vérifier la signature avec la clé publique publiée : `minisign -Vm dist/SHA256SUMS -p tenon.pub`.
 - [ ] La clé secrète n'a jamais quitté le poste du mainteneur ; elle n'est pas dans le dépôt ni dans la CI.
 

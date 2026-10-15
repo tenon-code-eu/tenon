@@ -145,10 +145,18 @@ expected="$expected""tenon_${VERSION}.cdx.json
 "
 printf '%s' "$expected" | LC_ALL=C sort >"$tmp/expected"
 cmp -s "$tmp/expected" "$tmp/artefacts" || die "jeu d'artefacts inattendu dans $dist/."
-: >"$dist/SHA256SUMS"
+: >"$tmp/SHA256SUMS"
+# Une somme vide ou mal formée (outil absent, lecture échouée) arrête la release :
+# la substitution de commande ne propage pas toujours l'échec à set -e.
 while IFS= read -r f; do
-	printf '%s  %s\n' "$(hash_file "$dist/$f")" "$f" >>"$dist/SHA256SUMS"
+	h="$(hash_file "$dist/$f")"
+	case "$h" in
+	*[!0-9a-f]* | "") die "somme SHA-256 invalide pour $f : « $h »." ;;
+	esac
+	[ "${#h}" -eq 64 ] || die "somme SHA-256 invalide pour $f : « $h »."
+	printf '%s  %s\n' "$h" "$f" >>"$tmp/SHA256SUMS"
 done <"$tmp/artefacts"
+mv "$tmp/SHA256SUMS" "$dist/SHA256SUMS"
 
 # --- 6. Signature --------------------------------------------------------------------
 if [ -f "$dist/UNSAFE-DRY-RUN" ]; then
@@ -157,10 +165,13 @@ if [ -f "$dist/UNSAFE-DRY-RUN" ]; then
 	fi
 	printf 'ATTENTION : dry run non sûr (ALLOW_VULN=1), ne jamais publier ce résultat.\n'
 fi
-if [ -n "${MINISIGN_KEY:-}" ] && command -v minisign >/dev/null 2>&1; then
+if [ -n "${MINISIGN_KEY:-}" ]; then
+	# Clé fournie : la signature est attendue, son absence est une erreur.
+	command -v minisign >/dev/null 2>&1 ||
+		die "MINISIGN_KEY est défini mais minisign est introuvable : signature impossible."
 	minisign -S -s "$MINISIGN_KEY" -m "$dist/SHA256SUMS"
 	printf 'Signé : %s/SHA256SUMS.minisig\n' "$dist"
 else
-	printf 'signature ignorée : MINISIGN_KEY non défini ou minisign absent. Ne pas publier sans signature.\n'
+	printf 'signature ignorée : MINISIGN_KEY non défini. Ne pas publier sans signature.\n'
 fi
 printf 'Release %s prête dans %s/\n' "$VERSION" "$dist"
