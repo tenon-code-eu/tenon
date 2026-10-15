@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -306,50 +305,35 @@ func MarkContext(ctx context.Context, msgFile, dir, sessionsDir string) error {
 // commentaire) : tout ce qui suit est ignoré.
 const scissors = " ------------------------ >8 ------------------------"
 
-// reTrailerLine reconnaît une ligne « Clé: valeur » de trailer.
-var reTrailerLine = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]*:`)
+// signOff est l'en-tête de ligne que git ignore pour décider si un message
+// est vide (sign_off_header de builtin/commit.c).
+const signOff = "Signed-off-by: "
 
 // isEmptyMessage indique si git abandonnerait le commit de message msg (des
 // trailers ajoutés l'en empêcheraient). Les commentaires (lignes commençant
-// par un des prefixes) et tout ce qui suit la ligne de coupe sont ignorés.
-// Comme pour git, le sujet (première ligne) n'est jamais un trailer : le
-// message est vide s'il n'a aucune ligne non blanche, ou si son sujet est
-// vide et que ses seules lignes sont des trailers (« git commit -s » quitté
-// sans rien écrire).
+// par un des préfixes) et tout ce qui suit la ligne de coupe sont ignorés.
+// Comme git (message_is_empty/rest_is_empty), le message est vide si chaque
+// ligne restante est blanche ou commence par « Signed-off-by: ».
 func isEmptyMessage(msg string, prefixes []string) bool {
-	var lines []string
 	for _, line := range strings.Split(msg, "\n") {
-		line = strings.TrimRight(line, "\r")
 		comment, cut := false, false
 		for _, p := range prefixes {
 			if strings.HasPrefix(line, p) {
-				comment, cut = true, line == p+scissors
+				comment, cut = true, strings.TrimRight(line, "\r") == p+scissors
 				break
 			}
 		}
 		if cut {
 			break
 		}
-		if !comment {
-			lines = append(lines, line)
-		}
-	}
-	content := false
-	onlyTrailers := true
-	for _, l := range lines {
-		if strings.TrimSpace(l) == "" {
+		if comment || strings.HasPrefix(line, signOff) {
 			continue
 		}
-		content = true
-		if !reTrailerLine.MatchString(l) {
-			onlyTrailers = false
+		if strings.TrimSpace(line) != "" {
+			return false
 		}
 	}
-	if !content {
-		return true
-	}
-	subjectEmpty := strings.TrimSpace(lines[0]) == ""
-	return subjectEmpty && onlyTrailers
+	return true
 }
 
 // autoCommentChars sont les caractères que git peut choisir avec

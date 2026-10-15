@@ -293,6 +293,23 @@ func TestCommitMsgHookFlows(t *testing.T) {
 		t.Fatal("un commit a été créé")
 	}
 
+	// Message fait seulement de Signed-off-by : git l'abandonne, le hook ne
+	// doit pas l'en empêcher.
+	if out, err := commit("true", "-m", "Signed-off-by: A <a@b>"); err == nil {
+		t.Fatalf("commit Signed-off-by seul accepté : %s", out)
+	}
+	if head() != before {
+		t.Fatal("un commit a été créé")
+	}
+
+	// Un trailer autre que Signed-off-by suffit à git : le commit est marqué.
+	if out, err := commit("true", "-m", "\nCloses: #4"); err != nil {
+		t.Fatalf("commit Closes : %v\n%s", err, out)
+	}
+	if m := lastMsg(); !strings.HasPrefix(m, "Closes: #4"+trailers) {
+		t.Fatalf("message (Closes) : %q", m)
+	}
+
 	// --amend --no-edit : pas de doublon.
 	if out, err := commit("true", "--amend", "--no-edit"); err != nil {
 		t.Fatalf("amend : %v\n%s", err, out)

@@ -554,7 +554,12 @@ func TestIsEmptyMessage(t *testing.T) {
 		"# c\nfeat: x\n":                     false,
 		"feat: x\n":                          false,
 		"fix: y\n\nSigned-off-by: A <a@b>\n": false,
-		"Signed-off-by: A <a@b>\n":           false, // sujet tapé tel quel
+		"Signed-off-by: A <a@b>\n":           true,  // git : seulement des Signed-off-by
+		"\nCloses: #4\n":                     false, // git le valide
+		"Closes: #4\n":                       false,
+		"\n\nSigned-off-by: A <a@b>\nCloses: #4\n":                        false,
+		" Signed-off-by: A <a@b>\n":                                       false, // préfixe exact, en début de ligne
+		"Signed-off-by: A <a@b>\n\nSigned-off-by: B <b@c>\n# c\n":         true,
 		"titre\n# ------------------------ >8 ------------------------\n": false,
 		"# ------------------------ >8 ------------------------\ntitre\n": true,
 	} {
