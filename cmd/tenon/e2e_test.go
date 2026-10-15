@@ -23,6 +23,7 @@ import (
 	"codeberg.org/tenon/tenon/internal/config"
 	"codeberg.org/tenon/tenon/internal/event"
 	"codeberg.org/tenon/tenon/internal/i18n"
+	"codeberg.org/tenon/tenon/internal/session"
 	"github.com/zalando/go-keyring"
 )
 
@@ -160,12 +161,24 @@ func (e *env) run(args ...string) (int, string, string) {
 func (e *env) runStdin(stdin string, args ...string) (int, string, string) {
 	e.t.Helper()
 	var out, errb bytes.Buffer
-	code := run(context.Background(), args, strings.NewReader(stdin), &out, &errb, func(k string) string { return e.vars[k] }, e.wd)
+	code := run(context.Background(), args, strings.NewReader(stdin), &out, &errb, func(k string) string { return e.vars[k] }, e.wd, func() bool { return false })
 	return code, out.String(), errb.String()
 }
 
 // sessionsDir est le dossier des sessions de l'environnement.
 func (e *env) sessionsDir() string { return filepath.Join(e.dataDir, "sessions") }
+
+// sessionFiles liste les fichiers <id>.jsonl (sans les fichiers de verrou).
+func (e *env) sessionFiles() ([]os.DirEntry, error) {
+	ents, err := os.ReadDir(e.sessionsDir())
+	var out []os.DirEntry
+	for _, de := range ents {
+		if strings.HasSuffix(de.Name(), ".jsonl") {
+			out = append(out, de)
+		}
+	}
+	return out, err
+}
 
 func (e *env) auditContents() string {
 	e.t.Helper()
@@ -382,10 +395,11 @@ func TestGrepSkipsSensitiveFiles(t *testing.T) {
 	}
 }
 
-func TestNoPromptExit1(t *testing.T) {
+// --resume avec une sous-commande garde le message err.no_prompt.
+func TestResumeWithSubcommand(t *testing.T) {
 	e := newEnv(t, nil, "eu")
-	code, _, errb := e.run()
-	if code != 1 || !strings.Contains(errb, `l'interface interactive arrive bientôt : utilisez -p "<prompt>"`) {
+	code, _, errb := e.run("--resume", "last", "audit", "verify")
+	if code != 1 || !strings.Contains(errb, "--resume ne s'utilise pas avec une sous-commande") {
 		t.Fatalf("code=%d stderr=%q", code, errb)
 	}
 }
@@ -515,7 +529,7 @@ func TestResumeContinuesConversation(t *testing.T) {
 	if len(reqs) != 2 || !strings.Contains(reqs[1], "je m'appelle Ada") || !strings.Contains(reqs[1], "comment je m'appelle ?") {
 		t.Fatalf("requêtes : %q", reqs)
 	}
-	ents, err := os.ReadDir(e.sessionsDir())
+	ents, err := e.sessionFiles()
 	if err != nil || len(ents) != 1 {
 		t.Fatalf("sessions : %v %v", ents, err)
 	}
@@ -536,7 +550,7 @@ func TestResumeOtherProjectRefused(t *testing.T) {
 	if code, _, errb := e.run("-p", "secret du projet A"); code != 0 {
 		t.Fatalf("run A : code=%d stderr=%q", code, errb)
 	}
-	ents, err := os.ReadDir(e.sessionsDir())
+	ents, err := e.sessionFiles()
 	if err != nil || len(ents) != 1 {
 		t.Fatalf("sessions : %v %v", ents, err)
 	}
@@ -578,7 +592,7 @@ func TestSessionsList(t *testing.T) {
 	}
 	// La première session est datée d'une heure plus tôt : l'ordre ne dépend
 	// pas de la résolution des horodatages du système de fichiers.
-	ents, err := os.ReadDir(e.sessionsDir())
+	ents, err := e.sessionFiles()
 	if err != nil || len(ents) != 1 {
 		t.Fatalf("sessions : %v %v", ents, err)
 	}
@@ -614,7 +628,7 @@ func TestSessionFileHasNoSecret(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("code=%d stderr=%q", code, errb)
 	}
-	ents, err := os.ReadDir(e.sessionsDir())
+	ents, err := e.sessionFiles()
 	if err != nil || len(ents) == 0 {
 		t.Fatalf("sessions : %v %v", ents, err)
 	}
@@ -742,7 +756,7 @@ func TestKeyFromKeyring(t *testing.T) {
 	if strings.Contains(out, key) || strings.Contains(errb, key) {
 		t.Fatalf("clé du trousseau affichée : stdout=%q stderr=%q", out, errb)
 	}
-	ents, err := os.ReadDir(e.sessionsDir())
+	ents, err := e.sessionFiles()
 	if err != nil || len(ents) == 0 {
 		t.Fatalf("sessions : %v %v", ents, err)
 	}
@@ -845,7 +859,7 @@ decision = "allow"
 	if code != 0 {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errb)
 	}
-	ents, err := os.ReadDir(e.sessionsDir())
+	ents, err := e.sessionFiles()
 	if err != nil || len(ents) != 1 {
 		t.Fatalf("sessions : %v %v", ents, err)
 	}
@@ -1014,5 +1028,85 @@ decision = "deny"
 	}
 	if !strings.Contains(string(gj), "[SECRET_1]") || !strings.Contains(string(gj), "refusée par la politique") {
 		t.Fatalf("messages repris : %s", gj)
+	}
+}
+
+func TestResumeLockedSession(t *testing.T) {
+	f := newFakeLLM(t, sseText("ok"))
+	e := newEnv(t, f, "eu")
+	if code, _, errb := e.run("-p", "bonjour"); code != 0 {
+		t.Fatalf("run 1 : code=%d stderr=%q", code, errb)
+	}
+	ents, err := e.sessionFiles()
+	if err != nil || len(ents) < 1 {
+		t.Fatalf("sessions : %v %v", ents, err)
+	}
+	var id string
+	for _, en := range ents {
+		if strings.HasSuffix(en.Name(), ".jsonl") {
+			id = strings.TrimSuffix(en.Name(), ".jsonl")
+		}
+	}
+	held, err := session.Open(e.sessionsDir(), id, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Close()
+	before := len(f.requests())
+
+	code, _, errb := e.run("--lang", "en", "--resume", id, "-p", "x")
+	if code != 1 || !strings.Contains(errb, "session "+id+" is already open in another terminal") {
+		t.Fatalf("code=%d stderr=%q", code, errb)
+	}
+	if len(f.requests()) != before {
+		t.Fatalf("requêtes envoyées malgré le verrou : %d -> %d", before, len(f.requests()))
+	}
+}
+
+// Le verrou de la session est pris avant sa lecture : une session ouverte
+// ailleurs (dont la dernière ligne est en cours d'écriture) n'est ni lue ni
+// signalée comme endommagée.
+func TestResumeLockedBeforeLoad(t *testing.T) {
+	f := newFakeLLM(t, sseText("ok"))
+	e := newEnv(t, f, "eu")
+	if code, _, errb := e.run("-p", "bonjour"); code != 0 {
+		t.Fatalf("run 1 : code=%d stderr=%q", code, errb)
+	}
+	ents, err := e.sessionFiles()
+	if err != nil || len(ents) != 1 {
+		t.Fatalf("sessions : %v %v", ents, err)
+	}
+	id := strings.TrimSuffix(ents[0].Name(), ".jsonl")
+	held, err := session.Open(e.sessionsDir(), id, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Close()
+	// L'autre processus est en train d'écrire une ligne.
+	p := filepath.Join(e.sessionsDir(), id+".jsonl")
+	fh, err := os.OpenFile(p, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fh.WriteString(`{"type":"assistant_mes`); err != nil {
+		t.Fatal(err)
+	}
+	fh.Close()
+	before := len(f.requests())
+
+	for _, args := range [][]string{{"--lang", "en", "--resume", id, "-p", "x"}, {"--lang", "en", "--resume", "last", "-p", "x"}} {
+		code, _, errb := e.run(args...)
+		if code != 1 || !strings.Contains(errb, "session "+id+" is already open in another terminal") {
+			t.Fatalf("%v : code=%d stderr=%q", args, code, errb)
+		}
+		if strings.Contains(errb, "unreadable") {
+			t.Fatalf("%v : session lue malgré le verrou : %q", args, errb)
+		}
+	}
+	if len(f.requests()) != before {
+		t.Fatalf("requêtes envoyées malgré le verrou : %d -> %d", before, len(f.requests()))
+	}
+	if _, err := os.Stat(p + ".corrupt"); !os.IsNotExist(err) {
+		t.Fatalf("session réparée malgré le verrou : %v", err)
 	}
 }

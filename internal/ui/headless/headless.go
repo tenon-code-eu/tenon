@@ -131,7 +131,7 @@ func (r *renderer) handle(ev event.Event) {
 		var p event.JurisdictionWarningPayload
 		if r.decode(ev, &p) {
 			r.text("%s\n", i18n.T(r.lang, "warn.non_eu",
-				providerLabel(p.Provider), jurisdictionLabel(r.lang, p.Provider.Jurisdiction)))
+				ProviderLabel(p.Provider), JurisdictionLabel(r.lang, p.Provider.Jurisdiction)))
 		}
 	case event.PermissionRequested:
 		var p event.PermissionRequestedPayload
@@ -229,24 +229,26 @@ func (r *renderer) text(format string, a ...any) {
 // Un nom ou un pays vide est omis.
 func Banner(l i18n.Lang, p llm.ProviderInfo) string {
 	parts := []string{"tenon", p.Model}
-	if n := providerLabel(p); n != "" {
+	if n := ProviderLabel(p); n != "" {
 		parts = append(parts, n)
 	}
 	if p.Country != "" {
 		parts = append(parts, p.Country)
 	}
-	parts = append(parts, i18n.T(l, "banner.prefix", jurisdictionLabel(l, p.Jurisdiction)))
+	parts = append(parts, i18n.T(l, "banner.prefix", JurisdictionLabel(l, p.Jurisdiction)))
 	return strings.Join(parts, " · ")
 }
 
-func providerLabel(p llm.ProviderInfo) string {
+// ProviderLabel renvoie le nom du fournisseur, à défaut son identifiant.
+func ProviderLabel(p llm.ProviderInfo) string {
 	if p.Name != "" {
 		return p.Name
 	}
 	return p.ID
 }
 
-func jurisdictionLabel(l i18n.Lang, j llm.Jurisdiction) string {
+// JurisdictionLabel renvoie le libellé traduit de la juridiction j.
+func JurisdictionLabel(l i18n.Lang, j llm.Jurisdiction) string {
 	switch j {
 	case llm.EU:
 		return i18n.T(l, "banner.jurisdiction.eu")
@@ -258,7 +260,7 @@ func jurisdictionLabel(l i18n.Lang, j llm.Jurisdiction) string {
 
 func describe(l i18n.Lang, p event.PermissionRequestedPayload) string {
 	if p.Kind == "jurisdiction" && p.Provider != nil {
-		return i18n.T(l, "refused.jurisdiction", providerLabel(*p.Provider), jurisdictionLabel(l, p.Provider.Jurisdiction))
+		return i18n.T(l, "refused.jurisdiction", ProviderLabel(*p.Provider), JurisdictionLabel(l, p.Provider.Jurisdiction))
 	}
 	s := p.Tool
 	if p.Command != "" {

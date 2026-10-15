@@ -355,3 +355,97 @@ func TestListResolvesSymlinks(t *testing.T) {
 		t.Fatal("SameRoot vrai pour un autre dossier")
 	}
 }
+
+func TestSecondWriterRefused(t *testing.T) {
+	dir := t.TempDir()
+	w1, err := Open(dir, sidA, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w2, err := Open(dir, sidA, nil)
+	if !errors.Is(err, ErrLocked) {
+		if w2 != nil {
+			w2.Close()
+		}
+		t.Fatalf("2e Open : err=%v, attendu ErrLocked", err)
+	}
+	if err := w1.Close(); err != nil {
+		t.Fatal(err)
+	}
+	w3, err := Open(dir, sidA, nil)
+	if err != nil {
+		t.Fatalf("Open après Close : %v", err)
+	}
+	w3.Close()
+}
+
+func TestLockFilePermissions(t *testing.T) {
+	dir := t.TempDir()
+	w, err := Open(dir, sidA, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	fi, err := os.Stat(filepath.Join(dir, sidA+".jsonl.lock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm() != 0o600 {
+		t.Fatalf("permissions = %v, attendu 0600", fi.Mode().Perm())
+	}
+}
+
+func TestDifferentSessionsIndependent(t *testing.T) {
+	dir := t.TempDir()
+	wa, err := Open(dir, sidA, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wa.Close()
+	wb, err := Open(dir, sidB, nil)
+	if err != nil {
+		t.Fatalf("session B : %v", err)
+	}
+	wb.Close()
+}
+
+// Le verrou pris par Acquire exclut un autre Acquire jusqu'à Release ou
+// jusqu'à la fermeture du Writer à qui Open l'a confié.
+func TestAcquireThenOpen(t *testing.T) {
+	dir := t.TempDir()
+	if err := Exists(dir, sidA); !errors.Is(err, ErrNoSession) {
+		t.Fatalf("Exists = %v, attendu ErrNoSession", err)
+	}
+	if err := Exists(dir, "x"); !errors.Is(err, ErrInvalidID) {
+		t.Fatalf("Exists = %v, attendu ErrInvalidID", err)
+	}
+	l, err := Acquire(dir, sidA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Acquire(dir, sidA); !errors.Is(err, ErrLocked) {
+		t.Fatalf("2e Acquire : %v, attendu ErrLocked", err)
+	}
+	l.Release()
+	l, err = Acquire(dir, sidA)
+	if err != nil {
+		t.Fatalf("Acquire après Release : %v", err)
+	}
+	w, err := l.Open(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.Release() // sans effet : le verrou appartient au Writer
+	if _, err := Acquire(dir, sidA); !errors.Is(err, ErrLocked) {
+		t.Fatalf("Acquire pendant le Writer : %v, attendu ErrLocked", err)
+	}
+	if err := Exists(dir, sidA); err != nil {
+		t.Fatalf("Exists après Open : %v", err)
+	}
+	w.Close()
+	l2, err := Acquire(dir, sidA)
+	if err != nil {
+		t.Fatalf("Acquire après Close : %v", err)
+	}
+	l2.Release()
+}
