@@ -361,6 +361,13 @@ func (t *turn) decideAndRun(c llm.ToolCall) (tools.Result, string, error) {
 			return toolError("contenu masqué : impossible d'écrire un marqueur de masquage (%s)", m), deniedPolicy, nil
 		}
 	}
+	// De même pour un outil MCP, quel que soit son risque déclaré : le
+	// serveur recevrait le marqueur à la place de la valeur.
+	if strings.HasPrefix(c.Name, "mcp__") {
+		if m := findMarker(c.Args); m != "" {
+			return toolError("contenu masqué : impossible d'envoyer un marqueur de masquage à un serveur MCP (%s)", m), deniedPolicy, nil
+		}
+	}
 	target, err := tool.Target(c.Args)
 	if err != nil {
 		msg := err.Error()

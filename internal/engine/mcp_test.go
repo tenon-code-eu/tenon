@@ -178,3 +178,35 @@ func TestSessionStartedListsMCP(t *testing.T) {
 		t.Fatalf("payload %s", evs[0].Payload)
 	}
 }
+
+// namedTool est un outil factice au nom choisi qui compte ses exécutions.
+type namedTool struct {
+	fakeTool
+	name string
+}
+
+func (n *namedTool) Name() string { return n.name }
+
+// Un marqueur de masquage n'est jamais envoyé à un serveur MCP, quel que soit
+// le risque déclaré de l'outil.
+func TestMCPMarkerRefused(t *testing.T) {
+	nt := &namedTool{fakeTool: fakeTool{res: []tools.Result{{Content: "ok"}}}, name: "mcp__srv__echo"}
+	h := newHarness(t, euInfo, [][]llm.Chunk{
+		call("c1", "mcp__srv__echo", `{"text":"KEY=[SECRET_1]"}`),
+		text("ok"),
+	}, func(d *Deps) { d.Tools = tools.NewRegistry(nt) })
+	evs, err := h.submit(t, "s_1", "envoie", func(event.PermissionRequestedPayload) Reply { return Reply{Allow: true} })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if nt.n != 0 {
+		t.Fatal("marqueur de masquage envoyé au serveur MCP")
+	}
+	if len(ofType(evs, event.PermissionRequested)) != 0 {
+		t.Fatalf("permission demandée avant le refus : %v", types(evs))
+	}
+	p := decode[event.ToolResultPayload](t, ofType(evs, event.ToolResult)[0])
+	if !p.IsError || p.Denied != "policy" || !strings.Contains(p.Content, "[SECRET_1]") || !strings.Contains(p.Content, "MCP") {
+		t.Fatalf("ToolResult %+v", p)
+	}
+}
