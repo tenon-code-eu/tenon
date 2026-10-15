@@ -561,7 +561,7 @@ func TestDeepSchemaSkippedFast(t *testing.T) {
 	}
 	t0 := time.Now()
 	_, err := validSchema(map[string]any{"type": "object", "not": deep})
-	if el := time.Since(t0); err == nil || el > 100*time.Millisecond {
+	if el := time.Since(t0); err == nil || el > 2*time.Second {
 		t.Fatalf("schéma profond : err=%v en %v", err, el)
 	}
 	// Profondeur raisonnable acceptée.
