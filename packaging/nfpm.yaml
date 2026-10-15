@@ -1,6 +1,6 @@
-# Paquets .deb et .rpm de tenon (nfpm). Lancé par scripts/release.sh, qui fournit :
-#   NFPM_ARCH (amd64|arm64), NFPM_VERSION (sans « v »), TENON_STAGE (dossier
-#   d'assemblage contenant tenon, LICENSE, README.md, docs/).
+# Paquets .deb et .rpm de tenon (nfpm). Lancé par scripts/release.sh depuis le
+# dossier d'assemblage (tenon, LICENSE, README.md, docs/), qui fournit :
+#   NFPM_ARCH (amd64|arm64), NFPM_VERSION (sans « v »).
 name: tenon
 arch: "${NFPM_ARCH}"
 platform: linux
@@ -8,6 +8,7 @@ version: "${NFPM_VERSION}"
 version_schema: semver
 section: devel
 priority: optional
+# Valeur provisoire : à remplacer par le vrai mainteneur avant publication (RELEASE.md).
 maintainer: "Projet tenon <tenon@noreply.codeberg.org>"
 description: |
   Agent de code en terminal, souverain et auto-hébergeable.

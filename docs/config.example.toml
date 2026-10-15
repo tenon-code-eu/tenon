@@ -68,8 +68,11 @@ context_window = 32000                     # en jetons ; 32000 si absent
 # tool : read_file, write_file, edit_file, grep, glob, shell,
 #        mcp__<serveur>__<outil>, ou "*" pour tous les outils.
 # match : motif où * remplace n'importe quelle suite de caractères (/ et
-#         espaces compris). Il porte sur la commande (shell, MCP) ou sur le
-#         chemin, relatif à la racine du projet. Vide : tout appel de l'outil.
+#         espaces compris), ancré au début et à la fin. Il porte sur le
+#         chemin, relatif à la racine du projet, pour les outils de fichiers ;
+#         sur le texte de la commande pour shell ; sur
+#         « mcp <serveur>.<outil> <arguments JSON compacts> » pour un outil MCP
+#         (ex. mcp gh.create_issue {"title":"x"}). Vide : tout appel de l'outil.
 # decision : "allow", "ask" ou "deny". deny l'emporte toujours.
 #
 # Une règle allow sur une commande ne couvre jamais une commande enchaînée
@@ -85,9 +88,18 @@ tool = "shell"
 match = "rm -rf *"
 decision = "deny"
 
+# Protéger un dossier demande deux règles : le motif d'un chemin ne s'applique
+# pas au texte d'une commande, donc « secrets/* » ne bloque pas `cat secrets/k`.
+# Même ainsi, `cd secrets && cat k` ou `cat secr*/k` passent : les permissions
+# ne sont pas un bac à sable (voir docs/securite.md).
 [[permissions.rules]]
-tool = "*"
+tool = "*"              # outils de fichiers : chemins sous secrets/
 match = "secrets/*"
+decision = "deny"
+
+[[permissions.rules]]
+tool = "shell"          # commandes qui citent secrets/
+match = "*secrets/*"
 decision = "deny"
 
 # --- Masquage -------------------------------------------------------------

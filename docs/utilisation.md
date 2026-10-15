@@ -235,7 +235,32 @@ Ordre d'évaluation :
 5. une règle `ask` globale qui correspond : validation demandée ;
 6. sinon : lecture autorisée, tout le reste soumis à validation.
 
-Le motif porte sur la commande (shell, MCP) ou sur le chemin, relatif à la racine du projet.
+Le motif est ancré : il doit couvrir tout le texte comparé, `*` remplaçant n'importe quelle suite de caractères (`/` et espaces compris).
+Le texte comparé dépend de l'outil :
+
+| Outil | Texte comparé au motif |
+|---|---|
+| `read_file`, `write_file`, `edit_file`, `grep`, `glob` | le chemin, relatif à la racine du projet |
+| `shell` | la commande, telle quelle |
+| `mcp__<serveur>__<outil>` | `mcp <serveur>.<outil> <arguments JSON compacts>`, par exemple `mcp gh.create_issue {"title":"x"}` |
+
+Un motif de chemin ne s'applique donc pas aux commandes : `tool = "*"`, `match = "secrets/*"` bloque `read_file secrets/k`, mais pas la commande `cat secrets/k`.
+Pour protéger un dossier, combinez une règle de chemin et une règle shell :
+
+```toml
+[[permissions.rules]]
+tool = "*"
+match = "secrets/*"     # outils de fichiers
+decision = "deny"
+
+[[permissions.rules]]
+tool = "shell"
+match = "*secrets/*"    # toute commande qui cite secrets/
+decision = "deny"
+```
+
+Même ainsi, `cd secrets && cat k` ou `cat secr*/k` passent : les permissions filtrent des appels, elles ne sont pas un bac à sable (voir [securite.md](securite.md#les-permissions-ne-sont-pas-un-bac-à-sable)).
+
 Une règle `allow` sur une commande ne couvre jamais une commande enchaînée : `go test *` n'autorise pas `go test ./... ; rm x`.
 `grep` et `glob` ne montrent que les fichiers que `read_file` lirait sans demande.
 
@@ -264,7 +289,7 @@ Un bloc `[[providers]]` qui reprend l'`id` d'un préréglage remplace tout le pr
 
 Envoi à un fournisseur `non-eu` :
 
-- **interface interactive** : tenon demande « envoyer la conversation à … ? » avant le premier envoi (`o` ou `n`). L'accord vaut jusqu'à la fin de l'exécution.
+- **interface interactive** : tenon demande « envoyer la conversation à … ? » avant le premier envoi (`o` ou `n`). L'accord vaut jusqu'à la fin de l'exécution. Après un `o`, l'avertissement hors UE (`JurisdictionWarning`) est aussi affiché et enregistré dans le journal.
 - **mode non interactif** : l'envoi est bloqué (code 3) sans `--allow-non-eu`.
 - avec `--allow-non-eu` : aucune question ; un avertissement est affiché et enregistré dans le journal.
 
@@ -352,6 +377,7 @@ AI-Assisted-By: tenon (<modèle>, <fournisseur>, <pays>)
 AI-Session: <identifiant de session>
 ```
 
+Plusieurs lignes peuvent apparaître : une ligne `AI-Assisted-By` par triplet (modèle, fournisseur, pays) distinct, et une ligne `AI-Session` par session concernée.
 Les trailers ne contiennent ni secret ni contenu de fichier.
 
 Le hook **ne bloque jamais un commit** :
@@ -377,7 +403,7 @@ tenon audit verify
 ```
 
 La commande affiche `OK : <n> lignes, dernier hash sha256:…`, ou la première ligne en faute (`fichier:ligne`) avec le code 1.
-Notez le dernier hash ailleurs : voir [securite.md](securite.md#journal-daudit).
+Notez le dernier hash ailleurs : voir [securite.md](securite.md#troncature-de-fin-du-journal).
 
 Si l'écriture du journal échoue, tenon n'exécute plus aucune action.
 

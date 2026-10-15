@@ -37,12 +37,12 @@ Ensuite, copiez le binaire `tenon` dans un dossier du `PATH`, ou installez le pa
 
 ```
 sudo apt install ./tenon_*.deb   # Debian, Ubuntu
-sudo dnf install ./tenon-*.rpm    # Fedora, RHEL
+sudo dnf install ./tenon_*.rpm   # Fedora, RHEL
 ```
 
 ### Depuis les sources
 
-Go 1.26 ou plus récent est nécessaire.
+Go 1.26 ou plus récent est nécessaire ; utilisez le dernier correctif de Go 1.26 (≥ 1.26.9 au 2026-10-15), les précédents ont des failles connues de la bibliothèque standard.
 Les dépendances sont incluses dans le dépôt : aucun proxy de modules n'est contacté.
 
 ```
@@ -74,7 +74,7 @@ tenon git install-hook
 - [Sécurité et limites](docs/securite.md) : critères de souveraineté, garanties, limites connues, récupération.
 - [Exemple de configuration](docs/config.example.toml) : fichier commenté, sans secret.
 - [Liste de contrôle de publication](RELEASE.md) : pour les mainteneurs.
-- [Spécification](docs/superpowers/specs/2026-10-14-tenon-design.md) : choix de conception.
+- [Spécification](https://codeberg.org/tenon/tenon/src/branch/main/docs/superpowers/specs/2026-10-14-tenon-design.md) : choix de conception.
 
 ## Licence
 
