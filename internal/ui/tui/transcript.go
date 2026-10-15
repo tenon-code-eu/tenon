@@ -90,9 +90,10 @@ func (t *Transcript) Items() []Item { return append([]Item(nil), t.items...) }
 // Busy indique qu'un tour est en cours (entre UserMessage et TurnCompleted).
 func (t *Transcript) Busy() bool { return t.busy }
 
-// add ajoute it après avoir masqué son texte et son détail.
+// add ajoute it après avoir masqué son texte, son outil et son détail.
 func (t *Transcript) add(it Item) {
 	it.Text = t.redact(it.Text)
+	it.Tool = t.redact(it.Tool) // nom venu du modèle, avant la recherche de l'outil
 	it.Detail = t.redact(it.Detail)
 	t.items = append(t.items, it)
 }

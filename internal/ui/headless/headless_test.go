@@ -377,3 +377,23 @@ func TestContextTooLargeMessageLocalised(t *testing.T) {
 		t.Fatalf("stderr=%q", errb.String())
 	}
 }
+
+// Le refus est décrit partie par partie masquée : une règle ancrée en fin de
+// ligne ne reconnaîtrait pas un secret suivi des chemins.
+func TestRefusalDescriptionRedactedPerPart(t *testing.T) {
+	eng, _, _ := newEngine(t, llm.EU, text("x"))
+	red, err := policy.NewRedactor(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mask := func(s string) string { out, _ := red.Redact(s); return out }
+	var out, errb bytes.Buffer
+	r := &renderer{eng: eng, out: Text, lang: i18n.FR, redact: mask, redactText: mask, stdout: &out, stderr: &errb}
+	payload, _ := json.Marshal(event.PermissionRequestedPayload{
+		PermissionID: "p1", Kind: "tool", Tool: "grep", Command: "api_key = Zx8kq2LmNp4Rt6Vw9YbC1dEf", Paths: []string{"src"},
+	})
+	r.handle(event.Event{Type: event.PermissionRequested, Payload: payload})
+	if s := errb.String(); strings.Contains(s, "Zx8kq") || !strings.Contains(s, "[SECRET_") {
+		t.Fatalf("stderr=%q", s)
+	}
+}

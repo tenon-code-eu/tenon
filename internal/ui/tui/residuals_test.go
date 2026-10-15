@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"math/rand"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"unicode"
@@ -36,10 +37,45 @@ func shellModel(cmd string, w, h int) Model {
 	return m
 }
 
+// headCommand reconstruit, depuis la vue, les n lignes d'origine de la ligne
+// de l'outil tool et de sa commande : une ligne commençant par le marqueur
+// « ↪ » prolonge la précédente (marqueur retiré), toute autre en commence une.
+func headCommand(m Model, tool string, n int) []string {
+	lines := strings.Split(ansi.Strip(m.View()), "\n")
+	start := -1
+	for i, l := range lines {
+		if strings.HasPrefix(l, "⏺ "+tool) {
+			start = i
+			break
+		}
+	}
+	if start < 0 {
+		return nil
+	}
+	var out []string
+	for _, l := range lines[start:] {
+		if rest, ok := strings.CutPrefix(l, contMarker); ok && len(out) > 0 {
+			out[len(out)-1] += rest
+			continue
+		}
+		if len(out) == n {
+			break
+		}
+		out = append(out, l)
+	}
+	return out
+}
+
 // commandShown indique que la vue montre la ligne de l'outil et la commande
-// entière, sans aucun caractère perdu (blancs et retours à la ligne ignorés).
+// entière, chaque ligne d'origine reconstituée à l'identique (blancs compris).
 func commandShown(m Model, cmd string) bool {
-	return strings.Contains(noSpace(ansi.Strip(m.View())), noSpace("⏺ shell "+sanitize(cmd)))
+	want := splitLines(sanitize(cmd))
+	want[0] = "⏺ shell " + want[0]
+	if cmd == "" {
+		want[0] = "⏺ shell"
+	}
+	got := headCommand(m, "shell", len(want))
+	return slices.Equal(got, want)
 }
 
 // headWithin indique qu'aucune ligne du panneau ne dépasse la largeur.
@@ -136,7 +172,8 @@ func TestToolRequestDetailRedactedPerPart(t *testing.T) {
 	}
 	check("ligne de l'outil")
 	askPerm(t, h, f, event.PermissionRequestedPayload{PermissionID: "p1", Kind: "tool", Tool: "grep", Paths: []string{filepath.Join(root, "src")}})
-	check("demande de permission")
+	check("vue avec la demande")
+	assertNoSecret(t, "panneau de la demande", strings.Join(h.m.promptLines(), "\n"))
 }
 
 // Défense en profondeur : une ligne d'en-tête plus large que le terminal
@@ -148,4 +185,47 @@ func TestWithin(t *testing.T) {
 	if within(4, []string{"abcd"}, []string{"界界a"}) {
 		t.Fatal("ligne trop large acceptée")
 	}
+}
+
+// Un blanc à une coupure de ligne reste visible : la suite d'une ligne coupée
+// commence par « ↪ », distincte d'un vrai saut de ligne et d'une espace.
+func TestHardBreakDistinguishable(t *testing.T) {
+	q := strings.Repeat("q", 40)
+	a := shellModel("echo\n"+q+"/etc", 40, 40)
+	b := shellModel("echo\n"+q+" /etc", 40, 40)
+	if slices.Equal(a.promptLines(), b.promptLines()) {
+		t.Fatalf("panneaux identiques :\n%s", strings.Join(a.promptLines(), "\n"))
+	}
+	for _, c := range []struct {
+		m   Model
+		cmd string
+	}{{a, "echo\n" + q + "/etc"}, {b, "echo\n" + q + " /etc"}} {
+		if !c.m.approvable() || !commandShown(c.m, c.cmd) {
+			t.Fatalf("commande %q : acceptable=%v, vue :\n%s", c.cmd, c.m.approvable(), ansi.Strip(c.m.View()))
+		}
+	}
+}
+
+// Le nom de l'outil vient du modèle : il est masqué comme le reste.
+func TestToolNameRedacted(t *testing.T) {
+	f := newFake()
+	h := newHarness(t, f, redactOpts(t, t.TempDir()))
+	h.send(tea.WindowSizeMsg{Width: 120, Height: 40})
+	name := secretLine
+	f.emit(t, event.ToolCallRequested, event.ToolCallRequestedPayload{CallID: "c1", Tool: name, Args: json.RawMessage(`{"command":"ls"}`)})
+	h.until("appel affiché", func() bool { return len(h.m.tr.Items()) == 1 })
+	v := h.m.View()
+	if !strings.Contains(v, "[SECRET_") {
+		t.Fatalf("ligne de l'outil : nom non masqué :\n%s", v)
+	}
+	assertNoSecret(t, "ligne de l'outil", v)
+	askPerm(t, h, f, event.PermissionRequestedPayload{PermissionID: "p1", Kind: "tool", Tool: name, Command: "ls"})
+	p := strings.Join(h.m.promptLines(), "\n")
+	if !strings.Contains(p, "[SECRET_") {
+		t.Fatalf("demande : nom non masqué :\n%s", p)
+	}
+	assertNoSecret(t, "demande", p)
+	f.emit(t, event.ToolResult, event.ToolResultPayload{CallID: "c1", Tool: name, Content: "ok"})
+	h.until("résultat", func() bool { return strings.Contains(h.m.View(), "[ok]") })
+	assertNoSecret(t, "résultat", h.m.View())
 }

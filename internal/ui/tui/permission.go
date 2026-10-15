@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -29,7 +30,10 @@ import (
 // courant) ; tant qu'il n'est pas prêt, seul le refus agit.
 type permPrompt struct {
 	p event.PermissionRequestedPayload
-	// command et paths sont la commande et les chemins masqués, affichés.
+	// tool, command et paths sont le nom de l'outil (venu du modèle), la
+	// commande et les chemins masqués, affichés ; p garde les valeurs brutes
+	// pour la logique (outil shell, aperçu, correspondance de l'appel).
+	tool    string
 	command string
 	paths   []string
 	ready   bool
@@ -185,7 +189,7 @@ func (m *Model) dropPrompt(id string) {
 // connu, la commande qui calcule l'aperçu hors de Update : la lecture du
 // fichier courant peut bloquer (montage figé).
 func (m Model) newPrompt(p event.PermissionRequestedPayload) (*permPrompt, tea.Cmd) {
-	pr := &permPrompt{p: p, ready: true, command: m.redact(p.Command)}
+	pr := &permPrompt{p: p, ready: true, tool: m.redact(p.Tool), command: m.redact(p.Command)}
 	for _, path := range p.Paths {
 		pr.paths = append(pr.paths, m.redact(path))
 	}
@@ -452,6 +456,10 @@ func (m Model) hiddenLine(n int) string {
 // de la commande est regroupée en une seule ligne « ⏎ × N ».
 const minBlankRun = 3
 
+// contMarker commence chaque suite d'une ligne de l'en-tête coupée à la
+// largeur : une coupure se distingue d'un vrai saut de ligne et d'une espace.
+const contMarker = "↪ "
+
 // headLines rend l'en-tête de la demande : nombre de lignes de la commande
 // s'il y en a plusieurs, outil et commande, chemins ; ou le texte de la
 // juridiction. collapse regroupe les suites de plus de deux lignes vides de
@@ -476,21 +484,48 @@ func (m Model) headLines(p *permPrompt, collapse bool) []string {
 	if collapse {
 		cmd = collapseBlank(cmd)
 	}
-	text := "⏺ " + p.p.Tool
+	text := "⏺ " + sanitize(p.tool)
 	if cmd != "" {
 		text += " " + cmd
 	}
-	out = append(out, splitLines(m.st.tool.Render(m.wrap(text)))...)
+	for _, l := range splitLines(text) {
+		for _, piece := range breakLine(l, m.width) {
+			out = append(out, m.st.tool.Render(piece))
+		}
+	}
 	if p.p.Tool == "shell" {
 		// Risque rappelé par la spécification : pas de bac à sable.
 		out = append(out, splitLines(m.st.notice.Render(m.wrap(i18n.T(m.lang, "tui.perm.not_sandbox"))))...)
 	}
 	for _, path := range p.paths {
-		// Un chemin est un seul « mot » : coupé à la largeur, sans repli
-		// sur les espaces.
-		out = append(out, splitLines(ansi.Hardwrap(sanitize("  "+path), m.width, true))...)
+		for _, l := range splitLines(sanitize("  " + path)) {
+			out = append(out, breakLine(l, m.width)...)
+		}
 	}
 	return out
+}
+
+// breakLine coupe une ligne de l'en-tête (commande, chemin) à la largeur, sans
+// repli sur les espaces ni perte d'aucun caractère, blancs compris : chaque
+// suite commence par contMarker, compté dans la largeur. Un caractère plus
+// large que la place restante est placé seul ; la ligne dépasse alors la
+// largeur et la demande n'est pas acceptable (within).
+func breakLine(l string, width int) []string {
+	var out []string
+	prefix := ""
+	for {
+		piece := ansi.Truncate(l, width-ansi.StringWidth(prefix), "")
+		if piece == "" || !strings.HasPrefix(l, piece) {
+			_, n := utf8.DecodeRuneInString(l)
+			piece = l[:n]
+		}
+		out = append(out, prefix+piece)
+		l = l[len(piece):]
+		if l == "" {
+			return out
+		}
+		prefix = contMarker
+	}
 }
 
 // collapseBlank remplace chaque suite d'au moins minBlankRun lignes vides
