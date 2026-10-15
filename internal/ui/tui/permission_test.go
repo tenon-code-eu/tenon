@@ -36,6 +36,10 @@ func askPerm(t *testing.T, h *harness, f *fakeEngine, p event.PermissionRequeste
 	h.clk = h.clk.Add(time.Second)
 }
 
+// quiet avance l'horloge du délai d'acceptation : la période de calme
+// exigée depuis la dernière touche est écoulée.
+func quiet(h *harness) { h.clk = h.clk.Add(approveDelay) }
+
 func shellPerm(id string) event.PermissionRequestedPayload {
 	return event.PermissionRequestedPayload{PermissionID: id, Kind: "tool", Tool: "shell", Command: "ls -la"}
 }
@@ -102,6 +106,7 @@ func TestEnglishKeys(t *testing.T) {
 	if _, ok := f.reply("p1"); ok {
 		t.Fatal("o/s acceptés en anglais")
 	}
+	quiet(h)
 	h.send(runeKey('y'))
 	wantReply(t, f, "p1", engine.Reply{Allow: true})
 	askPerm(t, h, f, shellPerm("p2"))
@@ -150,6 +155,7 @@ func TestJurisdictionNoRemember(t *testing.T) {
 	if _, ok := f.reply("j1"); ok {
 		t.Fatal("« pour la session » accepté pour une juridiction")
 	}
+	quiet(h)
 	h.send(runeKey('o'))
 	wantReply(t, f, "j1", engine.Reply{Allow: true})
 }
@@ -371,7 +377,13 @@ func TestApproveIgnoredRightAfterShown(t *testing.T) {
 	if v := h.m.input.Value(); v != "bonj" {
 		t.Fatalf("saisie modifiée : %q", v)
 	}
+	// Chaque touche réarme le délai : 1 ms après la précédente ne suffit pas.
 	h.clk = h.clk.Add(time.Millisecond)
+	h.send(runeKey('o'))
+	if got := f.answered(); len(got) != 0 {
+		t.Fatalf("acceptation 1 ms après une touche : %v", got)
+	}
+	quiet(h)
 	h.send(runeKey('o'))
 	wantReply(t, f, "p1", engine.Reply{Allow: true})
 }
@@ -520,6 +532,8 @@ func TestEnlargeAllowsApproval(t *testing.T) {
 	if strings.Contains(v, "agrandissez") || !strings.Contains(v, "⏺ shell rm -rf ~") {
 		t.Fatalf("vue 80x24 : %q", v)
 	}
+	// L'agrandissement réarme le délai.
+	quiet(h)
 	h.send(runeKey('o'))
 	wantReply(t, f, "p1", engine.Reply{Allow: true})
 }
@@ -533,4 +547,44 @@ func TestJurisdictionSmallNoZeroMarker(t *testing.T) {
 	if v := h.m.View(); strings.Contains(v, "0 lignes") || strings.Contains(v, "masquées") {
 		t.Fatalf("marqueur vide affiché : %q", v)
 	}
+}
+
+// Une phrase tapée au rythme de la frappe par-dessus une demande n'accepte
+// jamais : chaque touche réarme le délai. Une fois la frappe arrêtée et le
+// délai écoulé, l'acceptation fonctionne.
+func TestTypingOverPromptNeverApproves(t *testing.T) {
+	f := newFake()
+	h := newHarness(t, f, Options{Lang: i18n.EN})
+	askPermNow(t, h, f, shellPerm("p1"))
+	for _, r := range "the best way" {
+		h.clk = h.clk.Add(150 * time.Millisecond)
+		k := runeKey(r)
+		if r == ' ' {
+			k = tea.KeyMsg{Type: tea.KeySpace, Runes: []rune{' '}}
+		}
+		h.send(k)
+	}
+	if got := f.answered(); len(got) != 0 {
+		t.Fatalf("acceptation pendant la frappe : %v", got)
+	}
+	h.clk = h.clk.Add(500 * time.Millisecond)
+	h.send(runeKey('y'))
+	wantReply(t, f, "p1", engine.Reply{Allow: true})
+}
+
+// Le passage d'un en-tête masqué à un en-tête visible (agrandissement)
+// réarme le délai.
+func TestResizeRearmsApproval(t *testing.T) {
+	f := newFake()
+	h := newHarness(t, f, Options{Lang: i18n.EN})
+	h.send(tea.WindowSizeMsg{Width: 80, Height: 3})
+	askPerm(t, h, f, shellPerm("p1"))
+	h.send(tea.WindowSizeMsg{Width: 100, Height: 30})
+	h.send(runeKey('y'))
+	if got := f.answered(); len(got) != 0 {
+		t.Fatalf("acceptation juste après l'agrandissement : %v", got)
+	}
+	h.clk = h.clk.Add(500 * time.Millisecond)
+	h.send(runeKey('y'))
+	wantReply(t, f, "p1", engine.Reply{Allow: true})
 }

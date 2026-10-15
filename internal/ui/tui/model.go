@@ -90,10 +90,12 @@ type Model struct {
 	ctx context.Context
 	// prompts est la file des demandes de permission, la première affichée.
 	prompts []*permPrompt
-	// shown est la demande affichée lors du dernier changement, et shownAt
-	// l'heure (horloge now) de son affichage.
+	// shown est la demande affichée lors du dernier changement. armedAt est
+	// le début de la période de calme exigée avant une acceptation :
+	// affichage de la demande, dernière touche reçue pendant une demande, ou
+	// passage de la demande à l'état acceptable (horloge now).
 	shown   *permPrompt
-	shownAt time.Time
+	armedAt time.Time
 	// calls garde les appels d'outil en attente de résultat, dans l'ordre.
 	calls []pendingCall
 }
@@ -228,7 +230,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.WindowSizeMsg:
+		before := m.prompting() && m.promptHeadVisible()
 		m.resize(msg.Width, msg.Height)
+		m.rearmIf(before)
 		return m, nil
 	case tea.KeyMsg:
 		return m.handleKey(msg)

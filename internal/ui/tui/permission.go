@@ -47,17 +47,19 @@ var answerKeys = map[i18n.Lang]struct{ once, session rune }{
 
 const noKey = 'n'
 
-// approveDelay est le délai, après l'affichage d'une demande, pendant lequel
-// les touches d'acceptation sont ignorées : une demande arrivée pendant la
-// frappe ou juste après la réponse à la précédente n'est pas acceptée par une
-// touche destinée à autre chose. Les refus agissent immédiatement.
+// approveDelay est la période de calme exigée avant une acceptation : les
+// touches d'acceptation n'agissent que si ce délai s'est écoulé depuis
+// l'affichage de la demande ET depuis la touche précédente, quelle qu'elle
+// soit (ignorée comprise). Une demande arrivée pendant la frappe n'est donc
+// jamais acceptée par une touche destinée à autre chose, même si la frappe
+// continue. Les refus agissent immédiatement.
 const approveDelay = 500 * time.Millisecond
 
 // minApproveWidth est la largeur minimale pour accepter une demande : en deçà,
 // la première ligne de l'outil ne montre pas assez de la commande ou du chemin.
 const minApproveWidth = 40
 
-// syncShown note l'heure d'affichage chaque fois que la demande affichée change.
+// syncShown réarme le délai chaque fois que la demande affichée change.
 func (m *Model) syncShown() {
 	if len(m.prompts) == 0 {
 		m.shown = nil
@@ -65,7 +67,16 @@ func (m *Model) syncShown() {
 	}
 	if m.prompts[0] != m.shown {
 		m.shown = m.prompts[0]
-		m.shownAt = m.now()
+		m.armedAt = m.now()
+	}
+}
+
+// rearmIf réarme le délai si la demande affichée vient de devenir acceptable
+// (par exemple après un agrandissement du terminal) : before est l'état
+// d'avant le changement.
+func (m *Model) rearmIf(before bool) {
+	if m.prompting() && !before && m.promptHeadVisible() {
+		m.armedAt = m.now()
 	}
 }
 
@@ -179,8 +190,12 @@ func (m Model) targetMatches(args json.RawMessage, p event.PermissionRequestedPa
 
 // handlePromptKey traite une touche pendant une demande : seules les touches
 // de réponse de la langue courante, Échap et Ctrl+C agissent ; PgPréc/PgSuiv
-// font défiler la conversation. Un collage n'est jamais une réponse.
+// font défiler la conversation. Un collage n'est jamais une réponse. Toute
+// touche, même ignorée, réarme le délai d'acceptation.
 func (m Model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	now := m.now()
+	settled := now.Sub(m.armedAt) >= approveDelay
+	m.armedAt = now
 	if msg.Paste {
 		return m, nil
 	}
@@ -206,7 +221,6 @@ func (m Model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	k := answerKeys[m.lang]
-	settled := m.now().Sub(m.shownAt) >= approveDelay
 	switch msg.Runes[0] {
 	case k.once:
 		if settled && m.promptHeadVisible() {
