@@ -37,10 +37,16 @@ func (t *turn) run(input string) error {
 	if !t.s.started {
 		if err := t.emit(event.SessionStarted, event.SessionStartedPayload{
 			Provider: info, ProjectRoot: d.ProjectRoot, Resumed: t.s.resumed, Instructions: d.Instructions,
+			MCP: d.MCP,
 		}); err != nil {
 			return err
 		}
 		t.s.started = true
+		for _, u := range d.UnavailableMCP {
+			if err := t.emit(event.McpServerDown, u); err != nil {
+				return err
+			}
+		}
 	}
 	t.s.history = append(t.s.history, llm.Message{Role: llm.User, Content: input})
 	if err := t.emit(event.UserMessage, event.UserMessagePayload{Text: input}); err != nil {
@@ -310,12 +316,22 @@ func (t *turn) runTool(c llm.ToolCall) (tools.Result, error) {
 	if err != nil {
 		return tools.Result{}, err
 	}
+	if denied == "" {
+		denied = res.Denied // refus décidé par l'outil lui-même
+	}
 	if err := t.emit(event.ToolResult, event.ToolResultPayload{
 		CallID: c.ID, Tool: c.Name, Content: res.Content, IsError: res.IsError,
 		Path: res.Path, HashBefore: res.HashBefore, HashAfter: res.HashAfter,
 		Denied: denied,
 	}); err != nil {
 		return tools.Result{}, err
+	}
+	if res.ServerDown != "" {
+		if err := t.emit(event.McpServerDown, event.McpServerDownPayload{
+			Server: res.ServerDown, Error: res.Content,
+		}); err != nil {
+			return tools.Result{}, err
+		}
 	}
 	return res, nil
 }
@@ -343,6 +359,13 @@ func (t *turn) decideAndRun(c llm.ToolCall) (tools.Result, string, error) {
 	if tool.Risk() == tools.Write {
 		if m := findMarker(c.Args); m != "" {
 			return toolError("contenu masqué : impossible d'écrire un marqueur de masquage (%s)", m), deniedPolicy, nil
+		}
+	}
+	// De même pour un outil MCP, quel que soit son risque déclaré : le
+	// serveur recevrait le marqueur à la place de la valeur.
+	if strings.HasPrefix(c.Name, "mcp__") {
+		if m := findMarker(c.Args); m != "" {
+			return toolError("contenu masqué : impossible d'envoyer un marqueur de masquage à un serveur MCP (%s)", m), deniedPolicy, nil
 		}
 	}
 	target, err := tool.Target(c.Args)

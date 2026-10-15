@@ -23,6 +23,9 @@ const (
 type Target struct {
 	Paths   []string // chemins absolus nettoyés
 	Command string
+	// ForceAsk impose une validation humaine : Permissions.Check renvoie Ask
+	// (Deny si une règle deny correspond), quelles que soient les règles allow.
+	ForceAsk bool
 }
 
 // Result est le résultat d'une exécution d'outil.
@@ -32,6 +35,11 @@ type Result struct {
 	Path       string
 	HashBefore string
 	HashAfter  string
+	// Denied vaut "policy" quand l'outil a refusé l'appel par règle (vide sinon).
+	Denied string
+	// ServerDown porte l'identifiant d'un serveur MCP qui vient de tomber pendant
+	// cet appel (vide sinon) ; signalé une seule fois par serveur.
+	ServerDown string
 }
 
 // Tool est un outil appelable par le modèle.

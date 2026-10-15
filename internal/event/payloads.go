@@ -14,6 +14,15 @@ type SessionStartedPayload struct {
 	Resumed bool `json:"resumed,omitempty"`
 	// Instructions lists the project instruction files loaded (e.g. AGENTS.md).
 	Instructions []string `json:"instructions,omitempty"`
+	// MCP lists the MCP servers active for the session (omitted when none).
+	MCP []MCPServerInfo `json:"mcp,omitempty"`
+}
+
+// MCPServerInfo describes an active MCP server (values from the configuration).
+type MCPServerInfo struct {
+	ID           string           `json:"id"`
+	Jurisdiction llm.Jurisdiction `json:"jurisdiction"`
+	Country      string           `json:"country,omitempty"`
 }
 
 // UserMessagePayload carries text typed by the user.
@@ -80,6 +89,13 @@ type ToolResultPayload struct {
 	HashBefore string `json:"hash_before"`
 	HashAfter  string `json:"hash_after"`
 	Denied     string `json:"denied,omitempty"`
+}
+
+// McpServerDownPayload reports an MCP server that is unreachable (at start or
+// during a call). Error is user-facing text.
+type McpServerDownPayload struct {
+	Server string `json:"server"`
+	Error  string `json:"error"`
 }
 
 // JurisdictionWarningPayload warns that a provider lies outside the preferred jurisdiction.

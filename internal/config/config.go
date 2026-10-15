@@ -7,8 +7,10 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 )
 
@@ -25,6 +27,98 @@ type Config struct {
 	Providers           []Provider  `toml:"providers"`
 	Permissions         Permissions `toml:"permissions"`
 	Redaction           Redaction   `toml:"redaction"`
+	// MCP : serveurs MCP. Clé globale uniquement (un serveur stdio est une
+	// exécution de code arbitraire : un dépôt ne peut pas en déclarer).
+	MCP MCP `toml:"mcp"`
+}
+
+type MCP struct {
+	Servers []MCPServer `toml:"servers"`
+}
+
+// MCPServer déclare un serveur MCP. Aucun secret : variables référencées par nom.
+type MCPServer struct {
+	ID           string   `toml:"id"`           // [a-z0-9_-]{1,32}
+	Transport    string   `toml:"transport"`    // "stdio" | "http"
+	Command      []string `toml:"command"`      // stdio : argv, non vide
+	EnvFrom      []string `toml:"env_from"`     // stdio : variables transmises au serveur
+	URL          string   `toml:"url"`          // http : https://… (http:// seulement vers localhost/127.0.0.1/::1)
+	BearerEnv    string   `toml:"bearer_env"`   // http : variable contenant le jeton
+	Jurisdiction string   `toml:"jurisdiction"` // "eu" | "non-eu" | "local"
+	Country      string   `toml:"country"`
+	Risk         string   `toml:"risk"`  // "" | "read" | "write" | "exec" | "network"
+	Tools        []string `toml:"tools"` // liste blanche optionnelle des outils exposés
+	Disabled     bool     `toml:"disabled"`
+}
+
+var mcpIDPattern = regexp.MustCompile(`^[a-z0-9_-]{1,32}$`)
+
+func validateMCPURL(id, raw string) error {
+	u, err := url.Parse(raw)
+	if raw == "" || err != nil || u.Host == "" || u.Hostname() == "" {
+		return fmt.Errorf("config : url invalide pour le serveur MCP %q", id)
+	}
+	if u.User != nil {
+		return fmt.Errorf("config : url du serveur MCP %q : identifiants interdits dans l'URL (utiliser bearer_env)", id)
+	}
+	if u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || strings.ContainsAny(raw, "?#") {
+		return fmt.Errorf("config : url du serveur MCP %q : requête et fragment interdits dans l'URL (jeton via bearer_env)", id)
+	}
+	switch u.Scheme {
+	case "https":
+	case "http":
+		switch u.Hostname() {
+		case "localhost", "127.0.0.1", "::1":
+		default:
+			return fmt.Errorf("config : url du serveur MCP %q : https requis (http seulement vers localhost, 127.0.0.1 ou ::1)", id)
+		}
+	default:
+		return fmt.Errorf("config : url du serveur MCP %q : schéma %q non pris en charge (https)", id, u.Scheme)
+	}
+	return nil
+}
+
+func (m MCP) validate() error {
+	seen := map[string]bool{}
+	for _, s := range m.Servers {
+		if !mcpIDPattern.MatchString(s.ID) {
+			return fmt.Errorf("config : identifiant de serveur MCP invalide %q ([a-z0-9_-]{1,32})", s.ID)
+		}
+		if seen[s.ID] {
+			return fmt.Errorf("config : identifiant de serveur MCP dupliqué %q", s.ID)
+		}
+		seen[s.ID] = true
+		switch s.Transport {
+		case "stdio":
+			if len(s.Command) == 0 || s.Command[0] == "" {
+				return fmt.Errorf("config : command requis pour le serveur MCP stdio %q", s.ID)
+			}
+			// Un chemin relatif serait résolu depuis le projet, non fiable.
+			if c := s.Command[0]; !filepath.IsAbs(c) && strings.ContainsRune(c, '/') {
+				return fmt.Errorf("config : command du serveur MCP stdio %q : chemin absolu ou nom nu (cherché dans PATH) requis, pas %q", s.ID, c)
+			}
+		case "http":
+			if err := validateMCPURL(s.ID, s.URL); err != nil {
+				return err
+			}
+			if s.Jurisdiction == "" {
+				return fmt.Errorf("config : jurisdiction requise pour le serveur MCP http %q (eu|non-eu|local)", s.ID)
+			}
+		default:
+			return fmt.Errorf("config : transport invalide %q pour le serveur MCP %q (stdio|http)", s.Transport, s.ID)
+		}
+		switch s.Jurisdiction {
+		case "eu", "non-eu", "local":
+		default:
+			return fmt.Errorf("config : jurisdiction invalide %q pour le serveur MCP %q (eu|non-eu|local)", s.Jurisdiction, s.ID)
+		}
+		switch s.Risk {
+		case "", "read", "write", "exec", "network":
+		default:
+			return fmt.Errorf("config : risk invalide %q pour le serveur MCP %q (read|write|exec|network)", s.Risk, s.ID)
+		}
+	}
+	return nil
 }
 
 type Audit struct {
@@ -164,6 +258,9 @@ func (c Config) validate() error {
 		if _, err := regexp.Compile(r.Pattern); err != nil {
 			return fmt.Errorf("config : pattern de masquage %q invalide : %w", r.Name, err)
 		}
+	}
+	if err := c.MCP.validate(); err != nil {
+		return err
 	}
 	if _, ok := c.Provider(c.DefaultProvider); !ok {
 		return fmt.Errorf("config : default_provider inconnu %q", c.DefaultProvider)

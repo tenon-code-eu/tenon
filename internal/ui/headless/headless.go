@@ -8,6 +8,10 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"unicode"
+	"unicode/utf8"
+
+	"github.com/charmbracelet/x/ansi"
 
 	"codeberg.org/tenon/tenon/internal/engine"
 	"codeberg.org/tenon/tenon/internal/event"
@@ -123,9 +127,17 @@ func (r *renderer) handle(ev event.Event) {
 		var p event.SessionStartedPayload
 		if r.decode(ev, &p) {
 			r.text("%s\n", Banner(r.lang, p.Provider))
+			if line := MCPBanner(r.lang, p.MCP); line != "" {
+				r.text("%s\n", line)
+			}
 			if len(p.Instructions) > 0 {
 				r.text("%s\n", i18n.T(r.lang, "banner.instructions", strings.Join(p.Instructions, ", ")))
 			}
+		}
+	case event.McpServerDown:
+		var p event.McpServerDownPayload
+		if r.decode(ev, &p) {
+			r.text("%s\n", ServerDownNotice(r.lang, p, r.redactText))
 		}
 	case event.JurisdictionWarning:
 		var p event.JurisdictionWarningPayload
@@ -237,6 +249,54 @@ func Banner(l i18n.Lang, p llm.ProviderInfo) string {
 	}
 	parts = append(parts, i18n.T(l, "banner.prefix", JurisdictionLabel(l, p.Jurisdiction)))
 	return strings.Join(parts, " · ")
+}
+
+// ServerDownNotice renvoie l'avis d'un serveur MCP indisponible. Chaque
+// partie est nettoyée puis masquée seule, lignes conservées (une règle ancrée
+// en fin de ligne y reconnaît un secret), avant d'être mise sur une ligne.
+func ServerDownNotice(l i18n.Lang, p event.McpServerDownPayload, redact func(string) string) string {
+	return i18n.T(l, "mcp.down", cleanMasked(p.Server, redact), cleanMasked(p.Error, redact))
+}
+
+// MCPBanner renvoie la ligne « MCP : id (juridiction), … » des serveurs MCP
+// actifs, ou "" s'il n'y en a aucun.
+func MCPBanner(l i18n.Lang, servers []event.MCPServerInfo) string {
+	if len(servers) == 0 {
+		return ""
+	}
+	parts := make([]string, len(servers))
+	for i, s := range servers {
+		parts[i] = OneLine(s.ID) + " (" + JurisdictionLabel(l, s.Jurisdiction) + ")"
+	}
+	return i18n.T(l, "banner.mcp", strings.Join(parts, ", "))
+}
+
+// Clean retire de s les séquences d'échappement ANSI, les caractères de
+// contrôle autres que le saut de ligne et les caractères de format
+// (bidirectionnels, largeur nulle) ; tabulations, retours chariot et
+// séparateurs Unicode deviennent des espaces. Le texte vient d'un serveur MCP,
+// non fiable. Les lignes sont conservées : un masquage ancré en fin de ligne
+// s'applique ensuite.
+func Clean(s string) string {
+	return strings.Map(func(r rune) rune {
+		switch {
+		case r == '\n':
+			return r
+		case r == '\r', r == '\t', r == '\u2028', r == '\u2029':
+			return ' '
+		case r < 0x20, r == 0x7f, r >= 0x80 && r <= 0x9f, r == utf8.RuneError, unicode.Is(unicode.Cf, r):
+			return -1
+		}
+		return r
+	}, ansi.Strip(s))
+}
+
+// OneLine nettoie s (Clean) et le met sur une ligne.
+func OneLine(s string) string { return strings.ReplaceAll(Clean(s), "\n", " ") }
+
+// cleanMasked nettoie s, le masque par redact puis le met sur une ligne.
+func cleanMasked(s string, redact func(string) string) string {
+	return strings.ReplaceAll(redact(Clean(s)), "\n", " ")
 }
 
 // ProviderLabel renvoie le nom du fournisseur, à défaut son identifiant.

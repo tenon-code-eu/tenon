@@ -50,6 +50,11 @@ type Deps struct {
 	// CompactionThreshold est la fraction de la fenêtre au-delà de laquelle
 	// l'historique est compacté (0 : DefaultCompactionThreshold).
 	CompactionThreshold float64
+	// UnavailableMCP liste les serveurs MCP injoignables au démarrage ; un
+	// McpServerDown est émis pour chacun juste après chaque SessionStarted.
+	UnavailableMCP []event.McpServerDownPayload
+	// MCP liste les serveurs MCP actifs, recopiés dans SessionStarted.
+	MCP []event.MCPServerInfo
 }
 
 // Reply répond à un PermissionRequested.

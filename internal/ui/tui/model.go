@@ -17,6 +17,7 @@ import (
 	"codeberg.org/tenon/tenon/internal/event"
 	"codeberg.org/tenon/tenon/internal/i18n"
 	"codeberg.org/tenon/tenon/internal/llm"
+	"codeberg.org/tenon/tenon/internal/ui/headless"
 )
 
 // Options configure la TUI.
@@ -29,6 +30,12 @@ type Options struct {
 	// Redact masque tout texte venu des événements avant affichage (même
 	// fonction que le mode non interactif) ; nil : aucun masquage.
 	Redact func(string) string
+	// DescribeMCP renvoie le serveur MCP (identifiant, juridiction, pays) d'un
+	// outil ; nil : registre du paquet mcp.
+	DescribeMCP func(tool string) (event.MCPServerInfo, bool)
+	// Notices sont des avis du démarrage (avertissements MCP) placés en tête
+	// de la conversation, nettoyés et masqués par Redact.
+	Notices []string
 	// Now remplace l'horloge (délai d'armement des acceptations, double
 	// Ctrl+C). Réservé aux tests ; nil : time.Now.
 	Now func() time.Time
@@ -190,6 +197,9 @@ func New(eng Engine, opts Options) Model {
 		m.redact = func(s string) string { return s }
 	}
 	m.tr.SetRedact(opts.Redact)
+	for _, n := range opts.Notices {
+		m.tr.notice(strings.ReplaceAll(m.redact(headless.Clean(n)), "\n", " "))
+	}
 	m.resize(defaultWidth, defaultHeight)
 	return m
 }

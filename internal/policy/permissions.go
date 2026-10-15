@@ -87,7 +87,8 @@ type pathInfo struct {
 	inside   bool   // false si hors racine ou résolution impossible
 }
 
-// Check applique l'algorithme : deny, confinement/fichiers sensibles, allow, ask, défaut.
+// Check applique l'algorithme : deny, validation forcée (ForceAsk),
+// confinement/fichiers sensibles, allow, ask, défaut.
 func (p *Permissions) Check(c Call) Decision {
 	infos := make([]pathInfo, len(c.Target.Paths))
 	for i, raw := range c.Target.Paths {
@@ -149,6 +150,12 @@ func (p *Permissions) Check(c Call) Decision {
 		if r.Decision == Deny && matches(r, true) {
 			return Deny
 		}
+	}
+
+	// Validation humaine imposée par l'outil (serveur MCP hors UE) : aucune
+	// règle allow ni le défaut des lectures ne la lèvent.
+	if c.Target.ForceAsk {
+		return Ask
 	}
 
 	for _, in := range infos {

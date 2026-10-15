@@ -294,3 +294,123 @@ func TestProjectCannotSetCompaction(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func mcpErr(t *testing.T, toml, want string) {
+	t.Helper()
+	_, err := Load(write(t, toml), "", env(nil))
+	if err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("erreur attendue contenant %q, obtenu %v", want, err)
+	}
+}
+
+func TestMCPStdioParsed(t *testing.T) {
+	g := write(t, `
+[[mcp.servers]]
+id = "fs"
+transport = "stdio"
+command = ["mcp-fs", "--root", "."]
+env_from = ["HOME"]
+tools = ["read"]
+`)
+	c, err := Load(g, "", env(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.MCP.Servers) != 1 {
+		t.Fatalf("%+v", c.MCP)
+	}
+	s := c.MCP.Servers[0]
+	if s.Jurisdiction != "local" || s.Risk != "" || len(s.Command) != 3 || s.EnvFrom[0] != "HOME" || s.Tools[0] != "read" {
+		t.Fatalf("%+v", s)
+	}
+}
+
+func TestMCPHTTPRequiresJurisdiction(t *testing.T) {
+	mcpErr(t, `
+[[mcp.servers]]
+id = "web"
+transport = "http"
+url = "https://mcp.exemple.fr"
+`, "jurisdiction")
+	mcpErr(t, `
+[[mcp.servers]]
+id = "web"
+transport = "http"
+url = "https://mcp.exemple.fr"
+jurisdiction = "mars"
+`, "jurisdiction")
+}
+
+func TestMCPHTTPRequiresHTTPS(t *testing.T) {
+	base := "[[mcp.servers]]\nid = \"web\"\ntransport = \"http\"\njurisdiction = \"eu\"\nurl = "
+	for _, u := range []string{"http://exemple.fr", "", "ftp://x.fr", "https://user:pw@exemple.fr", "https://",
+		"https://exemple.fr/mcp?token=x", "https://exemple.fr/mcp?", "https://exemple.fr/mcp#x", "http://127.0.0.1:8080/?k=v"} {
+		mcpErr(t, base+`"`+u+`"`, "url")
+	}
+	for _, u := range []string{"http://127.0.0.1:8080", "http://localhost:9000/mcp", "http://[::1]:8080", "https://exemple.fr/mcp"} {
+		c, err := Load(write(t, base+`"`+u+`"`), "", env(nil))
+		if err != nil {
+			t.Fatalf("%s : %v", u, err)
+		}
+		if c.MCP.Servers[0].URL != u {
+			t.Fatalf("%+v", c.MCP.Servers[0])
+		}
+	}
+}
+
+func TestMCPInvalidID(t *testing.T) {
+	srv := func(id string) string {
+		return "[[mcp.servers]]\nid = \"" + id + "\"\ntransport = \"stdio\"\ncommand = [\"x\"]\n"
+	}
+	mcpErr(t, srv("GitHub!"), "identifiant")
+	mcpErr(t, srv(""), "identifiant")
+	mcpErr(t, srv(strings.Repeat("a", 33)), "identifiant")
+	mcpErr(t, srv("a")+srv("a"), "dupliqué")
+}
+
+func TestMCPUnknownTransport(t *testing.T) {
+	mcpErr(t, "[[mcp.servers]]\nid = \"a\"\ntransport = \"ws\"\n", "transport")
+}
+
+func TestMCPStdioRequiresCommand(t *testing.T) {
+	mcpErr(t, "[[mcp.servers]]\nid = \"a\"\ntransport = \"stdio\"\n", "command")
+}
+
+func TestMCPInvalidRisk(t *testing.T) {
+	mcpErr(t, "[[mcp.servers]]\nid = \"a\"\ntransport = \"stdio\"\ncommand = [\"x\"]\nrisk = \"huge\"\n", "risk")
+	for _, r := range []string{"read", "write", "exec", "network"} {
+		_, err := Load(write(t, "[[mcp.servers]]\nid = \"a\"\ntransport = \"stdio\"\ncommand = [\"x\"]\nrisk = \""+r+"\"\n"), "", env(nil))
+		if err != nil {
+			t.Fatalf("%s : %v", r, err)
+		}
+	}
+}
+
+func TestProjectCannotDeclareMCP(t *testing.T) {
+	p := write(t, "[[mcp.servers]]\nid = \"a\"\ntransport = \"stdio\"\ncommand = [\"x\"]\n")
+	_, err := Load("", p, env(nil))
+	if err == nil || !strings.Contains(err.Error(), "clé non autorisée") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+// Command[0] relatif avec séparateur (./srv, bin/srv) : résolu depuis le
+// dépôt, refusé ; chemin absolu ou nom nu (cherché dans PATH) acceptés.
+func TestMCPStdioRelativeCommand(t *testing.T) {
+	srv := func(cmd string) string {
+		return "[[mcp.servers]]\nid = \"a\"\ntransport = \"stdio\"\ncommand = [\"" + cmd + "\"]\n"
+	}
+	for _, c := range []string{"./srv", "bin/srv", "../srv"} {
+		mcpErr(t, srv(c), "chemin absolu")
+	}
+	for _, c := range []string{"/usr/local/bin/srv", "srv"} {
+		if _, err := Load(write(t, srv(c)), "", env(nil)); err != nil {
+			t.Fatalf("%s : %v", c, err)
+		}
+	}
+}
+
+// Requête ou fragment dans l'URL : refusés, le message renvoie à bearer_env.
+func TestMCPURLQueryRefused(t *testing.T) {
+	mcpErr(t, "[[mcp.servers]]\nid = \"web\"\ntransport = \"http\"\njurisdiction = \"eu\"\nurl = \"https://exemple.fr/mcp?token=x\"\n", "bearer_env")
+}

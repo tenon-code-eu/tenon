@@ -138,6 +138,9 @@ func (t *Transcript) Apply(ev event.Event) {
 		if p.Resumed {
 			text += " " + i18n.T(t.lang, "tui.resumed")
 		}
+		if line := headless.MCPBanner(t.lang, p.MCP); line != "" {
+			text += "\n" + line
+		}
 		if len(p.Instructions) > 0 {
 			text += "\n" + i18n.T(t.lang, "banner.instructions", strings.Join(p.Instructions, ", "))
 		}
@@ -186,6 +189,12 @@ func (t *Transcript) Apply(ev event.Event) {
 			return
 		}
 		t.toolResult(p)
+	case event.McpServerDown:
+		var p event.McpServerDownPayload
+		if !t.decode(ev, &p) {
+			return
+		}
+		t.notice(headless.ServerDownNotice(t.lang, p, t.redact))
 	case event.JurisdictionWarning:
 		var p event.JurisdictionWarningPayload
 		if !t.decode(ev, &p) {
