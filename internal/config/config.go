@@ -167,11 +167,13 @@ func (p Provider) Window() int {
 	return p.ContextWindow
 }
 
-// Rule.Decision : "allow" | "ask" | "deny".
+// Rule.Decision : "allow" | "ask" | "deny". Project est posé au chargement
+// pour les règles de la config projet (jamais lu depuis le TOML).
 type Rule struct {
 	Tool     string `toml:"tool"`
 	Match    string `toml:"match"`
 	Decision string `toml:"decision"`
+	Project  bool   `toml:"-"`
 }
 
 type RedactionRule struct {

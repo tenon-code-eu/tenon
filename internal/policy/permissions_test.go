@@ -47,8 +47,8 @@ func TestDefaultsByRisk(t *testing.T) {
 
 func TestDenyWinsOverAllow(t *testing.T) {
 	for _, rules := range [][]Rule{
-		{{"shell", "*", Allow}, {"shell", "rm -rf *", Deny}},
-		{{"shell", "rm -rf *", Deny}, {"shell", "*", Allow}},
+		{{Tool: "shell", Match: "*", Decision: Allow}, {Tool: "shell", Match: "rm -rf *", Decision: Deny}},
+		{{Tool: "shell", Match: "rm -rf *", Decision: Deny}, {Tool: "shell", Match: "*", Decision: Allow}},
 	} {
 		p, _ := newPerms(t, rules)
 		if got := p.Check(shellCall("rm -rf /")); got != Deny {
@@ -61,7 +61,7 @@ func TestDenyWinsOverAllow(t *testing.T) {
 }
 
 func TestAllowShellPattern(t *testing.T) {
-	p, _ := newPerms(t, []Rule{{"shell", "go test *", Allow}})
+	p, _ := newPerms(t, []Rule{{Tool: "shell", Match: "go test *", Decision: Allow}})
 	if got := p.Check(shellCall("go test ./...")); got != Allow {
 		t.Errorf("got %v", got)
 	}
@@ -71,7 +71,7 @@ func TestAllowShellPattern(t *testing.T) {
 }
 
 func TestDotDotEscapeIsAsk(t *testing.T) {
-	p, root := newPerms(t, []Rule{{"read_file", "*", Allow}})
+	p, root := newPerms(t, []Rule{{Tool: "read_file", Match: "*", Decision: Allow}})
 	if got := p.Check(readCall(filepath.Join(root, "..", "secret"))); got != Ask {
 		t.Errorf("got %v", got)
 	}
@@ -82,7 +82,7 @@ func TestSymlinkEscapeIsAsk(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(outside, "hosts"), []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	p, root := newPerms(t, []Rule{{"*", "*", Allow}})
+	p, root := newPerms(t, []Rule{{Tool: "*", Match: "*", Decision: Allow}})
 	if err := os.Symlink(outside, filepath.Join(root, "etc")); err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +107,7 @@ func TestSymlinkEscapeIsAsk(t *testing.T) {
 }
 
 func TestAllowRuleCannotEscapeRoot(t *testing.T) {
-	p, _ := newPerms(t, []Rule{{"read_file", "*", Allow}})
+	p, _ := newPerms(t, []Rule{{Tool: "read_file", Match: "*", Decision: Allow}})
 	outside := filepath.Join(t.TempDir(), "x")
 	if got := p.Check(readCall(outside)); got != Ask {
 		t.Errorf("got %v", got)
@@ -118,7 +118,7 @@ func TestAllowRuleCannotEscapeRoot(t *testing.T) {
 }
 
 func TestSensitiveFilesAsk(t *testing.T) {
-	p, root := newPerms(t, []Rule{{"*", "*", Allow}})
+	p, root := newPerms(t, []Rule{{Tool: "*", Match: "*", Decision: Allow}})
 	for _, name := range []string{".env", ".env.local", "cert.pem", "id_rsa", "id_rsa.pub", "sub/.ENV"} {
 		if got := p.Check(readCall(filepath.Join(root, name))); got != Ask {
 			t.Errorf("%s: got %v", name, got)
@@ -137,7 +137,7 @@ func TestSensitiveFilesAsk(t *testing.T) {
 }
 
 func TestWildcardToolDeny(t *testing.T) {
-	p, root := newPerms(t, []Rule{{"*", "secrets/*", Deny}})
+	p, root := newPerms(t, []Rule{{Tool: "*", Match: "secrets/*", Decision: Deny}})
 	c := Call{Tool: "write_file", Risk: tools.Write, Target: tools.Target{Paths: []string{filepath.Join(root, "secrets", "a")}}}
 	if got := p.Check(c); got != Deny {
 		t.Errorf("got %v", got)
@@ -145,7 +145,7 @@ func TestWildcardToolDeny(t *testing.T) {
 }
 
 func TestDenyMatchesThroughSymlink(t *testing.T) {
-	p, root := newPerms(t, []Rule{{"*", "secrets/*", Deny}})
+	p, root := newPerms(t, []Rule{{Tool: "*", Match: "secrets/*", Decision: Deny}})
 	if err := os.Mkdir(filepath.Join(root, "secrets"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +200,7 @@ func TestMatchWildcard(t *testing.T) {
 }
 
 func TestDenyCaseInsensitive(t *testing.T) {
-	p, root := newPerms(t, []Rule{{"*", "*", Allow}, {"*", "secrets/*", Deny}})
+	p, root := newPerms(t, []Rule{{Tool: "*", Match: "*", Decision: Allow}, {Tool: "*", Match: "secrets/*", Decision: Deny}})
 	for _, name := range []string{"Secrets/k", "SECRETS/k", "secrets/k"} {
 		c := Call{Tool: "write_file", Risk: tools.Write, Target: tools.Target{Paths: []string{filepath.Join(root, name)}}}
 		if got := p.Check(c); got != Deny {
@@ -210,7 +210,7 @@ func TestDenyCaseInsensitive(t *testing.T) {
 }
 
 func TestAllowMustMatchEveryPath(t *testing.T) {
-	p, root := newPerms(t, []Rule{{"write_file", "src/*", Allow}})
+	p, root := newPerms(t, []Rule{{Tool: "write_file", Match: "src/*", Decision: Allow}})
 	mk := func(names ...string) Call {
 		var ps []string
 		for _, n := range names {
@@ -242,7 +242,7 @@ func TestEscapeRegressions(t *testing.T) {
 	if err := os.Symlink(filepath.Join(root, "link2"), filepath.Join(root, "link1")); err != nil {
 		t.Fatal(err)
 	}
-	p, err := NewPermissions(root, []Rule{{"*", "*", Allow}})
+	p, err := NewPermissions(root, []Rule{{Tool: "*", Match: "*", Decision: Allow}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -263,7 +263,7 @@ func TestEscapeRegressions(t *testing.T) {
 }
 
 func TestAskFiresOnAnyPath(t *testing.T) {
-	p, root := newPerms(t, []Rule{{"*", "secret-dir/*", Ask}})
+	p, root := newPerms(t, []Rule{{Tool: "*", Match: "secret-dir/*", Decision: Ask}})
 	c := readCall(filepath.Join(root, "a.txt"), filepath.Join(root, "secret-dir", "b"))
 	if got := p.Check(c); got != Ask {
 		t.Errorf("got %v", got)
@@ -306,7 +306,7 @@ func TestAllowShellRejectsChaining(t *testing.T) {
 // l'emporte.
 func TestForceAskOverridesAllow(t *testing.T) {
 	forced := Call{Tool: "mcp__gh__issue", Risk: tools.Read, Target: tools.Target{Command: "mcp gh.issue {}", ForceAsk: true}}
-	p, _ := newPerms(t, []Rule{{"*", "", Allow}})
+	p, _ := newPerms(t, []Rule{{Tool: "*", Match: "", Decision: Allow}})
 	if got := p.Check(forced); got != Ask {
 		t.Errorf("allow * + ForceAsk : got %v want Ask", got)
 	}
@@ -314,8 +314,52 @@ func TestForceAskOverridesAllow(t *testing.T) {
 	if got := p.Check(forced); got != Ask {
 		t.Errorf("lecture par défaut + ForceAsk : got %v want Ask", got)
 	}
-	p, _ = newPerms(t, []Rule{{"*", "", Allow}, {"mcp__gh__issue", "", Deny}})
+	p, _ = newPerms(t, []Rule{{Tool: "*", Match: "", Decision: Allow}, {Tool: "mcp__gh__issue", Match: "", Decision: Deny}})
 	if got := p.Check(forced); got != Deny {
 		t.Errorf("deny + ForceAsk : got %v want Deny", got)
+	}
+}
+
+// Une règle ask du projet l'emporte sur une règle allow globale : le projet ne
+// peut que restreindre. Une ask globale reste, elle, primée par une allow.
+func TestProjectAskOverridesGlobalAllow(t *testing.T) {
+	p, root := newPerms(t, []Rule{
+		{Tool: "shell", Match: "*", Decision: Allow},
+		{Tool: "write_file", Match: "*", Decision: Allow},
+		{Tool: "shell", Match: "git push*", Decision: Ask, Project: true},
+		{Tool: "*", Match: "secret-dir/*", Decision: Ask, Project: true},
+	})
+	if got := p.Check(shellCall("git push origin main")); got != Ask {
+		t.Errorf("git push: got %v want Ask", got)
+	}
+	if got := p.Check(shellCall("ls")); got != Allow {
+		t.Errorf("ls: got %v want Allow", got)
+	}
+	w := func(rel string) Call {
+		return Call{Tool: "write_file", Risk: tools.Write, Target: tools.Target{Paths: []string{filepath.Join(root, rel)}}}
+	}
+	if got := p.Check(w("secret-dir/a.txt")); got != Ask {
+		t.Errorf("write secret-dir: got %v want Ask", got)
+	}
+	if got := p.Check(w("src/a.txt")); got != Allow {
+		t.Errorf("write src: got %v want Allow", got)
+	}
+
+	// Ask globale : l'allow globale l'emporte (comportement inchangé).
+	g, _ := newPerms(t, []Rule{
+		{Tool: "shell", Match: "*", Decision: Allow},
+		{Tool: "shell", Match: "git push*", Decision: Ask},
+	})
+	if got := g.Check(shellCall("git push")); got != Allow {
+		t.Errorf("global ask: got %v want Allow", got)
+	}
+
+	// Deny reste prioritaire sur une ask projet.
+	d, _ := newPerms(t, []Rule{
+		{Tool: "shell", Match: "git push*", Decision: Ask, Project: true},
+		{Tool: "shell", Match: "git push*", Decision: Deny},
+	})
+	if got := d.Check(shellCall("git push")); got != Deny {
+		t.Errorf("deny: got %v want Deny", got)
 	}
 }

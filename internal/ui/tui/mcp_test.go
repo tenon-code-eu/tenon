@@ -27,7 +27,7 @@ func mcpPerm(id, tool, cmd string) event.PermissionRequestedPayload {
 func TestTUIPromptShowsMCPJurisdiction(t *testing.T) {
 	servers := map[string]event.MCPServerInfo{
 		"mcp__gh__issue": {ID: "gh", Jurisdiction: llm.NonEU, Country: "US"},
-		"mcp__fr__doc":   {ID: "fr", Jurisdiction: llm.EU, Country: "FR‮"},
+		"mcp__fr__doc":   {ID: "fr", Jurisdiction: llm.EU, Country: "FR\u202e"},
 	}
 	f := newFake()
 	h := newHarness(t, f, Options{Lang: i18n.FR, DescribeMCP: fakeMCP(servers)})
@@ -119,8 +119,8 @@ func TestTUIServerDownNotice(t *testing.T) {
 	}
 	tr := NewTranscript(i18n.FR)
 	tr.SetRedact(func(s string) string { return strings.ReplaceAll(s, "Zx8kq", "[SECRET_1]") })
-	tr.Apply(ev(t, event.McpServerDown, event.McpServerDownPayload{Server: "gh", Error: "\x1b[31mjeton Zx8kq‮"}))
-	if s := tr.Items()[0].Text; strings.Contains(s, "Zx8kq") || strings.ContainsAny(s, "\x1b‮") {
+	tr.Apply(ev(t, event.McpServerDown, event.McpServerDownPayload{Server: "gh", Error: "\x1b[31mjeton Zx8kq\u202e"}))
+	if s := tr.Items()[0].Text; strings.Contains(s, "Zx8kq") || strings.ContainsAny(s, "\x1b\u202e") {
 		t.Fatalf("avis %q", s)
 	}
 }
@@ -175,7 +175,7 @@ func TestTUIStartupNotices(t *testing.T) {
 	f := newFake()
 	h := newHarness(t, f, Options{
 		Lang:    i18n.FR,
-		Notices: []string{"MCP : outil \x1b[31mignoré Zx8kq‮"},
+		Notices: []string{"MCP : outil \x1b[31mignoré Zx8kq\u202e"},
 		Redact:  func(s string) string { return strings.ReplaceAll(s, "Zx8kq", "[SECRET_1]") },
 	})
 	it := h.m.tr.Items()

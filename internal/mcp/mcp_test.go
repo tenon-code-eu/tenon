@@ -387,7 +387,7 @@ func TestHostileServerText(t *testing.T) {
 		t.Fatalf("description %q", d)
 	}
 	tg, _ := tl.Target(json.RawMessage(`{}`))
-	if strings.ContainsAny(tg.Command, "\x1b‮") {
+	if strings.ContainsAny(tg.Command, "\x1b\u202e") {
 		t.Fatalf("target %q", tg.Command)
 	}
 	if res := run(t, tl, `{}`); res.IsError || res.Content != "ok" {

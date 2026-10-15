@@ -250,8 +250,31 @@ func TestDefaultsCompaction(t *testing.T) {
 		t.Fatalf("seuil = %v", c.CompactionThreshold)
 	}
 	p, _ := c.Provider("mistral")
-	if p.Window() != 128000 {
+	if p.Window() != 256000 {
 		t.Fatalf("fenêtre mistral = %d", p.Window())
+	}
+}
+
+// Valeurs vérifiées dans la documentation officielle de chaque fournisseur
+// (sources et dates : RELEASE.md, section « Sources vérifiées »).
+func TestPresetValues(t *testing.T) {
+	want := []struct {
+		id, baseURL, model string
+		window             int
+	}{
+		{"mistral", "https://api.mistral.ai/v1", "mistral-medium-3-5", 256000},
+		{"scaleway", "https://api.scaleway.ai/v1", "mistral-medium-3.5-128b", 180000},
+		{"ovhcloud", "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1", "Qwen3.8-27B", 262000},
+		{"ollama", "http://localhost:11434/v1", "devstral", 32000},
+		{"vllm", "http://localhost:8000/v1", "default", 32000},
+	}
+	c := Defaults(env(nil))
+	for _, w := range want {
+		p, ok := c.Provider(w.id)
+		if !ok || p.BaseURL != w.baseURL || p.Model != w.model || p.Window() != w.window {
+			t.Errorf("préréglage %s : %q %q %d, attendu %q %q %d",
+				w.id, p.BaseURL, p.Model, p.Window(), w.baseURL, w.model, w.window)
+		}
 	}
 }
 
@@ -413,4 +436,29 @@ func TestMCPStdioRelativeCommand(t *testing.T) {
 // Requête ou fragment dans l'URL : refusés, le message renvoie à bearer_env.
 func TestMCPURLQueryRefused(t *testing.T) {
 	mcpErr(t, "[[mcp.servers]]\nid = \"web\"\ntransport = \"http\"\njurisdiction = \"eu\"\nurl = \"https://exemple.fr/mcp?token=x\"\n", "bearer_env")
+}
+
+// Les règles de la config projet sont marquées comme telles (Project) pour que
+// leurs ask priment les allow globales.
+func TestProjectRulesMarked(t *testing.T) {
+	g := write(t, `
+[[permissions.rules]]
+tool = "shell"
+match = "*"
+decision = "allow"
+`)
+	p := write(t, `
+[[permissions.rules]]
+tool = "shell"
+match = "git push*"
+decision = "ask"
+`)
+	c, err := Load(g, p, env(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := c.Permissions.Rules
+	if len(r) != 2 || r[0].Project || !r[1].Project {
+		t.Fatalf("%+v", r)
+	}
 }

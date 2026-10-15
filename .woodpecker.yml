@@ -1,0 +1,34 @@
+# CI Woodpecker (Codeberg ou instance auto-hébergée).
+# L'image golang vient de Docker Hub ; un miroir de registre européen peut la
+# remplacer (par exemple registry.example.eu/golang:1.26.9).
+# golang:1.26.9 est épinglée au dernier correctif de Go 1.26 (govulncheck
+# signale des failles de la bibliothèque standard dans les versions
+# antérieures) : à relever à chaque correctif de Go.
+when:
+  - event: [push, pull_request]
+
+clone:
+  git:
+    # Version épinglée (Docker Hub, 2026-09-08) : à relever volontairement.
+    image: woodpeckerci/plugin-git:2.10.1
+    settings:
+      tags: true
+      partial: false
+
+steps:
+  - name: ci
+    image: golang:1.26.9 # à relever à chaque correctif de Go
+    environment:
+      GOPROXY: direct
+      GOSUMDB: sum.golang.org
+    commands:
+      - git config --global --add safe.directory "$CI_WORKSPACE"
+      - make ci
+  - name: repro-check
+    image: golang:1.26.9 # à relever à chaque correctif de Go
+    environment:
+      GOPROXY: direct
+      GOSUMDB: sum.golang.org
+    commands:
+      - git config --global --add safe.directory "$CI_WORKSPACE"
+      - make repro-check

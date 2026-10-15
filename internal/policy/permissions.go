@@ -48,10 +48,13 @@ func ParseDecision(s string) (Decision, error) {
 	return Ask, fmt.Errorf("décision inconnue %q (attendu : allow, ask ou deny)", s)
 }
 
-// Rule associe un outil ("*" = tous) et un motif à une décision.
+// Rule associe un outil ("*" = tous) et un motif à une décision. Project
+// indique une règle de la config projet (.tenon/config.toml) : le projet ne
+// peut que restreindre, ses règles ask priment donc les allow globales.
 type Rule struct {
 	Tool, Match string
 	Decision    Decision
+	Project     bool
 }
 
 // Call décrit un appel d'outil à vérifier.
@@ -88,7 +91,7 @@ type pathInfo struct {
 }
 
 // Check applique l'algorithme : deny, validation forcée (ForceAsk),
-// confinement/fichiers sensibles, allow, ask, défaut.
+// confinement/fichiers sensibles, ask du projet, allow, ask, défaut.
 func (p *Permissions) Check(c Call) Decision {
 	infos := make([]pathInfo, len(c.Target.Paths))
 	for i, raw := range c.Target.Paths {
@@ -160,6 +163,13 @@ func (p *Permissions) Check(c Call) Decision {
 
 	for _, in := range infos {
 		if !in.inside || isSensitive(in.given) || isSensitive(in.resolved) {
+			return Ask
+		}
+	}
+
+	// ask du projet : prime les allow (globales, le projet n'en a pas).
+	for _, r := range p.rules {
+		if r.Project && r.Decision == Ask && matches(r, false) {
 			return Ask
 		}
 	}

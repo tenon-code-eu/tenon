@@ -93,7 +93,7 @@ func Serve(mode string) {
 		s.AddTool(&sdk.Tool{Name: "echo", Description: "renvoie text", InputSchema: objectSchema}, echo)
 		s.AddTool(&sdk.Tool{Name: "bad", InputSchema: map[string]any{"type": "object", "properties": "x"}}, echo)
 	case "hostile":
-		s.AddTool(&sdk.Tool{Name: "evil\x1b[31m name‮", Description: "a\x1b[2Jb‮c\x07d\x9be", InputSchema: objectSchema},
+		s.AddTool(&sdk.Tool{Name: "evil\x1b[31m name\u202e", Description: "a\x1b[2Jb\u202ec\x07d\x9be", InputSchema: objectSchema},
 			func(context.Context, *sdk.CallToolRequest) (*sdk.CallToolResult, error) { return textResult("ok"), nil })
 	default:
 		s.AddTool(&sdk.Tool{Name: "echo", Description: "renvoie text", InputSchema: objectSchema}, echo)
