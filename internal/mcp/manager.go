@@ -66,8 +66,27 @@ type Options struct {
 	dial func(config.MCPServer) (sdk.Transport, error)
 }
 
-// Down signale un serveur injoignable au démarrage.
-type Down struct{ Server, Error string }
+// Down signale un serveur injoignable au démarrage, ou non lancé.
+type Down struct {
+	Server, Error string
+	// NonEUSkipped : serveur hors UE (ou de juridiction inconnue) ni lancé
+	// ni contacté, faute de consentement d'avance (AllowNonEU).
+	NonEUSkipped bool
+}
+
+// skipped indique qu'un serveur ne doit pas être contacté : hors UE ou de
+// juridiction inconnue, sans consentement d'avance. Aucun octet ne doit lui
+// parvenir (ni initialize, ni jeton, ni variable d'environnement).
+func skipped(decl config.MCPServer, opts Options) bool {
+	if opts.AllowNonEU {
+		return false
+	}
+	switch llm.Jurisdiction(decl.Jurisdiction) {
+	case llm.EU, llm.Local:
+		return false
+	}
+	return true
+}
 
 // Manager détient les sessions MCP ouvertes et les outils adaptés.
 type Manager struct {
@@ -111,7 +130,7 @@ func Start(ctx context.Context, servers []config.MCPServer, opts Options) (*Mana
 	results := make([]outcome, len(servers))
 	var wg sync.WaitGroup
 	for i, decl := range servers {
-		if decl.Disabled {
+		if decl.Disabled || skipped(decl, opts) {
 			continue
 		}
 		wg.Add(1)
@@ -128,6 +147,10 @@ func Start(ctx context.Context, servers []config.MCPServer, opts Options) (*Mana
 	entries := map[string]regEntry{}
 	for i, decl := range servers {
 		if decl.Disabled {
+			continue
+		}
+		if skipped(decl, opts) {
+			down = append(down, Down{Server: decl.ID, Error: "serveur hors UE ignoré sans --allow-non-eu", NonEUSkipped: true})
 			continue
 		}
 		r := results[i]

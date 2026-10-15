@@ -11,8 +11,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -45,6 +47,8 @@ func textResult(s string) *sdk.CallToolResult {
 //   - "hang" : ne répond jamais à initialize ;
 //   - "hostile" : outil au nom et à la description hostiles ;
 //   - "badschema" : outils echo et bad (schéma invalide) ;
+//   - "stubborn" : outils par défaut, mais ignore SIGTERM et survit à la
+//     fin de son entrée standard (seul SIGKILL l'arrête) ;
 //   - défaut : outils echo, sleep, crash, env, spawn.
 //
 // Si EnvLog est définie, le pid du serveur (« pid N ») puis chaque appel
@@ -115,5 +119,11 @@ func Serve(mode string) {
 				return textResult(fmt.Sprint(c.Process.Pid)), nil
 			})
 	}
+	if mode == "stubborn" {
+		signal.Ignore(syscall.SIGTERM)
+	}
 	_ = s.Run(context.Background(), &sdk.StdioTransport{})
+	if mode == "stubborn" {
+		time.Sleep(time.Hour)
+	}
 }

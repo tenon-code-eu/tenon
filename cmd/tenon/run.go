@@ -585,8 +585,10 @@ func startEngine(o engineOptions) (started, error) {
 	closeAll := func() {
 		// Serveurs MCP d'abord : un appel en cours ne peut plus écrire dans
 		// des sinks fermés.
-		liveMCP.CompareAndSwap(mgr, nil)
+		// liveMCP n'est retiré qu'après Close : un second Ctrl+C pendant le
+		// délai SIGTERM → SIGKILL atteint encore Kill.
 		_ = mgr.Close()
+		liveMCP.CompareAndSwap(mgr, nil)
 		_ = sw.Close()
 		_ = w.Close()
 	}
@@ -647,10 +649,12 @@ func startMCP(o engineOptions, cfg config.Config, red *policy.Redactor) (*mcp.Ma
 		jurisdiction[s.ID] = llm.Jurisdiction(s.Jurisdiction)
 	}
 	allowNonEU, interactive := o.allowNonEU, o.interactive
-	// Consentement de juridiction, vérifié avant tout envoi : un serveur UE
-	// ou local n'en a pas besoin ; hors UE (ou juridiction inconnue), il
-	// faut --allow-non-eu sans interface, la validation (ForceAsk) suffit
-	// dans la TUI.
+	// Sans --allow-non-eu, mcp.Start ne lance ni ne contacte aucun serveur
+	// hors UE (ou de juridiction inconnue) : ils sont signalés ignorés.
+	// Consentement de juridiction, défense en profondeur vérifiée avant tout
+	// envoi : un serveur UE ou local n'en a pas besoin ; hors UE, il faut
+	// --allow-non-eu sans interface, la validation (ForceAsk) suffit dans la
+	// TUI.
 	consent := func(id string) bool {
 		switch jurisdiction[id] {
 		case llm.EU, llm.Local:
@@ -678,7 +682,11 @@ func startMCP(o engineOptions, cfg config.Config, red *policy.Redactor) (*mcp.Ma
 	unavailable := make([]event.McpServerDownPayload, 0, len(down))
 	for _, d := range down {
 		isDown[d.Server] = true
-		unavailable = append(unavailable, event.McpServerDownPayload{Server: d.Server, Error: d.Error})
+		msg := d.Error
+		if d.NonEUSkipped {
+			msg = i18n.T(o.lang, "mcp.non_eu_skipped", d.Server)
+		}
+		unavailable = append(unavailable, event.McpServerDownPayload{Server: d.Server, Error: msg})
 	}
 	var active []event.MCPServerInfo
 	for _, s := range cfg.MCP.Servers {

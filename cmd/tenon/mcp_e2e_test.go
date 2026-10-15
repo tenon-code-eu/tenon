@@ -178,6 +178,13 @@ command = ["/nonexistent/tenon-mcp-server"]
 // httpMCP démarre un serveur MCP HTTP de test (outils echo et whoami, ce
 // dernier renvoyant le jeton Bearer reçu) et compte les appels d'outil reçus.
 func httpMCP(t *testing.T) (*httptest.Server, *atomic.Int32) {
+	ts, calls, _ := httpMCPAll(t)
+	return ts, calls
+}
+
+// httpMCPAll est httpMCP avec, en plus, le nombre de requêtes HTTP de toute
+// sorte reçues.
+func httpMCPAll(t *testing.T) (*httptest.Server, *atomic.Int32, *atomic.Int32) {
 	t.Helper()
 	s := sdk.NewServer(&sdk.Implementation{Name: "h", Version: "1"}, nil)
 	obj := map[string]any{"type": "object"}
@@ -191,8 +198,9 @@ func httpMCP(t *testing.T) (*httptest.Server, *atomic.Int32) {
 		return &sdk.CallToolResult{Content: []sdk.Content{&sdk.TextContent{Text: "jeton : " + tok}}}, nil
 	})
 	h := sdk.NewStreamableHTTPHandler(func(*http.Request) *sdk.Server { return s }, nil)
-	var calls atomic.Int32
+	var calls, all atomic.Int32
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		all.Add(1)
 		if r.Method == http.MethodPost {
 			b, _ := io.ReadAll(r.Body)
 			if strings.Contains(string(b), `"tools/call"`) {
@@ -203,7 +211,7 @@ func httpMCP(t *testing.T) (*httptest.Server, *atomic.Int32) {
 		h.ServeHTTP(w, r)
 	}))
 	t.Cleanup(ts.Close)
-	return ts, &calls
+	return ts, &calls, &all
 }
 
 func httpDecl(url, jurisdiction, extra string) string {
@@ -217,14 +225,47 @@ country = "US"
 %s`, url+"/mcp", jurisdiction, extra)
 }
 
+// Sans --allow-non-eu, aucun octet ne part vers un serveur MCP hors UE (ni
+// initialize, ni jeton) : il est signalé ignoré.
 func TestNonEUServerRefusedHeadless(t *testing.T) {
-	ts, calls := httpMCP(t)
+	ts, _, all := httpMCPAll(t)
 	f := newFakeLLM(t, sseCall("mcp__web__echo", `{"text":"x"}`), sseText("fini"))
-	e := newEnvExtra(t, f, "eu", httpDecl(ts.URL, "non-eu", "")+allowRule("mcp__web__echo"))
+	e := newEnvExtra(t, f, "eu", httpDecl(ts.URL, "non-eu", `bearer_env = "TOKEN_MCP"`)+allowRule("mcp__web__echo"))
+	e.vars["TOKEN_MCP"] = "jeton-mcp-Qw7rT9yU3iO"
 
 	code, _, errb := e.run("-p", "appelle echo")
-	if code != 3 || calls.Load() != 0 {
-		t.Fatalf("code=%d appels=%d stderr=%q", code, calls.Load(), errb)
+	if all.Load() != 0 {
+		t.Fatalf("%d requête(s) reçue(s) sans consentement ; code=%d stderr=%q", all.Load(), code, errb)
+	}
+	if !strings.Contains(errb, "serveur MCP web hors UE ignoré : relancez avec --allow-non-eu") {
+		t.Fatalf("avis absent : code=%d stderr=%q", code, errb)
+	}
+	if reqs := f.requests(); len(reqs) == 0 || strings.Contains(reqs[0], "mcp__web__echo\"") {
+		t.Fatalf("outil du serveur ignoré proposé au modèle : %q", reqs)
+	}
+	code, _, errb = e.run("--lang", "en", "-p", "appelle echo")
+	if all.Load() != 0 || !strings.Contains(errb, "MCP server web outside the EU skipped: rerun with --allow-non-eu") {
+		t.Fatalf("en : requêtes=%d code=%d stderr=%q", all.Load(), code, errb)
+	}
+}
+
+// Un serveur stdio hors UE n'est pas lancé sans --allow-non-eu (aucune
+// variable env_from transmise) ; il l'est avec.
+func TestNonEUStdioNotSpawnedWithoutFlag(t *testing.T) {
+	f := newFakeLLM(t, sseText("salut"))
+	e := newEnvExtra(t, f, "eu", stdioDecl(t)+`jurisdiction = "non-eu"
+`)
+	log := stdioMCP(t, e, "")
+	code, _, errb := e.run("-p", "salut")
+	if code != 0 || !strings.Contains(errb, "serveur MCP test hors UE ignoré") {
+		t.Fatalf("code=%d stderr=%q", code, errb)
+	}
+	if _, err := os.Stat(log); !os.IsNotExist(err) {
+		t.Fatalf("serveur lancé sans consentement (%v)", err)
+	}
+	code, _, errb = e.run("-p", "salut", "--allow-non-eu")
+	if _, pids := mcpLog(t, log); code != 0 || len(pids) != 1 || strings.Contains(errb, "ignoré") {
+		t.Fatalf("avec --allow-non-eu : code=%d pids=%v stderr=%q", code, pids, errb)
 	}
 }
 
@@ -349,21 +390,27 @@ func TestMCPClosedWhenStartFails(t *testing.T) {
 	waitGone(t, pids[1])
 }
 
-// TUI : serveur hors UE sans --allow-non-eu, règle allow → validation
-// demandée (ForceAsk) avec la juridiction ; acceptée, l'appel a lieu.
-func TestTUIMCPNonEUAsks(t *testing.T) {
-	ts, calls := httpMCP(t)
-	f := newFakeLLM(t, sseCall("mcp__web__echo", `{"text":"x"}`), sseText("terminé"))
+// TUI : sans --allow-non-eu, le serveur hors UE n'est pas contacté et
+// l'avis l'explique ; avec, il est connecté (consentement global) et appelé.
+func TestTUIMCPNonEU(t *testing.T) {
+	ts, calls, all := httpMCPAll(t)
+	f := newFakeLLM(t, sseText("bonjour"), sseCall("mcp__web__echo", `{"text":"x"}`), sseText("terminé"))
 	e := newEnvExtra(t, f, "eu", httpDecl(ts.URL, "non-eu", "")+allowRule("mcp__web__echo"))
 	r := e.runTUI(func(tm *teatest.TestModel) {
-		typeText(tm, "appelle echo")
+		typeText(tm, "salut")
 		pressEnter(tm)
-		// Même image que « Autoriser cette action ? » (WaitFor consomme la sortie).
-		waitText(t, tm, "les arguments seront envoyés hors de l'UE")
-		typeText(tm, "o")
-		waitText(t, tm, "terminé")
+		waitText(t, tm, "relancez avec --allow-non-eu")
 		quitTUI(t, tm)
 	})
+	if r.code != 0 || all.Load() != 0 {
+		t.Fatalf("code=%d requêtes=%d stderr=%q", r.code, all.Load(), r.stderr)
+	}
+	r = e.runTUI(func(tm *teatest.TestModel) {
+		typeText(tm, "appelle echo")
+		pressEnter(tm)
+		waitText(t, tm, "terminé")
+		quitTUI(t, tm)
+	}, "--allow-non-eu")
 	if r.code != 0 || calls.Load() != 1 {
 		t.Fatalf("code=%d appels=%d stderr=%q", r.code, calls.Load(), r.stderr)
 	}
@@ -404,5 +451,47 @@ func TestHardExitKillsMCP(t *testing.T) {
 	}
 	if liveMCP.Load() != nil {
 		t.Fatal("Manager toujours enregistré après la fermeture")
+	}
+}
+
+// liveMCP reste enregistré pendant Manager.Close : un second Ctrl+C dans le
+// délai SIGTERM → SIGKILL tue encore le serveur sur-le-champ.
+func TestHardExitDuringClose(t *testing.T) {
+	e := newEnvExtra(t, nil, "eu", stdioDecl(t))
+	log := stdioMCP(t, e, "stubborn")
+	st, err := startEngine(engineOptions{getenv: func(k string) string { return e.vars[k] }, wd: e.wd, lang: "fr", stderr: io.Discard})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, pids := mcpLog(t, log)
+	if len(pids) != 1 {
+		t.Fatalf("pids %v", pids)
+	}
+	// Le serveur ignore SIGTERM : jamais laissé derrière un échec du test.
+	t.Cleanup(func() { _ = syscall.Kill(pids[0], syscall.SIGKILL) })
+	done := make(chan struct{})
+	t0 := time.Now()
+	go func() { st.close(); close(done) }()
+	time.Sleep(300 * time.Millisecond)
+	select {
+	case <-done:
+		t.Fatal("Close terminé avant le délai SIGKILL : serveur pas assez têtu")
+	default:
+	}
+	if liveMCP.Load() == nil {
+		t.Fatal("liveMCP retiré avant la fin de Close")
+	}
+	killLiveMCP()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Close bloqué")
+	}
+	if el := time.Since(t0); el > 1500*time.Millisecond {
+		t.Fatalf("Kill sans effet pendant Close : %v", el)
+	}
+	waitGone(t, pids[0])
+	if liveMCP.Load() != nil {
+		t.Fatal("liveMCP toujours enregistré après Close")
 	}
 }
