@@ -949,8 +949,14 @@ func TestEnglishCLIMessages(t *testing.T) {
 	}
 	code, _, errb = e.run("--lang", "en", "--resume", "pas-un-id", "-p", "x")
 	check("identifiant invalide", errb, "invalid session ID")
+	if code != 1 {
+		t.Errorf("identifiant invalide : code=%d", code)
+	}
 	code, _, errb = e.run("--lang", "en", "--resume", "last", "-p", "x")
 	check("aucune session", errb, "no session")
+	if code != 1 {
+		t.Errorf("aucune session : code=%d", code)
+	}
 	code, _, errb = e.runStdin("\n", "--lang", "en", "key", "set", "test")
 	check("clé vide", errb, "empty key")
 	if code != 1 {
@@ -958,8 +964,14 @@ func TestEnglishCLIMessages(t *testing.T) {
 	}
 	code, _, errb = e.run("--lang", "en", "-h")
 	check("aide", errb, "usage: tenon", "print the version and exit", "<provider>")
+	if code != 0 {
+		t.Errorf("aide : code=%d", code)
+	}
 	code, _, errb = e.run("-lang=en", "-h")
 	check("aide -lang=", errb, "usage: tenon")
+	if code != 0 {
+		t.Errorf("aide -lang= : code=%d", code)
+	}
 	if _, err := readKey(i18n.EN, "test", nil, io.Discard); err == nil || err.Error() != "reading the key: standard input missing" {
 		t.Errorf("readKey sans stdin : %v", err)
 	}
@@ -978,6 +990,9 @@ func TestEnglishCLIMessages(t *testing.T) {
 	}
 	code, _, errb = e.run("--lang", "en", "-p", "x")
 	check("instructions illisibles", errb, "project instructions: ")
+	if code != 1 {
+		t.Errorf("instructions illisibles : code=%d", code)
+	}
 }
 
 // Un dossier de travail atteint par un lien symbolique voit les sessions du

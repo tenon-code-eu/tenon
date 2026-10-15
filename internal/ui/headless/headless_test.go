@@ -420,10 +420,10 @@ func TestHeadlessServerDownNotice(t *testing.T) {
 	var out, errb bytes.Buffer
 	r := &renderer{out: Text, lang: i18n.FR, redact: mask, redactText: mask, stdout: &out, stderr: &errb}
 	r.handle(emitted(t, event.McpServerDown, event.McpServerDownPayload{
-		Server: "gh", Error: "\x1b[31mapi_key = Zx8kq2LmNp4Rt6Vw9YbC1dEf\nsuite‮",
+		Server: "gh", Error: "\x1b[31mapi_key = Zx8kq2LmNp4Rt6Vw9YbC1dEf\nsuite\u202e",
 	}))
 	s := errb.String()
-	if strings.Contains(s, "Zx8kq") || !strings.Contains(s, "[SECRET_") || strings.ContainsAny(s, "\x1b‮") ||
+	if strings.Contains(s, "Zx8kq") || !strings.Contains(s, "[SECRET_") || strings.ContainsAny(s, "\x1b\u202e") ||
 		strings.Count(s, "\n") != 1 {
 		t.Fatalf("stderr=%q", s)
 	}

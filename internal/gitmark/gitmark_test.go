@@ -291,7 +291,7 @@ func TestSanitize(t *testing.T) {
 		"devstral":        "devstral",
 		"  ::a:b ":        "a:b",
 		"a\nb\rc\td\x00e": "abcde",
-		"x‮y":             "xy",
+		"x\u202ey":        "xy",
 	} {
 		if got := sanitize(in); got != want {
 			t.Fatalf("sanitize(%q) = %q, attendu %q", in, got, want)
