@@ -234,7 +234,7 @@ func TestEnterIgnoredWhileBusy(t *testing.T) {
 	if n := len(f.submitted()); n != 1 {
 		t.Fatalf("%d appels à Submit, attendu 1", n)
 	}
-	h.m.cancel()
+	h.m.turn.stop()
 }
 
 func TestAltEnterNewline(t *testing.T) {

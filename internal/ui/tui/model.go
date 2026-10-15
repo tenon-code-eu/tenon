@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -60,6 +61,56 @@ type (
 	submitDone struct{ err error }
 )
 
+// turnState est l'état du tour en cours. Il est partagé par pointer entre
+// les copies du modèle et Run : après une panique, Bubble Tea ne rend pas de
+// modèle final, et Run doit pourtant annuler le tour et l'attendre.
+type turnState struct {
+	mu sync.Mutex
+	// cancel annule le Submit en cours ; nil hors tour.
+	cancel context.CancelFunc
+	// done est fermé quand le Submit en cours a rendu la main ; nil hors tour.
+	done chan struct{}
+}
+
+func (t *turnState) start(cancel context.CancelFunc, done chan struct{}) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.cancel, t.done = cancel, done
+}
+
+// active indique qu'un tour est en cours.
+func (t *turnState) active() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.cancel != nil
+}
+
+// stop annule le tour en cours éventuel, sans l'oublier.
+func (t *turnState) stop() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.cancel != nil {
+		t.cancel()
+	}
+}
+
+// finish annule et oublie le tour terminé.
+func (t *turnState) finish() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.cancel != nil {
+		t.cancel()
+	}
+	t.cancel, t.done = nil, nil
+}
+
+// pending renvoie le canal de fin du tour en cours, ou nil.
+func (t *turnState) pending() chan struct{} {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.done
+}
+
 // Model est le modèle Bubble Tea de la TUI.
 type Model struct {
 	eng   Engine
@@ -75,10 +126,9 @@ type Model struct {
 	// (0 : la vue suit le bas).
 	scrollBack int
 
-	// cancel annule le Submit en cours ; nil hors tour.
-	cancel context.CancelFunc
-	// done est fermé quand le Submit en cours a rendu la main ; nil hors tour.
-	done chan struct{}
+	// turn est l'état du tour en cours, partagé par toutes les copies du
+	// modèle et par Run, qui l'annule et l'attend même sans modèle final.
+	turn *turnState
 	// sent est le texte du tour en cours, restauré dans la saisie si Submit
 	// échoue avant qu'un UserMessage ait été appliqué ; userSeen l'indique.
 	sent      string
@@ -125,6 +175,7 @@ func New(eng Engine, opts Options) Model {
 		st:    newStyles(lipgloss.DefaultRenderer()),
 		now:   time.Now,
 		ctx:   context.Background(),
+		turn:  &turnState{},
 	}
 	if opts.Now != nil {
 		m.now = opts.Now
@@ -135,17 +186,20 @@ func New(eng Engine, opts Options) Model {
 
 // Run lance la TUI en plein écran jusqu'à ce que l'utilisateur quitte.
 func Run(ctx context.Context, eng Engine, opts Options, in io.Reader, out io.Writer) error {
+	// Le tour dérive d'un contexte propre à Run, annulé à sa sortie quelle
+	// qu'elle soit (panique comprise).
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	m := New(eng, opts)
-	// Le tour dérive du contexte de Run : une sortie anormale du programme
-	// (panique comprise) l'annule aussi.
-	m.ctx = ctx
+	m.ctx = runCtx
 	m.st = newStyles(lipgloss.NewRenderer(out))
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithContext(ctx), tea.WithInput(in), tea.WithOutput(out))
-	final, err := p.Run()
-	if fm, ok := final.(Model); ok {
-		if serr := fm.shutdown(turnFinishTimeout); serr != nil {
-			return serr
-		}
+	_, err := p.Run()
+	// L'état du tour est partagé : annulation, vidage de l'abonnement et
+	// attente ont lieu même si Bubble Tea ne rend pas de modèle final.
+	cancel()
+	if serr := m.shutdown(turnFinishTimeout); serr != nil {
+		return serr
 	}
 	if errors.Is(err, tea.ErrProgramKilled) && ctx.Err() != nil {
 		return ctx.Err()
@@ -157,10 +211,11 @@ func Run(ctx context.Context, eng Engine, opts Options, in io.Reader, out io.Wri
 // main, au plus timeout, en vidant l'abonnement pour que l'engine ne bloque
 // pas sur un tampon plein et puisse journaliser la fin du tour.
 func (m Model) shutdown(timeout time.Duration) error {
-	if m.done == nil {
+	done := m.turn.pending()
+	if done == nil {
 		return nil
 	}
-	m.cancel()
+	m.turn.stop()
 	stop := make(chan struct{})
 	defer close(stop)
 	go func() {
@@ -173,7 +228,7 @@ func (m Model) shutdown(timeout time.Duration) error {
 		}
 	}()
 	select {
-	case <-m.done:
+	case <-done:
 		return nil
 	case <-time.After(timeout):
 		return ErrTurnNotFinished
@@ -195,7 +250,7 @@ func readEvent(ch <-chan event.Event) tea.Cmd {
 func (m Model) Init() tea.Cmd { return readEvent(m.sub) }
 
 // busy indique qu'un tour est en cours (Submit n'a pas rendu la main).
-func (m Model) busy() bool { return m.cancel != nil }
+func (m Model) busy() bool { return m.turn.active() }
 
 // Update applique un message.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -212,11 +267,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case subscriptionClosed:
 		return m, nil
 	case submitDone:
-		if m.cancel != nil {
-			m.cancel()
-			m.cancel = nil
-		}
-		m.done = nil
+		m.turn.finish()
 		m.endTurn()
 		// Seul l'échec d'audit garantit que le message n'est pas parti ; pour
 		// toute autre erreur, son UserMessage peut simplement ne pas être lu
@@ -253,12 +304,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.quit()
 		}
 		m.lastCtrlC = now
-		m.cancel()
+		m.turn.stop()
 		return m, nil
 	case key.Matches(msg, keys.Cancel):
-		if m.busy() {
-			m.cancel()
-		}
+		m.turn.stop()
 		return m, nil
 	case key.Matches(msg, keys.PageUp):
 		m.scroll(m.convHeight())
@@ -276,9 +325,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // quit annule le tour en cours éventuel et quitte.
 func (m Model) quit() (tea.Model, tea.Cmd) {
-	if m.cancel != nil {
-		m.cancel()
-	}
+	m.turn.stop()
 	return m, tea.Quit
 }
 
@@ -303,7 +350,7 @@ func (m Model) submit() (tea.Model, tea.Cmd) {
 	m.scrollBack = 0
 	ctx, cancel := context.WithCancel(m.ctx)
 	done := make(chan struct{})
-	m.cancel, m.done = cancel, done
+	m.turn.start(cancel, done)
 	m.sent, m.userSeen = text, false
 	m.lastCtrlC = time.Time{}
 	eng, sid := m.eng, m.opts.SessionID
