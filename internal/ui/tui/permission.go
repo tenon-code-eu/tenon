@@ -594,7 +594,8 @@ func (m Model) headLines(p *permPrompt, collapse bool) []string {
 // juridiction colorée comme la barre d'état) et, hors UE, l'avertissement
 // d'envoi hors de l'UE. Elles font partie de l'en-tête : rendu sans ambiguïté
 // (headTokens), compté pour l'acceptation. Identifiant et pays viennent de la
-// configuration, masqués comme le reste de l'en-tête.
+// configuration, masqués comme le reste de l'en-tête. Un outil mcp__* absent
+// du registre reçoit une ligne « serveur inconnu » et l'avertissement hors UE.
 func (m Model) mcpLines(p *permPrompt) []string {
 	describe := m.opts.DescribeMCP
 	if describe == nil {
@@ -602,7 +603,16 @@ func (m Model) mcpLines(p *permPrompt) []string {
 	}
 	srv, ok := describe(p.p.Tool)
 	if !ok {
-		return nil
+		if !strings.HasPrefix(p.p.Tool, "mcp__") {
+			return nil
+		}
+		// Outil MCP absent du registre : rien ne garantit sa juridiction,
+		// l'en-tête le dit et avertit d'un envoi hors UE (fail-closed).
+		out := breakTokens(headTokens(i18n.T(m.lang, "tui.perm.mcp_unknown")), m.width)
+		for _, piece := range breakTokens(headTokens(i18n.T(m.lang, "tui.perm.mcp_non_eu")), m.width) {
+			out = append(out, m.st.perm.Render(piece))
+		}
+		return out
 	}
 	label := headless.JurisdictionLabel(m.lang, srv.Jurisdiction)
 	// Le libellé de juridiction termine le message dans les deux langues :

@@ -16,7 +16,12 @@ var version = "dev"
 func main() {
 	sig := make(chan os.Signal, 2)
 	signal.Notify(sig, os.Interrupt)
-	ctx, stop := interruptContext(context.Background(), sig, os.Exit)
+	// Au second Ctrl+C, les serveurs MCP stdio sont tués avant de quitter :
+	// os.Exit n'exécute pas les fonctions différées qui les ferment.
+	ctx, stop := interruptContext(context.Background(), sig, func(code int) {
+		killLiveMCP()
+		os.Exit(code)
+	})
 	defer stop()
 
 	wd, err := os.Getwd()

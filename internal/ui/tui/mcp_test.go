@@ -67,15 +67,16 @@ func TestTUIPromptShowsMCPJurisdiction(t *testing.T) {
 // elles serait acceptable ne suffit pas.
 func TestTUIMCPHeadCountsForApproval(t *testing.T) {
 	servers := map[string]event.MCPServerInfo{"mcp__gh__issue": {ID: "gh", Jurisdiction: llm.NonEU, Country: "US"}}
+	// Sans lignes MCP : outil hors préfixe mcp__, même commande.
 	approvableAt := func(describe bool, height int) bool {
 		f := newFake()
-		opts := Options{Lang: i18n.FR}
+		tool := "plain_issue"
 		if describe {
-			opts.DescribeMCP = fakeMCP(servers)
+			tool = "mcp__gh__issue"
 		}
-		h := newHarness(t, f, opts)
+		h := newHarness(t, f, Options{Lang: i18n.FR, DescribeMCP: fakeMCP(servers)})
 		h.send(tea.WindowSizeMsg{Width: 80, Height: height})
-		askPerm(t, h, f, mcpPerm("p1", "mcp__gh__issue", `mcp gh.issue {}`))
+		askPerm(t, h, f, mcpPerm("p1", tool, `mcp gh.issue {}`))
 		return h.m.approvable()
 	}
 	plain := 0
@@ -137,5 +138,48 @@ func TestBannerListsMCP(t *testing.T) {
 	tr.Apply(ev(t, event.SessionStarted, event.SessionStartedPayload{Provider: llm.ProviderInfo{ID: "t", Model: "m", Jurisdiction: llm.EU}}))
 	if s := tr.Items()[0].Text; strings.Contains(s, "MCP") {
 		t.Fatalf("bannière %q", s)
+	}
+}
+
+// Un outil mcp__* absent du registre : en-tête « serveur inconnu » et
+// avertissement hors UE (fail-closed), comptés pour l'acceptation.
+func TestTUIUnknownMCPServerFailClosed(t *testing.T) {
+	for lang, want := range map[i18n.Lang][]string{
+		i18n.FR: {"serveur MCP inconnu · juridiction inconnue", "les arguments seront envoyés hors de l'UE"},
+		i18n.EN: {"unknown MCP server · unknown jurisdiction", "arguments will be sent outside the EU"},
+	} {
+		f := newFake()
+		h := newHarness(t, f, Options{Lang: lang, DescribeMCP: fakeMCP(nil)})
+		h.send(tea.WindowSizeMsg{Width: 100, Height: 30})
+		askPerm(t, h, f, mcpPerm("p1", "mcp__ghost__x", `mcp ghost.x {}`))
+		v := h.m.View()
+		for _, w := range want {
+			if !strings.Contains(v, w) {
+				t.Fatalf("%s : vue sans %q : %q", lang, w, v)
+			}
+		}
+	}
+	// Outil interne : aucune ligne MCP.
+	f := newFake()
+	h := newHarness(t, f, Options{Lang: i18n.FR, DescribeMCP: fakeMCP(nil)})
+	h.send(tea.WindowSizeMsg{Width: 100, Height: 30})
+	askPerm(t, h, f, mcpPerm("p1", "shell", `ls`))
+	if v := h.m.View(); strings.Contains(v, "MCP") {
+		t.Fatalf("lignes MCP pour un outil interne : %q", v)
+	}
+}
+
+// Les avis de démarrage (avertissements MCP) entrent dans la conversation,
+// nettoyés et masqués.
+func TestTUIStartupNotices(t *testing.T) {
+	f := newFake()
+	h := newHarness(t, f, Options{
+		Lang:    i18n.FR,
+		Notices: []string{"MCP : outil \x1b[31mignoré Zx8kq‮"},
+		Redact:  func(s string) string { return strings.ReplaceAll(s, "Zx8kq", "[SECRET_1]") },
+	})
+	it := h.m.tr.Items()
+	if len(it) != 1 || it[0].Kind != ItemNotice || it[0].Text != "MCP : outil ignoré [SECRET_1]" {
+		t.Fatalf("items %+v", it)
 	}
 }

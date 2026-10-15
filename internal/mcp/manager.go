@@ -196,6 +196,18 @@ func (m *Manager) Close() error {
 	return errors.Join(errs...)
 }
 
+// Kill tue sur-le-champ (SIGKILL) le groupe de processus de chaque serveur
+// stdio, sans attendre : réservé à une sortie immédiate du processus (second
+// Ctrl+C). Les sessions HTTP ne sont pas fermées.
+func (m *Manager) Kill() {
+	for _, s := range m.servers {
+		s.closing.Store(true)
+		if s.proc != nil {
+			s.proc.signal(syscall.SIGKILL)
+		}
+	}
+}
+
 func (s *server) close() error {
 	s.once.Do(func() {
 		if s.proc == nil {

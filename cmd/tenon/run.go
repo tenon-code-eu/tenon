@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync/atomic"
 
 	"codeberg.org/tenon/tenon/internal/audit"
 	"codeberg.org/tenon/tenon/internal/config"
@@ -23,6 +24,7 @@ import (
 	"codeberg.org/tenon/tenon/internal/i18n"
 	"codeberg.org/tenon/tenon/internal/instructions"
 	"codeberg.org/tenon/tenon/internal/llm"
+	"codeberg.org/tenon/tenon/internal/mcp"
 	"codeberg.org/tenon/tenon/internal/policy"
 	"codeberg.org/tenon/tenon/internal/provider"
 	"codeberg.org/tenon/tenon/internal/secrets"
@@ -132,8 +134,8 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 
 	if *prompt == "" {
 		return runInteractive(ctx, fs, lang, engineOptions{
-			getenv: getenv, wd: wd, providerID: *providerID, allowNonEU: *allowNonEU,
-			lang: lang, resume: *resume, stderr: stderr,
+			ctx: ctx, getenv: getenv, wd: wd, providerID: *providerID, allowNonEU: *allowNonEU,
+			lang: lang, resume: *resume, stderr: stderr, interactive: true,
 		}, stdin, stdout, stderr, isTerminal)
 	}
 	out := headless.Output(*output)
@@ -143,15 +145,20 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	}
 
 	st, err := startEngine(engineOptions{
-		getenv: getenv, wd: wd, providerID: *providerID, allowNonEU: *allowNonEU,
+		ctx: ctx, getenv: getenv, wd: wd, providerID: *providerID, allowNonEU: *allowNonEU,
 		lang: lang, resume: *resume, stderr: stderr,
 	})
 	if err != nil {
 		fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", err))
 		return 1
 	}
+	// headless.Run ne rend la main qu'à la fin du tour : serveurs MCP puis
+	// sinks sont fermés ensuite.
 	defer st.close()
 	red := st.redactor
+	for _, n := range st.notices {
+		fmt.Fprintln(stderr, redactText(red)(n))
+	}
 	return headless.Run(ctx, st.eng, st.sessionID, *prompt, headless.Options{
 		Output:     out,
 		Lang:       lang,
@@ -185,8 +192,8 @@ func runInteractive(ctx context.Context, fs *flag.FlagSet, lang i18n.Lang, o eng
 		fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", err))
 		return 1
 	}
-	// Les sinks sont fermés après le retour de la TUI, qui attend la fin du
-	// tour en cours.
+	// Serveurs MCP puis sinks sont fermés après le retour de la TUI, qui
+	// attend la fin du tour en cours.
 	defer st.close()
 	err = startTUI(ctx, st.eng, tui.Options{
 		Lang:          lang,
@@ -195,6 +202,7 @@ func runInteractive(ctx context.Context, fs *flag.FlagSet, lang i18n.Lang, o eng
 		ContextWindow: st.contextWindow,
 		ProjectRoot:   o.wd,
 		Redact:        redactText(st.redactor),
+		Notices:       st.notices,
 	}, stdin, stdout)
 	switch {
 	case errors.Is(err, tui.ErrTurnNotFinished):
@@ -374,6 +382,8 @@ func loadSetup(getenv func(string) string, wd string) (setup, error) {
 
 // engineOptions paramètre startEngine.
 type engineOptions struct {
+	// ctx borne la connexion aux serveurs MCP (nil : context.Background).
+	ctx        context.Context
 	getenv     func(string) string
 	wd         string
 	providerID string
@@ -383,6 +393,10 @@ type engineOptions struct {
 	resume string
 	// stderr reçoit les avertissements (trousseau, session endommagée).
 	stderr io.Writer
+	// interactive : interface interactive (TUI). Un appel à un serveur MCP
+	// hors UE y est validé par l'utilisateur (ForceAsk) ; sans interface, il
+	// exige --allow-non-eu.
+	interactive bool
 }
 
 // started est un Engine prêt pour la session sessionID.
@@ -390,7 +404,11 @@ type started struct {
 	eng       *engine.Engine
 	redactor  *policy.Redactor // celui de l'audit, de la session et d'Outbound
 	sessionID string
-	close     func() // ferme le journal d'audit et le fichier de session
+	// close ferme les serveurs MCP, puis le journal d'audit et le fichier de
+	// session ; à appeler après la fin du tour.
+	close func()
+	// notices sont les avertissements du démarrage (MCP), déjà traduits.
+	notices []string
 	// provider et contextWindow décrivent le fournisseur choisi (barre d'état).
 	provider      llm.ProviderInfo
 	contextWindow int
@@ -561,10 +579,20 @@ func startEngine(o engineOptions) (started, error) {
 		_ = w.Close()
 		return started{}, err
 	}
+	// Serveurs MCP (configuration globale seulement), démarrés après les
+	// étapes qui peuvent échouer sans eux.
+	mgr, unavailable, active, notices := startMCP(o, cfg, red)
 	closeAll := func() {
+		// Serveurs MCP d'abord : un appel en cours ne peut plus écrire dans
+		// des sinks fermés.
+		liveMCP.CompareAndSwap(mgr, nil)
+		_ = mgr.Close()
 		_ = sw.Close()
 		_ = w.Close()
 	}
+	// Outils MCP après les outils internes : leur préfixe mcp__ ne peut
+	// masquer aucun outil interne.
+	ts = append(ts, mgr.Tools()...)
 
 	eng := engine.New(engine.Deps{
 		Provider:            provider.NewOpenAICompat(info, apiKey),
@@ -578,6 +606,8 @@ func startEngine(o engineOptions) (started, error) {
 		Instructions:        names,
 		ContextWindow:       pc.Window(),
 		CompactionThreshold: cfg.CompactionThreshold,
+		UnavailableMCP:      unavailable,
+		MCP:                 active,
 	})
 	if o.resume != "" {
 		if err := eng.Restore(sid, events); err != nil {
@@ -586,9 +616,82 @@ func startEngine(o engineOptions) (started, error) {
 		}
 	}
 	return started{
-		eng: eng, redactor: red, sessionID: sid, close: closeAll,
+		eng: eng, redactor: red, sessionID: sid, close: closeAll, notices: notices,
 		provider: info, contextWindow: pc.Window(),
 	}, nil
+}
+
+// liveMCP est le Manager des serveurs MCP ouverts, tués par killLiveMCP lors
+// d'une sortie immédiate (second Ctrl+C).
+var liveMCP atomic.Pointer[mcp.Manager]
+
+// killLiveMCP tue sur-le-champ les serveurs MCP stdio ouverts : le processus
+// va quitter sans exécuter ses fonctions différées.
+func killLiveMCP() {
+	if m := liveMCP.Load(); m != nil {
+		m.Kill()
+	}
+}
+
+// startMCP se connecte aux serveurs MCP de la configuration globale. Leurs
+// secrets (env_from, bearer_env) sont ajoutés au Redactor avant toute
+// écriture ; les serveurs injoignables et les avertissements sont renvoyés
+// pour être signalés.
+func startMCP(o engineOptions, cfg config.Config, red *policy.Redactor) (*mcp.Manager, []event.McpServerDownPayload, []event.MCPServerInfo, []string) {
+	ctx := o.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	jurisdiction := map[string]llm.Jurisdiction{}
+	for _, s := range cfg.MCP.Servers {
+		jurisdiction[s.ID] = llm.Jurisdiction(s.Jurisdiction)
+	}
+	allowNonEU, interactive := o.allowNonEU, o.interactive
+	// Consentement de juridiction, vérifié avant tout envoi : un serveur UE
+	// ou local n'en a pas besoin ; hors UE (ou juridiction inconnue), il
+	// faut --allow-non-eu sans interface, la validation (ForceAsk) suffit
+	// dans la TUI.
+	consent := func(id string) bool {
+		switch jurisdiction[id] {
+		case llm.EU, llm.Local:
+			return true
+		}
+		return allowNonEU || interactive
+	}
+	mgr, down := mcp.Start(ctx, cfg.MCP.Servers, mcp.Options{
+		Getenv:      o.getenv,
+		CallTimeout: cfg.ShellTimeout.Duration,
+		OutputLimit: cfg.OutputLimit,
+		Consent:     consent,
+		Root:        o.wd,
+		AllowNonEU:  allowNonEU,
+	})
+	liveMCP.Store(mgr)
+	// Comme les clés d'API : une valeur trop courte (ex. DEBUG=1) masquerait
+	// du texte ordinaire.
+	for _, v := range mgr.Secrets() {
+		if len(v) >= 8 {
+			red.AddLiteral(v)
+		}
+	}
+	isDown := map[string]bool{}
+	unavailable := make([]event.McpServerDownPayload, 0, len(down))
+	for _, d := range down {
+		isDown[d.Server] = true
+		unavailable = append(unavailable, event.McpServerDownPayload{Server: d.Server, Error: d.Error})
+	}
+	var active []event.MCPServerInfo
+	for _, s := range cfg.MCP.Servers {
+		if s.Disabled || isDown[s.ID] {
+			continue
+		}
+		active = append(active, event.MCPServerInfo{ID: s.ID, Jurisdiction: llm.Jurisdiction(s.Jurisdiction), Country: s.Country})
+	}
+	var notices []string
+	for _, w := range mgr.Warnings() {
+		notices = append(notices, i18n.T(o.lang, "mcp.warning", headless.OneLine(w)))
+	}
+	return mgr, unavailable, active, notices
 }
 
 // reMarkerKind reconnaît un marqueur de masquage et en capture le type et le

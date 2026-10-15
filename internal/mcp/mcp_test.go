@@ -134,7 +134,9 @@ func TestListAndCall(t *testing.T) {
 	}
 }
 
-func TestRiskOverrideAndTargetTruncated(t *testing.T) {
+// Target contient tous les arguments : l'utilisateur voit tout ce qu'il
+// valide et la clé « se souvenir » de l'engine est exacte.
+func TestRiskOverrideAndTargetFull(t *testing.T) {
 	decl := httpDecl("mem")
 	decl.Risk = "read"
 	m, _ := start(t, []config.MCPServer{decl}, Options{dial: memServer(t, echoServer)})
@@ -143,7 +145,8 @@ func TestRiskOverrideAndTargetTruncated(t *testing.T) {
 		t.Fatalf("risque %v", tl.Risk())
 	}
 	tg, err := tl.Target(json.RawMessage(`{"text":"` + strings.Repeat("a", 5000) + `"}`))
-	if err != nil || len([]rune(tg.Command)) > 2100 || !strings.HasPrefix(tg.Command, "mcp mem.echo ") {
+	want := `mcp mem.echo {"text":"` + strings.Repeat("a", 5000) + `"}`
+	if err != nil || tg.Command != want {
 		t.Fatalf("target %d %v", len(tg.Command), err)
 	}
 	if _, err := tl.Target(json.RawMessage(`{`)); err == nil {
@@ -617,5 +620,34 @@ func TestSecretsExcludeBaseEnv(t *testing.T) {
 	m, _ := start(t, servers, Options{Getenv: func(k string) string { return env[k] }})
 	if got := m.Secrets(); len(got) != 1 || got[0] != "s" {
 		t.Fatalf("secrets %q", got)
+	}
+}
+
+// Kill (sortie immédiate du processus) tue sur-le-champ le groupe de chaque
+// serveur stdio, sans attendre.
+func TestKillStopsStdio(t *testing.T) {
+	srv, getenv := stdioServer(t, "srv", "", nil)
+	m, _ := start(t, []config.MCPServer{srv}, Options{Getenv: getenv})
+	res := run(t, toolByName(t, m, "mcp__srv__spawn"), `{}`)
+	pid, err := strconv.Atoi(res.Content)
+	if err != nil {
+		t.Fatalf("pid %q", res.Content)
+	}
+	t0 := time.Now()
+	m.Kill()
+	if el := time.Since(t0); el > 500*time.Millisecond {
+		t.Fatalf("Kill trop long : %v", el)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for !errors.Is(syscall.Kill(pid, 0), syscall.ESRCH) {
+		if time.Now().After(deadline) {
+			_ = syscall.Kill(pid, syscall.SIGKILL)
+			t.Fatalf("processus enfant %d toujours vivant", pid)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	// Après Kill, un appel n'est pas signalé comme panne du serveur.
+	if res := run(t, toolByName(t, m, "mcp__srv__echo"), `{"text":"x"}`); res.ServerDown != "" {
+		t.Fatalf("ServerDown après Kill : %+v", res)
 	}
 }

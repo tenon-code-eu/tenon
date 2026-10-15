@@ -23,13 +23,16 @@ import (
 	"codeberg.org/tenon/tenon/internal/config"
 	"codeberg.org/tenon/tenon/internal/event"
 	"codeberg.org/tenon/tenon/internal/i18n"
+	"codeberg.org/tenon/tenon/internal/mcp/mcptest"
 	"codeberg.org/tenon/tenon/internal/session"
 	"github.com/zalando/go-keyring"
 )
 
 // TestMain remplace le trousseau système par un trousseau en mémoire : aucun
-// test ne lit ni n'écrit le trousseau réel.
+// test ne lit ni n'écrit le trousseau réel. Relancé avec
+// TENON_TEST_MCP_SERVER=1, le binaire de test joue le serveur MCP stdio.
 func TestMain(m *testing.M) {
+	mcptest.Main()
 	keyring.MockInit()
 	os.Exit(m.Run())
 }

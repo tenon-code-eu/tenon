@@ -21,9 +21,6 @@ import (
 	"codeberg.org/tenon/tenon/internal/tools"
 )
 
-// maxTargetArgs est la longueur maximale des arguments affichés dans Target.
-const maxTargetArgs = 2000
-
 // mcpTool expose un outil d'un serveur MCP comme un tools.Tool.
 type mcpTool struct {
 	srv    *server
@@ -57,7 +54,9 @@ func (t *mcpTool) Target(args json.RawMessage) (tools.Target, error) {
 	if err != nil {
 		return tools.Target{}, err
 	}
-	cmd := "mcp " + t.srv.decl.ID + "." + cleanText(t.tool) + " " + tools.Truncate(string(c), maxTargetArgs)
+	// Arguments complets : l'utilisateur voit tout ce qu'il valide et la clé
+	// « pour la session » de l'engine porte sur l'appel exact.
+	cmd := "mcp " + t.srv.decl.ID + "." + cleanText(t.tool) + " " + string(c)
 	return tools.Target{Command: cmd, ForceAsk: t.needsConsent()}, nil
 }
 
