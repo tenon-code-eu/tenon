@@ -1,0 +1,32 @@
+# Paquets .deb et .rpm de tenon (nfpm). Lancé par scripts/release.sh, qui fournit :
+#   NFPM_ARCH (amd64|arm64), NFPM_VERSION (sans « v »), TENON_STAGE (dossier
+#   d'assemblage contenant tenon, LICENSE, README.md, docs/).
+name: tenon
+arch: "${NFPM_ARCH}"
+platform: linux
+version: "${NFPM_VERSION}"
+version_schema: semver
+section: devel
+priority: optional
+maintainer: "Projet tenon <tenon@noreply.codeberg.org>"
+description: |
+  Agent de code en terminal, souverain et auto-hébergeable.
+  Client d'un fournisseur de modèles compatible OpenAI choisi par l'utilisateur.
+homepage: https://codeberg.org/tenon/tenon
+license: EUPL-1.2
+contents:
+  - src: "${TENON_STAGE}/tenon"
+    dst: /usr/bin/tenon
+    file_info:
+      mode: 0755
+  - src: "${TENON_STAGE}/LICENSE"
+    dst: /usr/share/doc/tenon/LICENSE
+    file_info:
+      mode: 0644
+  - src: "${TENON_STAGE}/README.md"
+    dst: /usr/share/doc/tenon/README.md
+    file_info:
+      mode: 0644
+  - src: "${TENON_STAGE}/docs"
+    dst: /usr/share/doc/tenon/docs
+    type: tree
