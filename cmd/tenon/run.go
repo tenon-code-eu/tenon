@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -202,7 +203,9 @@ func runInteractive(ctx context.Context, fs *flag.FlagSet, lang i18n.Lang, o eng
 		ContextWindow: st.contextWindow,
 		ProjectRoot:   o.wd,
 		Redact:        redactText(st.redactor),
-		Notices:       st.notices,
+		// Serveurs indisponibles signalés dès l'ouverture, en plus de
+		// l'événement McpServerDown émis au premier tour.
+		Notices: append(slices.Clone(st.notices), st.downNotices...),
 	}, stdin, stdout)
 	switch {
 	case errors.Is(err, tui.ErrTurnNotFinished):
@@ -409,6 +412,9 @@ type started struct {
 	close func()
 	// notices sont les avertissements du démarrage (MCP), déjà traduits.
 	notices []string
+	// downNotices signalent les serveurs MCP indisponibles au démarrage, déjà
+	// traduits ; le mode non interactif les affiche via l'événement McpServerDown.
+	downNotices []string
 	// provider et contextWindow décrivent le fournisseur choisi (barre d'état).
 	provider      llm.ProviderInfo
 	contextWindow int
@@ -619,8 +625,19 @@ func startEngine(o engineOptions) (started, error) {
 	}
 	return started{
 		eng: eng, redactor: red, sessionID: sid, close: closeAll, notices: notices,
-		provider: info, contextWindow: pc.Window(),
+		downNotices: downNotices(o.lang, unavailable, red),
+		provider:    info, contextWindow: pc.Window(),
 	}, nil
+}
+
+// downNotices renvoie l'avis de chaque serveur MCP indisponible au démarrage,
+// au format de l'événement McpServerDown.
+func downNotices(l i18n.Lang, unavailable []event.McpServerDownPayload, red *policy.Redactor) []string {
+	out := make([]string, 0, len(unavailable))
+	for _, u := range unavailable {
+		out = append(out, headless.ServerDownNotice(l, u, redactText(red)))
+	}
+	return out
 }
 
 // liveMCP est le Manager des serveurs MCP ouverts, tués par killLiveMCP lors

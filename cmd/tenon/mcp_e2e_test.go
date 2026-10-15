@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -10,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -493,5 +495,33 @@ func TestHardExitDuringClose(t *testing.T) {
 	waitGone(t, pids[0])
 	if liveMCP.Load() != nil {
 		t.Fatal("liveMCP toujours enregistré après Close")
+	}
+}
+
+// TUI : les serveurs indisponibles au démarrage (hors UE ignoré compris) sont
+// signalés dès l'ouverture, avant tout tour.
+func TestTUIStartupUnavailableNotices(t *testing.T) {
+	ts, _, all := httpMCPAll(t)
+	f := newFakeLLM(t, sseText("salut"))
+	e := newEnvExtra(t, f, "eu", httpDecl(ts.URL, "non-eu", "")+`
+[[mcp.servers]]
+id = "absent"
+transport = "stdio"
+command = ["/nonexistent/tenon-mcp-server"]
+`)
+	r := e.runTUI(func(tm *teatest.TestModel) {
+		// Avant tout tour : la sortie contient déjà les deux avis.
+		teatest.WaitFor(t, tm.Output(), func(b []byte) bool {
+			return bytes.Contains(b, []byte("relancez avec --allow-non-eu")) && bytes.Contains(b, []byte("serveur MCP absent indisponible"))
+		}, teatest.WithDuration(tuiTimeout), teatest.WithCheckInterval(10*time.Millisecond))
+		quitTUI(t, tm)
+	})
+	if r.code != 0 || all.Load() != 0 || len(r.opts.Notices) != 2 {
+		t.Fatalf("code=%d requêtes=%d notices=%q stderr=%q", r.code, all.Load(), r.opts.Notices, r.stderr)
+	}
+	for _, want := range []string{"serveur MCP web indisponible : serveur MCP web hors UE ignoré", "serveur MCP absent indisponible : "} {
+		if !slices.ContainsFunc(r.opts.Notices, func(n string) bool { return strings.HasPrefix(n, want) }) {
+			t.Fatalf("avis %q absent : %q", want, r.opts.Notices)
+		}
 	}
 }
