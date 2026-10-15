@@ -41,6 +41,11 @@ func (t *turn) run(input string) error {
 			return err
 		}
 		t.s.started = true
+		for _, u := range d.UnavailableMCP {
+			if err := t.emit(event.McpServerDown, u); err != nil {
+				return err
+			}
+		}
 	}
 	t.s.history = append(t.s.history, llm.Message{Role: llm.User, Content: input})
 	if err := t.emit(event.UserMessage, event.UserMessagePayload{Text: input}); err != nil {
@@ -310,12 +315,22 @@ func (t *turn) runTool(c llm.ToolCall) (tools.Result, error) {
 	if err != nil {
 		return tools.Result{}, err
 	}
+	if denied == "" {
+		denied = res.Denied // refus décidé par l'outil lui-même
+	}
 	if err := t.emit(event.ToolResult, event.ToolResultPayload{
 		CallID: c.ID, Tool: c.Name, Content: res.Content, IsError: res.IsError,
 		Path: res.Path, HashBefore: res.HashBefore, HashAfter: res.HashAfter,
 		Denied: denied,
 	}); err != nil {
 		return tools.Result{}, err
+	}
+	if res.ServerDown != "" {
+		if err := t.emit(event.McpServerDown, event.McpServerDownPayload{
+			Server: res.ServerDown, Error: res.Content,
+		}); err != nil {
+			return tools.Result{}, err
+		}
 	}
 	return res, nil
 }

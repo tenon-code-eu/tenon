@@ -82,6 +82,13 @@ type ToolResultPayload struct {
 	Denied     string `json:"denied,omitempty"`
 }
 
+// McpServerDownPayload reports an MCP server that is unreachable (at start or
+// during a call). Error is user-facing text.
+type McpServerDownPayload struct {
+	Server string `json:"server"`
+	Error  string `json:"error"`
+}
+
 // JurisdictionWarningPayload warns that a provider lies outside the preferred jurisdiction.
 type JurisdictionWarningPayload struct {
 	Provider llm.ProviderInfo `json:"provider"`
