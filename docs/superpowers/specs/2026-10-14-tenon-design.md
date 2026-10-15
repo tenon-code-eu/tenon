@@ -235,7 +235,7 @@ jurisdiction = "eu"
 
 ### 6.5 Marquage du code généré
 
-- `tenon git install-hook` installe un hook `prepare-commit-msg` dans le dépôt courant.
+- `tenon git install-hook` installe un hook `commit-msg` dans le dépôt courant (exécuté après l'éditeur, il ne transforme jamais un message vide en commit ; `--no-verify` saute le marquage ; les commits de merge ne sont pas marqués ; le hook ne bloque jamais un commit : 5 s au plus).
 - Au commit, le hook compare les fichiers indexés aux écritures de l'agent enregistrées dans le journal d'audit.
 - En cas de correspondance, il ajoute :
   ```
