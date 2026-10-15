@@ -301,3 +301,21 @@ func TestAllowShellRejectsChaining(t *testing.T) {
 		t.Fatalf("deny : %v", d)
 	}
 }
+
+// ForceAsk impose Ask quelle que soit la règle allow ; seule une règle deny
+// l'emporte.
+func TestForceAskOverridesAllow(t *testing.T) {
+	forced := Call{Tool: "mcp__gh__issue", Risk: tools.Read, Target: tools.Target{Command: "mcp gh.issue {}", ForceAsk: true}}
+	p, _ := newPerms(t, []Rule{{"*", "", Allow}})
+	if got := p.Check(forced); got != Ask {
+		t.Errorf("allow * + ForceAsk : got %v want Ask", got)
+	}
+	p, _ = newPerms(t, nil)
+	if got := p.Check(forced); got != Ask {
+		t.Errorf("lecture par défaut + ForceAsk : got %v want Ask", got)
+	}
+	p, _ = newPerms(t, []Rule{{"*", "", Allow}, {"mcp__gh__issue", "", Deny}})
+	if got := p.Check(forced); got != Deny {
+		t.Errorf("deny + ForceAsk : got %v want Deny", got)
+	}
+}

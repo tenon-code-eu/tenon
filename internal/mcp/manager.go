@@ -55,8 +55,12 @@ type Options struct {
 	CallTimeout    time.Duration       // shell_timeout (2 min par défaut)
 	ConnectTimeout time.Duration       // 15 s par défaut
 	OutputLimit    int
-	Consent        func(serverID string) bool // juridiction (Task 4) ; nil = toujours vrai
+	Consent        func(serverID string) bool // juridiction ; nil = toujours vrai
 	Root           string                     // racine du projet : répertoire de travail des serveurs stdio
+
+	// AllowNonEU est le consentement d'avance (--allow-non-eu) : sans lui, les
+	// outils d'un serveur hors UE exigent une validation humaine (ForceAsk).
+	AllowNonEU bool
 
 	// dial remplace le transport réel (tests).
 	dial func(config.MCPServer) (sdk.Transport, error)
@@ -157,7 +161,7 @@ func Start(ctx context.Context, servers []config.MCPServer, opts Options) (*Mana
 				risk:   riskOf(decl),
 				opts:   opts,
 			})
-			entries[name] = regEntry{server: decl.ID, jurisdiction: llm.Jurisdiction(decl.Jurisdiction)}
+			entries[name] = regEntry{server: decl.ID, jurisdiction: llm.Jurisdiction(decl.Jurisdiction), country: decl.Country}
 		}
 	}
 	registerTools(servers, entries)
@@ -491,37 +495,4 @@ func (p *procTransport) signal(sig syscall.Signal) {
 	if pid > 0 {
 		_ = syscall.Kill(-pid, sig)
 	}
-}
-
-// Registre global (lecture seule hors Start) : nom d'outil → serveur, juridiction.
-type regEntry struct {
-	server       string
-	jurisdiction llm.Jurisdiction
-}
-
-var (
-	regMu    sync.RWMutex
-	registry = map[string]regEntry{}
-)
-
-// registerTools remplace les entrées des serveurs déclarés par entries.
-func registerTools(servers []config.MCPServer, entries map[string]regEntry) {
-	regMu.Lock()
-	defer regMu.Unlock()
-	for name, e := range registry {
-		if slices.ContainsFunc(servers, func(s config.MCPServer) bool { return s.ID == e.server }) {
-			delete(registry, name)
-		}
-	}
-	for name, e := range entries {
-		registry[name] = e
-	}
-}
-
-// Describe renvoie le serveur et la juridiction d'un outil MCP exposé.
-func Describe(toolName string) (server string, jurisdiction llm.Jurisdiction, ok bool) {
-	regMu.RLock()
-	defer regMu.RUnlock()
-	e, ok := registry[toolName]
-	return e.server, e.jurisdiction, ok
 }

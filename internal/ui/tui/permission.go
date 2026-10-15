@@ -22,6 +22,7 @@ import (
 	"codeberg.org/tenon/tenon/internal/event"
 	"codeberg.org/tenon/tenon/internal/i18n"
 	"codeberg.org/tenon/tenon/internal/llm"
+	"codeberg.org/tenon/tenon/internal/mcp"
 	"codeberg.org/tenon/tenon/internal/ui/headless"
 	"codeberg.org/tenon/tenon/internal/ui/tui/diff"
 )
@@ -580,12 +581,50 @@ func (m Model) headLines(p *permPrompt, collapse bool) []string {
 			out = append(out, splitLines(m.st.notice.Render(m.wrap(i18n.T(m.lang, "tui.perm.non_ascii"))))...)
 		}
 	}
+	out = append(out, m.mcpLines(p)...)
 	for _, path := range p.paths {
 		for _, l := range splitLines("  " + path) {
 			out = append(out, breakTokens(headTokens(l), m.width)...)
 		}
 	}
 	return out
+}
+
+// mcpLines rend, pour un outil MCP, la ligne du serveur (identifiant, pays,
+// juridiction colorée comme la barre d'état) et, hors UE, l'avertissement
+// d'envoi hors de l'UE. Elles font partie de l'en-tête : rendu sans ambiguïté
+// (headTokens), compté pour l'acceptation. Identifiant et pays viennent de la
+// configuration, masqués comme le reste de l'en-tête.
+func (m Model) mcpLines(p *permPrompt) []string {
+	describe := m.opts.DescribeMCP
+	if describe == nil {
+		describe = describeMCP
+	}
+	srv, ok := describe(p.p.Tool)
+	if !ok {
+		return nil
+	}
+	label := headless.JurisdictionLabel(m.lang, srv.Jurisdiction)
+	// Le libellé de juridiction termine le message dans les deux langues :
+	// il est rendu à part pour être coloré.
+	toks := headTokens(i18n.T(m.lang, "tui.perm.mcp", m.redact(srv.ID), m.redact(srv.Country), ""))
+	jur := m.jurisdictionStyle(srv.Jurisdiction)
+	for _, tk := range headTokens(label) {
+		toks = append(toks, jur.Render(tk))
+	}
+	out := breakTokens(toks, m.width)
+	if srv.Jurisdiction != llm.EU && srv.Jurisdiction != llm.Local {
+		for _, piece := range breakTokens(headTokens(i18n.T(m.lang, "tui.perm.mcp_non_eu")), m.width) {
+			out = append(out, m.st.perm.Render(piece))
+		}
+	}
+	return out
+}
+
+// describeMCP lit le registre des outils MCP exposés.
+func describeMCP(tool string) (event.MCPServerInfo, bool) {
+	s, ok := mcp.Lookup(tool)
+	return event.MCPServerInfo{ID: s.ID, Jurisdiction: s.Jurisdiction, Country: s.Country}, ok
 }
 
 // isASCII indique que s ne contient que des octets ASCII.

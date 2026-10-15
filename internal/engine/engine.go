@@ -53,6 +53,8 @@ type Deps struct {
 	// UnavailableMCP liste les serveurs MCP injoignables au démarrage ; un
 	// McpServerDown est émis pour chacun juste après chaque SessionStarted.
 	UnavailableMCP []event.McpServerDownPayload
+	// MCP liste les serveurs MCP actifs, recopiés dans SessionStarted.
+	MCP []event.MCPServerInfo
 }
 
 // Reply répond à un PermissionRequested.

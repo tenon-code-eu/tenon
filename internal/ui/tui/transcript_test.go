@@ -131,7 +131,7 @@ func TestEnglishLabels(t *testing.T) {
 
 func TestUnknownEventIgnored(t *testing.T) {
 	tr := NewTranscript(i18n.FR)
-	tr.Apply(ev(t, event.McpServerDown, map[string]any{}))
+	tr.Apply(ev(t, event.Type("Inconnu"), map[string]any{}))
 	tr.Apply(ev(t, event.PermissionResolved, map[string]any{}))
 	if len(tr.Items()) != 0 {
 		t.Fatalf("items = %+v", tr.Items())

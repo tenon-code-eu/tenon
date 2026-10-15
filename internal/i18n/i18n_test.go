@@ -68,3 +68,24 @@ func TestSystemPromptsDiffer(t *testing.T) {
 		}
 	}
 }
+
+func TestMCPMessages(t *testing.T) {
+	for _, c := range []struct {
+		l         Lang
+		key, want string
+		args      []any
+	}{
+		{FR, "tui.perm.mcp", "serveur MCP gh · US · juridiction hors UE", []any{"gh", "US", "hors UE"}},
+		{EN, "tui.perm.mcp", "MCP server gh · US · jurisdiction non-EU", []any{"gh", "US", "non-EU"}},
+		{FR, "tui.perm.mcp_non_eu", "les arguments seront envoyés hors de l'UE", nil},
+		{EN, "tui.perm.mcp_non_eu", "arguments will be sent outside the EU", nil},
+		{FR, "mcp.down", "serveur MCP gh indisponible : x", []any{"gh", "x"}},
+		{EN, "mcp.down", "MCP server gh unavailable: x", []any{"gh", "x"}},
+		{FR, "banner.mcp", "MCP : a", []any{"a"}},
+		{EN, "banner.mcp", "MCP: a", []any{"a"}},
+	} {
+		if got := T(c.l, c.key, c.args...); got != c.want {
+			t.Errorf("%s %s = %q, attendu %q", c.l, c.key, got, c.want)
+		}
+	}
+}

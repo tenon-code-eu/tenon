@@ -29,6 +29,9 @@ type Options struct {
 	// Redact masque tout texte venu des événements avant affichage (même
 	// fonction que le mode non interactif) ; nil : aucun masquage.
 	Redact func(string) string
+	// DescribeMCP renvoie le serveur MCP (identifiant, juridiction, pays) d'un
+	// outil ; nil : registre du paquet mcp.
+	DescribeMCP func(tool string) (event.MCPServerInfo, bool)
 	// Now remplace l'horloge (délai d'armement des acceptations, double
 	// Ctrl+C). Réservé aux tests ; nil : time.Now.
 	Now func() time.Time

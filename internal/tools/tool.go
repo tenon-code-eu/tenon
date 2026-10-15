@@ -23,6 +23,9 @@ const (
 type Target struct {
 	Paths   []string // chemins absolus nettoyés
 	Command string
+	// ForceAsk impose une validation humaine : Permissions.Check renvoie Ask
+	// (Deny si une règle deny correspond), quelles que soient les règles allow.
+	ForceAsk bool
 }
 
 // Result est le résultat d'une exécution d'outil.

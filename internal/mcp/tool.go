@@ -17,6 +17,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"codeberg.org/tenon/tenon/internal/llm"
 	"codeberg.org/tenon/tenon/internal/tools"
 )
 
@@ -57,7 +58,20 @@ func (t *mcpTool) Target(args json.RawMessage) (tools.Target, error) {
 		return tools.Target{}, err
 	}
 	cmd := "mcp " + t.srv.decl.ID + "." + cleanText(t.tool) + " " + tools.Truncate(string(c), maxTargetArgs)
-	return tools.Target{Command: cmd}, nil
+	return tools.Target{Command: cmd, ForceAsk: t.needsConsent()}, nil
+}
+
+// needsConsent indique qu'un appel exige une validation humaine : serveur
+// hors UE (ou de juridiction inconnue) sans consentement d'avance.
+func (t *mcpTool) needsConsent() bool {
+	if t.opts.AllowNonEU {
+		return false
+	}
+	switch llm.Jurisdiction(t.srv.decl.Jurisdiction) {
+	case llm.EU, llm.Local:
+		return false
+	}
+	return true
 }
 
 func (t *mcpTool) Run(ctx context.Context, args json.RawMessage) (tools.Result, error) {

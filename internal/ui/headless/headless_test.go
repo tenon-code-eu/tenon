@@ -397,3 +397,60 @@ func TestRefusalDescriptionRedactedPerPart(t *testing.T) {
 		t.Fatalf("stderr=%q", s)
 	}
 }
+
+func TestHeadlessServerDownNotice(t *testing.T) {
+	for lang, want := range map[i18n.Lang]string{
+		i18n.FR: "serveur MCP gh indisponible : connexion refusée\n",
+		i18n.EN: "MCP server gh unavailable: connexion refusée\n",
+	} {
+		var out, errb bytes.Buffer
+		r := &renderer{out: Text, lang: lang, redact: func(s string) string { return s },
+			redactText: func(s string) string { return s }, stdout: &out, stderr: &errb}
+		r.handle(emitted(t, event.McpServerDown, event.McpServerDownPayload{Server: "gh", Error: "connexion refusée"}))
+		if errb.String() != want {
+			t.Fatalf("%s : stderr=%q, attendu %q", lang, errb.String(), want)
+		}
+	}
+	// Texte masqué partie par partie et nettoyé des caractères de contrôle.
+	red, err := policy.NewRedactor(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mask := func(s string) string { out, _ := red.Redact(s); return out }
+	var out, errb bytes.Buffer
+	r := &renderer{out: Text, lang: i18n.FR, redact: mask, redactText: mask, stdout: &out, stderr: &errb}
+	r.handle(emitted(t, event.McpServerDown, event.McpServerDownPayload{
+		Server: "gh", Error: "\x1b[31mapi_key = Zx8kq2LmNp4Rt6Vw9YbC1dEf\nsuite‮",
+	}))
+	s := errb.String()
+	if strings.Contains(s, "Zx8kq") || !strings.Contains(s, "[SECRET_") || strings.ContainsAny(s, "\x1b‮") ||
+		strings.Count(s, "\n") != 1 {
+		t.Fatalf("stderr=%q", s)
+	}
+}
+
+func TestBannerListsMCP(t *testing.T) {
+	servers := []event.MCPServerInfo{{ID: "gh", Jurisdiction: llm.NonEU, Country: "US"}, {ID: "docs", Jurisdiction: llm.EU, Country: "FR"}}
+	for lang, want := range map[i18n.Lang]string{
+		i18n.FR: "MCP : gh (hors UE), docs (UE)\n",
+		i18n.EN: "MCP: gh (non-EU), docs (EU)\n",
+	} {
+		var out, errb bytes.Buffer
+		r := &renderer{out: Text, lang: lang, redact: func(s string) string { return s },
+			redactText: func(s string) string { return s }, stdout: &out, stderr: &errb}
+		r.handle(emitted(t, event.SessionStarted, event.SessionStartedPayload{
+			Provider: llm.ProviderInfo{ID: "t", Model: "m", Jurisdiction: llm.EU}, MCP: servers,
+		}))
+		if !strings.Contains(errb.String(), want) {
+			t.Fatalf("%s : stderr=%q, attendu %q", lang, errb.String(), want)
+		}
+	}
+	// Sans serveur MCP actif, pas de ligne.
+	var out, errb bytes.Buffer
+	r := &renderer{out: Text, lang: i18n.FR, redact: func(s string) string { return s },
+		redactText: func(s string) string { return s }, stdout: &out, stderr: &errb}
+	r.handle(emitted(t, event.SessionStarted, event.SessionStartedPayload{Provider: llm.ProviderInfo{ID: "t", Model: "m", Jurisdiction: llm.EU}}))
+	if strings.Contains(errb.String(), "MCP") {
+		t.Fatalf("stderr=%q", errb.String())
+	}
+}

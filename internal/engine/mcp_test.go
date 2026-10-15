@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"codeberg.org/tenon/tenon/internal/event"
@@ -154,5 +155,26 @@ func TestToolDeniedPropagated(t *testing.T) {
 	}
 	if p := decode[event.ToolResultPayload](t, tr[0]); p.Denied != "policy" {
 		t.Fatalf("Denied=%q", p.Denied)
+	}
+}
+
+func TestSessionStartedListsMCP(t *testing.T) {
+	servers := []event.MCPServerInfo{{ID: "gh", Jurisdiction: llm.NonEU, Country: "US"}}
+	h := newHarness(t, euInfo, [][]llm.Chunk{text("ok")}, func(d *Deps) { d.MCP = servers })
+	evs, err := h.submit(t, "s_1", "salut", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p := decode[event.SessionStartedPayload](t, evs[0]); mustJSON(p.MCP) != mustJSON(servers) {
+		t.Fatalf("payload %+v", p)
+	}
+	// Sans serveur, le champ est omis du JSON.
+	h = newHarness(t, euInfo, [][]llm.Chunk{text("ok")})
+	evs, err = h.submit(t, "s_1", "salut", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(evs[0].Payload), "mcp") {
+		t.Fatalf("payload %s", evs[0].Payload)
 	}
 }
