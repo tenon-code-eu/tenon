@@ -28,11 +28,14 @@ import (
 // du diff est calculé une seule fois, hors de Update (lecture du fichier
 // courant) ; tant qu'il n'est pas prêt, seul le refus agit.
 type permPrompt struct {
-	p      event.PermissionRequestedPayload
-	ready  bool
-	lines  []diff.Line
-	more   int
-	binary bool
+	p event.PermissionRequestedPayload
+	// command et paths sont la commande et les chemins masqués, affichés.
+	command string
+	paths   []string
+	ready   bool
+	lines   []diff.Line
+	more    int
+	binary  bool
 }
 
 // previewMsg porte l'aperçu calculé pour la demande pr.
@@ -175,7 +178,10 @@ func (m *Model) dropPrompt(id string) {
 // connu, la commande qui calcule l'aperçu hors de Update : la lecture du
 // fichier courant peut bloquer (montage figé).
 func (m Model) newPrompt(p event.PermissionRequestedPayload) (*permPrompt, tea.Cmd) {
-	pr := &permPrompt{p: p, ready: true}
+	pr := &permPrompt{p: p, ready: true, command: m.redact(p.Command)}
+	for _, path := range p.Paths {
+		pr.paths = append(pr.paths, m.redact(path))
+	}
 	if p.Kind != "tool" || (p.Tool != "write_file" && p.Tool != "edit_file") {
 		return pr, nil
 	}
@@ -184,10 +190,10 @@ func (m Model) newPrompt(p event.PermissionRequestedPayload) (*permPrompt, tea.C
 		return pr, nil
 	}
 	pr.ready = false
-	tool, root := p.Tool, m.opts.ProjectRoot
+	tool, root, redact := p.Tool, m.opts.ProjectRoot, m.redact
 	return pr, func() tea.Msg {
 		msg := previewMsg{pr: pr}
-		lines, more, err := diff.Preview(tool, args, root)
+		lines, more, err := diff.PreviewRedacted(tool, args, root, redact)
 		switch {
 		case errors.Is(err, diff.ErrBinary):
 			msg.binary = true
@@ -336,7 +342,7 @@ func (m Model) promptPanel() panel {
 			return panel{lines: out, approvable: p.ready}
 		}
 		hintKey := "tui.perm.too_small"
-		if p.p.Command != "" {
+		if p.command != "" {
 			hintKey = "tui.perm.command_too_long"
 		}
 		hint := splitLines(m.st.notice.Render(m.wrap(i18n.T(m.lang, hintKey))))
@@ -429,10 +435,10 @@ func (m Model) headLines(p *permPrompt, collapse bool) []string {
 		}
 		text := i18n.T(m.lang, "tui.perm.jurisdiction", headless.ProviderLabel(prov), prov.Country,
 			headless.JurisdictionLabel(m.lang, prov.Jurisdiction))
-		return splitLines(m.wrap(text))
+		return splitLines(m.wrap(m.redact(text)))
 	}
 	var out []string
-	cmd := sanitize(p.p.Command)
+	cmd := sanitize(p.command)
 	if n := len(splitLines(cmd)); cmd != "" && n > 1 {
 		out = append(out, m.st.notice.Render(m.truncate(i18n.T(m.lang, "tui.perm.command_lines", n))))
 	}
@@ -444,7 +450,7 @@ func (m Model) headLines(p *permPrompt, collapse bool) []string {
 		text += " " + cmd
 	}
 	out = append(out, splitLines(m.st.tool.Render(m.wrap(text)))...)
-	for _, path := range p.p.Paths {
+	for _, path := range p.paths {
 		// Un chemin est un seul « mot » : coupé à la largeur, sans repli
 		// sur les espaces.
 		out = append(out, splitLines(ansi.Hardwrap(sanitize("  "+path), m.width, true))...)

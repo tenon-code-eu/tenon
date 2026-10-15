@@ -156,8 +156,14 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		Output:     out,
 		Lang:       lang,
 		Redact:     func(s string) string { out, _ := red.RedactJSON(s); return out },
-		RedactText: func(s string) string { out, _ := red.Redact(s); return out },
+		RedactText: redactText(red),
 	}, stdout, stderr)
+}
+
+// redactText masque un texte libre avec red : même fonction pour le mode non
+// interactif et la TUI.
+func redactText(red *policy.Redactor) func(string) string {
+	return func(s string) string { out, _ := red.Redact(s); return out }
 }
 
 // runInteractive ouvre l'interface interactive (tenon sans -p). --output et
@@ -188,6 +194,7 @@ func runInteractive(ctx context.Context, fs *flag.FlagSet, lang i18n.Lang, o eng
 		Provider:      st.provider,
 		ContextWindow: st.contextWindow,
 		ProjectRoot:   o.wd,
+		Redact:        redactText(st.redactor),
 	}, stdin, stdout)
 	switch {
 	case errors.Is(err, tui.ErrTurnNotFinished):

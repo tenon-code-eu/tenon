@@ -36,13 +36,20 @@ type Item struct {
 	Streaming bool   // ItemAssistant en cours
 	callID    string
 	reqDetail string
+	// raw est le texte brut accumulé d'un assistant en streaming.
+	raw string
 }
 
-// Transcript accumule les éléments affichables d'une session.
+// Transcript accumule les éléments affichables d'une session. Tout texte
+// venu des événements est masqué (redact) avant d'être conservé.
 type Transcript struct {
-	lang  i18n.Lang
-	items []Item
-	busy  bool
+	lang   i18n.Lang
+	items  []Item
+	busy   bool
+	redact func(string) string
+	// holdback retient la ligne en cours d'un assistant en streaming (actif
+	// dès qu'un masquage est configuré).
+	holdback bool
 }
 
 // NewTranscript crée une transcription vide dans la langue l.
@@ -50,7 +57,31 @@ func NewTranscript(l i18n.Lang) *Transcript {
 	if l != i18n.EN {
 		l = i18n.FR
 	}
-	return &Transcript{lang: l}
+	return &Transcript{lang: l, redact: func(s string) string { return s }}
+}
+
+// SetRedact remplace la fonction de masquage (nil : aucun masquage).
+func (t *Transcript) SetRedact(f func(string) string) {
+	t.holdback = f != nil
+	if f == nil {
+		f = func(s string) string { return s }
+	}
+	t.redact = f
+}
+
+// streamText renvoie le texte affichable d'un assistant en streaming. Avec un
+// masquage, seules les lignes complètes sont montrées, masquées : la ligne en
+// cours n'apparaît qu'une fois terminée (ou à la fin du message), car un
+// secret encore incomplet échapperait au masquage et son début s'afficherait.
+func (t *Transcript) streamText(raw string) string {
+	if !t.holdback {
+		return raw
+	}
+	i := strings.LastIndexByte(raw, '\n')
+	if i < 0 {
+		return ""
+	}
+	return t.redact(raw[:i])
 }
 
 // Items renvoie une copie des éléments.
@@ -59,7 +90,12 @@ func (t *Transcript) Items() []Item { return append([]Item(nil), t.items...) }
 // Busy indique qu'un tour est en cours (entre UserMessage et TurnCompleted).
 func (t *Transcript) Busy() bool { return t.busy }
 
-func (t *Transcript) add(it Item) { t.items = append(t.items, it) }
+// add ajoute it après avoir masqué son texte et son détail.
+func (t *Transcript) add(it Item) {
+	it.Text = t.redact(it.Text)
+	it.Detail = t.redact(it.Detail)
+	t.items = append(t.items, it)
+}
 
 func (t *Transcript) notice(text string) { t.add(Item{Kind: ItemNotice, Text: text}) }
 
@@ -81,7 +117,9 @@ func (t *Transcript) lastStreaming() int {
 // n'émet pas d'AssistantMessage sur annulation ou erreur fournisseur.
 func (t *Transcript) endStreaming() {
 	for i := range t.items {
-		if t.items[i].Kind == ItemAssistant {
+		if t.items[i].Kind == ItemAssistant && t.items[i].Streaming {
+			t.items[i].Text = t.redact(t.items[i].raw)
+			t.items[i].raw = ""
 			t.items[i].Streaming = false
 		}
 	}
@@ -116,17 +154,19 @@ func (t *Transcript) Apply(ev event.Event) {
 			return
 		}
 		if i := t.lastStreaming(); i >= 0 {
-			t.items[i].Text += p.Text
+			t.items[i].raw += p.Text
+			t.items[i].Text = t.streamText(t.items[i].raw)
 			return
 		}
-		t.add(Item{Kind: ItemAssistant, Text: p.Text, Streaming: true})
+		t.items = append(t.items, Item{Kind: ItemAssistant, raw: p.Text, Text: t.streamText(p.Text), Streaming: true})
 	case event.AssistantMessage:
 		var p event.AssistantMessagePayload
 		if !t.decode(ev, &p) {
 			return
 		}
 		if i := t.lastStreaming(); i >= 0 {
-			t.items[i].Text = p.Text
+			t.items[i].Text = t.redact(p.Text)
+			t.items[i].raw = ""
 			t.items[i].Streaming = false
 			return
 		}
@@ -136,8 +176,9 @@ func (t *Transcript) Apply(ev event.Event) {
 		if !t.decode(ev, &p) {
 			return
 		}
-		d := requestDetail(p.Args)
-		t.add(Item{Kind: ItemTool, Tool: p.Tool, Detail: d, reqDetail: d, Status: "pending", callID: p.CallID})
+		t.add(Item{Kind: ItemTool, Tool: p.Tool, Detail: requestDetail(p.Args), Status: "pending", callID: p.CallID})
+		last := &t.items[len(t.items)-1]
+		last.reqDetail = last.Detail
 	case event.ToolResult:
 		var p event.ToolResultPayload
 		if !t.decode(ev, &p) {
@@ -206,7 +247,8 @@ func (t *Transcript) toolResult(p event.ToolResultPayload) {
 			it.Status = "ok"
 		}
 		it.Detail = it.reqDetail
-		if line := firstLine(p.Content); line != "" {
+		// Masqué avant d'être abrégé : un secret coupé ne serait plus reconnu.
+		if line := firstLine(t.redact(p.Content)); line != "" {
 			if it.Detail != "" {
 				it.Detail += " · "
 			}

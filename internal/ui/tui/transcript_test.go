@@ -165,3 +165,19 @@ func TestStreamingClosedOnTurnEnd(t *testing.T) {
 		}
 	}
 }
+
+// Avec un masquage, la ligne en cours d'un streaming est retenue ; un tour
+// interrompu montre le texte entier, masqué.
+func TestStreamingHoldbackWithRedact(t *testing.T) {
+	tr := NewTranscript(i18n.FR)
+	tr.SetRedact(func(s string) string { return strings.ReplaceAll(s, "SECRET", "[X]") })
+	tr.Apply(ev(t, event.AssistantDelta, event.AssistantDeltaPayload{Text: "un\ndeux SEC"}))
+	if got := tr.Items()[0].Text; got != "un" {
+		t.Fatalf("streaming = %q, attendu « un »", got)
+	}
+	tr.Apply(ev(t, event.AssistantDelta, event.AssistantDeltaPayload{Text: "RET"}))
+	tr.Apply(ev(t, event.TurnCompleted, event.TurnCompletedPayload{Reason: "cancelled"}))
+	if got := tr.Items()[0].Text; got != "un\ndeux [X]" {
+		t.Fatalf("après interruption = %q", got)
+	}
+}

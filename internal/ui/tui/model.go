@@ -26,6 +26,9 @@ type Options struct {
 	Provider      llm.ProviderInfo
 	ContextWindow int
 	ProjectRoot   string
+	// Redact masque tout texte venu des événements avant affichage (même
+	// fonction que le mode non interactif) ; nil : aucun masquage.
+	Redact func(string) string
 	// Now remplace l'horloge (délai d'armement des acceptations, double
 	// Ctrl+C). Réservé aux tests ; nil : time.Now.
 	Now func() time.Time
@@ -136,6 +139,8 @@ type Model struct {
 	lastCtrlC time.Time
 	now       func() time.Time
 
+	// redact masque tout texte venu des événements avant affichage.
+	redact func(string) string
 	// ctx est le contexte de Run, parent du contexte de chaque tour.
 	ctx context.Context
 	// prompts est la file des demandes de permission, la première affichée.
@@ -166,20 +171,25 @@ func New(eng Engine, opts Options) Model {
 	in.SetHeight(inputHeight)
 	in.Focus()
 	m := Model{
-		eng:   eng,
-		opts:  opts,
-		lang:  l,
-		sub:   eng.Subscribe(),
-		tr:    NewTranscript(l),
-		input: in,
-		st:    newStyles(lipgloss.DefaultRenderer()),
-		now:   time.Now,
-		ctx:   context.Background(),
-		turn:  &turnState{},
+		eng:    eng,
+		opts:   opts,
+		lang:   l,
+		sub:    eng.Subscribe(),
+		tr:     NewTranscript(l),
+		redact: opts.Redact,
+		input:  in,
+		st:     newStyles(lipgloss.DefaultRenderer()),
+		now:    time.Now,
+		ctx:    context.Background(),
+		turn:   &turnState{},
 	}
 	if opts.Now != nil {
 		m.now = opts.Now
 	}
+	if m.redact == nil {
+		m.redact = func(s string) string { return s }
+	}
+	m.tr.SetRedact(opts.Redact)
 	m.resize(defaultWidth, defaultHeight)
 	return m
 }

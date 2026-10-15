@@ -225,6 +225,16 @@ func readCurrent(path string) (content string, huge bool) {
 // Preview calcule l'aperçu du diff pour un appel d'outil d'écriture. Les autres
 // outils renvoient nil, 0, nil ; un contenu binaire renvoie ErrBinary.
 func Preview(tool string, args json.RawMessage, root string) (lines []Line, more int, err error) {
+	return PreviewRedacted(tool, args, root, nil)
+}
+
+// PreviewRedacted fait comme Preview, en masquant avec redact (nil : aucun
+// masquage) les contenus avant et après en entier, avant le diff : un secret
+// sur plusieurs lignes (clé privée) est reconnu.
+func PreviewRedacted(tool string, args json.RawMessage, root string, redact func(string) string) (lines []Line, more int, err error) {
+	if redact == nil {
+		redact = func(s string) string { return s }
+	}
 	switch tool {
 	case "write_file":
 		var a struct {
@@ -242,6 +252,7 @@ func Preview(tool string, args json.RawMessage, root string) (lines []Line, more
 		if isBinary(cur) || isBinary(a.Content) {
 			return nil, 0, ErrBinary
 		}
+		cur, a.Content = redact(cur), redact(a.Content)
 		var all []Line
 		if huge {
 			all = diffLines(splitLines(cur), splitLines(a.Content), true)
@@ -263,6 +274,7 @@ func Preview(tool string, args json.RawMessage, root string) (lines []Line, more
 		if isBinary(a.OldString) || isBinary(a.NewString) {
 			return nil, 0, ErrBinary
 		}
+		a.OldString, a.NewString = redact(a.OldString), redact(a.NewString)
 		// replace_all : une seule occurrence suffit à l'aperçu.
 		l, m := truncate(Unified(a.OldString, a.NewString, 3))
 		return l, m, nil

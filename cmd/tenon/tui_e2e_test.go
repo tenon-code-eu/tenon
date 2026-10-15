@@ -44,6 +44,8 @@ type tuiRun struct {
 	// view est la dernière vue de la TUI ; started indique qu'elle a été lancée.
 	view    string
 	started bool
+	// opts sont les options reçues par la TUI.
+	opts tui.Options
 }
 
 // runTUI exécute la CLI avec un terminal simulé de 100×30 : la TUI lancée par
@@ -54,6 +56,7 @@ func (e *env) runTUI(drive func(tm *teatest.TestModel), args ...string) tuiRun {
 	prev := startTUI
 	startTUI = func(ctx context.Context, eng tui.Engine, opts tui.Options, in io.Reader, out io.Writer) error {
 		res.started = true
+		res.opts = opts
 		opts.Now = steppingClock()
 		tm := teatest.NewTestModel(e.t, tui.New(eng, opts), teatest.WithInitialTermSize(tuiWidth, tuiHeight))
 		drive(tm)
@@ -322,5 +325,18 @@ func TestTUIRealRunQuits(t *testing.T) {
 	}
 	if len(f.requests()) != 0 {
 		t.Fatalf("%d requêtes", len(f.requests()))
+	}
+}
+
+// La TUI reçoit la fonction de masquage du texte du mode non interactif.
+func TestTUIRedactWired(t *testing.T) {
+	f := newFakeLLM(t, sseText("salut"))
+	e := newEnv(t, f, "eu")
+	r := e.runTUI(func(tm *teatest.TestModel) { quitTUI(t, tm) })
+	if r.code != 0 || r.opts.Redact == nil {
+		t.Fatalf("code=%d Redact=%v stderr=%q", r.code, r.opts.Redact != nil, r.stderr)
+	}
+	if got := r.opts.Redact("MISTRAL_API_KEY=Zx8kq2LmNp4Rt6Vw9YbC1dEf"); strings.Contains(got, "Zx8kq") {
+		t.Fatalf("Redact ne masque pas : %q", got)
 	}
 }
