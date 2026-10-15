@@ -3,6 +3,7 @@ package mcp
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"regexp"
 	"strconv"
 	"strings"
 	"unicode"
@@ -66,6 +67,15 @@ func cleanText(s string) string {
 		}
 		return r
 	}, s)
+}
+
+// reURLQuery reconnaît la requête et le fragment d'une URL dans un texte.
+var reURLQuery = regexp.MustCompile(`(?i)\b([a-z][a-z0-9+.-]*://[^\s?#"']*)[?#][^\s"']*`)
+
+// errText est le texte affichable d'une erreur : sans caractère de contrôle
+// ni requête ou fragment d'URL (un identifiant pourrait s'y trouver).
+func errText(err error) string {
+	return cleanText(reURLQuery.ReplaceAllString(err.Error(), "${1}"))
 }
 
 // cutRunes coupe s à n caractères au plus.

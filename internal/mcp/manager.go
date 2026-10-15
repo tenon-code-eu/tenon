@@ -44,6 +44,8 @@ const (
 	maxSchemaDepth = 32
 	// maxToolsPerServer est le nombre maximal d'outils exposés par serveur.
 	maxToolsPerServer = 128
+	// maxToolBytes borne la taille cumulée (description + schéma) des outils d'un serveur.
+	maxToolBytes = 512 << 10
 	// maxListed borne le nombre d'outils lus dans tools/list (allowlist comprise).
 	maxListed = 4096
 )
@@ -159,11 +161,11 @@ func Start(ctx context.Context, servers []config.MCPServer, opts Options) (*Mana
 		}
 		r := results[i]
 		if r.err != nil {
-			down = append(down, Down{Server: decl.ID, Error: cleanText(r.err.Error())})
+			down = append(down, Down{Server: decl.ID, Error: errText(r.err)})
 			continue
 		}
 		m.servers = append(m.servers, r.srv)
-		exposed := 0
+		exposed, size := 0, 0
 		for _, t := range r.tools {
 			if len(decl.Tools) > 0 && !slices.Contains(decl.Tools, t.Name) {
 				continue
@@ -177,13 +179,18 @@ func Start(ctx context.Context, servers []config.MCPServer, opts Options) (*Mana
 				m.warnings = append(m.warnings, fmt.Sprintf("serveur MCP %s : outil %q ignoré (%v)", decl.ID, cleanText(t.Name), err))
 				continue
 			}
+			desc := cutRunes(cleanText(t.Description), maxDescription)
+			if size += len(desc) + len(sch); size > maxToolBytes {
+				m.warnings = append(m.warnings, fmt.Sprintf("serveur MCP %s : définitions d'outils de plus de %d Ko, les suivantes sont ignorées", decl.ID, maxToolBytes>>10))
+				break
+			}
 			exposed++
 			name := ToolName(decl.ID, t.Name, taken)
 			m.tools = append(m.tools, &mcpTool{
 				srv:    r.srv,
 				name:   name,
 				tool:   t.Name,
-				desc:   cutRunes(cleanText(t.Description), maxDescription),
+				desc:   desc,
 				schema: sch,
 				risk:   riskOf(decl),
 				opts:   opts,

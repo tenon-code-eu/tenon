@@ -132,11 +132,11 @@ func (t *mcpTool) Run(ctx context.Context, args json.RawMessage) (tools.Result, 
 		case isNetworkErr(err):
 		case hasWireCode(err, codeRejected):
 			// Refus transitoire du transport (statut 429/5xx, en-têtes…) : erreur, serveur en service.
-			return tools.Result{IsError: true, Content: "serveur MCP " + id + " : " + cleanText(err.Error())}, nil
+			return tools.Result{IsError: true, Content: "serveur MCP " + id + " : " + errText(err)}, nil
 		case errors.As(err, &werr):
 			return tools.Result{IsError: true, Content: "erreur du serveur MCP " + id + " : " + cleanText(werr.Message)}, nil
 		}
-		r := tools.Result{IsError: true, Content: "serveur MCP " + id + " indisponible : " + cleanText(err.Error())}
+		r := tools.Result{IsError: true, Content: "serveur MCP " + id + " indisponible : " + errText(err)}
 		if t.srv.markDown() {
 			r.ServerDown = id
 		}

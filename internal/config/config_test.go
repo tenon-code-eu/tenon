@@ -343,7 +343,8 @@ jurisdiction = "mars"
 
 func TestMCPHTTPRequiresHTTPS(t *testing.T) {
 	base := "[[mcp.servers]]\nid = \"web\"\ntransport = \"http\"\njurisdiction = \"eu\"\nurl = "
-	for _, u := range []string{"http://exemple.fr", "", "ftp://x.fr", "https://user:pw@exemple.fr", "https://"} {
+	for _, u := range []string{"http://exemple.fr", "", "ftp://x.fr", "https://user:pw@exemple.fr", "https://",
+		"https://exemple.fr/mcp?token=x", "https://exemple.fr/mcp?", "https://exemple.fr/mcp#x", "http://127.0.0.1:8080/?k=v"} {
 		mcpErr(t, base+`"`+u+`"`, "url")
 	}
 	for _, u := range []string{"http://127.0.0.1:8080", "http://localhost:9000/mcp", "http://[::1]:8080", "https://exemple.fr/mcp"} {
@@ -407,4 +408,9 @@ func TestMCPStdioRelativeCommand(t *testing.T) {
 			t.Fatalf("%s : %v", c, err)
 		}
 	}
+}
+
+// Requête ou fragment dans l'URL : refusés, le message renvoie à bearer_env.
+func TestMCPURLQueryRefused(t *testing.T) {
+	mcpErr(t, "[[mcp.servers]]\nid = \"web\"\ntransport = \"http\"\njurisdiction = \"eu\"\nurl = \"https://exemple.fr/mcp?token=x\"\n", "bearer_env")
 }

@@ -749,3 +749,49 @@ func TestStuckStdioCallKilled(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 }
+
+// Taille cumulée des définitions d'outils (description + schéma) bornée par
+// serveur : les outils au-delà sont ignorés avec un seul avertissement.
+func TestToolBytesCapPerServer(t *testing.T) {
+	setup := func(s *sdk.Server) {
+		for i := range 12 {
+			s.AddTool(&sdk.Tool{Name: "t" + strconv.Itoa(i), Description: strings.Repeat("d", 1000),
+				InputSchema: map[string]any{"type": "object", "description": strings.Repeat("z", 60<<10)}},
+				func(context.Context, *sdk.CallToolRequest) (*sdk.CallToolResult, error) { return textResult(""), nil })
+		}
+	}
+	m, _ := start(t, []config.MCPServer{httpDecl("mem")}, Options{dial: memServer(t, setup)})
+	total := 0
+	for _, tl := range m.Tools() {
+		total += len(tl.Description()) + len(tl.Schema())
+	}
+	if n := len(m.Tools()); n != 8 || total > 512<<10 {
+		t.Fatalf("%d outils exposés, %d octets", n, total)
+	}
+	if w := m.Warnings(); len(w) != 1 || !strings.Contains(w[0], "512") {
+		t.Fatalf("avertissements %v", w)
+	}
+}
+
+// La requête d'une URL (jeton éventuel) n'apparaît dans aucun texte d'erreur.
+func TestURLQueryStrippedFromErrors(t *testing.T) {
+	decl := config.MCPServer{ID: "web", Transport: "http", URL: "http://127.0.0.1:1/mcp?token=s3cret-q#frag-s3cret", Jurisdiction: "eu"}
+	_, down := start(t, []config.MCPServer{decl}, Options{ConnectTimeout: 2 * time.Second})
+	if len(down) != 1 || strings.Contains(down[0].Error, "s3cret") || down[0].Error == "" {
+		t.Fatalf("down %v", down)
+	}
+
+	ts, _ := httpEcho(t, echoServer)
+	decl = config.MCPServer{ID: "web", Transport: "http", URL: ts.URL + "/mcp?token=s3cret-q", Jurisdiction: "eu"}
+	m, down := start(t, []config.MCPServer{decl}, Options{ConnectTimeout: 3 * time.Second, CallTimeout: 3 * time.Second})
+	if len(down) != 0 {
+		t.Fatalf("down %v", down)
+	}
+	tl := toolByName(t, m, "mcp__web__echo")
+	ts.CloseClientConnections()
+	ts.Close()
+	res := run(t, tl, `{"text":"b"}`)
+	if !res.IsError || res.ServerDown != "web" || strings.Contains(res.Content, "s3cret") {
+		t.Fatalf("résultat %+v", res)
+	}
+}

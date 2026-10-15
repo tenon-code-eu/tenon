@@ -61,6 +61,9 @@ func validateMCPURL(id, raw string) error {
 	if u.User != nil {
 		return fmt.Errorf("config : url du serveur MCP %q : identifiants interdits dans l'URL (utiliser bearer_env)", id)
 	}
+	if u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || strings.ContainsAny(raw, "?#") {
+		return fmt.Errorf("config : url du serveur MCP %q : requête et fragment interdits dans l'URL (jeton via bearer_env)", id)
+	}
 	switch u.Scheme {
 	case "https":
 	case "http":
