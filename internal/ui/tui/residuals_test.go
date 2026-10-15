@@ -4,10 +4,11 @@ import (
 	"encoding/json"
 	"math/rand"
 	"path/filepath"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
-	"unicode"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -16,16 +17,6 @@ import (
 	"codeberg.org/tenon/tenon/internal/event"
 	"codeberg.org/tenon/tenon/internal/i18n"
 )
-
-// noSpace retire tout blanc de s.
-func noSpace(s string) string {
-	return strings.Map(func(r rune) rune {
-		if unicode.IsSpace(r) {
-			return -1
-		}
-		return r
-	}, s)
-}
 
 // shellModel rend un modèle w×h affichant la demande d'exécution de cmd.
 func shellModel(cmd string, w, h int) Model {
@@ -37,11 +28,39 @@ func shellModel(cmd string, w, h int) Model {
 	return m
 }
 
-// headCommand reconstruit, depuis la vue, les n lignes d'origine de la ligne
-// de l'outil tool et de sa commande : une ligne commençant par le marqueur
-// « ↪ » prolonge la précédente (marqueur retiré), toute autre en commence une.
+// visibleLines rend le panneau tel que lu à l'écran : sans ANSI, blancs de
+// fin retirés (invisibles).
+func visibleLines(m Model) []string {
+	var out []string
+	for _, l := range m.promptLines() {
+		out = append(out, strings.TrimRight(ansi.Strip(l), " "))
+	}
+	return out
+}
+
+var reHeadEscape = regexp.MustCompile(`\[U\+([0-9A-F]{4,6})\]|\[0x([0-9A-F]{2})\]`)
+
+// unescapeHead inverse le rendu de l'en-tête : « ␠ » redevient une espace,
+// « [U+XXXX] » le caractère, « [0xXX] » l'octet invalide.
+func unescapeHead(s string) string {
+	s = strings.ReplaceAll(s, "␠", " ")
+	return reHeadEscape.ReplaceAllStringFunc(s, func(e string) string {
+		sub := reHeadEscape.FindStringSubmatch(e)
+		if sub[1] != "" {
+			v, _ := strconv.ParseUint(sub[1], 16, 32)
+			return string(rune(v))
+		}
+		v, _ := strconv.ParseUint(sub[2], 16, 8)
+		return string([]byte{byte(v)})
+	})
+}
+
+// headCommand reconstruit, depuis le panneau visible, les n lignes d'origine
+// de la ligne de l'outil tool et de sa commande : une ligne commençant par le
+// marqueur « ↪ » prolonge la précédente (marqueur retiré), toute autre en
+// commence une ; les échappements sont ensuite inversés.
 func headCommand(m Model, tool string, n int) []string {
-	lines := strings.Split(ansi.Strip(m.View()), "\n")
+	lines := visibleLines(m)
 	start := -1
 	for i, l := range lines {
 		if strings.HasPrefix(l, "⏺ "+tool) {
@@ -63,13 +82,16 @@ func headCommand(m Model, tool string, n int) []string {
 		}
 		out = append(out, l)
 	}
+	for i := range out {
+		out[i] = unescapeHead(out[i])
+	}
 	return out
 }
 
-// commandShown indique que la vue montre la ligne de l'outil et la commande
-// entière, chaque ligne d'origine reconstituée à l'identique (blancs compris).
+// commandShown indique que le panneau visible montre la ligne de l'outil et
+// la commande entière, chaque ligne d'origine reconstituée octet pour octet.
 func commandShown(m Model, cmd string) bool {
-	want := splitLines(escapeMarker(sanitize(cmd)))
+	want := splitLines(cmd)
 	want[0] = "⏺ shell " + want[0]
 	if cmd == "" {
 		want[0] = "⏺ shell"
@@ -107,36 +129,56 @@ func TestCommandLineNeverWiderThanTerminal(t *testing.T) {
 	}
 }
 
-// Propriété : si la demande est acceptable, la commande entière est visible
-// dans l'ordre et aucune ligne du panneau ne dépasse la largeur.
+// Propriété : si la demande est acceptable, la commande entière se
+// reconstitue octet pour octet depuis le panneau visible (blancs de fin
+// retirés), aucune ligne ne dépasse la largeur, et deux commandes différentes
+// acceptables à la même largeur donnent des panneaux visibles différents.
 func TestApprovableImpliesWholeCommandVisible(t *testing.T) {
 	rng := rand.New(rand.NewSource(42))
-	pieces := []string{"a", "b", "z", "-", ";", "|", "/", "{", "}", "~", " ", " ", "  ", "\t", "世", "界", "€", "\n", "↪ ", "↪",
+	pieces := []string{"a", "b", "z", "-", ";", "|", "/", "\\", "{", "}", "~", "[", " ", " ", "  ", "\t", "\r", "\u00a0",
+		"\u200b", "\u3000", "\u2028", "\x1b", "\xff", "世", "界", "€", "\n", "↪ ", "↪", "[U+21AA]", "[0x41]", "␠",
 		strings.Repeat("x", 37), strings.Repeat("y", 79), strings.Repeat("w", 118), strings.Repeat("界", 30)}
-	approvable := 0
-	for i := 0; i < 400; i++ {
+	seen := map[string]bool{}
+	var cmds []string
+	for len(cmds) < 300 {
 		var b strings.Builder
 		if rng.Intn(2) == 0 {
 			b.WriteString(strings.Repeat(" ", 1+rng.Intn(3)))
 		}
-		for n := 1 + rng.Intn(12); n > 0; n-- {
+		for n := 1 + rng.Intn(10); n > 0; n-- {
 			b.WriteString(pieces[rng.Intn(len(pieces))])
 		}
-		cmd := b.String()
-		w := 40 + rng.Intn(81)
-		m := shellModel(cmd, w, 60)
-		if !m.approvable() {
-			continue
+		if rng.Intn(3) == 0 {
+			b.WriteString(pieces[rng.Intn(16)+12]) // fin par un blanc ou un invisible
 		}
-		approvable++
-		if !commandShown(m, cmd) {
-			t.Fatalf("largeur %d, commande %q : acceptable mais incomplète :\n%s", w, cmd, ansi.Strip(m.View()))
-		}
-		if !headWithin(m) {
-			t.Fatalf("largeur %d, commande %q : acceptable avec une ligne trop large", w, cmd)
+		if c := b.String(); !seen[c] {
+			seen[c] = true
+			cmds = append(cmds, c)
 		}
 	}
-	if approvable < 100 {
+	approvable := 0
+	for _, w := range []int{40, 53, 80, 117} {
+		panels := map[string]string{}
+		for _, cmd := range cmds {
+			m := shellModel(cmd, w, 60)
+			if !m.approvable() {
+				continue
+			}
+			approvable++
+			if !commandShown(m, cmd) {
+				t.Fatalf("largeur %d, commande %q : acceptable mais non reconstituée :\n%s", w, cmd, strings.Join(visibleLines(m), "\n"))
+			}
+			if !headWithin(m) {
+				t.Fatalf("largeur %d, commande %q : acceptable avec une ligne trop large", w, cmd)
+			}
+			key := strings.Join(visibleLines(m), "\n")
+			if other, ok := panels[key]; ok {
+				t.Fatalf("largeur %d : %q et %q donnent le même panneau :\n%s", w, other, cmd, key)
+			}
+			panels[key] = cmd
+		}
+	}
+	if approvable < 400 {
 		t.Fatalf("seulement %d demandes acceptables : propriété peu exercée", approvable)
 	}
 }
@@ -260,5 +302,55 @@ func TestMarkerInTextEscaped(t *testing.T) {
 		if strings.HasPrefix(l, contMarker) {
 			t.Fatalf("ligne réelle rendue comme une suite :\n%s", strings.Join(rl, "\n"))
 		}
+	}
+}
+
+// Paires d'apparence voisine : chaque paire donne des panneaux visibles
+// différents (blancs de fin retirés), l'échappement attendu est affiché.
+func TestLookAlikeCommandsDiffer(t *testing.T) {
+	q := strings.Repeat("q", 55)
+	for _, c := range []struct{ a, b, show string }{
+		{"echo " + q + "; rm -rf ~/ 界界", "echo " + q + "; rm -rf ~/界界", "␠"},
+		{"ls \\ \nrm -rf ~", "ls \\\nrm -rf ~", "␠"},
+		{"rm x\r", "rm x", "[U+000D]"},
+		{"cd /tmp\r; rm -rf *", "cd /tmp; rm -rf *", "[U+000D]"},
+		{"cd /t\u200bmp; rm -rf *", "cd /tmp; rm -rf *", "[U+200B]"},
+		{"cd /tmp\u00a0; rm -rf *", "cd /tmp ; rm -rf *", "[U+00A0]"},
+		{"ls\tx", "ls    x", "[U+0009]"},
+		{"echo \u202eexe.txt", "echo exe.txt", "[U+202E]"},
+	} {
+		ma, mb := shellModel(c.a, 80, 40), shellModel(c.b, 80, 40)
+		va, vb := visibleLines(ma), visibleLines(mb)
+		if slices.Equal(va, vb) {
+			t.Fatalf("%q et %q : panneaux identiques :\n%s", c.a, c.b, strings.Join(va, "\n"))
+		}
+		if !strings.Contains(strings.Join(va, "\n"), c.show) {
+			t.Fatalf("%q : %q absent :\n%s", c.a, c.show, strings.Join(va, "\n"))
+		}
+		for _, x := range []struct {
+			m   Model
+			cmd string
+		}{{ma, c.a}, {mb, c.b}} {
+			if !x.m.approvable() || !commandShown(x.m, x.cmd) {
+				t.Fatalf("%q : acceptable=%v, panneau :\n%s", x.cmd, x.m.approvable(), strings.Join(visibleLines(x.m), "\n"))
+			}
+		}
+	}
+}
+
+// Le masquage porte sur le texte brut ; l'échappement vient après : un secret
+// coupé par un caractère de largeur nulle est affiché avec l'échappement, pas
+// recollé.
+func TestSecretSplitByZeroWidthNotReassembled(t *testing.T) {
+	m := New(newFake(), redactOpts(t, t.TempDir()))
+	m.resize(120, 40)
+	// Clé AWS (AKIA + 16) coupée : la règle ne la reconnaît pas ; retirer le
+	// caractère de largeur nulle l'afficherait recollée, en clair.
+	cmd := "echo AKIA\u200bIOSFODNN7EXAMPLE"
+	pr, _ := m.newPrompt(event.PermissionRequestedPayload{PermissionID: "p", Kind: "tool", Tool: "shell", Command: cmd})
+	m.prompts = []*permPrompt{pr}
+	v := strings.Join(visibleLines(m), "\n")
+	if !strings.Contains(v, "AKIA[U+200B]IOSFODNN7EXAMPLE") || strings.Contains(v, "AKIAIOSFODNN7EXAMPLE") {
+		t.Fatalf("panneau :\n%s", v)
 	}
 }

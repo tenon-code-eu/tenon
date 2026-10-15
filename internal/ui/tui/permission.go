@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -460,13 +461,44 @@ const minBlankRun = 3
 // largeur : une coupure se distingue d'un vrai saut de ligne et d'une espace.
 const contMarker = "↪ "
 
-// markerEscape remplace, dans le texte de l'en-tête (outil, commande,
-// chemins), le caractère du marqueur : une ligne de la commande commençant
-// par « ↪ » (un vrai saut de ligne, séparateur pour bash) se ferait passer
-// pour la suite d'une ligne coupée. Le seul « ↪ » affiché est le marqueur.
-const markerEscape = "[U+21AA]"
+// spaceGlyph remplace l'espace qui termine un morceau de l'en-tête (coupure ou
+// fin de ligne) : invisible, elle ne se distinguerait pas d'un morceau plus
+// court.
+const spaceGlyph = "␠"
 
-func escapeMarker(s string) string { return strings.ReplaceAll(s, "↪", markerEscape) }
+// headTokens rend une ligne de l'en-tête (outil, commande, chemin) sous une
+// forme sans ambiguïté, en jetons insécables : rien n'est retiré. Chaque
+// caractère de contrôle (saut de ligne compris : l'appelant découpe les lignes
+// avant), de format (largeur nulle, bidirectionnel, BOM), blanc autre que
+// l'espace ASCII, ainsi que « ↪ » (marqueur de suite), « ␠ » et U+FFFD, est
+// écrit « [U+XXXX] » ; un octet invalide « [0xXX] » ; un « [ » suivi de « U+ »
+// ou « 0x » est lui-même échappé, si bien que le rendu se relit sans
+// équivoque. Les autres caractères visibles sont inchangés.
+func headTokens(s string) []string {
+	out := make([]string, 0, len(s))
+	for i := 0; i < len(s); {
+		r, n := utf8.DecodeRuneInString(s[i:])
+		switch {
+		case r == utf8.RuneError && n == 1:
+			out = append(out, fmt.Sprintf("[0x%02X]", s[i]))
+		case r == '[' && (strings.HasPrefix(s[i+1:], "U+") || strings.HasPrefix(s[i+1:], "0x")):
+			out = append(out, "[U+005B]")
+		case r == ' ':
+			out = append(out, " ")
+		case escapedInHead(r):
+			out = append(out, fmt.Sprintf("[U+%04X]", r))
+		default:
+			out = append(out, string(r))
+		}
+		i += n
+	}
+	return out
+}
+
+func escapedInHead(r rune) bool {
+	return r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f) || r == utf8.RuneError ||
+		unicode.Is(unicode.Cf, r) || unicode.IsSpace(r) || r == '↪' || r == '␠'
+}
 
 // headLines rend l'en-tête de la demande : nombre de lignes de la commande
 // s'il y en a plusieurs, outil et commande, chemins ; ou le texte de la
@@ -485,20 +517,30 @@ func (m Model) headLines(p *permPrompt, collapse bool) []string {
 		return splitLines(m.wrap(text))
 	}
 	var out []string
-	cmd := sanitize(p.command)
+	cmd := p.command
 	if n := len(splitLines(cmd)); cmd != "" && n > 1 {
 		out = append(out, m.st.notice.Render(m.truncate(i18n.T(m.lang, "tui.perm.command_lines", n))))
 	}
 	if collapse {
 		cmd = collapseBlank(cmd)
 	}
-	text := "⏺ " + sanitize(p.tool)
+	// Rendu sans ambiguïté (headTokens) du texte brut, déjà masqué : le
+	// masquage voit la commande telle qu'elle sera exécutée.
+	cmdLines := splitLines(cmd)
+	first := append([]string{"⏺", " "}, headTokens(p.tool)...)
 	if cmd != "" {
-		text += " " + cmd
+		first = append(append(first, " "), headTokens(cmdLines[0])...)
 	}
-	for _, l := range splitLines(escapeMarker(text)) {
-		for _, piece := range breakLine(l, m.width) {
+	for i, l := range cmdLines {
+		toks := first
+		if i > 0 {
+			toks = headTokens(l)
+		}
+		for _, piece := range breakTokens(toks, m.width) {
 			out = append(out, m.st.tool.Render(piece))
+		}
+		if cmd == "" {
+			break
 		}
 	}
 	if p.p.Tool == "shell" {
@@ -506,34 +548,44 @@ func (m Model) headLines(p *permPrompt, collapse bool) []string {
 		out = append(out, splitLines(m.st.notice.Render(m.wrap(i18n.T(m.lang, "tui.perm.not_sandbox"))))...)
 	}
 	for _, path := range p.paths {
-		for _, l := range splitLines(escapeMarker(sanitize("  " + path))) {
-			out = append(out, breakLine(l, m.width)...)
+		for _, l := range splitLines("  " + path) {
+			out = append(out, breakTokens(headTokens(l), m.width)...)
 		}
 	}
 	return out
 }
 
-// breakLine coupe une ligne de l'en-tête (commande, chemin) à la largeur, sans
-// repli sur les espaces ni perte d'aucun caractère, blancs compris : chaque
-// suite commence par contMarker, compté dans la largeur. Un caractère plus
-// large que la place restante est placé seul ; la ligne dépasse alors la
-// largeur et la demande n'est pas acceptable (within).
-func breakLine(l string, width int) []string {
+// breakTokens assemble les jetons d'une ligne de l'en-tête en morceaux de la
+// largeur, sans repli sur les espaces ni perte d'aucun jeton : chaque suite
+// commence par contMarker, compté dans la largeur, et une espace qui termine
+// un morceau est dessinée spaceGlyph. Un jeton plus large que la place
+// restante est placé seul ; la ligne dépasse alors la largeur et la demande
+// n'est pas acceptable (within).
+func breakTokens(toks []string, width int) []string {
 	var out []string
-	prefix := ""
-	for {
-		piece := ansi.Truncate(l, width-ansi.StringWidth(prefix), "")
-		if piece == "" || !strings.HasPrefix(l, piece) {
-			_, n := utf8.DecodeRuneInString(l)
-			piece = l[:n]
+	var b strings.Builder
+	used, content := 0, 0
+	flush := func() {
+		piece := b.String()
+		if strings.HasSuffix(piece, " ") {
+			piece = piece[:len(piece)-1] + spaceGlyph
 		}
-		out = append(out, prefix+piece)
-		l = l[len(piece):]
-		if l == "" {
-			return out
-		}
-		prefix = contMarker
+		out = append(out, piece)
 	}
+	for _, t := range toks {
+		w := ansi.StringWidth(t)
+		if used+w > width && content > 0 {
+			flush()
+			b.Reset()
+			b.WriteString(contMarker)
+			used, content = ansi.StringWidth(contMarker), 0
+		}
+		b.WriteString(t)
+		used += w
+		content++
+	}
+	flush()
+	return out
 }
 
 // collapseBlank remplace chaque suite d'au moins minBlankRun lignes vides
