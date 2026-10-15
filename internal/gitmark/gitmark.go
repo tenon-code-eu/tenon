@@ -1,6 +1,6 @@
 // Package gitmark marque les commits qui contiennent du code écrit par
 // l'agent : des trailers git (AI-Assisted-By, AI-Session) sont ajoutés au
-// message par un hook prepare-commit-msg qui ne bloque jamais le commit.
+// message par un hook commit-msg qui ne bloque jamais le commit.
 package gitmark
 
 import (

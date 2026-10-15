@@ -850,7 +850,7 @@ func gitMark(ctx context.Context, args []string, stderr io.Writer, getenv func(s
 	return 0
 }
 
-// gitInstallHook installe le hook prepare-commit-msg du dépôt contenant wd.
+// gitInstallHook installe le hook commit-msg du dépôt contenant wd.
 func gitInstallHook(lang i18n.Lang, args []string, stdout, stderr io.Writer, wd string) int {
 	fs := flag.NewFlagSet("tenon git install-hook", flag.ContinueOnError)
 	fs.SetOutput(stderr)
