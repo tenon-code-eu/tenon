@@ -32,6 +32,11 @@ type Result struct {
 	Path       string
 	HashBefore string
 	HashAfter  string
+	// Denied vaut "policy" quand l'outil a refusé l'appel par règle (vide sinon).
+	Denied string
+	// ServerDown porte l'identifiant d'un serveur MCP qui vient de tomber pendant
+	// cet appel (vide sinon) ; signalé une seule fois par serveur.
+	ServerDown string
 }
 
 // Tool est un outil appelable par le modèle.
