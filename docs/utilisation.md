@@ -214,7 +214,8 @@ Elle **ne peut pas** :
 
 Les règles du projet s'ajoutent aux règles globales.
 Une règle `deny` du projet bloque toujours l'appel.
-Une règle `ask` du projet n'a d'effet que si aucune règle `allow` globale ne couvre déjà l'appel : `allow` est évalué avant `ask`.
+Une règle `ask` du projet l'emporte sur une règle `allow` globale : le projet ne peut que restreindre.
+Une règle `ask` globale, elle, est évaluée après les règles `allow`.
 
 ### Règles de permission
 
@@ -229,9 +230,10 @@ Ordre d'évaluation :
 
 1. une règle `deny` qui correspond : refus ;
 2. un chemin hors du projet, ou un fichier `.env*`, `*.pem`, `id_rsa*` : validation demandée ;
-3. une règle `allow` qui correspond : autorisé ;
-4. une règle `ask` qui correspond : validation demandée ;
-5. sinon : lecture autorisée, tout le reste soumis à validation.
+3. une règle `ask` de la configuration projet qui correspond : validation demandée ;
+4. une règle `allow` qui correspond : autorisé ;
+5. une règle `ask` globale qui correspond : validation demandée ;
+6. sinon : lecture autorisée, tout le reste soumis à validation.
 
 Le motif porte sur la commande (shell, MCP) ou sur le chemin, relatif à la racine du projet.
 Une règle `allow` sur une commande ne couvre jamais une commande enchaînée : `go test *` n'autorise pas `go test ./... ; rm x`.

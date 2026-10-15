@@ -71,6 +71,9 @@ func Load(globalPath, projectPath string, getenv func(string) string) (Config, e
 				return Config{}, errors.New(`config projet : les règles "allow" sont interdites`)
 			}
 		}
+		for i := range p.Permissions.Rules {
+			p.Permissions.Rules[i].Project = true
+		}
 		if p.Lang != "" {
 			cfg.Lang = p.Lang
 		}

@@ -372,7 +372,7 @@ func loadSetup(getenv func(string) string, wd string) (setup, error) {
 		if err != nil {
 			return setup{}, fmt.Errorf("règle de permission (%s %q) : %w", r.Tool, r.Match, err)
 		}
-		rules = append(rules, policy.Rule{Tool: r.Tool, Match: r.Match, Decision: d})
+		rules = append(rules, policy.Rule{Tool: r.Tool, Match: r.Match, Decision: d, Project: r.Project})
 	}
 	custom := make([]policy.RedactionRule, 0, len(cfg.Redaction.Rules))
 	for _, r := range cfg.Redaction.Rules {

@@ -437,3 +437,28 @@ func TestMCPStdioRelativeCommand(t *testing.T) {
 func TestMCPURLQueryRefused(t *testing.T) {
 	mcpErr(t, "[[mcp.servers]]\nid = \"web\"\ntransport = \"http\"\njurisdiction = \"eu\"\nurl = \"https://exemple.fr/mcp?token=x\"\n", "bearer_env")
 }
+
+// Les règles de la config projet sont marquées comme telles (Project) pour que
+// leurs ask priment les allow globales.
+func TestProjectRulesMarked(t *testing.T) {
+	g := write(t, `
+[[permissions.rules]]
+tool = "shell"
+match = "*"
+decision = "allow"
+`)
+	p := write(t, `
+[[permissions.rules]]
+tool = "shell"
+match = "git push*"
+decision = "ask"
+`)
+	c, err := Load(g, p, env(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := c.Permissions.Rules
+	if len(r) != 2 || r[0].Project || !r[1].Project {
+		t.Fatalf("%+v", r)
+	}
+}
