@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -29,7 +31,10 @@ import (
 // courant) ; tant qu'il n'est pas prêt, seul le refus agit.
 type permPrompt struct {
 	p event.PermissionRequestedPayload
-	// command et paths sont la commande et les chemins masqués, affichés.
+	// tool, command et paths sont le nom de l'outil (venu du modèle), la
+	// commande et les chemins masqués, affichés ; p garde les valeurs brutes
+	// pour la logique (outil shell, aperçu, correspondance de l'appel).
+	tool    string
 	command string
 	paths   []string
 	ready   bool
@@ -185,7 +190,7 @@ func (m *Model) dropPrompt(id string) {
 // connu, la commande qui calcule l'aperçu hors de Update : la lecture du
 // fichier courant peut bloquer (montage figé).
 func (m Model) newPrompt(p event.PermissionRequestedPayload) (*permPrompt, tea.Cmd) {
-	pr := &permPrompt{p: p, ready: true, command: m.redact(p.Command)}
+	pr := &permPrompt{p: p, ready: true, tool: m.redact(p.Tool), command: m.redact(p.Command)}
 	for _, path := range p.Paths {
 		pr.paths = append(pr.paths, m.redact(path))
 	}
@@ -314,7 +319,7 @@ func (m *Model) answer(r engine.Reply) {
 // agissent. View et le traitement des touches s'appuient tous deux sur ce
 // calcul.
 func (m Model) approvable() bool {
-	return m.promptPanel().approvable
+	return m.prompting() && m.promptPanel().approvable
 }
 
 // promptLines rend le panneau de la demande affichée.
@@ -327,7 +332,7 @@ type panel struct {
 }
 
 func (m Model) promptKeysKey() string {
-	if m.prompts[0].p.Kind == "tool" {
+	if m.prompting() && m.prompts[0].p.Kind == "tool" {
 		return "tui.perm.keys_tool"
 	}
 	return "tui.perm.keys_jurisdiction"
@@ -344,6 +349,9 @@ func splitLines(s string) []string { return strings.Split(s, "\n") }
 // d'une indication ; si même cela ne tient pas, seuls l'indication
 // d'agrandir le terminal et les touches sont affichés.
 func (m Model) promptPanel() panel {
+	if !m.prompting() {
+		return panel{}
+	}
 	p := m.prompts[0]
 	top := splitLines(m.st.perm.Render(m.wrap(i18n.T(m.lang, "tui.perm.title"))))
 	keyLines := splitLines(m.st.perm.Render(m.wrap(i18n.T(m.lang, m.promptKeysKey()))))
@@ -385,7 +393,7 @@ func (m Model) fullPanel(p *permPrompt, top, keyLines []string, avail int) ([]st
 	head := m.headLines(p, false)
 	body := m.bodyLines(p)
 	fixed := len(top) + len(head) + len(keyLines)
-	if fixed > avail {
+	if fixed > avail || !within(m.width, top, head) {
 		return nil, false
 	}
 	rest := avail - fixed
@@ -427,6 +435,20 @@ func (m Model) fullPanel(p *permPrompt, top, keyLines []string, avail int) ([]st
 	return append(out, keyLines...), true
 }
 
+// within indique qu'aucune ligne des groupes ne dépasse la largeur w : une
+// ligne plus large serait tronquée par View et un caractère de la commande ou
+// d'un chemin serait masqué.
+func within(w int, groups ...[]string) bool {
+	for _, g := range groups {
+		for _, l := range g {
+			if ansi.StringWidth(l) > w {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 func (m Model) hiddenLine(n int) string {
 	return m.st.notice.Render(m.truncate(i18n.T(m.lang, "tui.perm.hidden_lines", n)))
 }
@@ -434,6 +456,77 @@ func (m Model) hiddenLine(n int) string {
 // minBlankRun est la longueur à partir de laquelle une suite de lignes vides
 // de la commande est regroupée en une seule ligne « ⏎ × N ».
 const minBlankRun = 3
+
+// contMarker commence chaque suite d'une ligne de l'en-tête coupée à la
+// largeur : une coupure se distingue d'un vrai saut de ligne et d'une espace.
+const contMarker = "↪ "
+
+// spaceGlyph remplace l'espace qui termine un morceau de l'en-tête (coupure ou
+// fin de ligne) : invisible, elle ne se distinguerait pas d'un morceau plus
+// court.
+const spaceGlyph = "␠"
+
+// headTokens rend une ligne de l'en-tête (outil, commande, chemin) sous une
+// forme sans ambiguïté, en jetons insécables : rien n'est retiré. Chaque
+// caractère de contrôle (saut de ligne compris : l'appelant découpe les lignes
+// avant), de format (largeur nulle, bidirectionnel, BOM), blanc autre que
+// l'espace ASCII, ainsi que « ↪ » (marqueur de suite), « ␠ » et U+FFFD, est
+// écrit « [U+XXXX] » ; un octet invalide « [0xXX] » ; un « [ » suivi de « U+ »
+// ou « 0x » est lui-même échappé, si bien que le rendu se relit sans
+// équivoque. Les autres caractères visibles sont inchangés.
+//
+// S'y ajoutent les caractères d'apparence blanche ou invisibles hors de ces
+// catégories (blankLike) et, en filet général, tout caractère de largeur
+// nulle qui n'est pas une marque attachée à une base visible : en début de
+// ligne, après un blanc ou après un échappement.
+func headTokens(s string) []string {
+	out := make([]string, 0, len(s))
+	base := false // le jeton précédent est un caractère visible (ou sa marque)
+	for i := 0; i < len(s); {
+		r, n := utf8.DecodeRuneInString(s[i:])
+		i += n
+		switch {
+		case r == utf8.RuneError && n == 1:
+			out = append(out, fmt.Sprintf("[0x%02X]", s[i-n]))
+			base = false
+		case r == '[' && (strings.HasPrefix(s[i:], "U+") || strings.HasPrefix(s[i:], "0x")):
+			out = append(out, "[U+005B]")
+			base = false
+		case r == ' ':
+			out = append(out, " ")
+			base = false
+		case escapedInHead(r), ansi.StringWidth(string(r)) == 0 && !base:
+			out = append(out, fmt.Sprintf("[U+%04X]", r))
+			base = false
+		default:
+			out = append(out, string(r))
+			base = true
+		}
+	}
+	return out
+}
+
+func escapedInHead(r rune) bool {
+	return r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f) || r == utf8.RuneError ||
+		unicode.Is(unicode.Cf, r) || unicode.IsSpace(r) || r == '↪' || r == '␠' || blankLike(r)
+}
+
+// blankLike reconnaît, par catégories Unicode, les caractères qui
+// s'affichent comme un blanc ou rien sans être des blancs ni des caractères
+// de format : ignorables par défaut (remplissages hangul, joint de graphèmes,
+// voyelles inhérentes khmères, plages réservées), sélecteurs de variante
+// (mongols compris), caractères à usage privé et caractères non attribués.
+// S'y ajoutent le braille vide (U+2800) et le remplissage khitan (U+16FE4),
+// hors de ces catégories.
+func blankLike(r rune) bool {
+	if r == 0x2800 || r == 0x16FE4 {
+		return true
+	}
+	return unicode.In(r, unicode.Other_Default_Ignorable_Code_Point, unicode.Variation_Selector, unicode.Co) ||
+		// Non attribué : hors de toute catégorie (unicode.C de Go inclut les
+		// non attribués, d'où son absence ; Cc, Cf et Co sont traités ailleurs).
+		!unicode.In(r, unicode.L, unicode.M, unicode.N, unicode.P, unicode.S, unicode.Z)
+}
 
 // headLines rend l'en-tête de la demande : nombre de lignes de la commande
 // s'il y en a plusieurs, outil et commande, chemins ; ou le texte de la
@@ -445,32 +538,96 @@ func (m Model) headLines(p *permPrompt, collapse bool) []string {
 		if p.p.Provider != nil {
 			prov = *p.p.Provider
 		}
-		text := i18n.T(m.lang, "tui.perm.jurisdiction", headless.ProviderLabel(prov), prov.Country,
-			headless.JurisdictionLabel(m.lang, prov.Jurisdiction))
-		return splitLines(m.wrap(m.redact(text)))
+		// Chaque champ est masqué seul : une règle ancrée en fin de ligne ne
+		// reconnaîtrait pas un secret suivi du reste du texte.
+		text := i18n.T(m.lang, "tui.perm.jurisdiction", m.redact(headless.ProviderLabel(prov)), m.redact(prov.Country),
+			m.redact(headless.JurisdictionLabel(m.lang, prov.Jurisdiction)))
+		return splitLines(m.wrap(text))
 	}
 	var out []string
-	cmd := sanitize(p.command)
+	cmd := p.command
 	if n := len(splitLines(cmd)); cmd != "" && n > 1 {
 		out = append(out, m.st.notice.Render(m.truncate(i18n.T(m.lang, "tui.perm.command_lines", n))))
 	}
 	if collapse {
 		cmd = collapseBlank(cmd)
 	}
-	text := "⏺ " + p.p.Tool
+	// Rendu sans ambiguïté (headTokens) du texte brut, déjà masqué : le
+	// masquage voit la commande telle qu'elle sera exécutée.
+	cmdLines := splitLines(cmd)
+	first := append([]string{"⏺", " "}, headTokens(p.tool)...)
 	if cmd != "" {
-		text += " " + cmd
+		first = append(append(first, " "), headTokens(cmdLines[0])...)
 	}
-	out = append(out, splitLines(m.st.tool.Render(m.wrap(text)))...)
+	for i, l := range cmdLines {
+		toks := first
+		if i > 0 {
+			toks = headTokens(l)
+		}
+		for _, piece := range breakTokens(toks, m.width) {
+			out = append(out, m.st.tool.Render(piece))
+		}
+		if cmd == "" {
+			break
+		}
+	}
 	if p.p.Tool == "shell" {
 		// Risque rappelé par la spécification : pas de bac à sable.
 		out = append(out, splitLines(m.st.notice.Render(m.wrap(i18n.T(m.lang, "tui.perm.not_sandbox"))))...)
+		// Sosies de guillemets, tirets… : information seule, sans effet sur
+		// l'acceptation.
+		if !isASCII(p.command) {
+			out = append(out, splitLines(m.st.notice.Render(m.wrap(i18n.T(m.lang, "tui.perm.non_ascii"))))...)
+		}
 	}
 	for _, path := range p.paths {
-		// Un chemin est un seul « mot » : coupé à la largeur, sans repli
-		// sur les espaces.
-		out = append(out, splitLines(ansi.Hardwrap(sanitize("  "+path), m.width, true))...)
+		for _, l := range splitLines("  " + path) {
+			out = append(out, breakTokens(headTokens(l), m.width)...)
+		}
 	}
+	return out
+}
+
+// isASCII indique que s ne contient que des octets ASCII.
+func isASCII(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] >= utf8.RuneSelf {
+			return false
+		}
+	}
+	return true
+}
+
+// breakTokens assemble les jetons d'une ligne de l'en-tête en morceaux de la
+// largeur, sans repli sur les espaces ni perte d'aucun jeton : chaque suite
+// commence par contMarker, compté dans la largeur, et une espace qui termine
+// un morceau est dessinée spaceGlyph. Un jeton plus large que la place
+// restante est placé seul ; la ligne dépasse alors la largeur et la demande
+// n'est pas acceptable (within).
+func breakTokens(toks []string, width int) []string {
+	var out []string
+	var b strings.Builder
+	used, content := 0, 0
+	flush := func() {
+		piece := b.String()
+		if strings.HasSuffix(piece, " ") {
+			piece = piece[:len(piece)-1] + spaceGlyph
+		}
+		out = append(out, piece)
+	}
+	for _, t := range toks {
+		w := ansi.StringWidth(t)
+		if used+w > width && content > 0 {
+			flush()
+			b.Reset()
+			b.WriteString(contMarker)
+			used, content = ansi.StringWidth(contMarker), 0
+		}
+		b.WriteString(t)
+		used += w
+		content++
+	}
+	flush()
 	return out
 }
 

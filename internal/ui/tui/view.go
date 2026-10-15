@@ -106,9 +106,12 @@ func (m Model) renderItem(it Item) string {
 	return m.st.assistant.Render(m.wrap(it.Text))
 }
 
-// wrap nettoie s des caractères de contrôle puis le replie à la largeur.
+// wrap nettoie s des caractères de contrôle puis le replie à la largeur. Le
+// repli sur les espaces peut laisser une ligne d'une colonne trop large (ligne
+// commençant par une espace suivie d'un mot de la largeur) : elle est coupée
+// à la largeur exacte, sans perdre de caractère, plutôt que tronquée par View.
 func (m Model) wrap(s string) string {
-	return ansi.Wrap(sanitize(s), m.width, "")
+	return ansi.Hardwrap(ansi.Wrap(sanitize(s), m.width, ""), m.width, true)
 }
 
 // sanitize remplace les tabulations et retire les caractères de contrôle

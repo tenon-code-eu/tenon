@@ -90,9 +90,10 @@ func (t *Transcript) Items() []Item { return append([]Item(nil), t.items...) }
 // Busy indique qu'un tour est en cours (entre UserMessage et TurnCompleted).
 func (t *Transcript) Busy() bool { return t.busy }
 
-// add ajoute it après avoir masqué son texte et son détail.
+// add ajoute it après avoir masqué son texte, son outil et son détail.
 func (t *Transcript) add(it Item) {
 	it.Text = t.redact(it.Text)
+	it.Tool = t.redact(it.Tool) // nom venu du modèle, avant la recherche de l'outil
 	it.Detail = t.redact(it.Detail)
 	t.items = append(t.items, it)
 }
@@ -176,7 +177,7 @@ func (t *Transcript) Apply(ev event.Event) {
 		if !t.decode(ev, &p) {
 			return
 		}
-		t.add(Item{Kind: ItemTool, Tool: p.Tool, Detail: requestDetail(p.Args), Status: "pending", callID: p.CallID})
+		t.add(Item{Kind: ItemTool, Tool: p.Tool, Detail: requestDetail(p.Args, t.redact), Status: "pending", callID: p.CallID})
 		last := &t.items[len(t.items)-1]
 		last.reqDetail = last.Detail
 	case event.ToolResult:
@@ -267,7 +268,9 @@ func (t *Transcript) decode(ev event.Event, v any) bool {
 }
 
 // requestDetail extrait la commande ou les chemins des arguments d'un outil.
-func requestDetail(args json.RawMessage) string {
+// Chaque partie est masquée par redact avant d'être jointe : une règle ancrée
+// en fin de ligne ne reconnaîtrait pas un secret suivi d'une autre partie.
+func requestDetail(args json.RawMessage, redact func(string) string) string {
 	var a struct {
 		Command string `json:"command"`
 		Path    string `json:"path"`
@@ -279,7 +282,7 @@ func requestDetail(args json.RawMessage) string {
 	var parts []string
 	for _, s := range []string{a.Command, a.Path, a.Pattern} {
 		if s != "" {
-			parts = append(parts, s)
+			parts = append(parts, redact(s))
 		}
 	}
 	return strings.Join(parts, ", ")

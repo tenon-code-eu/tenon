@@ -141,13 +141,13 @@ func (r *renderer) handle(ev event.Event) {
 		r.refused = true
 		// Respond n'échoue que si la demande est déjà résolue (contexte annulé).
 		_ = r.eng.Respond(p.PermissionID, engine.Reply{Allow: false})
-		r.text("%s\n", i18n.T(r.lang, "refused.user", describe(r.lang, p)))
+		r.text("%s\n", i18n.T(r.lang, "refused.user", describe(r.lang, p, r.redactText)))
 	case event.ToolResult:
 		var p event.ToolResultPayload
 		if r.decode(ev, &p) && p.Denied != "" {
 			r.refused = true
 			if p.Denied == "policy" {
-				r.text("%s\n", i18n.T(r.lang, "refused.policy", p.Tool))
+				r.text("%s\n", i18n.T(r.lang, "refused.policy", r.redactText(p.Tool)))
 			}
 		}
 	case event.AssistantMessage:
@@ -258,16 +258,23 @@ func JurisdictionLabel(l i18n.Lang, j llm.Jurisdiction) string {
 	return i18n.T(l, "banner.jurisdiction.non_eu")
 }
 
-func describe(l i18n.Lang, p event.PermissionRequestedPayload) string {
+// describe décrit la demande refusée. Chaque partie (outil, commande, chemin)
+// est masquée par redact avant d'être jointe : une règle ancrée en fin de
+// ligne ne reconnaîtrait pas un secret suivi d'une autre partie.
+func describe(l i18n.Lang, p event.PermissionRequestedPayload, redact func(string) string) string {
 	if p.Kind == "jurisdiction" && p.Provider != nil {
-		return i18n.T(l, "refused.jurisdiction", ProviderLabel(*p.Provider), JurisdictionLabel(l, p.Provider.Jurisdiction))
+		return i18n.T(l, "refused.jurisdiction", redact(ProviderLabel(*p.Provider)), JurisdictionLabel(l, p.Provider.Jurisdiction))
 	}
-	s := p.Tool
+	s := redact(p.Tool)
 	if p.Command != "" {
-		s += " " + p.Command
+		s += " " + redact(p.Command)
 	}
 	if len(p.Paths) > 0 {
-		s += " " + strings.Join(p.Paths, ", ")
+		paths := make([]string, len(p.Paths))
+		for i, path := range p.Paths {
+			paths[i] = redact(path)
+		}
+		s += " " + strings.Join(paths, ", ")
 	}
 	return s
 }
