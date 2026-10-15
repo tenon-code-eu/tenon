@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -92,13 +93,35 @@ func (t *mcpTool) Run(ctx context.Context, args json.RawMessage) (tools.Result, 
 
 	tctx, cancel := context.WithTimeout(ctx, t.opts.CallTimeout)
 	defer cancel()
-	res, err := t.srv.session.CallTool(tctx, &sdk.CallToolParams{Name: t.tool, Arguments: json.RawMessage(c)})
+	out, done, finished := t.call(tctx, c)
+	timeout := tools.Result{IsError: true, Content: fmt.Sprintf("[délai dépassé après %s]", t.opts.CallTimeout)}
+	if !finished {
+		// L'appel ne rend pas la main malgré l'expiration du contexte (écriture
+		// bloquée sur le pipe d'un serveur stdio qui ne lit plus) : le serveur
+		// est hors service et son groupe de processus tué, ce qui débloque l'écriture.
+		if t.srv.proc != nil {
+			if !t.srv.closing.Load() && t.srv.markDown() {
+				timeout.ServerDown = id
+			}
+			t.srv.down.Store(true) // aussi pendant Close : aucun nouvel appel
+			t.srv.proc.signal(syscall.SIGKILL)
+			select {
+			case <-done:
+			case <-time.After(killWait):
+			}
+		}
+		if ctx.Err() != nil {
+			return tools.Result{}, ctx.Err()
+		}
+		return timeout, nil
+	}
+	res, err := out.res, out.err
 	if err != nil {
 		if ctx.Err() != nil {
 			return tools.Result{}, ctx.Err()
 		}
 		if errors.Is(tctx.Err(), context.DeadlineExceeded) {
-			return tools.Result{IsError: true, Content: fmt.Sprintf("[délai dépassé après %s]", t.opts.CallTimeout)}, nil
+			return timeout, nil
 		}
 		if t.srv.closing.Load() {
 			// Fermeture volontaire (Manager.Close) : pas de signalement hors service.
@@ -123,6 +146,42 @@ func (t *mcpTool) Run(ctx context.Context, args json.RawMessage) (tools.Result, 
 		Content: tools.Truncate(render(res), t.opts.OutputLimit),
 		IsError: res.IsError,
 	}, nil
+}
+
+// callGrace est le délai laissé à un appel pour rendre la main après
+// l'expiration de son contexte ; killWait borne l'attente de sa fin une fois
+// le serveur stdio tué.
+const (
+	callGrace = time.Second
+	killWait  = 5 * time.Second
+)
+
+// callOut est l'issue d'un appel CallTool.
+type callOut struct {
+	res *sdk.CallToolResult
+	err error
+}
+
+// call exécute CallTool dans une goroutine et rend la main au plus tard
+// callGrace après l'expiration de ctx. Si l'appel est toujours en cours, ok
+// est faux et done recevra son issue.
+func (t *mcpTool) call(ctx context.Context, args []byte) (out callOut, done <-chan callOut, ok bool) {
+	ch := make(chan callOut, 1)
+	go func() {
+		res, err := t.srv.session.CallTool(ctx, &sdk.CallToolParams{Name: t.tool, Arguments: json.RawMessage(args)})
+		ch <- callOut{res, err}
+	}()
+	select {
+	case o := <-ch:
+		return o, ch, true
+	case <-ctx.Done():
+	}
+	select {
+	case o := <-ch:
+		return o, ch, true
+	case <-time.After(callGrace):
+		return callOut{}, ch, false
+	}
 }
 
 // codeRejected est le code JSON-RPC par lequel le SDK signale une requête

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -20,6 +21,7 @@ import (
 
 	"codeberg.org/tenon/tenon/internal/config"
 	"codeberg.org/tenon/tenon/internal/llm"
+	"codeberg.org/tenon/tenon/internal/mcp/mcptest"
 	"codeberg.org/tenon/tenon/internal/tools"
 )
 
@@ -649,5 +651,56 @@ func TestKillStopsStdio(t *testing.T) {
 	// Après Kill, un appel n'est pas signalé comme panne du serveur.
 	if res := run(t, toolByName(t, m, "mcp__srv__echo"), `{"text":"x"}`); res.ServerDown != "" {
 		t.Fatalf("ServerDown après Kill : %+v", res)
+	}
+}
+
+// Un serveur stdio qui ne lit plus son entrée bloque l'écriture d'un gros
+// appel : Run rend quand même la main, le serveur est marqué hors service et
+// son groupe de processus est tué.
+func TestStuckStdioCallKilled(t *testing.T) {
+	log := filepath.Join(t.TempDir(), "mcp.log")
+	srv, getenv := stdioServer(t, "srv", "deaf", map[string]string{mcptest.EnvLog: log})
+	srv.EnvFrom = append(srv.EnvFrom, mcptest.EnvLog)
+	m, down := start(t, []config.MCPServer{srv}, Options{Getenv: getenv, CallTimeout: 300 * time.Millisecond})
+	if len(down) != 0 {
+		t.Fatalf("down %v", down)
+	}
+	tl := toolByName(t, m, "mcp__srv__echo")
+	args := `{"text":"` + strings.Repeat("a", 300<<10) + `"}`
+	done := make(chan tools.Result, 1)
+	t0 := time.Now()
+	go func() {
+		res, _ := tl.Run(context.Background(), json.RawMessage(args))
+		done <- res
+	}()
+	select {
+	case res := <-done:
+		if el := time.Since(t0); el > 3*time.Second {
+			t.Fatalf("Run trop long : %v", el)
+		}
+		if !res.IsError || res.ServerDown != "srv" || !strings.Contains(res.Content, "délai") {
+			t.Fatalf("résultat %+v", res)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Run toujours bloqué après 10 s")
+	}
+	if res := run(t, tl, `{"text":"x"}`); !res.IsError || res.Content != "serveur MCP srv indisponible" || res.ServerDown != "" {
+		t.Fatalf("appel suivant %+v", res)
+	}
+	b, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, err := strconv.Atoi(strings.TrimPrefix(strings.SplitN(string(b), "\n", 2)[0], "pid "))
+	if err != nil {
+		t.Fatalf("journal %q", b)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for !errors.Is(syscall.Kill(pid, 0), syscall.ESRCH) {
+		if time.Now().After(deadline) {
+			_ = syscall.Kill(pid, syscall.SIGKILL)
+			t.Fatalf("serveur %d toujours vivant", pid)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }

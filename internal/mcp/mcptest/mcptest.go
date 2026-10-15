@@ -6,6 +6,7 @@
 package mcptest
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -45,6 +46,8 @@ func textResult(s string) *sdk.CallToolResult {
 
 // Serve joue un serveur MCP stdio selon mode :
 //   - "hang" : ne répond jamais à initialize ;
+//   - "deaf" : répond à initialize et tools/list (outil echo), puis cesse
+//     à jamais de lire son entrée standard ;
 //   - "hostile" : outil au nom et à la description hostiles ;
 //   - "badschema" : outils echo et bad (schéma invalide) ;
 //   - "stubborn" : outils par défaut, mais ignore SIGTERM et survit à la
@@ -56,6 +59,10 @@ func textResult(s string) *sdk.CallToolResult {
 func Serve(mode string) {
 	if mode == "hang" {
 		time.Sleep(time.Hour)
+		return
+	}
+	if mode == "deaf" {
+		serveDeaf()
 		return
 	}
 	s := sdk.NewServer(&sdk.Implementation{Name: "test", Version: "1"}, nil)
@@ -125,5 +132,58 @@ func Serve(mode string) {
 	_ = s.Run(context.Background(), &sdk.StdioTransport{})
 	if mode == "stubborn" {
 		time.Sleep(time.Hour)
+	}
+}
+
+// serveDeaf mène la poignée de main à la main (JSON-RPC ligne à ligne), sert
+// tools/list puis ne lit plus jamais l'entrée standard : une écriture de
+// plus d'un tampon de pipe du client y reste bloquée.
+func serveDeaf() {
+	if log := os.Getenv(EnvLog); log != "" {
+		if f, err := os.OpenFile(log, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
+			fmt.Fprintf(f, "pid %d\n", os.Getpid())
+			_ = f.Close()
+		}
+	}
+	in := bufio.NewReader(os.Stdin)
+	reply := func(id json.RawMessage, result any) {
+		b, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": id, "result": result})
+		_, _ = os.Stdout.Write(append(b, '\n'))
+	}
+	for {
+		line, err := in.ReadBytes('\n')
+		if err != nil {
+			return
+		}
+		var msg struct {
+			ID     json.RawMessage `json:"id"`
+			Method string          `json:"method"`
+			Params struct {
+				ProtocolVersion string `json:"protocolVersion"`
+			} `json:"params"`
+		}
+		if json.Unmarshal(line, &msg) != nil {
+			continue
+		}
+		switch msg.Method {
+		case "initialize":
+			reply(msg.ID, map[string]any{
+				"protocolVersion": msg.Params.ProtocolVersion,
+				"capabilities":    map[string]any{"tools": map[string]any{}},
+				"serverInfo":      map[string]any{"name": "deaf", "version": "1"},
+			})
+		case "tools/list":
+			reply(msg.ID, map[string]any{"tools": []any{map[string]any{
+				"name": "echo", "inputSchema": objectSchema,
+			}}})
+			time.Sleep(time.Hour) // plus aucune lecture
+			return
+		default:
+			if len(msg.ID) > 0 { // requête inconnue (server/discover…) : méthode absente
+				b, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": msg.ID,
+					"error": map[string]any{"code": -32601, "message": "method not found"}})
+				_, _ = os.Stdout.Write(append(b, '\n'))
+			}
+		}
 	}
 }
