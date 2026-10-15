@@ -25,9 +25,19 @@ import (
 )
 
 // permPrompt est une demande de permission en attente de réponse. L'aperçu
-// du diff est calculé une seule fois, à la création.
+// du diff est calculé une seule fois, hors de Update (lecture du fichier
+// courant) ; tant qu'il n'est pas prêt, seul le refus agit.
 type permPrompt struct {
 	p      event.PermissionRequestedPayload
+	ready  bool
+	lines  []diff.Line
+	more   int
+	binary bool
+}
+
+// previewMsg porte l'aperçu calculé pour la demande pr.
+type previewMsg struct {
+	pr     *permPrompt
 	lines  []diff.Line
 	more   int
 	binary bool
@@ -84,8 +94,10 @@ func (m *Model) rearmIf(before bool) {
 // prompting indique qu'une demande de permission est affichée.
 func (m Model) prompting() bool { return len(m.prompts) > 0 }
 
-// trackEvent tient à jour les appels en attente et la file des demandes.
-func (m *Model) trackEvent(ev event.Event) {
+// trackEvent tient à jour les appels en attente et la file des demandes ;
+// la commande renvoyée calcule l'aperçu d'une nouvelle demande.
+func (m *Model) trackEvent(ev event.Event) tea.Cmd {
+	var cmd tea.Cmd
 	switch ev.Type {
 	case event.ToolCallRequested:
 		var p event.ToolCallRequestedPayload
@@ -101,9 +113,11 @@ func (m *Model) trackEvent(ev event.Event) {
 		var p event.PermissionRequestedPayload
 		if err := json.Unmarshal(ev.Payload, &p); err != nil {
 			m.tr.decodeFailed(ev)
-			return
+			return nil
 		}
-		m.prompts = append(m.prompts, m.newPrompt(p))
+		var pr *permPrompt
+		pr, cmd = m.newPrompt(p)
+		m.prompts = append(m.prompts, pr)
 	case event.PermissionResolved:
 		var p event.PermissionResolvedPayload
 		if json.Unmarshal(ev.Payload, &p) == nil {
@@ -113,6 +127,23 @@ func (m *Model) trackEvent(ev event.Event) {
 		m.endTurn()
 	}
 	m.syncShown()
+	return cmd
+}
+
+// applyPreview applique un aperçu calculé, si sa demande est encore en
+// attente ; le délai d'acceptation est réarmé si elle est affichée, son
+// contenu venant de changer.
+func (m *Model) applyPreview(msg previewMsg) {
+	for _, p := range m.prompts {
+		if p != msg.pr {
+			continue
+		}
+		p.lines, p.more, p.binary, p.ready = msg.lines, msg.more, msg.binary, true
+		if p == m.prompts[0] {
+			m.armedAt = m.now()
+		}
+		return
+	}
 }
 
 // endTurn écarte les demandes et appels restants : l'engine les a oubliés.
@@ -140,22 +171,31 @@ func (m *Model) dropPrompt(id string) {
 	}
 }
 
-// newPrompt crée la demande et, pour un outil d'écriture, calcule l'aperçu.
-func (m Model) newPrompt(p event.PermissionRequestedPayload) *permPrompt {
-	pr := &permPrompt{p: p}
-	if p.Kind != "tool" {
-		return pr
+// newPrompt crée la demande et, pour un outil d'écriture dont l'appel est
+// connu, la commande qui calcule l'aperçu hors de Update : la lecture du
+// fichier courant peut bloquer (montage figé).
+func (m Model) newPrompt(p event.PermissionRequestedPayload) (*permPrompt, tea.Cmd) {
+	pr := &permPrompt{p: p, ready: true}
+	if p.Kind != "tool" || (p.Tool != "write_file" && p.Tool != "edit_file") {
+		return pr, nil
 	}
-	if args := m.matchArgs(p); args != nil {
-		lines, more, err := diff.Preview(p.Tool, args, m.opts.ProjectRoot)
+	args := m.matchArgs(p)
+	if args == nil {
+		return pr, nil
+	}
+	pr.ready = false
+	tool, root := p.Tool, m.opts.ProjectRoot
+	return pr, func() tea.Msg {
+		msg := previewMsg{pr: pr}
+		lines, more, err := diff.Preview(tool, args, root)
 		switch {
 		case errors.Is(err, diff.ErrBinary):
-			pr.binary = true
+			msg.binary = true
 		case err == nil:
-			pr.lines, pr.more = lines, more
+			msg.lines, msg.more = lines, more
 		}
+		return msg
 	}
-	return pr
 }
 
 // matchArgs renvoie les arguments de l'appel en attente le plus récent dont
@@ -251,8 +291,8 @@ func (m *Model) answer(r engine.Reply) {
 // approvable indique que la demande affichée peut être acceptée : la largeur
 // suffit et l'image rendue pour la taille courante montre la commande
 // entière, tous les chemins (ou le texte entier de la juridiction), sans
-// regroupement de lignes vides. Seules les lignes du diff peuvent être
-// coupées. Sinon les touches d'acceptation sont ignorées ; les refus
+// regroupement de lignes vides, et l'aperçu du diff est calculé. Seules les
+// lignes du diff peuvent être coupées. Sinon les touches d'acceptation sont ignorées ; les refus
 // agissent. View et le traitement des touches s'appuient tous deux sur ce
 // calcul.
 func (m Model) approvable() bool {
@@ -293,7 +333,7 @@ func (m Model) promptPanel() panel {
 
 	if m.width >= minApproveWidth {
 		if out, ok := m.fullPanel(p, top, keyLines, avail); ok {
-			return panel{lines: out, approvable: true}
+			return panel{lines: out, approvable: p.ready}
 		}
 		hintKey := "tui.perm.too_small"
 		if p.p.Command != "" {
@@ -440,6 +480,9 @@ func collapseBlank(s string) string {
 // bodyLines rend le corps de la demande : marqueur binaire et lignes du diff.
 func (m Model) bodyLines(p *permPrompt) []string {
 	var out []string
+	if !p.ready {
+		out = append(out, m.st.notice.Render(m.truncate(i18n.T(m.lang, "tui.perm.preview_loading"))))
+	}
 	if p.binary {
 		out = append(out, m.st.notice.Render(m.truncate(i18n.T(m.lang, "tui.perm.binary"))))
 	}

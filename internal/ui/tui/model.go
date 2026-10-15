@@ -260,10 +260,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.userSeen = true
 		}
 		m.tr.Apply(event.Event(msg))
-		m.trackEvent(event.Event(msg))
+		preview := m.trackEvent(event.Event(msg))
 		// La lecture n'est jamais suspendue, même pendant une demande de
 		// permission : l'engine bloquerait sur un tampon plein.
-		return m, readEvent(m.sub)
+		return m, tea.Batch(readEvent(m.sub), preview)
+	case previewMsg:
+		m.applyPreview(msg)
+		return m, nil
 	case subscriptionClosed:
 		return m, nil
 	case submitDone:

@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 )
 
 // Kind qualifie une ligne du diff.
@@ -184,6 +185,10 @@ func truncate(l []Line) ([]Line, int) {
 	return l[:MaxLines], len(l) - MaxLines
 }
 
+// beforeOpen est appelé entre la vérification et l'ouverture du fichier.
+// Réservé aux tests (remplacement du fichier pendant la course) ; nil sinon.
+var beforeOpen func(path string)
+
 // readCurrent lit le contenu actuel d'un fichier sans jamais écrire. Les liens
 // symboliques sont suivis (l'écriture atterrit sur la cible). Un fichier absent,
 // non régulier (FIFO, périphérique, répertoire, y compris via un lien) ou
@@ -193,7 +198,12 @@ func readCurrent(path string) (content string, huge bool) {
 	if err != nil || !fi.Mode().IsRegular() {
 		return "", false
 	}
-	f, err := os.Open(path)
+	if beforeOpen != nil {
+		beforeOpen(path)
+	}
+	// O_NONBLOCK : un fichier remplacé entre-temps par une FIFO sans
+	// écrivain ne bloque pas l'ouverture (sans effet sur un fichier régulier).
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return "", false
 	}

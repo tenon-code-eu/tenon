@@ -26,7 +26,7 @@ func askPermNow(t *testing.T, h *harness, f *fakeEngine, p event.PermissionReque
 	t.Helper()
 	n := len(h.m.prompts)
 	f.emit(t, event.PermissionRequested, p)
-	h.until("demande affichée", func() bool { return len(h.m.prompts) == n+1 })
+	h.until("demande affichée", func() bool { return len(h.m.prompts) == n+1 && h.m.prompts[n].ready })
 }
 
 // askPerm fait comme askPermNow puis avance l'horloge au-delà du délai
@@ -676,4 +676,40 @@ func TestHiddenPathDenyOnly(t *testing.T) {
 	if got := f.answered(); len(got) != 0 {
 		t.Fatalf("chemins masqués acceptés : %v", got)
 	}
+}
+
+// L'aperçu du diff est calculé hors de Update : tant qu'il n'est pas
+// appliqué, le panneau l'indique et seul le refus agit.
+func TestPreviewAsync(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "f.txt"), []byte("ancien\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f := newFake()
+	h := newHarness(t, f, Options{Lang: i18n.FR, ProjectRoot: root})
+	h.send(tea.WindowSizeMsg{Width: 80, Height: 30})
+	args, _ := json.Marshal(map[string]string{"path": "f.txt", "content": "nouveau\n"})
+	f.emit(t, event.ToolCallRequested, event.ToolCallRequestedPayload{CallID: "c1", Tool: "write_file", Args: args})
+	h.until("appel suivi", func() bool { return len(h.m.calls) == 1 })
+	// La demande est appliquée sans exécuter les commandes produites.
+	cmd := h.update(eventMsg(ev(t, event.PermissionRequested, event.PermissionRequestedPayload{
+		PermissionID: "p1", Kind: "tool", Tool: "write_file", Paths: []string{filepath.Join(root, "f.txt")},
+	})))
+	v := h.m.View()
+	if !strings.Contains(v, i18n.T(i18n.FR, "tui.perm.preview_loading")) || strings.Contains(v, "+ nouveau") {
+		t.Fatalf("aperçu calculé dans Update :\n%s", v)
+	}
+	h.clk = h.clk.Add(time.Second)
+	h.send(runeKey('o'))
+	if got := f.answered(); len(got) != 0 {
+		t.Fatalf("acceptation avant l'aperçu : %v", got)
+	}
+	h.run(cmd)
+	h.until("aperçu appliqué", func() bool { return strings.Contains(h.m.View(), "+ nouveau") })
+	if strings.Contains(h.m.View(), i18n.T(i18n.FR, "tui.perm.preview_loading")) {
+		t.Fatal("indication de calcul toujours affichée")
+	}
+	quiet(h)
+	h.send(runeKey('o'))
+	wantReply(t, f, "p1", engine.Reply{Allow: true})
 }
