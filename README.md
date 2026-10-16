@@ -19,6 +19,28 @@ tenon fonctionne sous Linux et macOS.
 
 ## Installation
 
+### Homebrew (macOS, Linux)
+
+```
+brew install tenon-code-eu/tap/tenon
+```
+
+### Script d'installation (Linux, macOS)
+
+```
+curl -fsSL https://raw.githubusercontent.com/tenon-code-eu/tenon/main/install.sh | sh
+```
+
+Le script installe la dernière version dans `~/.local/bin` (dossier modifiable avec `TENON_INSTALL_DIR`, version fixée avec `TENON_VERSION=vX.Y.Z`).
+Il vérifie toujours l'empreinte SHA-256 de l'archive, et la signature minisign si `minisign` est installé (`TENON_REQUIRE_SIGNATURE=1` la rend obligatoire).
+Lisez-le avant de l'exécuter : [install.sh](install.sh).
+
+### Avec Go
+
+```
+go install github.com/tenon-code-eu/tenon/cmd/tenon@latest
+```
+
 ### Binaires
 
 Chaque version publiée sur la page [Releases GitHub](https://github.com/tenon-code-eu/tenon/releases) fournit :
@@ -100,6 +122,7 @@ It reads your project, proposes changes and runs commands under your control.
 - Secrets and some personal data are masked before anything leaves your machine.
 - Commits containing agent-written code can carry `AI-Assisted-By` trailers (`tenon git install-hook`).
 
+Install: `brew install tenon-code-eu/tap/tenon`, or `curl -fsSL https://raw.githubusercontent.com/tenon-code-eu/tenon/main/install.sh | sh`.
 Quick start: `tenon key set mistral`, then `tenon` (interactive) or `tenon -p "<prompt>"` (scripts).
 Use `--lang en` or `lang = "en"` in the configuration for an English interface.
 The documentation is in French: [usage](docs/utilisation.md), [security and limits](docs/securite.md), [example configuration](docs/config.example.toml).

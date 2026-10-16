@@ -47,6 +47,8 @@ Une version qui ne remplit pas un point n'est pas publiée.
 - [ ] Joindre les archives, les paquets, le SBOM, `SHA256SUMS` et `SHA256SUMS.minisig`.
 - [ ] Notes de version : changements visibles, changements de configuration, limites connues nouvelles ou levées.
 - [ ] Télécharger un artefact depuis la forge et refaire la vérification (signature, empreinte, `tenon --version`).
+- [ ] Mettre à jour le tap Homebrew (dépôt `tenon-code-eu/homebrew-tap`) : `sh scripts/homebrew-formula.sh vX.Y.Z > <tap>/Formula/tenon.rb`, commit, push ; puis `brew update && brew upgrade tenon && tenon --version`.
+- [ ] Vérifier le script d'installation : `TENON_INSTALL_DIR=$(mktemp -d) sh install.sh` installe la nouvelle version (signature et empreinte vérifiées).
 
 ## Sources vérifiées
 
