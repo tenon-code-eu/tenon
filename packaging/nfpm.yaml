@@ -8,8 +8,7 @@ version: "${NFPM_VERSION}"
 version_schema: semver
 section: devel
 priority: optional
-# Valeur provisoire : à remplacer par le vrai mainteneur avant publication (RELEASE.md).
-maintainer: "Projet tenon <noreply@digicactus.com>"
+maintainer: "Projet tenon <oussamaabai@gmail.com>"
 description: |
   Agent de code en terminal, souverain et auto-hébergeable.
   Client d'un fournisseur de modèles compatible OpenAI choisi par l'utilisateur.
