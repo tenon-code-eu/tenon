@@ -98,3 +98,13 @@ func TestIsBuiltin(t *testing.T) {
 		t.Fatal("IsBuiltin")
 	}
 }
+
+func TestPromptSectionFR(t *testing.T) {
+	r := t.TempDir()
+	writeSkill(t, r, "review", "name: review\ndescription: Review code", "b")
+	c, _ := Discover([]Dir{{r, User}})
+	s, _ := c.PromptSection(i18n.FR, 8000)
+	if !strings.HasPrefix(s, "## Skills disponibles\n") {
+		t.Fatalf("%q", s)
+	}
+}

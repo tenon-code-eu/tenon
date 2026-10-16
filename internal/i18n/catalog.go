@@ -103,7 +103,7 @@ var catalog = map[Lang]map[string]string{
 		"flag.provider":                     "identifiant du fournisseur (défaut : default_provider)",
 		"flag.lang":                         "langue de l'interface : fr ou en (défaut : lang de la configuration)",
 		"flag.resume":                       "reprendre une session : son identifiant ou last (interface interactive, ou avec -p)",
-		"skills.prompt_header":              "## Available skills\nAppelez l'outil `skill` avec le nom d'un skill avant d'agir quand sa description correspond à la demande.",
+		"skills.prompt_header":              "## Skills disponibles\nAppelez l'outil `skill` avec le nom d'un skill avant d'agir quand sa description correspond à la demande.",
 		"skills.unknown":                    "skill ou commande inconnu : %s",
 		"skills.banner":                     "skills : %d (projet : %d)",
 		"skills.dropped":                    "%d skills omis du prompt (limite de taille)",
