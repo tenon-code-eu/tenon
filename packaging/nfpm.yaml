@@ -10,8 +10,8 @@ section: devel
 priority: optional
 maintainer: "Projet tenon <oussamaabai@gmail.com>"
 description: |
-  Agent de code en terminal, souverain et auto-hébergeable.
-  Client d'un fournisseur de modèles compatible OpenAI choisi par l'utilisateur.
+  Sovereign, self-hostable terminal coding agent.
+  Client of an OpenAI-compatible model provider chosen by the user.
 homepage: https://github.com/tenon-code-eu/tenon
 license: EUPL-1.2
 contents:

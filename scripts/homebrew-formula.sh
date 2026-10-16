@@ -26,7 +26,7 @@ url="https://github.com/$REPO/releases/download/$VERSION"
 cat <<EOF
 # Fichier généré par scripts/homebrew-formula.sh (dépôt $REPO) : ne pas modifier.
 class Tenon < Formula
-  desc "Agent de code en terminal, souverain et auto-hébergeable"
+  desc "Sovereign, self-hostable terminal coding agent"
   homepage "https://github.com/$REPO"
   version "${VERSION#v}"
   license "EUPL-1.2"
@@ -55,7 +55,8 @@ class Tenon < Formula
 
   def install
     bin.install "tenon"
-    doc.install "README.md", "docs/utilisation.md", "docs/securite.md", "docs/config.example.toml"
+    doc.install "README.md"
+    doc.install Dir["docs/*"]
   end
 
   test do

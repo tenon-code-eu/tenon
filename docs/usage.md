@@ -1,10 +1,8 @@
 # Usage guide
 
-*English translation of [the French reference](../utilisation.md). If the two differ, the French version is authoritative.*
-
 This guide describes the behavior of tenon as it is coded today.
 For security guarantees and limits, see [security.md](security.md).
-For a commented configuration example, see [config.example.toml](../config.example.toml).
+For a commented configuration example, see [config.example.toml](config.example.toml).
 
 ## Contents
 
@@ -27,16 +25,16 @@ For a commented configuration example, see [config.example.toml](../config.examp
 tenon [--resume <id|last>] [--lang fr|en] [--allow-non-eu] [--provider <id>]
 tenon -p "<prompt>" [--resume <id|last>] [--lang fr|en] [--output text|json] [--allow-non-eu] [--provider <id>]
 tenon sessions [--lang fr|en]
-tenon key set|delete <fournisseur>
+tenon key set|delete <provider>
 tenon audit verify
 tenon config check
 tenon git install-hook [--force]
-tenon git mark <fichier-message>
+tenon git mark <message-file>
 tenon --version
 tenon --help
 ```
 
-In the synopsis, `<fournisseur>` is the provider id and `<fichier-message>` is the commit message file.
+In the synopsis, `<provider>` is the provider ID and `<message-file>` is the commit message file.
 
 | Option | Effect |
 |---|---|
@@ -83,10 +81,10 @@ After that, it exits with code 1.
 When the agent wants to write, run a command or go outside the project, a panel replaces the input area.
 It shows the tool, the full command or the paths, and a preview of the change for `write_file` and `edit_file`.
 
-| Answer | French | English |
+| Answer | English | French |
 |---|---|---|
-| Yes, once | `o` | `y` |
-| Yes for the session | `s` | `a` |
+| Yes, once | `y` | `o` |
+| Yes for the session | `a` | `s` |
 | No | `n` | `n` |
 
 Esc also denies the request.
@@ -123,11 +121,9 @@ For an MCP tool, the panel shows the server, its country and its jurisdiction.
 ## Non-interactive mode
 
 ```
-tenon -p "corrige les tests qui échouent"
-tenon -p "résume ce dépôt" --output json
+tenon -p "fix the failing tests"
+tenon -p "summarize this repository" --output json
 ```
-
-(The example prompts mean "fix the failing tests" and "summarize this repository".)
 
 Any action that would need an approval is **denied**.
 Only reads inside the project and actions covered by an `allow` rule run.
@@ -155,13 +151,11 @@ Each conversation is saved, redacted, in `$XDG_DATA_HOME/tenon/sessions/<id>.jso
 An identifier has the form `s_` followed by 12 hexadecimal characters.
 
 ```
-tenon sessions                 # sessions du projet courant, la plus récente d'abord
-tenon --resume last            # reprend la plus récente
-tenon --resume s_0123456789ab  # reprend une session précise
+tenon sessions                 # sessions of the current project, most recent first
+tenon --resume last            # resumes the most recent one
+tenon --resume s_0123456789ab  # resumes a specific session
 tenon --resume last -p "continue"
 ```
-
-(The comments mean: sessions of the current project, most recent first; resumes the most recent one; resumes a specific session.)
 
 For each session, `tenon sessions` shows: identifier, update date, number of turns, first message.
 
@@ -177,9 +171,12 @@ The language of the interface and of the system prompt is, in order of priority:
 
 1. the `--lang fr|en` option;
 2. the `lang` key of the project configuration, then of the global configuration;
-3. `en` if `$LANG` starts with `en`, otherwise `fr`.
+3. otherwise English (`en`).
 
-The approval keys follow the language: `o`/`s`/`n` in French, `y`/`a`/`n` in English.
+The default is English.
+For French, set `lang = "fr"` in the configuration or run with `--lang fr`.
+
+The approval keys follow the language: `y`/`a`/`n` in English, `o`/`s`/`n` in French.
 
 ## Configuration
 
@@ -197,7 +194,7 @@ Default values:
 
 | Key | Default |
 |---|---|
-| `lang` | depends on `$LANG` (see [Language](#language)) |
+| `lang` | `"en"` (see [Language](#language)) |
 | `default_provider` | `"mistral"` |
 | `max_iterations` | `50` |
 | `shell_timeout` | `"2m"` |
@@ -229,12 +226,10 @@ A global `ask` rule, however, is evaluated after the `allow` rules.
 
 ```toml
 [[permissions.rules]]
-tool = "shell"          # ou read_file, write_file, edit_file, grep, glob, mcp__<serveur>__<outil>, "*"
-match = "go test *"     # * = toute suite de caractères ; vide = tout appel de l'outil
-decision = "allow"      # allow, ask ou deny
+tool = "shell"          # or read_file, write_file, edit_file, grep, glob, mcp__<server>__<tool>, "*"
+match = "go test *"     # * = any sequence of characters; empty = every call of the tool
+decision = "allow"      # allow, ask or deny
 ```
-
-(The comments mean: `tool` is `shell` or one of the other listed tools, or `"*"`; in `match`, `*` matches any sequence of characters and an empty value matches every call of the tool; `decision` is `allow`, `ask` or `deny`.)
 
 Evaluation order:
 
@@ -252,7 +247,7 @@ The compared text depends on the tool:
 |---|---|
 | `read_file`, `write_file`, `edit_file`, `grep`, `glob` | the path, relative to the project root |
 | `shell` | the command, as is |
-| `mcp__<serveur>__<outil>` | `mcp <serveur>.<outil> <arguments JSON compacts>` (server, tool, compact JSON arguments), for example `mcp gh.create_issue {"title":"x"}` |
+| `mcp__<server>__<tool>` | `mcp <server>.<tool> <compact JSON arguments>`, for example `mcp gh.create_issue {"title":"x"}` |
 
 So a path pattern does not apply to commands: `tool = "*"`, `match = "secrets/*"` blocks `read_file secrets/k`, but not the command `cat secrets/k`.
 To protect a directory, combine a path rule and a shell rule:
@@ -260,16 +255,14 @@ To protect a directory, combine a path rule and a shell rule:
 ```toml
 [[permissions.rules]]
 tool = "*"
-match = "secrets/*"     # outils de fichiers
+match = "secrets/*"     # file tools
 decision = "deny"
 
 [[permissions.rules]]
 tool = "shell"
-match = "*secrets/*"    # toute commande qui cite secrets/
+match = "*secrets/*"    # any command that mentions secrets/
 decision = "deny"
 ```
-
-(The comments mean: file tools; any command that mentions secrets/.)
 
 Even so, `cd secrets && cat k` or `cat secr*/k` get through: permissions filter calls, they are not a sandbox (see [security.md](security.md#permissions-are-not-a-sandbox)).
 
@@ -301,7 +294,7 @@ A `[[providers]]` block that reuses the `id` of a preset replaces the whole pres
 
 Sending to a `non-eu` provider:
 
-- **interactive interface**: before the first send, tenon asks "send the conversation to …?" (`o` or `n`). The consent is valid until the end of the run. After an `o`, the outside-EU warning (`JurisdictionWarning`) is also shown and recorded in the log.
+- **interactive interface**: before the first send, tenon asks "send the conversation to …?" (`y` or `n`; `o` or `n` in French). The consent is valid until the end of the run. After a yes, the outside-EU warning (`JurisdictionWarning`) is also shown and recorded in the log.
 - **non-interactive mode**: sending is blocked (code 3) without `--allow-non-eu`.
 - with `--allow-non-eu`: no question; a warning is shown and recorded in the log.
 
@@ -352,12 +345,10 @@ tenon looks for the provider key:
 2. otherwise in the system keyring (Keychain on macOS, Secret Service on Linux), service `tenon`, account = provider identifier.
 
 ```
-tenon key set mistral      # demande la clé sans l'afficher
-echo "$CLE" | tenon key set mistral
+tenon key set mistral      # asks for the key without showing it
+echo "$KEY" | tenon key set mistral
 tenon key delete mistral
 ```
-
-(The comment means: asks for the key without showing it.)
 
 The provider must exist in the configuration.
 An empty value is refused.
@@ -368,9 +359,9 @@ The keys of all configured providers, from the environment or from the keyring, 
 ## MCP servers
 
 You declare MCP servers **only in the global configuration**.
-See the two examples in [config.example.toml](../config.example.toml).
+See the two examples in [config.example.toml](config.example.toml).
 
-Their tools are offered to the model under the name `mcp__<serveur>__<outil>` (server, tool).
+Their tools are offered to the model under the name `mcp__<server>__<tool>`.
 By default, each call requests an approval. `risk = "read"` allows them without a request.
 The panel shows the arguments of a call in full.
 A call whose arguments contain a redaction marker (`[SECRET_1]`…) is denied.
@@ -409,11 +400,9 @@ The values of the `env_from` and `bearer_env` variables are redacted everywhere.
 ## Git marking of generated code
 
 ```
-tenon git install-hook          # dans le dépôt qui contient le dossier courant
-tenon git install-hook --force  # remplace un hook existant
+tenon git install-hook          # in the repository that contains the current directory
+tenon git install-hook --force  # replaces an existing hook
 ```
-
-(The comments mean: in the repository that contains the current directory; replaces an existing hook.)
 
 The command installs a git **`commit-msg`** hook (executable, `core.hooksPath` respected).
 If another `commit-msg` hook exists, it refuses without `--force`.
@@ -425,11 +414,9 @@ This command compares the staged files with the files that the agent wrote succe
 If it finds a match, it adds at the end of the message:
 
 ```
-AI-Assisted-By: tenon (<modèle>, <fournisseur>, <pays>)
-AI-Session: <identifiant de session>
+AI-Assisted-By: tenon (<model>, <provider>, <country>)
+AI-Session: <session ID>
 ```
-
-(The placeholders are the model, the provider, the country and the session identifier.)
 
 Several lines can appear: one `AI-Assisted-By` line per distinct (model, provider, country) triplet, and one `AI-Session` line per session concerned.
 The trailers contain no secret and no file content.
@@ -449,14 +436,14 @@ Special cases:
 
 ## Audit log
 
-Each event is appended to the log `$XDG_DATA_HOME/tenon/audit/AAAA-MM-JJ.jsonl` (`AAAA-MM-JJ` is the date, YYYY-MM-DD).
+Each event is appended to the log `$XDG_DATA_HOME/tenon/audit/YYYY-MM-DD.jsonl`.
 Each line contains the hash of the previous line: the chain continues from one file to the next.
 
 ```
 tenon audit verify
 ```
 
-The command shows `OK: <n> lines, last hash sha256:…`, or the first faulty line (`fichier:ligne`, that is file:line) with code 1.
+The command shows `OK: <n> lines, last hash sha256:…`, or the first faulty line (`file:line`) with code 1.
 Write down the last hash somewhere else: see [security.md](security.md#log-tail-truncation).
 
 If writing to the log fails, tenon runs no more actions.

@@ -1,7 +1,5 @@
 # Security, sovereignty and limits
 
-*English translation of [the French reference](../securite.md). If the two differ, the French version is authoritative.*
-
 This document states what tenon guarantees, and above all what it does not guarantee.
 It describes the behavior of the current code.
 The detailed user manual is in [usage.md](usage.md).
@@ -30,7 +28,7 @@ Consequences in tenon:
 
 ### Audit log
 
-- Each event (message, tool call, permission, result, error) is written to `~/.local/share/tenon/audit/AAAA-MM-JJ.jsonl` (the date, YYYY-MM-DD), with `fsync`.
+- Each event (message, tool call, permission, result, error) is written to `~/.local/share/tenon/audit/YYYY-MM-DD.jsonl`, with `fsync`.
 - Each line contains the SHA-256 hash of the previous line. The first line has `prev = "sha256:0"`.
 - `tenon audit verify` detects a line that was modified, inserted or deleted in the middle of the log.
 - The content is redacted before it is written. With `audit.level = "metadata"`, only the hash and the size of each payload are kept.
@@ -133,7 +131,7 @@ With the default Go configuration (without `GOPROXY=direct`), modules also go th
 
 ### Corrupted audit log
 
-Symptoms: `tenon audit verify` reports `fichier:ligne` (file:line), or tenon refuses to start with "dernière ligne du journal illisible, chaîne non reprise" (last log line unreadable, chain not resumed).
+Symptoms: `tenon audit verify` reports `file:line`, or tenon refuses to start with "dernière ligne du journal illisible, chaîne non reprise" (last log line unreadable, chain not resumed).
 
 Do not modify the log in place: it is evidence.
 

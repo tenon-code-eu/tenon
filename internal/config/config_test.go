@@ -22,8 +22,9 @@ func write(t *testing.T, content string) string {
 }
 
 func TestDefaults(t *testing.T) {
+	// Anglais par défaut, quelle que soit $LANG.
 	c := Defaults(env(map[string]string{"LANG": "fr_FR.UTF-8"}))
-	if c.Lang != "fr" || c.MaxIterations != 50 || c.ShellTimeout.Duration != 2*time.Minute ||
+	if c.Lang != "en" || c.MaxIterations != 50 || c.ShellTimeout.Duration != 2*time.Minute ||
 		c.OutputLimit != 30000 || c.Audit.Level != "full" || c.DefaultProvider != "mistral" {
 		t.Fatalf("défauts inattendus : %+v", c)
 	}
@@ -197,7 +198,7 @@ func TestShellTimeoutParsed(t *testing.T) {
 func TestMissingFilesUseDefaults(t *testing.T) {
 	d := t.TempDir()
 	c, err := Load(filepath.Join(d, "a.toml"), filepath.Join(d, "b.toml"), env(map[string]string{"LANG": "fr_FR"}))
-	if err != nil || c.MaxIterations != 50 || c.Lang != "fr" {
+	if err != nil || c.MaxIterations != 50 || c.Lang != "en" {
 		t.Fatalf("%+v %v", c, err)
 	}
 }

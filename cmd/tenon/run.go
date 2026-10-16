@@ -253,7 +253,7 @@ func argLang(args []string) string {
 }
 
 // uiLang renvoie la langue de l'interface : --lang, sinon lang de la
-// configuration (dont la valeur par défaut suit $LANG). Une configuration
+// configuration (anglais par défaut). Une configuration
 // illisible n'empêche pas de choisir une langue : son erreur sera signalée
 // plus loin. ok est faux si --lang n'est ni fr ni en.
 func uiLang(flagValue string, getenv func(string) string, wd string) (i18n.Lang, bool) {

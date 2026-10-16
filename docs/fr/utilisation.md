@@ -1,8 +1,10 @@
 # Guide d'utilisation
 
+*Traduction française de [la version anglaise](../usage.md). En cas de différence, la version anglaise fait foi.*
+
 Ce guide décrit le comportement de tenon tel qu'il est codé aujourd'hui.
 Pour les garanties et les limites de sécurité, voir [securite.md](securite.md).
-Pour un exemple de configuration commenté, voir [config.example.toml](config.example.toml).
+Pour un exemple de configuration commenté, voir [config.example.toml](../config.example.toml).
 
 ## Sommaire
 
@@ -95,7 +97,7 @@ Il n'est pas conservé quand une session est reprise.
 Pour éviter une acceptation par erreur, les touches d'acceptation sont ignorées tant que ces conditions ne sont pas réunies :
 
 - **Délai de calme de 500 ms.** Il faut 500 ms sans aucune touche depuis l'affichage de la demande et depuis la touche précédente. Toute touche, même ignorée, relance ce délai. Un collage n'est jamais une réponse.
-- **Commande entière visible.** Le titre, la commande complète, tous les chemins et les touches doivent tenir à l'écran. Seules les lignes de l'aperçu peuvent être coupées. Sinon le panneau affiche « commande trop longue pour être vérifiée » ou « agrandissez le terminal pour valider ».
+- **Commande entière visible.** Le titre, la commande complète, tous les chemins et les touches doivent tenir à l'écran. Seules les lignes de l'aperçu peuvent être coupées. Sinon le panneau affiche « commande trop longue pour être vérifiée : agrandissez le terminal ou refusez » ou « agrandissez le terminal pour valider ».
 - **Largeur d'au moins 40 colonnes.**
 - **Aperçu prêt.** Pendant son calcul, seul le refus agit.
 
@@ -169,7 +171,10 @@ La langue de l'interface et du prompt système est, par ordre de priorité :
 
 1. l'option `--lang fr|en` ;
 2. la clé `lang` de la configuration projet, puis globale ;
-3. `en` si `$LANG` commence par `en`, sinon `fr`.
+3. sinon l'anglais (`en`).
+
+La langue par défaut est l'anglais.
+Pour le français, mettez `lang = "fr"` dans la configuration ou lancez tenon avec `--lang fr`.
 
 Les touches de validation suivent la langue : `o`/`s`/`n` en français, `y`/`a`/`n` en anglais.
 
@@ -189,7 +194,7 @@ Valeurs par défaut :
 
 | Clé | Défaut |
 |---|---|
-| `lang` | selon `$LANG` (voir [Langue](#langue)) |
+| `lang` | `"en"` (voir [Langue](#langue)) |
 | `default_provider` | `"mistral"` |
 | `max_iterations` | `50` |
 | `shell_timeout` | `"2m"` |
@@ -354,7 +359,7 @@ Les clés de tous les fournisseurs configurés, issues de l'environnement ou du 
 ## Serveurs MCP
 
 Les serveurs MCP se déclarent **uniquement dans la configuration globale**.
-Voir les deux exemples dans [config.example.toml](config.example.toml).
+Voir les deux exemples dans [config.example.toml](../config.example.toml).
 
 Leurs outils sont proposés au modèle sous le nom `mcp__<serveur>__<outil>`.
 Par défaut, chaque appel demande une validation ; `risk = "read"` les autorise sans demande.
@@ -380,7 +385,7 @@ Un appel dont les arguments contiennent un marqueur de masquage (`[SECRET_1]`…
 ### Juridiction des serveurs
 
 Un serveur `non-eu` n'est **ni lancé ni contacté** sans `--allow-non-eu`.
-Il est signalé « hors UE ignoré : relancez avec --allow-non-eu ».
+Il est signalé « serveur MCP … hors UE ignoré : relancez avec --allow-non-eu ».
 En mode non interactif, ses outils n'existent pas et le code de sortie n'en dépend pas.
 
 `--allow-non-eu` vaut pour toute l'exécution, **pour les fournisseurs et pour les serveurs MCP**.

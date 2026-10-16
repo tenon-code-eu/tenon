@@ -1,49 +1,49 @@
-# Contribuer à tenon
+# Contributing to tenon
 
-Merci de votre intérêt.
-Les contributions sont acceptées en français ou en anglais.
+Thank you for your interest.
+Contributions are accepted in English or in French.
 
-## Avant de commencer
+## Before you start
 
-- Pour un bogue : ouvrez une issue avec les étapes pour reproduire et la sortie de `tenon --version`.
-- Pour une nouvelle fonction : ouvrez d'abord une issue pour en discuter.
-- Pour une vulnérabilité : ne passez pas par une issue, suivez [SECURITY.md](SECURITY.md).
+- For a bug: open an issue with the steps to reproduce and the output of `tenon --version`.
+- For a new feature: open an issue first to discuss it.
+- For a vulnerability: do not use an issue, follow [SECURITY.md](SECURITY.md).
 
-## Environnement
+## Environment
 
-- Go : dernier correctif de Go 1.26 (≥ 1.26.9).
-- Les dépendances sont vendorées : compilez avec `GOFLAGS=-mod=vendor`.
-- Linux ou macOS.
+- Go: latest Go 1.26 patch release (≥ 1.26.9).
+- The dependencies are vendored: build with `GOFLAGS=-mod=vendor`.
+- Linux or macOS.
 
 ```
 GOFLAGS=-mod=vendor go build -o tenon ./cmd/tenon
 ```
 
-## Vérifications
+## Checks
 
-Lancez avant chaque demande de fusion :
+Run before each pull request:
 
 ```
-make ci            # vet, tests avec -race, staticcheck, govulncheck
-make repro-check   # deux builds identiques octet pour octet
+make ci            # vet, tests with -race, staticcheck, govulncheck
+make repro-check   # two builds, identical byte for byte
 ```
 
-La CI lance les mêmes commandes.
+The CI runs the same commands.
 
-## Règles du projet
+## Project rules
 
-- Toute nouvelle fonction ou correction vient avec ses tests.
-- Une dépendance nouvelle doit être justifiée dans la demande de fusion, puis vendorée (`go mod vendor`).
-- Ne relâchez aucune garantie décrite dans [docs/securite.md](docs/securite.md) : validation des actions, masquage des secrets, journal d'audit, refus des envois hors de l'UE sans accord.
-- Les textes affichés passent par le catalogue i18n (français et anglais).
-- Aucun secret réel dans le code ni dans les tests : construisez les exemples de jetons par concaténation (`"ghp_" + strings.Repeat("a", 36)`).
+- Each new feature or fix comes with its tests.
+- A new dependency must be justified in the pull request, then vendored (`go mod vendor`).
+- Do not weaken any guarantee described in [docs/security.md](docs/security.md): approval of actions, redaction of secrets, audit log, refusal of data sent outside the EU without consent.
+- Displayed texts go through the i18n catalog (English and French).
+- No real secret in the code or in the tests: build example tokens by concatenation (`"ghp_" + strings.Repeat("a", 36)`).
 
 ## Commits
 
-- Un commit par changement cohérent, message au format `type(portée): résumé` (par exemple `fix(tui): …`).
-- Le code écrit avec un agent est signalé par le trailer `AI-Assisted-By` (voir `tenon git install-hook`).
+- One commit per coherent change, with a message in the format `type(scope): summary` (for example `fix(tui): …`).
+- Code written with an agent is flagged with the `AI-Assisted-By` trailer (see `tenon git install-hook`).
 
-## Licence
+## License
 
-tenon est distribué sous licence [EUPL-1.2](LICENSE).
-En proposant une contribution, vous acceptez qu'elle soit distribuée sous cette licence.
+tenon is distributed under the [EUPL-1.2](LICENSE) license.
+By submitting a contribution, you agree that it is distributed under this license.

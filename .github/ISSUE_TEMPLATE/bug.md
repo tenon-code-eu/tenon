@@ -1,20 +1,20 @@
 ---
-name: Bogue
-about: Signaler un comportement incorrect (pas une vulnérabilité, voir SECURITY.md)
-labels: bogue
+name: Bug
+about: Report incorrect behavior (not a vulnerability, see SECURITY.md)
+labels: bug
 ---
 
-**Version** (`tenon --version`) et système :
+**Version** (`tenon --version`) and operating system:
 
-**Fournisseur et modèle** (sans clé d'API) :
+**Provider and model** (without the API key):
 
-**Étapes pour reproduire** :
+**Steps to reproduce**:
 
 1.
 2.
 
-**Résultat attendu** :
+**Expected result**:
 
-**Résultat obtenu** (sortie, message d'erreur) :
+**Actual result** (output, error message):
 
-<!-- Ne collez aucune clé d'API, aucun secret ni aucune donnée personnelle. -->
+<!-- Do not paste any API key, secret or personal data. -->

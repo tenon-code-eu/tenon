@@ -1,89 +1,89 @@
-# Publier une version
+# Releasing a version
 
-Liste de contrôle pour les mainteneurs.
-Cochez chaque point avant de publier.
-Une version qui ne remplit pas un point n'est pas publiée.
+Checklist for maintainers.
+Check each item before you publish.
+A version that fails an item is not published.
 
-## 1. Avant le tag
+## 1. Before the tag
 
-- [ ] La branche à publier est à jour et la CI est verte (`make ci`, `make repro-check`).
-- [ ] Go = dernier correctif 1.26.x : la machine de release et les images CI (`golang:1.26.N` dans `.github/workflows/ci.yml`, `.forgejo/workflows/ci.yml` et `.woodpecker.yml`) utilisent le dernier correctif publié de Go 1.26 (≥ 1.26.9 au 2026-10-15). `govulncheck` signale les failles de la bibliothèque standard des correctifs antérieurs.
-- [ ] Le mainteneur des paquets (`maintainer` dans `packaging/nfpm.yaml`) est le vrai nom et une adresse de contact réelle, pas la valeur provisoire « Projet tenon <noreply@digicactus.com> ».
-- [ ] `GOFLAGS=-mod=vendor go test -race ./...` passe en local.
-- [ ] `LICENSE` est le texte officiel anglais de l'EUPL-1.2 publié par la Commission européenne. Source et date de la comparaison consignées dans la section [Sources vérifiées](#sources-vérifiées).
-- [ ] Pour chaque préréglage de `internal/config/presets.go` (`mistral`, `scaleway`, `ovhcloud`, `ollama`, `vllm`) :
-  - URL de base compatible OpenAI vérifiée dans la documentation officielle du fournisseur ;
-  - identifiant de modèle de code actuel vérifié ;
-  - fenêtre de contexte (`ContextWindow`) vérifiée ;
-  - source (URL et date) consignée ci-dessous.
-- [ ] Plus aucun `TODO(release)` dans `internal/config/presets.go`, ou chaque valeur restante est listée ci-dessous avec la raison.
-- [ ] Le nom `tenon` est disponible : organisation GitHub (`tenon-code-eu`), domaines `.fr` et `.eu`, marques INPI et EUIPO dans les classes logicielles.
-- [ ] `docs/config.example.toml` se charge (`TestConfigExampleLoads`) et la documentation (`README.md`, `docs/`) décrit le comportement de la version.
+- [ ] The branch to release is up to date and the CI is green (`make ci`, `make repro-check`).
+- [ ] Go = latest 1.26.x patch release: the release machine and the CI images (`golang:1.26.N` in `.github/workflows/ci.yml`, `.forgejo/workflows/ci.yml` and `.woodpecker.yml`) use the latest published Go 1.26 patch release (≥ 1.26.9 as of 2026-10-15). `govulncheck` reports the standard library vulnerabilities of earlier patch releases.
+- [ ] The package maintainer (`maintainer` in `packaging/nfpm.yaml`) is the real name and a real contact address, not the placeholder value "Projet tenon <noreply@digicactus.com>".
+- [ ] `GOFLAGS=-mod=vendor go test -race ./...` passes locally.
+- [ ] `LICENSE` is the official English text of the EUPL-1.2 published by the European Commission. Source and date of the comparison recorded in the [Verified sources](#verified-sources) section.
+- [ ] For each preset in `internal/config/presets.go` (`mistral`, `scaleway`, `ovhcloud`, `ollama`, `vllm`):
+  - OpenAI-compatible base URL verified in the provider's official documentation;
+  - current coding model ID verified;
+  - context window (`ContextWindow`) verified;
+  - source (URL and date) recorded below.
+- [ ] No `TODO(release)` left in `internal/config/presets.go`, or each remaining value is listed below with the reason.
+- [ ] The name `tenon` is available: GitHub organization (`tenon-code-eu`), `.fr` and `.eu` domains, INPI and EUIPO trademarks in the software classes.
+- [ ] `docs/config.example.toml` loads (`TestConfigExampleLoads`) and the documentation (`README.md`, `docs/`) describes the behavior of the version.
 
-## 2. Construction
+## 2. Build
 
-- [ ] Créer le tag annoté : `git tag -a vX.Y.Z -m "tenon vX.Y.Z"`. Un tag léger est refusé. Pour un essai à blanc, créer de même un tag annoté jetable (`git tag -a v0.0.0-test -m essai`) dans un clone, avec `ALLOW_VULN=1`.
-- [ ] Lancer `make release VERSION=vX.Y.Z` depuis un arbre propre, avec le dernier correctif publié de Go 1.26 (≥ 1.26.9 au 2026-10-15). La cible exécute d'abord `make vuln` : si `govulncheck` échoue, la release s'arrête.
-- [ ] **Ne jamais** utiliser `ALLOW_VULN=1` pour une vraie release. Cette variable ne sert qu'aux essais locaux : elle saute `make vuln`, écrit `dist/UNSAFE-DRY-RUN` et le script refuse alors de signer. Un `dist/` contenant ce fichier ne se publie pas.
-- [ ] Archives : générées avec GNU tar si `tar` ou `gtar` est GNU, sinon avec bsdtar (macOS) depuis un dossier d'assemblage à dates fixes. Les deux chemins sont déterministes, mais leurs octets peuvent différer : publier les archives d'une seule machine, et refaire la vérification de reproductibilité avec le même outil. Les implémentations de gzip diffèrent elles aussi : publier depuis un seul environnement documenté (système, versions de tar et de gzip).
-- [ ] Vérifier dans `dist/` :
-  - 4 archives `.tar.gz` (`linux/amd64`, `linux/arm64`, `darwin/amd64`, `darwin/arm64`) contenant `tenon`, `LICENSE`, `README.md` et `docs/` ;
-  - les paquets `.deb` et `.rpm` pour `linux/amd64` et `linux/arm64` ;
-  - le SBOM CycloneDX `tenon_<version>.cdx.json` ;
-  - `SHA256SUMS`, qui couvre tous les artefacts.
-- [ ] `./dist/…/tenon --version` affiche `tenon vX.Y.Z`.
-- [ ] Relancer `make release VERSION=vX.Y.Z` : `SHA256SUMS` est identique octet pour octet.
+- [ ] Create the annotated tag: `git tag -a vX.Y.Z -m "tenon vX.Y.Z"`. A lightweight tag is refused. For a dry run, create a throwaway annotated tag the same way (`git tag -a v0.0.0-test -m essai`) in a clone, with `ALLOW_VULN=1`.
+- [ ] Run `make release VERSION=vX.Y.Z` from a clean tree, with the latest published Go 1.26 patch release (≥ 1.26.9 as of 2026-10-15). The target first runs `make vuln`: if `govulncheck` fails, the release stops.
+- [ ] **Never** use `ALLOW_VULN=1` for a real release. This variable is only for local tests: it skips `make vuln`, writes `dist/UNSAFE-DRY-RUN`, and the script then refuses to sign. A `dist/` that contains this file is not published.
+- [ ] Archives: generated with GNU tar if `tar` or `gtar` is GNU, otherwise with bsdtar (macOS) from a staging directory with fixed dates. Both paths are deterministic, but their bytes can differ: publish the archives of a single machine, and redo the reproducibility check with the same tool. gzip implementations also differ: publish from a single documented environment (system, tar and gzip versions).
+- [ ] Check in `dist/`:
+  - 4 `.tar.gz` archives (`linux/amd64`, `linux/arm64`, `darwin/amd64`, `darwin/arm64`) that contain `tenon`, `LICENSE`, `README.md` and `docs/`;
+  - the `.deb` and `.rpm` packages for `linux/amd64` and `linux/arm64`;
+  - the CycloneDX SBOM `tenon_<version>.cdx.json`;
+  - `SHA256SUMS`, which covers all artifacts.
+- [ ] `./dist/…/tenon --version` prints `tenon vX.Y.Z`.
+- [ ] Run `make release VERSION=vX.Y.Z` again: `SHA256SUMS` is identical byte for byte.
 
 ## 3. Signature
 
-- [ ] Signer avec minisign : `MINISIGN_KEY=<chemin de la clé secrète> make release VERSION=vX.Y.Z`. Sans `MINISIGN_KEY`, la cible affiche « signature ignorée » : **ne pas publier** dans cet état. Avec `MINISIGN_KEY` mais sans `minisign` installé, la release échoue.
-- [ ] Vérifier la signature avec la clé publique publiée : `minisign -Vm dist/SHA256SUMS -p tenon.pub`.
-- [ ] La clé secrète n'a jamais quitté le poste du mainteneur ; elle n'est pas dans le dépôt ni dans la CI.
+- [ ] Sign with minisign: `MINISIGN_KEY=<path to the secret key> make release VERSION=vX.Y.Z`. Without `MINISIGN_KEY`, the target prints "signature ignorée" (signature skipped): **do not publish** in this state. With `MINISIGN_KEY` but without `minisign` installed, the release fails.
+- [ ] Verify the signature with the published public key: `minisign -Vm dist/SHA256SUMS -p tenon.pub`.
+- [ ] The secret key has never left the maintainer's machine; it is not in the repository nor in the CI.
 
-## 4. Publication sur la forge
+## 4. Publishing on the forge
 
-- [ ] Pousser le tag sur GitHub : `git push origin vX.Y.Z`.
-- [ ] Créer la version sur la forge à partir du tag.
-- [ ] Joindre les archives, les paquets, le SBOM, `SHA256SUMS` et `SHA256SUMS.minisig`.
-- [ ] Notes de version : changements visibles, changements de configuration, limites connues nouvelles ou levées.
-- [ ] Télécharger un artefact depuis la forge et refaire la vérification (signature, empreinte, `tenon --version`).
-- [ ] Mettre à jour le tap Homebrew (dépôt `tenon-code-eu/homebrew-tap`) : `sh scripts/homebrew-formula.sh vX.Y.Z > <tap>/Formula/tenon.rb`, commit, push ; puis `brew update && brew upgrade tenon && tenon --version`.
-- [ ] Vérifier le script d'installation : `TENON_INSTALL_DIR=$(mktemp -d) sh install.sh` installe la nouvelle version (signature et empreinte vérifiées).
+- [ ] Push the tag to GitHub: `git push origin vX.Y.Z`.
+- [ ] Create the release on the forge from the tag.
+- [ ] Attach the archives, the packages, the SBOM, `SHA256SUMS` and `SHA256SUMS.minisig`.
+- [ ] Release notes: visible changes, configuration changes, new or lifted known limits.
+- [ ] Download an artifact from the forge and redo the verification (signature, hash, `tenon --version`).
+- [ ] Update the Homebrew tap (repository `tenon-code-eu/homebrew-tap`): `sh scripts/homebrew-formula.sh vX.Y.Z > <tap>/Formula/tenon.rb`, commit, push; then `brew update && brew upgrade tenon && tenon --version`.
+- [ ] Check the install script: `TENON_INSTALL_DIR=$(mktemp -d) sh install.sh` installs the new version (signature and hash verified).
 
-## Sources vérifiées
+## Verified sources
 
-À remplir à chaque version : élément, source (URL), date de consultation, valeur retenue.
+Fill in for each version: item, source (URL), date of consultation, chosen value.
 
-| Élément | Source | Date | Valeur |
+| Item | Source | Date | Value |
 |---|---|---|---|
-| `LICENSE` (EUPL-1.2) | Commission européenne, version texte (« TXT-80 ») liée depuis <https://interoperable-europe.ec.europa.eu/collection/eupl/eupl-text-eupl-12> : <https://joinup.ec.europa.eu/sites/default/files/custom-page/attachment/2020-03/EUPL-1.2%20EN.txt> | 2026-10-15 | copie octet pour octet, SHA-256 `6fc9e709ccbfe0d77fbffa2427a983282be2eb88e47b1cdb49f21a83b4d1e665` |
-| `mistral` : URL | <https://docs.mistral.ai/api> (exemples `https://api.mistral.ai/v1/chat/completions`) | 2026-10-15 | `https://api.mistral.ai/v1` |
-| `mistral` : modèle, fenêtre | <https://docs.mistral.ai/getting-started/models/models_overview/> et <https://docs.mistral.ai/models/mistral-medium-3-5-26-04> : « optimized for agentic and coding use cases », noms d'API `mistral-medium-3-5`, `mistral-medium-3`, `mistral-medium-latest`, contexte « 256k ». Devstral 2 et Devstral Medium/Small sont dépréciés, remplacés par Mistral Medium 3.5 ; Codestral 25.08 sert à la complétion | 2026-10-15 | `mistral-medium-3-5`, `256000` |
-| `scaleway` : URL | <https://www.scaleway.com/en/docs/generative-apis/quickstart/> (`base_url = "https://api.scaleway.ai/v1"`) | 2026-10-15 | `https://api.scaleway.ai/v1` |
-| `scaleway` : modèle, fenêtre | <https://www.scaleway.com/en/docs/generative-apis/reference-content/supported-models/> : `mistral-medium-3.5-128b`, Serverless « Yes », « 180k » (« During the preview stage, the context is limited to 180k ») ; fonction d'appel d'outils « Yes ». `devstral-small-2505` est en fin de vie (EOL 14/11/2025) ; `devstral-2-123b-instruct-2512` (EOL 01/08/2026) et `qwen3-coder-30b-a3b-instruct` (EOL 01/10/2026) aussi | 2026-10-15 | `mistral-medium-3.5-128b`, `180000` |
-| `ovhcloud` : URL, modèle, fenêtre | Catalogue officiel <https://catalog.endpoints.ai.ovh.net/rest/v1/models_v2> (documenté par <https://docs.ovhcloud.com/en/guides/public-cloud/ai-machine-learning/ai-endpoints-catalog-api>) : `name` `Qwen3.8-27B`, `metadata.model_base_url` `https://oai.endpoints.kepler.ai.cloud.ovh.net/v1`, `metadata.context` « 262k », `metadata.model_specs.capabilities.function_calling: true`, `metadata.model_specs.capabilities.use_case_tag` contenant `code_chat` (vérifié le 2026-10-15), `available: true`, `metadata.deployment_information.datacenters` : FR. Le nom `name` est celui passé en `model` dans les exemples de <https://docs.ovhcloud.com/en/guides/public-cloud/ai-machine-learning/ai-endpoints-responses-api>. `Mistral-Small-3.2-24B-Instruct-2506` est marqué `available: false` | 2026-10-15 | `https://oai.endpoints.kepler.ai.cloud.ovh.net/v1`, `Qwen3.8-27B`, `262000` |
-| `ollama` : URL, modèle | <https://docs.ollama.com/api/openai-compatibility> (`http://localhost:11434/v1/`) ; <https://ollama.com/library/devstral> (« the best open source model for coding agents », `ollama run devstral`, 128K) | 2026-10-15 | `http://localhost:11434/v1`, `devstral` |
-| `ollama` : fenêtre | <https://docs.ollama.com/context-length> : 4k (< 24 GiB VRAM), 32k (24-48 GiB), 256k (≥ 48 GiB) ; 64000 au moins conseillé pour les outils de code | 2026-10-15 | **non vérifiable** : `32000` conservé, voir ci-dessous |
-| `vllm` : URL | <https://docs.vllm.ai/en/latest/cli/serve/> (`--port` « Default: 8000 ») ; <https://docs.vllm.ai/en/latest/serving/online_serving/openai_compatible_server/> (`base_url = "http://localhost:8000/v1"`) | 2026-10-15 | `http://localhost:8000/v1` |
-| `vllm` : modèle, fenêtre | <https://docs.vllm.ai/en/latest/cli/serve/> : `--served-model-name` (« If not specified, the model name will be the same as the --model argument »), `--max-model-len` (« If unspecified, will be automatically derived from the model config ») | 2026-10-15 | **non vérifiable** : `default` et `32000` conservés, voir ci-dessous |
-| Disponibilité du nom `tenon` | | | |
+| `LICENSE` (EUPL-1.2) | European Commission, text version ("TXT-80") linked from <https://interoperable-europe.ec.europa.eu/collection/eupl/eupl-text-eupl-12>: <https://joinup.ec.europa.eu/sites/default/files/custom-page/attachment/2020-03/EUPL-1.2%20EN.txt> | 2026-10-15 | byte-for-byte copy, SHA-256 `6fc9e709ccbfe0d77fbffa2427a983282be2eb88e47b1cdb49f21a83b4d1e665` |
+| `mistral`: URL | <https://docs.mistral.ai/api> (examples `https://api.mistral.ai/v1/chat/completions`) | 2026-10-15 | `https://api.mistral.ai/v1` |
+| `mistral`: model, window | <https://docs.mistral.ai/getting-started/models/models_overview/> and <https://docs.mistral.ai/models/mistral-medium-3-5-26-04>: "optimized for agentic and coding use cases", API names `mistral-medium-3-5`, `mistral-medium-3`, `mistral-medium-latest`, context "256k". Devstral 2 and Devstral Medium/Small are deprecated, replaced by Mistral Medium 3.5; Codestral 25.08 is for completion | 2026-10-15 | `mistral-medium-3-5`, `256000` |
+| `scaleway`: URL | <https://www.scaleway.com/en/docs/generative-apis/quickstart/> (`base_url = "https://api.scaleway.ai/v1"`) | 2026-10-15 | `https://api.scaleway.ai/v1` |
+| `scaleway`: model, window | <https://www.scaleway.com/en/docs/generative-apis/reference-content/supported-models/>: `mistral-medium-3.5-128b`, Serverless "Yes", "180k" ("During the preview stage, the context is limited to 180k"); tool calling "Yes". `devstral-small-2505` is end of life (EOL 14/11/2025); so are `devstral-2-123b-instruct-2512` (EOL 01/08/2026) and `qwen3-coder-30b-a3b-instruct` (EOL 01/10/2026) | 2026-10-15 | `mistral-medium-3.5-128b`, `180000` |
+| `ovhcloud`: URL, model, window | Official catalog <https://catalog.endpoints.ai.ovh.net/rest/v1/models_v2> (documented by <https://docs.ovhcloud.com/en/guides/public-cloud/ai-machine-learning/ai-endpoints-catalog-api>): `name` `Qwen3.8-27B`, `metadata.model_base_url` `https://oai.endpoints.kepler.ai.cloud.ovh.net/v1`, `metadata.context` "262k", `metadata.model_specs.capabilities.function_calling: true`, `metadata.model_specs.capabilities.use_case_tag` containing `code_chat` (verified on 2026-10-15), `available: true`, `metadata.deployment_information.datacenters`: FR. The `name` is the value passed as `model` in the examples of <https://docs.ovhcloud.com/en/guides/public-cloud/ai-machine-learning/ai-endpoints-responses-api>. `Mistral-Small-3.2-24B-Instruct-2506` is marked `available: false` | 2026-10-15 | `https://oai.endpoints.kepler.ai.cloud.ovh.net/v1`, `Qwen3.8-27B`, `262000` |
+| `ollama`: URL, model | <https://docs.ollama.com/api/openai-compatibility> (`http://localhost:11434/v1/`); <https://ollama.com/library/devstral> ("the best open source model for coding agents", `ollama run devstral`, 128K) | 2026-10-15 | `http://localhost:11434/v1`, `devstral` |
+| `ollama`: window | <https://docs.ollama.com/context-length>: 4k (< 24 GiB VRAM), 32k (24-48 GiB), 256k (≥ 48 GiB); at least 64000 recommended for coding tools | 2026-10-15 | **not verifiable**: `32000` kept, see below |
+| `vllm`: URL | <https://docs.vllm.ai/en/latest/cli/serve/> (`--port` "Default: 8000"); <https://docs.vllm.ai/en/latest/serving/online_serving/openai_compatible_server/> (`base_url = "http://localhost:8000/v1"`) | 2026-10-15 | `http://localhost:8000/v1` |
+| `vllm`: model, window | <https://docs.vllm.ai/en/latest/cli/serve/>: `--served-model-name` ("If not specified, the model name will be the same as the --model argument"), `--max-model-len` ("If unspecified, will be automatically derived from the model config") | 2026-10-15 | **not verifiable**: `default` and `32000` kept, see below |
+| Availability of the name `tenon` | | | |
 
-### Valeurs lues sur le serveur (`ollama`, `vllm`)
+### Values read from the server (`ollama`, `vllm`)
 
-Le modèle servi et la fenêtre appliquée dépendent du serveur local de l'utilisateur : aucune valeur universelle n'existe.
-tenon les lit au démarrage (`internal/provider/detect.go`) ; la configuration (`model`, `context_window`) prime.
+The served model and the applied window depend on the user's local server: no universal value exists.
+tenon reads them at startup (`internal/provider/detect.go`); the configuration (`model`, `context_window`) takes precedence.
 
-- `ollama` : modèle installé le plus récent acceptant les outils (`/api/tags`, champ `capabilities`), fenêtre du modèle chargé (`/api/ps`, `context_length`). Vérifié le 2026-10-16 avec Ollama 0.32.15 et `qwen3:8b` : fenêtre de 4096 jetons par défaut sur 18 Gio de mémoire unifiée.
-- `vllm` : `GET /v1/models` (`id`, `max_model_len`).
+- `ollama`: most recently installed model that supports tools (`/api/tags`, `capabilities` field), window of the loaded model (`/api/ps`, `context_length`). Verified on 2026-10-16 with Ollama 0.32.15 and `qwen3:8b`: 4096-token window by default on 18 GiB of unified memory.
+- `vllm`: `GET /v1/models` (`id`, `max_model_len`).
 
-## Vérifications effectuées le 2026-10-16
+## Checks performed on 2026-10-16
 
-- **Répétition à blanc sous Linux** (conteneur `golang:1.26.9`, GNU tar 1.35, linux/arm64) : `make ci` réussit ; `make release VERSION=v0.0.0-test` lancé deux fois donne un `SHA256SUMS` identique octet pour octet (4 archives, 2 `.deb`, 2 `.rpm`, SBOM) ; `sha256sum -c` réussit. La branche GNU tar est donc testée.
-- **Nom `tenon`** :
-  - Codeberg : l'organisation `tenon` et le dépôt `tenon/tenon` sont libres.
-  - GitHub : l'organisation `tenon-code-eu` et le dépôt `tenon-code-eu/tenon` sont créés (dépôt principal).
-  - Paquets Debian, Fedora, Arch, Homebrew : nom libre.
-  - Nom déjà pris sur npm, PyPI et crates.io (projets sans rapport, peu actifs) : ne pas publier sur ces registres sous ce nom.
-  - Homonymes sans rapport : le service d'accessibilité Tenon.io, une petite bibliothèque Go `github.com/kmoneil/tenon` (le chemin de module `github.com/tenon-code-eu/tenon` ne la heurte pas).
-  - Domaines `tenon.fr`, `tenon.eu`, `tenon.dev` (et `.io`, `.com`) : déjà enregistrés. Utiliser les pages GitHub ou un autre domaine.
-  - **Marques (EUIPO/TMview, INPI) : recherche non effectuée** (services injoignables depuis l'outillage). À faire à la main pour « TENON », classes 9 et 42, avant toute annonce publique : https://www.tmdn.org/tmview/ et https://data.inpi.fr/.
+- **Dry run on Linux** (container `golang:1.26.9`, GNU tar 1.35, linux/arm64): `make ci` succeeds; `make release VERSION=v0.0.0-test` run twice gives a `SHA256SUMS` identical byte for byte (4 archives, 2 `.deb`, 2 `.rpm`, SBOM); `sha256sum -c` succeeds. The GNU tar path is therefore tested.
+- **Name `tenon`**:
+  - Codeberg: the `tenon` organization and the `tenon/tenon` repository are free.
+  - GitHub: the `tenon-code-eu` organization and the `tenon-code-eu/tenon` repository are created (main repository).
+  - Debian, Fedora, Arch, Homebrew packages: name free.
+  - Name already taken on npm, PyPI and crates.io (unrelated, inactive projects): do not publish on these registries under this name.
+  - Unrelated namesakes: the Tenon.io accessibility service, a small Go library `github.com/kmoneil/tenon` (the module path `github.com/tenon-code-eu/tenon` does not conflict with it).
+  - Domains `tenon.fr`, `tenon.eu`, `tenon.dev` (and `.io`, `.com`): already registered. Use GitHub Pages or another domain.
+  - **Trademarks (EUIPO/TMview, INPI): search not done** (services unreachable from the tooling). Do it by hand for "TENON", classes 9 and 42, before any public announcement: https://www.tmdn.org/tmview/ and https://data.inpi.fr/.

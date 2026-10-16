@@ -1,11 +1,11 @@
 ---
-name: Proposition
-about: Proposer une nouvelle fonction ou une amélioration
-labels: proposition
+name: Feature request
+about: Propose a new feature or an improvement
+labels: enhancement
 ---
 
-**Besoin** : quel problème voulez-vous résoudre ?
+**Need**: what problem do you want to solve?
 
-**Proposition** : comment tenon pourrait-il y répondre ?
+**Proposal**: how could tenon address it?
 
-**Effet sur la sécurité ou la souveraineté** (validation, masquage, audit, envois hors de l'UE) :
+**Effect on security or sovereignty** (approval, redaction, audit, data sent outside the EU):

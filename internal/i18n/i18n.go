@@ -14,12 +14,13 @@ const (
 	EN Lang = "en"
 )
 
-// Parse renvoie EN pour toute valeur commençant par "en" (ex. "en_US.UTF-8"), sinon FR.
+// Parse renvoie FR pour toute valeur commençant par "fr" (ex. "fr_FR.UTF-8"),
+// sinon EN, la langue par défaut.
 func Parse(s string) Lang {
-	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(s)), "en") {
-		return EN
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(s)), "fr") {
+		return FR
 	}
-	return FR
+	return EN
 }
 
 // T applique fmt.Sprintf au gabarit de la clé ; clé inconnue : "!" + key.

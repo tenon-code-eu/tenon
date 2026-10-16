@@ -1,47 +1,48 @@
-# Sécurité
+# Security
 
-## Signaler une vulnérabilité
+## Reporting a vulnerability
 
-Ne signalez pas une vulnérabilité dans une issue publique.
+Do not report a vulnerability in a public issue.
 
-Utilisez le signalement privé de GitHub :
-onglet **Security** du dépôt, puis **Report a vulnerability**
+Use GitHub private vulnerability reporting:
+the **Security** tab of the repository, then **Report a vulnerability**
 (https://github.com/tenon-code-eu/tenon/security/advisories/new).
 
-Indiquez :
+Include:
 
-- la version de tenon (`tenon --version`) et le système ;
-- les étapes pour reproduire ;
-- l'impact constaté ou supposé (fuite de secret, contournement d'une validation, écriture hors du projet, envoi hors de l'UE, altération du journal d'audit…).
+- the tenon version (`tenon --version`) and the operating system;
+- the steps to reproduce;
+- the observed or expected impact (secret leak, approval bypass, write outside the project, data sent outside the EU, tampering with the audit log…).
 
-N'incluez aucune clé d'API ni donnée personnelle réelle.
+Do not include any API key or real personal data.
 
-## Délais
+## Response times
 
-- Accusé de réception : sous 7 jours.
-- Premier diagnostic : sous 30 jours.
-- Publication de l'avis après la sortie du correctif, en accord avec la personne qui a signalé la faille.
+- Acknowledgement: within 7 days.
+- First assessment: within 30 days.
+- Advisory published after the fix is released, in agreement with the person who reported the vulnerability.
 
-## Versions prises en charge
+## Supported versions
 
-Seule la dernière version publiée reçoit des correctifs de sécurité.
+Only the latest published version receives security fixes.
 
-## Périmètre
+## Scope
 
-Le modèle de menace, les garanties et les limites connues sont décrits dans [docs/securite.md](docs/securite.md).
-Une limite documentée dans ce fichier n'est pas une vulnérabilité, sauf si le comportement réel s'en écarte.
+The threat model, the guarantees and the known limits are described in [docs/security.md](docs/security.md).
+A limit documented in that file is not a vulnerability, unless the actual behavior differs from it.
 
-## Vérifier une version
+## Verifying a version
 
-Chaque version fournit un fichier `SHA256SUMS` signé avec minisign.
-Voir la section « Installation » du [README](README.md#binaires).
+Each version provides a `SHA256SUMS` file signed with minisign.
+See the "Installation" section of the [README](README.md#binaries).
 
 ---
 
-## Reporting a vulnerability (English)
+## En français
 
-Do not open a public issue.
-Use GitHub private vulnerability reporting: **Security** tab, then **Report a vulnerability**.
-Include the tenon version, steps to reproduce and the impact.
-Do not include real API keys or personal data.
-We acknowledge reports within 7 days.
+Ne signalez pas une vulnérabilité dans une issue publique.
+Utilisez le signalement privé de GitHub : onglet **Security**, puis **Report a vulnerability**.
+Indiquez la version de tenon, les étapes pour reproduire et l'impact.
+N'incluez aucune clé d'API ni donnée personnelle réelle.
+Nous accusons réception sous 7 jours.
+Le périmètre est décrit dans [docs/fr/securite.md](docs/fr/securite.md).

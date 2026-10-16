@@ -1,5 +1,7 @@
 # Sécurité, souveraineté et limites
 
+*Traduction française de [la version anglaise](../security.md). En cas de différence, la version anglaise fait foi.*
+
 Ce document dit ce que tenon garantit, et surtout ce qu'il ne garantit pas.
 Il décrit le comportement du code actuel.
 Le mode d'emploi détaillé est dans [utilisation.md](utilisation.md).

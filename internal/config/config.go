@@ -197,12 +197,11 @@ func (c Config) Provider(id string) (Provider, bool) {
 
 // Defaults renvoie la configuration par défaut, préréglages inclus.
 func Defaults(getenv func(string) string) Config {
-	lang := "fr"
-	if l := getenv("LANG"); len(l) >= 2 && l[:2] == "en" {
-		lang = "en"
-	}
+	// Interface en anglais par défaut ; lang = "fr" (ou --lang fr) pour le
+	// français. $LANG n'est pas lu : la langue ne change pas d'une machine à
+	// l'autre sans configuration.
 	return Config{
-		Lang:                lang,
+		Lang:                "en",
 		DefaultProvider:     "mistral",
 		MaxIterations:       50,
 		ShellTimeout:        Duration{2 * time.Minute},

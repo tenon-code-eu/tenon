@@ -136,7 +136,10 @@ func newEnvExtra(t *testing.T, f *fakeLLM, jurisdiction, extra string) *env {
 	if f != nil {
 		url = f.srv.URL
 	}
-	cfg := fmt.Sprintf(`default_provider = "test"
+	// Les tests vérifient les messages français : la langue par défaut
+	// (anglais) est couverte par TestDefaultLanguageEnglish.
+	cfg := fmt.Sprintf(`lang = "fr"
+default_provider = "test"
 
 [[providers]]
 id = "test"
@@ -683,9 +686,7 @@ func TestAgentsMdInSystemPrompt(t *testing.T) {
 func TestEnglishBanner(t *testing.T) {
 	f := newFakeLLM(t, sseText("hi"))
 	e := newEnv(t, f, "eu")
-	e.vars["LANG"] = "en_US.UTF-8"
-
-	code, _, errb := e.run("-p", "hello")
+	code, _, errb := e.run("--lang", "en", "-p", "hello")
 	if code != 0 || !strings.Contains(errb, "jurisdiction EU") {
 		t.Fatalf("code=%d stderr=%q", code, errb)
 	}
@@ -1132,5 +1133,23 @@ func TestResumeLockedBeforeLoad(t *testing.T) {
 	}
 	if _, err := os.Stat(p + ".corrupt"); !os.IsNotExist(err) {
 		t.Fatalf("session réparée malgré le verrou : %v", err)
+	}
+}
+
+// Sans lang dans la configuration, l'interface est en anglais, même avec
+// LANG=fr_FR.UTF-8.
+func TestDefaultLanguageEnglish(t *testing.T) {
+	f := newFakeLLM(t, sseText("hello"))
+	e := newEnv(t, f, "eu")
+	p := filepath.Join(filepath.Dir(e.dataDir), "..", "config", "tenon", "config.toml")
+	b, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.writeFile(p, strings.Replace(string(b), "lang = \"fr\"\n", "", 1))
+	e.vars["LANG"] = "fr_FR.UTF-8"
+	code, _, errb := e.run("-p", "hello")
+	if code != 0 || !strings.Contains(errb, "tenon · test-model · Test SAS · FR · jurisdiction EU") {
+		t.Fatalf("code=%d stderr=%q", code, errb)
 	}
 }

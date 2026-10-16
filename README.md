@@ -1,23 +1,23 @@
-<p align="center"><img src="docs/assets/logo-tenon.jpeg" alt="tenon — harness open-source européen et français" width="480"></p>
+<p align="center"><img src="docs/assets/logo-tenon.jpeg" alt="tenon — European open-source coding agent harness" width="480"></p>
 
 # tenon
 
-tenon est un agent de code en terminal, écrit en Go.
-Il lit votre projet, propose des modifications et exécute des commandes, sous votre contrôle.
+tenon is a terminal coding agent, written in Go.
+It reads your project, proposes changes and runs commands, under your control.
 
-Il est conçu pour l'Europe :
+It is designed for Europe:
 
-- les fournisseurs préconfigurés sont européens (Mistral AI, Scaleway, OVHcloud) ou locaux (Ollama, vLLM) ;
-- tout envoi de données hors de l'UE demande votre accord explicite ;
-- par défaut, les écritures, les commandes et les appels d'outils MCP attendent votre validation ;
-- tout est tracé dans un journal d'audit chaîné et vérifiable ;
-- les secrets et des données personnelles sont masqués avant tout envoi ;
-- les commits qui contiennent du code écrit par l'agent peuvent être marqués.
+- the preconfigured providers are European (Mistral AI, Scaleway, OVHcloud) or local (Ollama, vLLM);
+- any data sent outside the EU requires your explicit consent;
+- by default, writes, commands and MCP tool calls wait for your approval;
+- everything is recorded in a hash-chained, verifiable audit log;
+- secrets and some personal data are masked before anything is sent;
+- commits that contain code written by the agent can be marked.
 
-Tout point d'accès compatible OpenAI est utilisable.
-tenon fonctionne sous Linux et macOS.
+Any OpenAI-compatible endpoint works.
+tenon runs on Linux and macOS.
 
-<p align="center"><img src="docs/assets/demo.gif" alt="Démo : tenon lit main.go, propose une correction validée dans le panneau, lance go run . puis corrige une seconde erreur jusqu'à afficher 5" width="900"></p>
+<p align="center"><img src="docs/assets/demo.gif" alt="Demo: tenon reads main.go, proposes a fix approved in the panel, runs go run . then fixes a second error until it prints 5" width="900"></p>
 
 ## Installation
 
@@ -27,55 +27,55 @@ tenon fonctionne sous Linux et macOS.
 brew install tenon-code-eu/tap/tenon
 ```
 
-### Script d'installation (Linux, macOS)
+### Install script (Linux, macOS)
 
 ```
 curl -fsSL https://raw.githubusercontent.com/tenon-code-eu/tenon/main/install.sh | sh
 ```
 
-Le script installe la dernière version dans `~/.local/bin` (dossier modifiable avec `TENON_INSTALL_DIR`, version fixée avec `TENON_VERSION=vX.Y.Z`).
-Il vérifie toujours l'empreinte SHA-256 de l'archive, et la signature minisign si `minisign` est installé (`TENON_REQUIRE_SIGNATURE=1` la rend obligatoire).
-Lisez-le avant de l'exécuter : [install.sh](install.sh).
+The script installs the latest version in `~/.local/bin` (change the directory with `TENON_INSTALL_DIR`, pin a version with `TENON_VERSION=vX.Y.Z`).
+It always verifies the SHA-256 hash of the archive, and the minisign signature if `minisign` is installed (`TENON_REQUIRE_SIGNATURE=1` makes it mandatory).
+Read it before you run it: [install.sh](install.sh).
 
-### Avec Go
+### With Go
 
 ```
 go install github.com/tenon-code-eu/tenon/cmd/tenon@latest
 ```
 
-### Binaires
+### Binaries
 
-Chaque version publiée sur la page [Releases GitHub](https://github.com/tenon-code-eu/tenon/releases) fournit :
+Each version published on the [GitHub Releases](https://github.com/tenon-code-eu/tenon/releases) page provides:
 
-- une archive `.tar.gz` par plateforme : `linux/amd64`, `linux/arm64`, `darwin/amd64`, `darwin/arm64` ;
-- des paquets `.deb` et `.rpm` pour Linux (`amd64`, `arm64`) ;
-- un fichier `SHA256SUMS`, signé avec minisign (`SHA256SUMS.minisig`) ;
-- un SBOM CycloneDX.
+- one `.tar.gz` archive per platform: `linux/amd64`, `linux/arm64`, `darwin/amd64`, `darwin/arm64`;
+- `.deb` and `.rpm` packages for Linux (`amd64`, `arm64`);
+- a `SHA256SUMS` file, signed with minisign (`SHA256SUMS.minisig`);
+- a CycloneDX SBOM.
 
-Vérifiez la signature avec la clé publique minisign du projet, fournie à la racine du dépôt (`tenon.pub`) :
+Verify the signature with the project's minisign public key, provided at the root of the repository (`tenon.pub`):
 
 ```
 RWR+vfCWjGO42uRKOxNSrKz5afZPCWJf8iJPO04kFdkhLldZHhxo532F
 ```
 
-Puis vérifiez les empreintes :
+Then verify the hashes:
 
 ```
 minisign -Vm SHA256SUMS -p tenon.pub
-sha256sum -c SHA256SUMS --ignore-missing   # macOS : shasum -a 256 -c SHA256SUMS --ignore-missing
+sha256sum -c SHA256SUMS --ignore-missing   # macOS: shasum -a 256 -c SHA256SUMS --ignore-missing
 ```
 
-Ensuite, copiez le binaire `tenon` dans un dossier du `PATH`, ou installez le paquet :
+Then copy the `tenon` binary to a directory in your `PATH`, or install the package:
 
 ```
 sudo apt install ./tenon_*.deb   # Debian, Ubuntu
 sudo dnf install ./tenon_*.rpm   # Fedora, RHEL
 ```
 
-### Depuis les sources
+### From source
 
-Go 1.26 ou plus récent est nécessaire ; utilisez le dernier correctif de Go 1.26 (≥ 1.26.9 au 2026-10-15), les précédents ont des failles connues de la bibliothèque standard.
-Les dépendances sont incluses dans le dépôt : aucun proxy de modules n'est contacté.
+You need Go 1.26 or later. Use the latest Go 1.26 patch release (≥ 1.26.9 as of 2026-10-15): earlier ones have known vulnerabilities in the standard library.
+The dependencies are included in the repository: no module proxy is contacted.
 
 ```
 git clone https://github.com/tenon-code-eu/tenon.git
@@ -83,18 +83,21 @@ cd tenon
 GOFLAGS=-mod=vendor go build -o tenon ./cmd/tenon
 ```
 
-## Démarrage rapide
+## Quick start
 
 ```
-tenon key set mistral                      # enregistre la clé dans le trousseau système
-tenon                                      # interface interactive, dans le dossier du projet
-tenon -p "explique la structure du projet" # un tour sans interface, pour les scripts
+tenon key set mistral                  # stores the key in the system keyring
+tenon                                  # interactive interface, in the project directory
+tenon -p "explain the project layout"  # one turn without the interface, for scripts
 ```
 
-La clé peut aussi venir de la variable `MISTRAL_API_KEY`.
-Sans clé, utilisez un modèle local : `tenon --provider ollama`.
+The key can also come from the `MISTRAL_API_KEY` variable.
+Without a key, use a local model: `tenon --provider ollama`.
 
-Pour marquer les commits qui contiennent du code écrit par l'agent :
+The interface is in English by default.
+For French, run with `--lang fr` or set `lang = "fr"` in the configuration.
+
+To mark the commits that contain code written by the agent:
 
 ```
 tenon git install-hook
@@ -102,33 +105,24 @@ tenon git install-hook
 
 ## Documentation
 
-- [Guide d'utilisation](docs/utilisation.md) : touches, validation, mode non interactif, sessions, configuration, fournisseurs, MCP, marquage git, audit.
-- [Sécurité et limites](docs/securite.md) : critères de souveraineté, garanties, limites connues, récupération.
-- [Exemple de configuration](docs/config.example.toml) : fichier commenté, sans secret.
-- [Signaler une vulnérabilité](SECURITY.md) et [contribuer](CONTRIBUTING.md).
-- [Liste de contrôle de publication](RELEASE.md) : pour les mainteneurs.
-- [Spécification](docs/superpowers/specs/2026-10-14-tenon-design.md) : choix de conception.
+- [Usage guide](docs/usage.md): keys, approval, non-interactive mode, sessions, configuration, providers, MCP, git marking, audit.
+- [Security and limits](docs/security.md): sovereignty criteria, guarantees, known limits, recovery.
+- [Example configuration](docs/config.example.toml): commented file, without secrets.
+- [Report a vulnerability](SECURITY.md) and [contribute](CONTRIBUTING.md).
+- [Release checklist](RELEASE.md): for maintainers.
+- [Specification](docs/superpowers/specs/2026-10-14-tenon-design.md): design choices (in French).
 
-## Licence
+## License
 
-tenon est distribué sous licence [EUPL-1.2](LICENSE).
+tenon is distributed under the [EUPL-1.2](LICENSE) license.
 
-## In English
+## En français
 
-tenon is a terminal coding agent written in Go, for Linux and macOS.
-It reads your project, proposes changes and runs commands under your control.
+tenon est un agent de code en terminal, écrit en Go, pour Linux et macOS.
+Il lit votre projet, propose des modifications et exécute des commandes, sous votre contrôle.
+Les fournisseurs préconfigurés sont européens (Mistral AI, Scaleway, OVHcloud) ou locaux (Ollama, vLLM).
+Tout envoi hors de l'UE demande votre accord explicite, et tout est tracé dans un journal d'audit chaîné.
+Par défaut, les écritures, les commandes et les appels d'outils MCP attendent votre validation.
+L'interface est en anglais par défaut : lancez `tenon --lang fr` ou mettez `lang = "fr"` dans la configuration.
 
-- Preconfigured providers are European (Mistral AI, Scaleway, OVHcloud) or local (Ollama, vLLM). Any OpenAI-compatible endpoint works.
-- Sending data outside the EU requires explicit consent (`--allow-non-eu`, or a prompt in the interactive interface).
-- By default, writes, commands and MCP tool calls wait for your approval. Everything is recorded in a hash-chained audit log (`tenon audit verify`).
-- Secrets and some personal data are masked before anything leaves your machine.
-- Commits containing agent-written code can carry `AI-Assisted-By` trailers (`tenon git install-hook`).
-
-Demo: see the animation at the top of this page.
-
-Install: `brew install tenon-code-eu/tap/tenon`, or `curl -fsSL https://raw.githubusercontent.com/tenon-code-eu/tenon/main/install.sh | sh`.
-Quick start: `tenon key set mistral`, then `tenon` (interactive) or `tenon -p "<prompt>"` (scripts).
-Use `--lang en` or `lang = "en"` in the configuration for an English interface.
-Documentation: [usage](docs/en/usage.md), [security and limits](docs/en/security.md), [example configuration](docs/config.example.toml) (French reference: [utilisation](docs/utilisation.md), [sécurité](docs/securite.md)).
-
-Licence: [EUPL-1.2](LICENSE).
+Documentation en français : [guide d'utilisation](docs/fr/utilisation.md), [sécurité et limites](docs/fr/securite.md).

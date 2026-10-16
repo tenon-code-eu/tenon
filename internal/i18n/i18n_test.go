@@ -32,7 +32,7 @@ func TestCatalogComplete(t *testing.T) {
 }
 
 func TestParse(t *testing.T) {
-	for in, want := range map[string]Lang{"en_US.UTF-8": EN, "fr_FR": FR, "": FR, "de": FR, "en": EN} {
+	for in, want := range map[string]Lang{"en_US.UTF-8": EN, "fr_FR": FR, "": EN, "de": EN, "en": EN, "FR": FR} {
 		if got := Parse(in); got != want {
 			t.Errorf("Parse(%q) = %q, attendu %q", in, got, want)
 		}
