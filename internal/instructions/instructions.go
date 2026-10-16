@@ -3,14 +3,10 @@
 package instructions
 
 import (
-	"errors"
-	"io"
-	"io/fs"
-	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
-	"unicode/utf8"
+
+	"github.com/tenon-code-eu/tenon/internal/safefile"
 )
 
 // MaxBytes est la taille maximale retenue pour chaque fichier d'instructions.
@@ -44,43 +40,11 @@ func Load(root string) ([]File, error) {
 }
 
 func loadOne(path, name string) (File, bool, error) {
-	fi, err := os.Lstat(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return File{}, false, nil
-	}
-	if err != nil {
+	data, truncated, ok, err := safefile.ReadRegular(path, MaxBytes)
+	if err != nil || !ok {
 		return File{}, false, err
 	}
-	if !fi.Mode().IsRegular() {
-		return File{}, false, nil
-	}
-	// O_NOFOLLOW referme la fenêtre entre Lstat et ouverture (remplacement
-	// par un lien symbolique) ; O_NONBLOCK évite de bloquer sur un FIFO échangé.
-	fd, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
-	if err != nil {
-		if errors.Is(err, syscall.ELOOP) || errors.Is(err, fs.ErrNotExist) {
-			return File{}, false, nil
-		}
-		return File{}, false, err
-	}
-	defer fd.Close()
-	// On lit un octet de plus pour détecter le dépassement sans tout charger.
-	data, err := io.ReadAll(io.LimitReader(fd, MaxBytes+1))
-	if err != nil {
-		return File{}, false, err
-	}
-	f := File{Name: name}
-	if len(data) > MaxBytes {
-		data = data[:MaxBytes]
-		// Une rune coupée occupe au plus 3 octets de queue : on retire la
-		// rune incomplète finale, sans toucher aux runes entières.
-		if i := lastRuneStart(data); i >= 0 && !utf8.FullRune(data[i:]) {
-			data = data[:i]
-		}
-		f.Truncated = true
-	}
-	f.Content = string(data)
-	return f, true, nil
+	return File{Name: name, Content: string(data), Truncated: truncated}, true, nil
 }
 
 // Render ajoute une section par fichier à base ; sans fichier, base est
@@ -99,14 +63,4 @@ func Render(base string, files []File) string {
 		}
 	}
 	return b.String()
-}
-
-// lastRuneStart renvoie l'index du dernier octet de début de rune, ou -1.
-func lastRuneStart(b []byte) int {
-	for i := len(b) - 1; i >= 0 && i >= len(b)-utf8.UTFMax; i-- {
-		if utf8.RuneStart(b[i]) {
-			return i
-		}
-	}
-	return -1
 }

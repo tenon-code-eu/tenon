@@ -5,13 +5,13 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
-	"syscall"
 	"unicode/utf8"
+
+	"github.com/tenon-code-eu/tenon/internal/safefile"
 )
 
 const (
@@ -63,17 +63,27 @@ type Catalog struct {
 func Dirs(getenv func(string) string, projectRoot string) []Dir {
 	home := getenv("HOME")
 	xdg := getenv("XDG_CONFIG_HOME")
-	if xdg == "" {
-		xdg = filepath.Join(home, ".config")
+	// Une base vide ou relative se résoudrait contre le cwd (donc le projet) :
+	// les skills projet seraient étiquetés User. On omet alors ces dossiers.
+	if !filepath.IsAbs(xdg) {
+		xdg = ""
+		if filepath.IsAbs(home) {
+			xdg = filepath.Join(home, ".config")
+		}
 	}
-	return []Dir{
-		{filepath.Join(xdg, "tenon", "skills"), User},
-		{filepath.Join(home, ".claude", "skills"), User},
-		{filepath.Join(home, ".agents", "skills"), User},
-		{filepath.Join(projectRoot, ".tenon", "skills"), Project},
-		{filepath.Join(projectRoot, ".claude", "skills"), Project},
-		{filepath.Join(projectRoot, ".agents", "skills"), Project},
+	var dirs []Dir
+	if xdg != "" {
+		dirs = append(dirs, Dir{filepath.Join(xdg, "tenon", "skills"), User})
 	}
+	if filepath.IsAbs(home) {
+		dirs = append(dirs,
+			Dir{filepath.Join(home, ".claude", "skills"), User},
+			Dir{filepath.Join(home, ".agents", "skills"), User})
+	}
+	return append(dirs,
+		Dir{filepath.Join(projectRoot, ".tenon", "skills"), Project},
+		Dir{filepath.Join(projectRoot, ".claude", "skills"), Project},
+		Dir{filepath.Join(projectRoot, ".agents", "skills"), Project})
 }
 
 // Discover parcourt les répertoires dans l'ordre ; en cas de doublon, le
@@ -97,7 +107,7 @@ func Discover(dirs []Dir) (*Catalog, []Notice) {
 			if err != nil || !fi.IsDir() {
 				continue // lien symbolique ou fichier : ignoré
 			}
-			data, _, ok, err := readSkillFile(filepath.Join(dir, skillFile))
+			data, _, ok, err := readSkillFile(dir)
 			if err != nil {
 				notices = append(notices, Notice(fmt.Sprintf("skill %q in %s ignored: %v", e.Name(), dir, err)))
 				continue
@@ -169,7 +179,7 @@ func (c *Catalog) Load(name string) (body string, sha256hex string, truncated bo
 	if !ok {
 		return "", "", false, fmt.Errorf("unknown skill %q", name)
 	}
-	data, trunc, ok, err := readSkillFile(filepath.Join(s.Dir, skillFile))
+	data, trunc, ok, err := readSkillFile(s.Dir)
 	if err != nil {
 		return "", "", false, err
 	}
@@ -184,49 +194,19 @@ func (c *Catalog) Load(name string) (body string, sha256hex string, truncated bo
 	return body, hex.EncodeToString(sum[:]), trunc, nil
 }
 
-// readSkillFile lit un fichier régulier (liens symboliques et FIFO ignorés :
-// ok=false) en le tronquant à MaxSkillBytes sur une frontière de rune.
-func readSkillFile(path string) (data []byte, truncated, ok bool, err error) {
-	fi, err := os.Lstat(path)
+// readSkillFile vérifie que le dossier du skill est un vrai répertoire (pas
+// un lien symbolique : O_NOFOLLOW ne protège que le dernier composant) puis
+// lit SKILL.md. ok=false si le dossier ou le fichier est absent ou non sûr.
+func readSkillFile(dir string) (data []byte, truncated, ok bool, err error) {
+	fi, err := os.Lstat(dir)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, false, false, nil
 	}
 	if err != nil {
 		return nil, false, false, err
 	}
-	if !fi.Mode().IsRegular() {
+	if !fi.IsDir() {
 		return nil, false, false, nil
 	}
-	// O_NOFOLLOW referme la fenêtre entre Lstat et ouverture ; O_NONBLOCK
-	// évite de bloquer sur un FIFO échangé.
-	fd, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
-	if err != nil {
-		if errors.Is(err, syscall.ELOOP) || errors.Is(err, fs.ErrNotExist) {
-			return nil, false, false, nil
-		}
-		return nil, false, false, err
-	}
-	defer fd.Close()
-	data, err = io.ReadAll(io.LimitReader(fd, MaxSkillBytes+1))
-	if err != nil {
-		return nil, false, false, err
-	}
-	if len(data) > MaxSkillBytes {
-		data = data[:MaxSkillBytes]
-		if i := lastRuneStart(data); i >= 0 && !utf8.FullRune(data[i:]) {
-			data = data[:i]
-		}
-		truncated = true
-	}
-	return data, truncated, true, nil
-}
-
-// lastRuneStart renvoie l'index du dernier octet de début de rune, ou -1.
-func lastRuneStart(b []byte) int {
-	for i := len(b) - 1; i >= 0 && i >= len(b)-utf8.UTFMax; i-- {
-		if utf8.RuneStart(b[i]) {
-			return i
-		}
-	}
-	return -1
+	return safefile.ReadRegular(filepath.Join(dir, skillFile), MaxSkillBytes)
 }

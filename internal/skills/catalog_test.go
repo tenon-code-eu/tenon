@@ -155,3 +155,33 @@ func TestDirs(t *testing.T) {
 		t.Error(p)
 	}
 }
+
+func TestDirsUnsafeBases(t *testing.T) {
+	get := func(env map[string]string) []Dir {
+		return Dirs(func(k string) string { return env[k] }, "/root")
+	}
+	if d := get(map[string]string{}); len(d) != 3 || d[0].Source != Project {
+		t.Errorf("HOME vide: %+v", d)
+	}
+	d := get(map[string]string{"HOME": "/h", "XDG_CONFIG_HOME": "rel"})
+	if len(d) != 6 || d[0].Path != "/h/.config/tenon/skills" {
+		t.Errorf("XDG relatif: %+v", d)
+	}
+	if d := get(map[string]string{"XDG_CONFIG_HOME": "rel"}); len(d) != 3 {
+		t.Errorf("XDG relatif sans HOME: %+v", d)
+	}
+}
+
+func TestLoadRefusesSymlinkedFolder(t *testing.T) {
+	r, out := t.TempDir(), t.TempDir()
+	dir := writeSkill(t, r, "a", valid("a"), "one")
+	c, _ := Discover([]Dir{{r, User}})
+	writeSkill(t, out, "a", valid("a"), "evil")
+	os.RemoveAll(dir)
+	if err := os.Symlink(filepath.Join(out, "a"), dir); err != nil {
+		t.Fatal(err)
+	}
+	if body, _, _, err := c.Load("a"); err == nil {
+		t.Fatalf("expected error, got %q", body)
+	}
+}
