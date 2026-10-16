@@ -118,7 +118,7 @@ Le marquage est une aide à la traçabilité, pas une preuve.
 Compiler tenon depuis les sources ne contacte aucun service : les dépendances sont vendorées.
 La chaîne de développement (`make lint`, `make vuln`, `make release`, CI) fait exception :
 
-- les outils de build lancés par `go run <module>@<version>` (staticcheck, govulncheck, cyclonedx-gomod, nfpm) sont téléchargés depuis leurs hôtes d'origine (`GOPROXY=direct`) : `honnef.co` (qui renvoie vers `github.com`), `golang.org` et `go.googlesource.com` (opéré par Google), `github.com` (opéré par Microsoft) ;
+- les outils de build épinglés (staticcheck et govulncheck, installés dans `.tools/` par `scripts/go-tool.sh` ; cyclonedx-gomod et nfpm, lancés par `go run <module>@<version>`) sont téléchargés depuis leurs hôtes d'origine (`GOPROXY=direct`) : `honnef.co` (qui renvoie vers `github.com`), `golang.org` et `go.googlesource.com` (opéré par Google), `github.com` (opéré par Microsoft) ;
 - leurs empreintes sont vérifiées auprès de `sum.golang.org`, opéré par Google ;
 - `govulncheck` interroge la base de vulnérabilités `vuln.go.dev`, opérée par Google ;
 - le dépôt et la CI GitHub Actions sont hébergés par GitHub (Microsoft, États-Unis) ; les fichiers `.forgejo/` et `.woodpecker.yml` permettent une CI sur une forge européenne ou auto-hébergée ;

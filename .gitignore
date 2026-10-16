@@ -4,3 +4,6 @@
 
 # Clés secrètes de signature : jamais dans le dépôt.
 *.key
+
+# Outils de build installés par scripts/go-tool.sh.
+/.tools/

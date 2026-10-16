@@ -38,11 +38,13 @@ vet:
 test:
 	go test -race ./...
 
+# staticcheck et govulncheck : installés dans .tools/ par scripts/go-tool.sh
+# (mode module, GOPROXY=direct, nouveaux essais sur erreur réseau).
 lint:
-	GOFLAGS= GOPROXY=direct go run honnef.co/go/tools/cmd/staticcheck@$(STATICCHECK_VERSION) ./...
+	sh scripts/go-tool.sh honnef.co/go/tools/cmd/staticcheck@$(STATICCHECK_VERSION) ./...
 
 vuln:
-	GOFLAGS= GOPROXY=direct go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
+	sh scripts/go-tool.sh golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
 
 ci: vet test lint vuln
 
@@ -65,4 +67,4 @@ endif
 	VULN_CHECKED=$(if $(filter 1,$(ALLOW_VULN)),,1) ALLOW_VULN="$(ALLOW_VULN)" TARGETS="$(TARGETS)" sh scripts/release.sh
 
 clean:
-	rm -rf dist
+	rm -rf dist .tools
