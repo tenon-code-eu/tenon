@@ -270,6 +270,5 @@ func chainsBeyond(pattern, cmd string) bool {
 }
 
 func isSensitive(path string) bool {
-	b := strings.ToLower(filepath.Base(path))
-	return strings.HasPrefix(b, ".env") || strings.HasSuffix(b, ".pem") || strings.HasPrefix(b, "id_rsa")
+	return tools.IsSensitive(path)
 }
