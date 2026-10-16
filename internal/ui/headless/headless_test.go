@@ -91,7 +91,7 @@ func newEngineRules(t *testing.T, j llm.Jurisdiction, rules []policy.Rule, scrip
 func TestTextOutputFinalAnswerAndBanner(t *testing.T) {
 	eng, _, _ := newEngine(t, llm.EU, text("Bonjour"))
 	var out, errb bytes.Buffer
-	code := Run(context.Background(), eng, "s_1", "salut", Options{Output: Text}, &out, &errb)
+	code := Run(context.Background(), eng, "s_1", engine.Input{Text: "salut"}, Options{Output: Text}, &out, &errb)
 	if code != 0 {
 		t.Fatalf("code=%d stderr=%s", code, errb.String())
 	}
@@ -106,7 +106,7 @@ func TestTextOutputFinalAnswerAndBanner(t *testing.T) {
 func TestPermissionDeniedExit3(t *testing.T) {
 	eng, _, _ := newEngine(t, llm.EU, call("write_file", `{"path":"x.txt","content":"a"}`), text("fini"))
 	var out, errb bytes.Buffer
-	code := Run(context.Background(), eng, "s_1", "écris", Options{Output: Text}, &out, &errb)
+	code := Run(context.Background(), eng, "s_1", engine.Input{Text: "écris"}, Options{Output: Text}, &out, &errb)
 	if code != 3 {
 		t.Fatalf("code=%d stderr=%s", code, errb.String())
 	}
@@ -118,7 +118,7 @@ func TestPermissionDeniedExit3(t *testing.T) {
 func TestJurisdictionDeniedExit3(t *testing.T) {
 	eng, p, _ := newEngine(t, llm.NonEU, text("non"))
 	var out, errb bytes.Buffer
-	code := Run(context.Background(), eng, "s_1", "salut", Options{Output: Text}, &out, &errb)
+	code := Run(context.Background(), eng, "s_1", engine.Input{Text: "salut"}, Options{Output: Text}, &out, &errb)
 	if code != 3 || p.calls() != 0 {
 		t.Fatalf("code=%d calls=%d stderr=%s", code, p.calls(), errb.String())
 	}
@@ -130,7 +130,7 @@ func TestJurisdictionDeniedExit3(t *testing.T) {
 func TestJSONOutputOneEventPerLine(t *testing.T) {
 	eng, _, _ := newEngine(t, llm.EU, text("Bonjour"))
 	var out, errb bytes.Buffer
-	if code := Run(context.Background(), eng, "s_1", "salut", Options{Output: JSON}, &out, &errb); code != 0 {
+	if code := Run(context.Background(), eng, "s_1", engine.Input{Text: "salut"}, Options{Output: JSON}, &out, &errb); code != 0 {
 		t.Fatalf("code=%d stderr=%s", code, errb.String())
 	}
 	sc := bufio.NewScanner(&out)
@@ -162,7 +162,7 @@ func TestSubmitErrorExit1(t *testing.T) {
 	r, _ := policy.NewRedactor(nil)
 	eng := engine.New(engine.Deps{Provider: failing{}, Permissions: perm, Outbound: policy.NewOutbound(r), ProjectRoot: root})
 	var out, errb bytes.Buffer
-	if code := Run(context.Background(), eng, "s_1", "salut", Options{Output: Text}, &out, &errb); code != 1 {
+	if code := Run(context.Background(), eng, "s_1", engine.Input{Text: "salut"}, Options{Output: Text}, &out, &errb); code != 1 {
 		t.Fatalf("code=%d", code)
 	}
 	if errb.Len() == 0 {
@@ -187,7 +187,7 @@ func TestPolicyDenyExit3(t *testing.T) {
 	eng, _, root := newEngineRules(t, llm.EU, []policy.Rule{{Tool: "write_file", Decision: policy.Deny}},
 		call("write_file", `{"path":"x.txt","content":"a"}`), text("fini"))
 	var out, errb bytes.Buffer
-	code := Run(context.Background(), eng, "s_1", "écris", Options{Output: Text}, &out, &errb)
+	code := Run(context.Background(), eng, "s_1", engine.Input{Text: "écris"}, Options{Output: Text}, &out, &errb)
 	if code != 3 {
 		t.Fatalf("code=%d stderr=%s", code, errb.String())
 	}
@@ -202,7 +202,7 @@ func TestPolicyDenyExit3(t *testing.T) {
 func TestToolErrorIsNotRefusal(t *testing.T) {
 	eng, _, _ := newEngine(t, llm.EU, call("read_file", `{"path":"absent.txt"}`), text("fini"))
 	var out, errb bytes.Buffer
-	if code := Run(context.Background(), eng, "s_1", "lis", Options{Output: Text}, &out, &errb); code != 0 {
+	if code := Run(context.Background(), eng, "s_1", engine.Input{Text: "lis"}, Options{Output: Text}, &out, &errb); code != 0 {
 		t.Fatalf("code=%d stderr=%s", code, errb.String())
 	}
 }
@@ -211,7 +211,7 @@ func TestJSONOutputRedacted(t *testing.T) {
 	eng, _, _ := newEngine(t, llm.EU, text("ok"))
 	var out, errb bytes.Buffer
 	redact := func(s string) string { return strings.ReplaceAll(s, "SECRET", "[X]") }
-	code := Run(context.Background(), eng, "s_1", "mon SECRET", Options{Output: JSON, Redact: redact}, &out, &errb)
+	code := Run(context.Background(), eng, "s_1", engine.Input{Text: "mon SECRET"}, Options{Output: JSON, Redact: redact}, &out, &errb)
 	if code != 0 || strings.Contains(out.String(), "SECRET") || !strings.Contains(out.String(), "[X]") {
 		t.Fatalf("code=%d stdout=%s", code, out.String())
 	}
@@ -226,7 +226,7 @@ func TestJSONOutputRedactionFailsClosed(t *testing.T) {
 		}
 		return s
 	}
-	code := Run(context.Background(), eng, "s_1", "mon SECRET", Options{Output: JSON, Redact: broken}, &out, &errb)
+	code := Run(context.Background(), eng, "s_1", engine.Input{Text: "mon SECRET"}, Options{Output: JSON, Redact: broken}, &out, &errb)
 	if code != 0 || strings.Contains(out.String(), "SECRET") {
 		t.Fatalf("code=%d stdout=%s", code, out.String())
 	}
@@ -253,7 +253,7 @@ func TestTextOutputFinalAnswerRedacted(t *testing.T) {
 	eng, _, _ := newEngine(t, llm.EU, text("voici SECRET"))
 	var out, errb bytes.Buffer
 	redact := func(s string) string { return strings.ReplaceAll(s, "SECRET", "[X]") }
-	code := Run(context.Background(), eng, "s_1", "salut", Options{Output: Text, Redact: redact}, &out, &errb)
+	code := Run(context.Background(), eng, "s_1", engine.Input{Text: "salut"}, Options{Output: Text, Redact: redact}, &out, &errb)
 	if code != 0 || strings.Contains(out.String(), "SECRET") || !strings.Contains(out.String(), "voici [X]") {
 		t.Fatalf("code=%d stdout=%q", code, out.String())
 	}
@@ -261,7 +261,7 @@ func TestTextOutputFinalAnswerRedacted(t *testing.T) {
 	eng, _, _ = newEngine(t, llm.EU, text("voici SECRET"))
 	out.Reset()
 	textOnly := func(s string) string { return strings.ReplaceAll(s, "SECRET", "[T]") }
-	Run(context.Background(), eng, "s_1", "salut", Options{Output: Text, Redact: redact, RedactText: textOnly}, &out, &errb)
+	Run(context.Background(), eng, "s_1", engine.Input{Text: "salut"}, Options{Output: Text, Redact: redact, RedactText: textOnly}, &out, &errb)
 	if !strings.Contains(out.String(), "voici [T]") {
 		t.Fatalf("stdout=%q", out.String())
 	}
@@ -270,7 +270,7 @@ func TestTextOutputFinalAnswerRedacted(t *testing.T) {
 func TestEnglishOutput(t *testing.T) {
 	eng, _, _ := newEngine(t, llm.NonEU, text("non"))
 	var out, errb bytes.Buffer
-	code := Run(context.Background(), eng, "s_1", "hi", Options{Output: Text, Lang: i18n.EN}, &out, &errb)
+	code := Run(context.Background(), eng, "s_1", engine.Input{Text: "hi"}, Options{Output: Text, Lang: i18n.EN}, &out, &errb)
 	if code != 3 {
 		t.Fatalf("code=%d stderr=%s", code, errb.String())
 	}
@@ -332,7 +332,7 @@ func TestInstructionsAndCompactionNotices(t *testing.T) {
 func TestDefaultLangIsFrench(t *testing.T) {
 	eng, _, _ := newEngine(t, llm.EU, text("ok"))
 	var out, errb bytes.Buffer
-	Run(context.Background(), eng, "s_1", "salut", Options{Output: Text}, &out, &errb)
+	Run(context.Background(), eng, "s_1", engine.Input{Text: "salut"}, Options{Output: Text}, &out, &errb)
 	if !strings.Contains(errb.String(), "juridiction UE") {
 		t.Fatalf("stderr=%q", errb.String())
 	}
@@ -357,7 +357,7 @@ func TestContextTooLargeExit1(t *testing.T) {
 	})
 	for _, out := range []Output{Text, JSON} {
 		var stdout, errb bytes.Buffer
-		code := Run(context.Background(), eng, "s_"+string(out), strings.Repeat("mot ", 400), Options{Output: out}, &stdout, &errb)
+		code := Run(context.Background(), eng, "s_"+string(out), engine.Input{Text: strings.Repeat("mot ", 400)}, Options{Output: out}, &stdout, &errb)
 		if code != 1 || p.calls() != 0 {
 			t.Fatalf("%s : code=%d appels=%d stderr=%q", out, code, p.calls(), errb.String())
 		}

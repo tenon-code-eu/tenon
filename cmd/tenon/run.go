@@ -31,6 +31,7 @@ import (
 	"github.com/tenon-code-eu/tenon/internal/provider"
 	"github.com/tenon-code-eu/tenon/internal/secrets"
 	"github.com/tenon-code-eu/tenon/internal/session"
+	"github.com/tenon-code-eu/tenon/internal/skills"
 	"github.com/tenon-code-eu/tenon/internal/tools"
 	"github.com/tenon-code-eu/tenon/internal/ui/headless"
 	"github.com/tenon-code-eu/tenon/internal/ui/tui"
@@ -81,8 +82,8 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 
 	rest := fs.Args()
 	// « tenon sessions --lang en » : --lang est aussi accepté après la sous-commande.
-	if len(rest) > 0 && rest[0] == "sessions" {
-		sub := flag.NewFlagSet("tenon sessions", flag.ContinueOnError)
+	if len(rest) > 0 && (rest[0] == "sessions" || rest[0] == "skills") {
+		sub := flag.NewFlagSet("tenon "+rest[0], flag.ContinueOnError)
 		sub.SetOutput(stderr)
 		sub.StringVar(langFlag, "lang", *langFlag, i18n.T(hl, "flag.lang"))
 		if err := sub.Parse(rest[1:]); err != nil {
@@ -91,7 +92,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 			}
 			return 1
 		}
-		rest = append([]string{"sessions"}, sub.Args()...)
+		rest = append([]string{rest[0]}, sub.Args()...)
 	}
 
 	lang, ok := uiLang(*langFlag, getenv, wd)
@@ -101,7 +102,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	}
 
 	// --resume ne vaut que pour une conversation (interface interactive ou -p).
-	if *resume != "" && len(rest) > 0 && rest[0] != "sessions" {
+	if *resume != "" && len(rest) > 0 && rest[0] != "sessions" && rest[0] != "skills" {
 		fmt.Fprintln(stderr, i18n.T(lang, "err.no_prompt"))
 		return 1
 	}
@@ -133,6 +134,12 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 			return 1
 		}
 		return listSessions(lang, stdout, stderr, getenv, wd)
+	case len(rest) >= 1 && rest[0] == "skills":
+		if len(rest) > 1 {
+			fmt.Fprintln(stderr, i18n.T(lang, "err.unexpected_args", rest[1]))
+			return 1
+		}
+		return listSkills(lang, stdout, getenv, wd)
 	case len(rest) >= 2 && rest[0] == "git" && rest[1] == "mark":
 		// Précédé d'options globales (le hook n'en passe aucune).
 		return gitMark(ctx, rest[2:], stderr, getenv, wd)
@@ -172,7 +179,12 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	for _, n := range st.notices {
 		fmt.Fprintln(stderr, redactText(red)(n))
 	}
-	return headless.Run(ctx, st.eng, st.sessionID, *prompt, headless.Options{
+	in, err := headlessInput(lang, st.skills, *prompt)
+	if err != nil {
+		fmt.Fprintln(stderr, redactText(red)(i18n.T(lang, "err.prefix", err)))
+		return 1
+	}
+	return headless.Run(ctx, st.eng, st.sessionID, in, headless.Options{
 		Output:     out,
 		Lang:       lang,
 		Redact:     func(s string) string { out, _ := red.RedactJSON(s); return out },
@@ -429,6 +441,8 @@ type started struct {
 	// downNotices signalent les serveurs MCP indisponibles au démarrage, déjà
 	// traduits ; le mode non interactif les affiche via l'événement McpServerDown.
 	downNotices []string
+	// skills est le catalogue des skills découverts (jamais nil).
+	skills *skills.Catalog
 	// provider et contextWindow décrivent le fournisseur choisi (barre d'état).
 	provider      llm.ProviderInfo
 	contextWindow int
@@ -585,6 +599,9 @@ func startEngine(o engineOptions) (started, error) {
 	}
 	ts := append(tools.FS(wd, cfg.OutputLimit, tools.WithReadFilter(readable)),
 		tools.Shell(wd, cfg.ShellTimeout.Duration, cfg.OutputLimit))
+	// Skills : l'outil skill rejoint les outils internes, avant ceux de MCP.
+	cat, skillsSection, skillNotices := discoverSkills(lang, getenv, wd)
+	ts = append(ts, skills.NewTool(cat, cfg.OutputLimit))
 
 	red := s.redactor
 	redactJSON := func(s string) string { out, _ := red.RedactJSON(s); return out }
@@ -627,7 +644,7 @@ func startEngine(o engineOptions) (started, error) {
 		Outbound:            out,
 		Sinks:               []event.Sink{w, sw}, // audit d'abord, puis la session
 		MaxIterations:       cfg.MaxIterations,
-		SystemPrompt:        instructions.Render(i18n.SystemPrompt(lang), files),
+		SystemPrompt:        systemPrompt(instructions.Render(i18n.SystemPrompt(lang), files), skillsSection),
 		ProjectRoot:         wd,
 		Instructions:        names,
 		ContextWindow:       pc.Window(),
@@ -642,7 +659,7 @@ func startEngine(o engineOptions) (started, error) {
 		}
 	}
 	return started{
-		eng: eng, redactor: red, sessionID: sid, close: closeAll, notices: append(detectNotices, notices...),
+		eng: eng, redactor: red, sessionID: sid, close: closeAll, notices: append(append(detectNotices, skillNotices...), notices...), skills: cat,
 		downNotices: downNotices(o.lang, unavailable, red),
 		provider:    info, contextWindow: pc.Window(),
 	}, nil
