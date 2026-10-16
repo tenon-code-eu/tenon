@@ -103,6 +103,11 @@ var catalog = map[Lang]map[string]string{
 		"flag.provider":                     "identifiant du fournisseur (défaut : default_provider)",
 		"flag.lang":                         "langue de l'interface : fr ou en (défaut : lang de la configuration)",
 		"flag.resume":                       "reprendre une session : son identifiant ou last (interface interactive, ou avec -p)",
+		"skills.prompt_header":              "## Available skills\nAppelez l'outil `skill` avec le nom d'un skill avant d'agir quand sa description correspond à la demande.",
+		"skills.unknown":                    "skill ou commande inconnu : %s",
+		"skills.banner":                     "skills : %d (projet : %d)",
+		"skills.dropped":                    "%d skills omis du prompt (limite de taille)",
+		"skills.builtin_conflict":           "skill %q masqué par une commande intégrée : utilisable par le modèle seulement",
 	},
 	EN: {
 		"banner.jurisdiction.eu":            "EU",
@@ -206,5 +211,10 @@ var catalog = map[Lang]map[string]string{
 		"flag.provider":                     "provider ID (default: default_provider)",
 		"flag.lang":                         "interface language: fr or en (default: lang from the configuration)",
 		"flag.resume":                       "resume a session: its ID or last (interactive interface, or with -p)",
+		"skills.prompt_header":              "## Available skills\nCall the `skill` tool with a skill's name before acting when its description matches the request.",
+		"skills.unknown":                    "unknown skill or command: %s",
+		"skills.banner":                     "skills: %d (project: %d)",
+		"skills.dropped":                    "%d skills left out of the prompt (size limit)",
+		"skills.builtin_conflict":           "skill %q shadowed by a built-in command: model use only",
 	},
 }
