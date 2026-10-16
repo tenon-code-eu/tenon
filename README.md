@@ -17,6 +17,8 @@ Il est conçu pour l'Europe :
 Tout point d'accès compatible OpenAI est utilisable.
 tenon fonctionne sous Linux et macOS.
 
+<p align="center"><img src="docs/assets/demo.gif" alt="Démo : tenon lit main.go, propose une correction validée dans le panneau, lance go run . puis corrige une seconde erreur jusqu'à afficher 5" width="900"></p>
+
 ## Installation
 
 ### Homebrew (macOS, Linux)
@@ -121,6 +123,8 @@ It reads your project, proposes changes and runs commands under your control.
 - By default, writes, commands and MCP tool calls wait for your approval. Everything is recorded in a hash-chained audit log (`tenon audit verify`).
 - Secrets and some personal data are masked before anything leaves your machine.
 - Commits containing agent-written code can carry `AI-Assisted-By` trailers (`tenon git install-hook`).
+
+Demo: see the animation at the top of this page.
 
 Install: `brew install tenon-code-eu/tap/tenon`, or `curl -fsSL https://raw.githubusercontent.com/tenon-code-eu/tenon/main/install.sh | sh`.
 Quick start: `tenon key set mistral`, then `tenon` (interactive) or `tenon -p "<prompt>"` (scripts).

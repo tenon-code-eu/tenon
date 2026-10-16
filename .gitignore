@@ -7,3 +7,7 @@
 
 # Outils de build installés par scripts/go-tool.sh.
 /.tools/
+
+# Enregistrements bruts de démo (le GIF est dans docs/assets/).
+*.mov
+.DS_Store
