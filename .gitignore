@@ -1,3 +1,6 @@
 .superpowers/
 /tenon
 /dist/
+
+# Clés secrètes de signature : jamais dans le dépôt.
+*.key

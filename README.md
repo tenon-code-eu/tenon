@@ -28,7 +28,13 @@ Chaque version publiée sur la page [Releases GitHub](https://github.com/tenon-c
 - un fichier `SHA256SUMS`, signé avec minisign (`SHA256SUMS.minisig`) ;
 - un SBOM CycloneDX.
 
-Vérifiez la signature avec la clé publique minisign publiée avec les versions (ici `tenon.pub`), puis les empreintes :
+Vérifiez la signature avec la clé publique minisign du projet, fournie à la racine du dépôt (`tenon.pub`) :
+
+```
+RWR+vfCWjGO42uRKOxNSrKz5afZPCWJf8iJPO04kFdkhLldZHhxo532F
+```
+
+Puis vérifiez les empreintes :
 
 ```
 minisign -Vm SHA256SUMS -p tenon.pub
