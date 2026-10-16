@@ -79,7 +79,7 @@ func (t *skillTool) Run(ctx context.Context, args json.RawMessage) (tools.Result
 		if err != nil {
 			return fail(err), nil
 		}
-		return tools.Result{Content: content, Path: abs, HashAfter: sum}, nil
+		return tools.Result{Content: content, Path: abs, HashAfter: "sha256:" + sum}, nil
 	}
 	s, ok := t.c.Get(a.Name)
 	if !ok {
@@ -105,5 +105,5 @@ func (t *skillTool) Run(ctx context.Context, args json.RawMessage) (tools.Result
 	if filesTrunc {
 		sb.WriteString("- …\n")
 	}
-	return tools.Result{Content: sb.String(), Path: filepath.Join(s.Dir, skillFile), HashAfter: sum}, nil
+	return tools.Result{Content: sb.String(), Path: filepath.Join(s.Dir, skillFile), HashAfter: "sha256:" + sum}, nil
 }

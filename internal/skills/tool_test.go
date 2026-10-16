@@ -53,7 +53,7 @@ func TestToolLoad(t *testing.T) {
 	}
 	data, _ := os.ReadFile(filepath.Join(dir, "SKILL.md"))
 	h := sha256.Sum256(data)
-	sum := hex.EncodeToString(h[:])
+	sum := "sha256:" + hex.EncodeToString(h[:])
 	if res.Path != filepath.Join(dir, "SKILL.md") || res.HashAfter != sum {
 		t.Fatalf("path %q hash %q want %q", res.Path, res.HashAfter, sum)
 	}
@@ -65,7 +65,9 @@ func TestToolFile(t *testing.T) {
 	if res.IsError || res.Content != "API doc" {
 		t.Fatalf("%+v", res)
 	}
-	if res.Path != filepath.Join(dir, "references", "api.md") || res.HashAfter == "" {
+	h := sha256.Sum256([]byte("API doc"))
+	fileSum := "sha256:" + hex.EncodeToString(h[:])
+	if res.Path != filepath.Join(dir, "references", "api.md") || res.HashAfter != fileSum {
 		t.Fatalf("%+v", res)
 	}
 }
