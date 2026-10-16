@@ -451,7 +451,7 @@ func TestCloseKillsStdio(t *testing.T) {
 	deadline := time.Now().Add(3 * time.Second)
 	for {
 		err := syscall.Kill(pid, 0)
-		if errors.Is(err, syscall.ESRCH) {
+		if processGone(pid) {
 			break
 		}
 		if time.Now().After(deadline) {
@@ -686,7 +686,7 @@ func TestKillStopsStdio(t *testing.T) {
 		t.Fatalf("Kill trop long : %v", el)
 	}
 	deadline := time.Now().Add(3 * time.Second)
-	for !errors.Is(syscall.Kill(pid, 0), syscall.ESRCH) {
+	for !processGone(pid) {
 		if time.Now().After(deadline) {
 			_ = syscall.Kill(pid, syscall.SIGKILL)
 			t.Fatalf("processus enfant %d toujours vivant", pid)
@@ -741,7 +741,7 @@ func TestStuckStdioCallKilled(t *testing.T) {
 		t.Fatalf("journal %q", b)
 	}
 	deadline := time.Now().Add(3 * time.Second)
-	for !errors.Is(syscall.Kill(pid, 0), syscall.ESRCH) {
+	for !processGone(pid) {
 		if time.Now().After(deadline) {
 			_ = syscall.Kill(pid, syscall.SIGKILL)
 			t.Fatalf("serveur %d toujours vivant", pid)
@@ -794,4 +794,21 @@ func TestURLQueryStrippedFromErrors(t *testing.T) {
 	if !res.IsError || res.ServerDown != "web" || strings.Contains(res.Content, "s3cret") {
 		t.Fatalf("résultat %+v", res)
 	}
+}
+
+// processGone indique si le processus pid est terminé. Un zombie compte
+// comme terminé : un orphelin rattaché à un PID 1 qui ne récolte pas ses
+// enfants (conteneur de CI lancé sur « tail -f /dev/null ») reste zombie,
+// et kill(pid, 0) réussit encore sur lui.
+func processGone(pid int) bool {
+	if errors.Is(syscall.Kill(pid, 0), syscall.ESRCH) {
+		return true
+	}
+	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat") // Linux seulement
+	if err != nil {
+		return false
+	}
+	// L'état suit le nom de commande, entre parenthèses : « pid (comm) Z … ».
+	i := strings.LastIndexByte(string(b), ')')
+	return i >= 0 && i+2 < len(b) && b[i+2] == 'Z'
 }
