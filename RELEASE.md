@@ -74,3 +74,14 @@ L'utilisateur les règle par un bloc `[[providers]]` (`model`, `context_window`)
 - `ollama`, `ContextWindow = 32000` : la fenêtre effective est celle du serveur (`OLLAMA_CONTEXT_LENGTH`, par défaut 4k, 32k ou 256k selon la VRAM), pas celle du modèle (128K). Une valeur supérieure à celle du serveur ferait tronquer la conversation sans compaction.
 - `vllm`, `Model = "default"` : vLLM répond au nom donné par `--served-model-name`, sinon au chemin passé à `--model`. Aucun nom par défaut n'est documenté.
 - `vllm`, `ContextWindow = 32000` : la fenêtre effective est `--max-model-len`, sinon celle de la configuration du modèle servi.
+
+## Vérifications effectuées le 2026-10-16
+
+- **Répétition à blanc sous Linux** (conteneur `golang:1.26.9`, GNU tar 1.35, linux/arm64) : `make ci` réussit ; `make release VERSION=v0.0.0-test` lancé deux fois donne un `SHA256SUMS` identique octet pour octet (4 archives, 2 `.deb`, 2 `.rpm`, SBOM) ; `sha256sum -c` réussit. La branche GNU tar est donc testée.
+- **Nom `tenon`** :
+  - Codeberg : l'organisation `tenon` et le dépôt `tenon/tenon` sont libres.
+  - Paquets Debian, Fedora, Arch, Homebrew : nom libre.
+  - Nom déjà pris sur npm, PyPI et crates.io (projets sans rapport, peu actifs) : ne pas publier sur ces registres sous ce nom.
+  - Homonymes sans rapport : le service d'accessibilité Tenon.io, une petite bibliothèque Go `github.com/kmoneil/tenon` (le chemin de module `codeberg.org/tenon/tenon` ne la heurte pas).
+  - Domaines `tenon.fr`, `tenon.eu`, `tenon.dev` (et `.io`, `.com`) : déjà enregistrés. Utiliser les pages Codeberg ou un autre domaine.
+  - **Marques (EUIPO/TMview, INPI) : recherche non effectuée** (services injoignables depuis l'outillage). À faire à la main pour « TENON », classes 9 et 42, avant toute annonce publique : https://www.tmdn.org/tmview/ et https://data.inpi.fr/.
