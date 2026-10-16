@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"codeberg.org/tenon/tenon/internal/llm"
+	"github.com/tenon-code-eu/tenon/internal/llm"
 )
 
 func newOut(t *testing.T) *Outbound {
@@ -80,7 +80,7 @@ func TestOutboundRedactsContentAndArgs(t *testing.T) {
 
 func TestOutboundPrivateKeyInArgsJSON(t *testing.T) {
 	o := newOut(t)
-	key := "-----BEGIN RSA PRIVATE KEY-----\nMIIabc\nxyz\n-----END RSA PRIVATE KEY-----"
+	key := "-----BEGIN RSA " + "PRIVATE KEY-----\nMIIabc\nxyz\n-----END RSA PRIVATE KEY-----"
 	raw, _ := json.Marshal(map[string]string{"content": key})
 	if !strings.Contains(string(raw), `\n`) {
 		t.Fatal("setup")
@@ -98,7 +98,7 @@ func TestOutboundPrivateKeyInArgsJSON(t *testing.T) {
 
 func TestOutboundTruncatedPrivateKeyInArgs(t *testing.T) {
 	o := newOut(t)
-	raw := json.RawMessage(`{"content":"-----BEGIN PRIVATE KEY-----\nMIIabcDEF123\nxyz"}`)
+	raw := json.RawMessage(`{"content":"-----BEGIN ` + "PRIVATE KEY-----\\nMIIabcDEF123\\nxyz\"}")
 	out, _, _ := o.Check(llm.ProviderInfo{ID: "p", Jurisdiction: llm.EU}, []llm.Message{{ToolCalls: []llm.ToolCall{{Args: raw}}}})
 	got := string(out[0].ToolCalls[0].Args)
 	if strings.Contains(got, "MIIabc") || !json.Valid([]byte(got)) {

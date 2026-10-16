@@ -19,10 +19,10 @@ import (
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"codeberg.org/tenon/tenon/internal/config"
-	"codeberg.org/tenon/tenon/internal/llm"
-	"codeberg.org/tenon/tenon/internal/mcp/mcptest"
-	"codeberg.org/tenon/tenon/internal/tools"
+	"github.com/tenon-code-eu/tenon/internal/config"
+	"github.com/tenon-code-eu/tenon/internal/llm"
+	"github.com/tenon-code-eu/tenon/internal/mcp/mcptest"
+	"github.com/tenon-code-eu/tenon/internal/tools"
 )
 
 func start(t *testing.T, servers []config.MCPServer, opts Options) (*Manager, []Down) {

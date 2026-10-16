@@ -7,8 +7,8 @@ import (
 	"slices"
 	"sync"
 
-	"codeberg.org/tenon/tenon/internal/config"
-	"codeberg.org/tenon/tenon/internal/llm"
+	"github.com/tenon-code-eu/tenon/internal/config"
+	"github.com/tenon-code-eu/tenon/internal/llm"
 )
 
 // ServerInfo décrit le serveur d'un outil MCP exposé (valeurs de la configuration).

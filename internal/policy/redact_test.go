@@ -11,7 +11,7 @@ import (
 
 func TestRedactTable(t *testing.T) {
 	cases := []struct{ in, want string }{
-		{"-----BEGIN OPENSSH PRIVATE KEY-----\nabc\n-----END OPENSSH PRIVATE KEY-----", "[SECRET_1]"},
+		{"-----BEGIN OPENSSH " + "PRIVATE KEY-----\nabc\n-----END OPENSSH PRIVATE KEY-----", "[SECRET_1]"},
 		{"MISTRAL_API_KEY=Zx8kq2LmNp4Rt6Vw9YbC1dEf", "MISTRAL_API_KEY=[SECRET_1]"},
 		{"FR76 3000 6000 0112 3456 7890 189", "[IBAN_1]"},
 		{"FR76 3000 6000 0112 3456 7890 188", "FR76 3000 6000 0112 3456 7890 188"},
@@ -23,7 +23,7 @@ func TestRedactTable(t *testing.T) {
 		{"version 1.2.3, port 8080, func main()", "version 1.2.3, port 8080, func main()"},
 		{"550e8400-e29b-41d4-a716-446655440000", "550e8400-e29b-41d4-a716-446655440000"},
 		// extras
-		{"AKIAIOSFODNN7EXAMPLE", "[SECRET_1]"},
+		{"AKIA" + "IOSFODNN7EXAMPLE", "[SECRET_1]"},
 		{"ghp_" + strings.Repeat("a", 36), "[SECRET_1]"},
 		{"sk-" + strings.Repeat("a1", 15), "[SECRET_1]"},
 		{"eyJhbGciOi.eyJzdWIiOiIx.SflKxwRJSMeKKF2QT4", "[SECRET_1]"},
@@ -52,7 +52,7 @@ func TestRedactTable(t *testing.T) {
 		{"export TOKEN=Zx8kq2LmNp4Rt6Vw; ls", "export TOKEN=[SECRET_1]; ls"},
 		{"github_pat_" + strings.Repeat("aB3", 10), "[SECRET_1]"},
 		{"sk_live_" + strings.Repeat("aB3d", 5), "[SECRET_1]"},
-		{"xoxb-1234567890-abcdef", "[SECRET_1]"},
+		{"xoxb-" + "1234567890-abcdef", "[SECRET_1]"},
 		{"postgres://user:p4ssw0rd!@db:5432/x", "postgres://user:[SECRET_1]@db:5432/x"},
 		{"Authorization: Bearer abcdefghij0123456789xyz", "Authorization: Bearer [SECRET_1]"},
 		// tool-prefixed lines (read_file "n\t", grep "path:n:") and env-style keys

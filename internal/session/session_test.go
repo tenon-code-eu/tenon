@@ -9,7 +9,7 @@ import (
 	"time"
 	"unicode"
 
-	"codeberg.org/tenon/tenon/internal/event"
+	"github.com/tenon-code-eu/tenon/internal/event"
 )
 
 const (

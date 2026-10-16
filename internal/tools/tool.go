@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"sort"
 
-	"codeberg.org/tenon/tenon/internal/llm"
+	"github.com/tenon-code-eu/tenon/internal/llm"
 )
 
 // Risk classe l'effet d'un outil.

@@ -5,7 +5,7 @@ import (
 	"context"
 	"errors"
 
-	"codeberg.org/tenon/tenon/internal/llm"
+	"github.com/tenon-code-eu/tenon/internal/llm"
 )
 
 // Provider streams completions from an LLM backend.

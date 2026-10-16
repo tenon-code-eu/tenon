@@ -14,7 +14,7 @@ import (
 	"sync"
 	"syscall"
 
-	"codeberg.org/tenon/tenon/internal/event"
+	"github.com/tenon-code-eu/tenon/internal/event"
 )
 
 // Level selects how much of each payload is stored.

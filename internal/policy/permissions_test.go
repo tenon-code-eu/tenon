@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"codeberg.org/tenon/tenon/internal/tools"
+	"github.com/tenon-code-eu/tenon/internal/tools"
 )
 
 func newPerms(t *testing.T, rules []Rule) (*Permissions, string) {

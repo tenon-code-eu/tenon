@@ -22,7 +22,7 @@ import (
 	"github.com/charmbracelet/x/exp/teatest"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"codeberg.org/tenon/tenon/internal/mcp/mcptest"
+	"github.com/tenon-code-eu/tenon/internal/mcp/mcptest"
 )
 
 // stdioMCP déclare le serveur MCP stdio de test « test » (binaire de test

@@ -10,11 +10,11 @@ import (
 	"sync"
 	"time"
 
-	"codeberg.org/tenon/tenon/internal/event"
-	"codeberg.org/tenon/tenon/internal/llm"
-	"codeberg.org/tenon/tenon/internal/policy"
-	"codeberg.org/tenon/tenon/internal/provider"
-	"codeberg.org/tenon/tenon/internal/tools"
+	"github.com/tenon-code-eu/tenon/internal/event"
+	"github.com/tenon-code-eu/tenon/internal/llm"
+	"github.com/tenon-code-eu/tenon/internal/policy"
+	"github.com/tenon-code-eu/tenon/internal/provider"
+	"github.com/tenon-code-eu/tenon/internal/tools"
 )
 
 // DefaultMaxIterations s'applique quand Deps.MaxIterations vaut 0 ou moins.

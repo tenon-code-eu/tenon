@@ -11,12 +11,12 @@ import (
 	"sync"
 	"testing"
 
-	"codeberg.org/tenon/tenon/internal/engine"
-	"codeberg.org/tenon/tenon/internal/event"
-	"codeberg.org/tenon/tenon/internal/i18n"
-	"codeberg.org/tenon/tenon/internal/llm"
-	"codeberg.org/tenon/tenon/internal/policy"
-	"codeberg.org/tenon/tenon/internal/tools"
+	"github.com/tenon-code-eu/tenon/internal/engine"
+	"github.com/tenon-code-eu/tenon/internal/event"
+	"github.com/tenon-code-eu/tenon/internal/i18n"
+	"github.com/tenon-code-eu/tenon/internal/llm"
+	"github.com/tenon-code-eu/tenon/internal/policy"
+	"github.com/tenon-code-eu/tenon/internal/tools"
 )
 
 // scripted rejoue une réponse par appel (la dernière une fois le script épuisé).

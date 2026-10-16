@@ -20,11 +20,11 @@ import (
 	"testing"
 	"time"
 
-	"codeberg.org/tenon/tenon/internal/config"
-	"codeberg.org/tenon/tenon/internal/event"
-	"codeberg.org/tenon/tenon/internal/i18n"
-	"codeberg.org/tenon/tenon/internal/mcp/mcptest"
-	"codeberg.org/tenon/tenon/internal/session"
+	"github.com/tenon-code-eu/tenon/internal/config"
+	"github.com/tenon-code-eu/tenon/internal/event"
+	"github.com/tenon-code-eu/tenon/internal/i18n"
+	"github.com/tenon-code-eu/tenon/internal/mcp/mcptest"
+	"github.com/tenon-code-eu/tenon/internal/session"
 	"github.com/zalando/go-keyring"
 )
 

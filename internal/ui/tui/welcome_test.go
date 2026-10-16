@@ -8,7 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"codeberg.org/tenon/tenon/internal/i18n"
+	"github.com/tenon-code-eu/tenon/internal/i18n"
 )
 
 func welcomeOpts(l i18n.Lang) Options {

@@ -7,9 +7,9 @@ import (
 	"encoding/json"
 	"strings"
 
-	"codeberg.org/tenon/tenon/internal/event"
-	"codeberg.org/tenon/tenon/internal/i18n"
-	"codeberg.org/tenon/tenon/internal/ui/headless"
+	"github.com/tenon-code-eu/tenon/internal/event"
+	"github.com/tenon-code-eu/tenon/internal/i18n"
+	"github.com/tenon-code-eu/tenon/internal/ui/headless"
 )
 
 // ItemKind distingue les éléments affichables.

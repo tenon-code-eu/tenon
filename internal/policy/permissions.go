@@ -11,7 +11,7 @@ import (
 	"strings"
 	"syscall"
 
-	"codeberg.org/tenon/tenon/internal/tools"
+	"github.com/tenon-code-eu/tenon/internal/tools"
 )
 
 // Decision est le verdict du moteur pour un appel.

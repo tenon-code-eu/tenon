@@ -9,13 +9,14 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
 
-	"codeberg.org/tenon/tenon/internal/event"
-	"codeberg.org/tenon/tenon/internal/llm"
-	"codeberg.org/tenon/tenon/internal/session"
+	"github.com/tenon-code-eu/tenon/internal/event"
+	"github.com/tenon-code-eu/tenon/internal/llm"
+	"github.com/tenon-code-eu/tenon/internal/session"
 )
 
 // isolateGit coupe git de la configuration de l'utilisateur et du système
@@ -466,27 +467,43 @@ func TestAgentWritesSkipsNonRegular(t *testing.T) {
 
 func TestMarkContextSlowReader(t *testing.T) {
 	repo, sdir := agentRepo(t)
-	release, entered := make(chan struct{}), make(chan struct{}, 1)
+	release, entered := make(chan struct{}), make(chan struct{})
+	var once sync.Once
 	orig := loadSession
 	loadSession = func(dir, id string) ([]event.Event, bool, error) {
-		entered <- struct{}{}
+		once.Do(func() { close(entered) })
 		<-release // lecteur bloqué, sourd au contexte
 		return nil, false, errors.New("trop tard")
 	}
 	defer func() {
-		<-entered // loadSession a été lue avant le rétablissement
 		loadSession = orig
 		close(release)
 	}()
 
 	msg := filepath.Join(t.TempDir(), "MSG")
 	writeFile(t, msg, "titre\n")
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	// Le contexte expire une fois le lecteur bloqué, et non après un délai
+	// fixe : sur une machine chargée, les appels git qui précèdent la
+	// lecture des sessions peuvent dépasser n'importe quel délai court.
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	start := time.Now()
+	cancelled := make(chan time.Time, 1)
+	go func() {
+		select {
+		case <-entered:
+		case <-time.After(10 * time.Second):
+		}
+		cancel()
+		cancelled <- time.Now()
+	}()
 	err := MarkContext(ctx, msg, repo, sdir)
-	if err == nil || time.Since(start) > 3*time.Second {
-		t.Fatalf("err=%v durée=%v", err, time.Since(start))
+	select {
+	case <-entered: // loadSession a été lue avant le rétablissement
+	default:
+		t.Fatalf("lecture des sessions jamais atteinte : err=%v", err)
+	}
+	if at := <-cancelled; err == nil || time.Since(at) > 3*time.Second {
+		t.Fatalf("err=%v durée après annulation=%v", err, time.Since(at))
 	}
 	if b, _ := os.ReadFile(msg); string(b) != "titre\n" {
 		t.Fatalf("message modifié : %q", b)

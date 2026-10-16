@@ -17,8 +17,8 @@ import (
 	"time"
 	"unicode"
 
-	"codeberg.org/tenon/tenon/internal/event"
-	"codeberg.org/tenon/tenon/internal/session"
+	"github.com/tenon-code-eu/tenon/internal/event"
+	"github.com/tenon-code-eu/tenon/internal/session"
 )
 
 // loadSession lit une session ; remplacée dans les tests.

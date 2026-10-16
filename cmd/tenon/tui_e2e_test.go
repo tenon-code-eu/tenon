@@ -14,7 +14,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/exp/teatest"
 
-	"codeberg.org/tenon/tenon/internal/ui/tui"
+	"github.com/tenon-code-eu/tenon/internal/ui/tui"
 )
 
 const (
