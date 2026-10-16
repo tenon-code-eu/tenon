@@ -116,7 +116,7 @@ base_url = "https://evil.example/v1"
 
 func TestProjectCannotSetOtherKeys(t *testing.T) {
 	for _, body := range []string{"max_iterations = 1\n", "[audit]\nlevel = \"metadata\"\n", "shell_timeout = \"1h\"\n"} {
-		if _, err := Load("", write(t, body), env(nil)); err == nil || !strings.Contains(err.Error(), "clé non autorisée") {
+		if _, err := Load("", write(t, body), env(nil)); err == nil || !strings.Contains(err.Error(), "key not allowed") {
 			t.Fatalf("%q : err = %v", body, err)
 		}
 	}
@@ -220,7 +220,7 @@ func TestPaths(t *testing.T) {
 
 func TestProjectCannotSetDefaultProvider(t *testing.T) {
 	_, err := Load("", write(t, `default_provider = "ollama"`+"\n"), env(nil))
-	if err == nil || err.Error() != `config projet : clé non autorisée "default_provider"` {
+	if err == nil || err.Error() != `project config: key not allowed "default_provider"` {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -232,7 +232,7 @@ func TestGlobalRejectsUnknownKeys(t *testing.T) {
 		"[[providers]]\nid = \"x\"\nbase_url = \"http://x\"\njurisdiction = \"eu\"\nmodle = \"m\"\n": "providers.modle",
 	} {
 		_, err := Load(write(t, body), "", env(nil))
-		want := `config globale : clé non autorisée "` + key + `"`
+		want := `global config: key not allowed "` + key + `"`
 		if err == nil || !strings.HasPrefix(err.Error(), want) {
 			t.Fatalf("%q : err = %v, want %s", body, err, want)
 		}
@@ -241,7 +241,7 @@ func TestGlobalRejectsUnknownKeys(t *testing.T) {
 
 func TestProjectErrorUsesFullKeyPath(t *testing.T) {
 	_, err := Load("", write(t, "[permissions]\nfoo = 1\n"), env(nil))
-	if err == nil || err.Error() != `config projet : clé non autorisée "permissions.foo"` {
+	if err == nil || err.Error() != `project config: key not allowed "permissions.foo"` {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -315,7 +315,7 @@ context_window = -1
 func TestProjectCannotSetCompaction(t *testing.T) {
 	p := write(t, "compaction_threshold = 0.5\n")
 	_, err := Load("", p, env(nil))
-	if err == nil || !strings.Contains(err.Error(), "clé non autorisée") {
+	if err == nil || !strings.Contains(err.Error(), "key not allowed") {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -387,10 +387,10 @@ func TestMCPInvalidID(t *testing.T) {
 	srv := func(id string) string {
 		return "[[mcp.servers]]\nid = \"" + id + "\"\ntransport = \"stdio\"\ncommand = [\"x\"]\n"
 	}
-	mcpErr(t, srv("GitHub!"), "identifiant")
-	mcpErr(t, srv(""), "identifiant")
-	mcpErr(t, srv(strings.Repeat("a", 33)), "identifiant")
-	mcpErr(t, srv("a")+srv("a"), "dupliqué")
+	mcpErr(t, srv("GitHub!"), "server id")
+	mcpErr(t, srv(""), "server id")
+	mcpErr(t, srv(strings.Repeat("a", 33)), "server id")
+	mcpErr(t, srv("a")+srv("a"), "duplicate")
 }
 
 func TestMCPUnknownTransport(t *testing.T) {
@@ -414,7 +414,7 @@ func TestMCPInvalidRisk(t *testing.T) {
 func TestProjectCannotDeclareMCP(t *testing.T) {
 	p := write(t, "[[mcp.servers]]\nid = \"a\"\ntransport = \"stdio\"\ncommand = [\"x\"]\n")
 	_, err := Load("", p, env(nil))
-	if err == nil || !strings.Contains(err.Error(), "clé non autorisée") {
+	if err == nil || !strings.Contains(err.Error(), "key not allowed") {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -426,7 +426,7 @@ func TestMCPStdioRelativeCommand(t *testing.T) {
 		return "[[mcp.servers]]\nid = \"a\"\ntransport = \"stdio\"\ncommand = [\"" + cmd + "\"]\n"
 	}
 	for _, c := range []string{"./srv", "bin/srv", "../srv"} {
-		mcpErr(t, srv(c), "chemin absolu")
+		mcpErr(t, srv(c), "absolute path")
 	}
 	for _, c := range []string{"/usr/local/bin/srv", "srv"} {
 		if _, err := Load(write(t, srv(c)), "", env(nil)); err != nil {
@@ -490,7 +490,7 @@ func TestDetectInheritedAndValidated(t *testing.T) {
 		t.Fatalf("detect = off ignoré : %+v", p)
 	}
 	write("[[providers]]\nid = \"x\"\ndetect = \"lmstudio\"\n")
-	if _, err := Load(g, "", env(nil)); err == nil || !strings.Contains(err.Error(), "detect invalide") {
+	if _, err := Load(g, "", env(nil)); err == nil || !strings.Contains(err.Error(), "invalid detect") {
 		t.Fatalf("detect invalide accepté : %v", err)
 	}
 }

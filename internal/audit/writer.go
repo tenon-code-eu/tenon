@@ -73,23 +73,23 @@ type Writer struct {
 // *.jsonl files to 0600 and checks the chain tail. An unparsable last line is an error.
 func Open(dir string, level Level, redact func(string) string) (*Writer, error) {
 	if level != Full && level != Metadata {
-		return nil, fmt.Errorf("niveau d'audit inconnu : %q", level)
+		return nil, fmt.Errorf("unknown audit level: %q", level)
 	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return nil, fmt.Errorf("création du dossier d'audit : %w", err)
+		return nil, fmt.Errorf("creating audit directory: %w", err)
 	}
 	if err := os.Chmod(dir, 0o700); err != nil {
-		return nil, fmt.Errorf("permissions du dossier d'audit : %w", err)
+		return nil, fmt.Errorf("audit directory permissions: %w", err)
 	}
 	// Des journaux créés par une version antérieure ou à la main peuvent être
 	// lisibles par d'autres : on les ramène à 0600.
 	files, err := listFiles(dir)
 	if err != nil {
-		return nil, fmt.Errorf("lecture du dossier d'audit : %w", err)
+		return nil, fmt.Errorf("reading audit directory: %w", err)
 	}
 	for _, f := range files {
 		if err := os.Chmod(filepath.Join(dir, f), 0o600); err != nil {
-			return nil, fmt.Errorf("permissions du journal d'audit %s : %w", f, err)
+			return nil, fmt.Errorf("audit log permissions %s: %w", f, err)
 		}
 	}
 	if _, _, err := readTail(dir); err != nil {
@@ -97,7 +97,7 @@ func Open(dir string, level Level, redact func(string) string) (*Writer, error) 
 	}
 	lk, err := os.OpenFile(filepath.Join(dir, ".lock"), os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
-		return nil, fmt.Errorf("ouverture du verrou d'audit : %w", err)
+		return nil, fmt.Errorf("opening audit lock: %w", err)
 	}
 	return &Writer{
 		dir: dir, level: level, redact: redact, lock: lk,
@@ -111,7 +111,7 @@ func Open(dir string, level Level, redact func(string) string) (*Writer, error) 
 func readTail(dir string) (string, string, error) {
 	files, err := listFiles(dir)
 	if err != nil {
-		return "", "", fmt.Errorf("lecture du dossier d'audit : %w", err)
+		return "", "", fmt.Errorf("reading audit directory: %w", err)
 	}
 	newest := ""
 	if len(files) > 0 {
@@ -121,7 +121,7 @@ func readTail(dir string) (string, string, error) {
 		path := filepath.Join(dir, files[i])
 		raw, err := lastLine(path)
 		if err != nil {
-			return "", "", fmt.Errorf("lecture de %s : %w", files[i], err)
+			return "", "", fmt.Errorf("reading %s: %w", files[i], err)
 		}
 		if len(raw) == 0 {
 			continue
@@ -132,7 +132,7 @@ func readTail(dir string) (string, string, error) {
 			if data, rerr := os.ReadFile(path); rerr == nil {
 				n = bytes.Count(bytes.TrimRight(data, "\n"), []byte("\n")) + 1
 			}
-			return "", "", fmt.Errorf("%s:%d : dernière ligne du journal illisible, chaîne non reprise", files[i], n)
+			return "", "", fmt.Errorf("%s:%d: last log line unreadable, chain not resumed", files[i], n)
 		}
 		return newest, l.Hash, nil
 	}
@@ -178,10 +178,10 @@ func (w *Writer) Write(e event.Event) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.closed {
-		return errors.New("journal d'audit fermé")
+		return errors.New("audit log closed")
 	}
 	if w.broken != nil {
-		return fmt.Errorf("journal d'audit inutilisable après erreur : %w", w.broken)
+		return fmt.Errorf("audit log unusable after error: %w", w.broken)
 	}
 	payload := e.Payload
 	if len(payload) == 0 {
@@ -193,7 +193,7 @@ func (w *Writer) Write(e event.Event) error {
 	}
 	var buf bytes.Buffer
 	if err := json.Compact(&buf, []byte(text)); err != nil {
-		return fmt.Errorf("charge utile invalide après masquage : %w", err)
+		return fmt.Errorf("invalid payload after redaction: %w", err)
 	}
 	pl := json.RawMessage(buf.Bytes())
 	if w.level == Metadata {
@@ -215,7 +215,7 @@ func (w *Writer) Write(e event.Event) error {
 	}
 
 	if err := syscall.Flock(int(w.lock.Fd()), syscall.LOCK_EX); err != nil {
-		return fmt.Errorf("verrou du journal d'audit : %w", err)
+		return fmt.Errorf("audit log lock: %w", err)
 	}
 	defer syscall.Flock(int(w.lock.Fd()), syscall.LOCK_UN)
 
@@ -242,26 +242,26 @@ func (w *Writer) Write(e event.Event) error {
 	}
 	f, err := os.OpenFile(filepath.Join(w.dir, name), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
-		return fmt.Errorf("ouverture de %s : %w", name, err)
+		return fmt.Errorf("opening %s: %w", name, err)
 	}
 	defer f.Close()
 	st, err := f.Stat()
 	if err != nil {
-		return fmt.Errorf("lecture de %s : %w", name, err)
+		return fmt.Errorf("reading %s: %w", name, err)
 	}
 	size := st.Size()
 	werr := func() error {
 		if _, err := w.writeFn(f, out); err != nil {
-			return fmt.Errorf("écriture du journal d'audit : %w", err)
+			return fmt.Errorf("writing audit log: %w", err)
 		}
 		if err := w.syncFn(f); err != nil {
-			return fmt.Errorf("fsync du journal d'audit : %w", err)
+			return fmt.Errorf("fsync audit log: %w", err)
 		}
 		return nil
 	}()
 	if werr != nil {
 		if terr := f.Truncate(size); terr != nil {
-			werr = fmt.Errorf("%w (retour arrière impossible : %v)", werr, terr)
+			werr = fmt.Errorf("%w (rollback failed: %v)", werr, terr)
 		}
 		w.broken = werr
 		return werr

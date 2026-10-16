@@ -61,7 +61,7 @@ const (
 
 // ErrTurnNotFinished signale qu'à la sortie de la TUI le tour annulé n'a pas
 // rendu la main dans le délai imparti.
-var ErrTurnNotFinished = errors.New("tui: le tour ne s'est pas terminé")
+var ErrTurnNotFinished = errors.New("tui: the turn did not finish")
 
 // Messages internes.
 type (

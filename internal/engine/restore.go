@@ -12,7 +12,7 @@ import (
 
 // interruptedMsg répond aux appels d'outil restés sans résultat dans le
 // journal d'une session reprise.
-const interruptedMsg = "annulé : session interrompue"
+const interruptedMsg = "cancelled: session interrupted"
 
 // Restore reconstruit l'état en mémoire d'une session à partir de ses
 // événements persistés (session.Load), dans l'ordre. À appeler avant tout
@@ -97,7 +97,7 @@ func (e *Engine) Restore(sessionID string, events []event.Event) error {
 			closePending()
 			// history[0] est le prompt système, jamais compacté.
 			if p.Replaced < 1 || p.Replaced > len(history)-1 {
-				return fmt.Errorf("événement %s (%s) invalide : %d messages remplacés sur %d",
+				return fmt.Errorf("invalid event %s (%s): %d messages replaced out of %d",
 					ev.ID, ev.Type, p.Replaced, len(history)-1)
 			}
 			rest := history[1+p.Replaced:]
@@ -128,7 +128,7 @@ func (e *Engine) Restore(sessionID string, events []event.Event) error {
 
 func unmarshalPayload(ev event.Event, v any) error {
 	if err := json.Unmarshal(ev.Payload, v); err != nil {
-		return fmt.Errorf("événement %s (%s) illisible : %w", ev.ID, ev.Type, err)
+		return fmt.Errorf("unreadable event %s (%s): %w", ev.ID, ev.Type, err)
 	}
 	return nil
 }

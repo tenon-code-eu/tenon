@@ -52,7 +52,7 @@ func agentWrites(ctx context.Context, sessionsDir, projectRoot string) ([]Write,
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("lecture du dossier des sessions : %w", err)
+		return nil, fmt.Errorf("reading sessions directory: %w", err)
 	}
 	root := canonical(projectRoot)
 	load := loadSession
@@ -388,7 +388,7 @@ func toplevel(ctx context.Context, dir string) (string, error) {
 	}
 	root := strings.TrimSuffix(string(out), "\n")
 	if root == "" {
-		return "", errors.New("racine du dépôt git introuvable")
+		return "", errors.New("git repository root not found")
 	}
 	return root, nil
 }

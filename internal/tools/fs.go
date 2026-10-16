@@ -75,7 +75,7 @@ func isBinary(data []byte) bool {
 // decode analyse les arguments JSON ; une erreur signale des arguments invalides.
 func decode(args json.RawMessage, v any) error {
 	if err := json.Unmarshal(args, v); err != nil {
-		return fmt.Errorf("arguments invalides : %w", err)
+		return fmt.Errorf("invalid arguments: %w", err)
 	}
 	return nil
 }
@@ -96,7 +96,7 @@ func (b base) pathTarget(args json.RawMessage) (Target, error) {
 		return Target{}, err
 	}
 	if a.Path == "" {
-		return Target{}, errors.New("arguments invalides : path requis")
+		return Target{}, errors.New("invalid arguments: path required")
 	}
 	return Target{Paths: []string{b.resolve(a.Path)}}, nil
 }
@@ -107,13 +107,13 @@ type readFile struct{ base }
 
 func (*readFile) Name() string { return "read_file" }
 func (*readFile) Description() string {
-	return "Lit un fichier texte et renvoie ses lignes numérotées."
+	return "Reads a text file and returns its numbered lines."
 }
 func (*readFile) Risk() Risk { return Read }
 func (*readFile) Schema() json.RawMessage {
-	return schema(`"path":{"type":"string","description":"Chemin du fichier (relatif à la racine du projet ou absolu)."},`+
-		`"offset":{"type":"integer","description":"Première ligne à lire (1 par défaut)."},`+
-		`"limit":{"type":"integer","description":"Nombre maximal de lignes (2000 par défaut)."}`, "path")
+	return schema(`"path":{"type":"string","description":"File path (relative to the project root, or absolute)."},`+
+		`"offset":{"type":"integer","description":"First line to read (default 1)."},`+
+		`"limit":{"type":"integer","description":"Maximum number of lines (default 2000)."}`, "path")
 }
 func (t *readFile) Target(args json.RawMessage) (Target, error) { return t.pathTarget(args) }
 
@@ -130,7 +130,7 @@ func (t *readFile) Run(ctx context.Context, args json.RawMessage) (Result, error
 		return fail("%v", err), nil
 	}
 	if a.Path == "" {
-		return fail("arguments invalides : path requis"), nil
+		return fail("invalid arguments: path required"), nil
 	}
 	if a.Offset < 1 {
 		a.Offset = 1
@@ -141,10 +141,10 @@ func (t *readFile) Run(ctx context.Context, args json.RawMessage) (Result, error
 	p := t.resolve(a.Path)
 	data, err := os.ReadFile(p)
 	if err != nil {
-		return fail("lecture impossible : %v", err), nil
+		return fail("cannot read: %v", err), nil
 	}
 	if isBinary(data) {
-		return fail("fichier binaire : %s", a.Path), nil
+		return fail("binary file: %s", a.Path), nil
 	}
 	lines := strings.SplitAfter(string(data), "\n")
 	if n := len(lines); n > 0 && lines[n-1] == "" {
@@ -168,12 +168,12 @@ type writeFile struct{ base }
 
 func (*writeFile) Name() string { return "write_file" }
 func (*writeFile) Description() string {
-	return "Crée ou remplace un fichier (dossiers parents créés)."
+	return "Creates or replaces a file (parent directories are created)."
 }
 func (*writeFile) Risk() Risk { return Write }
 func (*writeFile) Schema() json.RawMessage {
-	return schema(`"path":{"type":"string","description":"Chemin du fichier."},`+
-		`"content":{"type":"string","description":"Contenu complet du fichier."}`, "path", "content")
+	return schema(`"path":{"type":"string","description":"File path."},`+
+		`"content":{"type":"string","description":"Full file content."}`, "path", "content")
 }
 func (t *writeFile) Target(args json.RawMessage) (Target, error) { return t.pathTarget(args) }
 
@@ -189,7 +189,7 @@ func (t *writeFile) Run(ctx context.Context, args json.RawMessage) (Result, erro
 		return fail("%v", err), nil
 	}
 	if a.Path == "" {
-		return fail("arguments invalides : path requis"), nil
+		return fail("invalid arguments: path required"), nil
 	}
 	p := t.resolve(a.Path)
 	res := Result{Path: p}
@@ -201,13 +201,13 @@ func (t *writeFile) Run(ctx context.Context, args json.RawMessage) (Result, erro
 		}
 	}
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-		return fail("création du dossier impossible : %v", err), nil
+		return fail("cannot create directory: %v", err), nil
 	}
 	if err := os.WriteFile(p, []byte(a.Content), mode); err != nil {
-		return fail("écriture impossible : %v", err), nil
+		return fail("cannot write: %v", err), nil
 	}
 	res.HashAfter = hashOf([]byte(a.Content))
-	res.Content = fmt.Sprintf("fichier écrit : %s", a.Path)
+	res.Content = fmt.Sprintf("file written: %s", a.Path)
 	return res, nil
 }
 
@@ -217,14 +217,14 @@ type editFile struct{ base }
 
 func (*editFile) Name() string { return "edit_file" }
 func (*editFile) Description() string {
-	return "Remplace un texte exact dans un fichier ; échoue si le texte est absent ou ambigu (sauf replace_all)."
+	return "Replaces an exact text in a file; fails if the text is missing or ambiguous (unless replace_all)."
 }
 func (*editFile) Risk() Risk { return Write }
 func (*editFile) Schema() json.RawMessage {
-	return schema(`"path":{"type":"string","description":"Chemin du fichier."},`+
-		`"old_string":{"type":"string","description":"Texte exact à remplacer."},`+
-		`"new_string":{"type":"string","description":"Texte de remplacement."},`+
-		`"replace_all":{"type":"boolean","description":"Remplacer toutes les occurrences."}`, "path", "old_string", "new_string")
+	return schema(`"path":{"type":"string","description":"File path."},`+
+		`"old_string":{"type":"string","description":"Exact text to replace."},`+
+		`"new_string":{"type":"string","description":"Replacement text."},`+
+		`"replace_all":{"type":"boolean","description":"Replace all occurrences."}`, "path", "old_string", "new_string")
 }
 func (t *editFile) Target(args json.RawMessage) (Target, error) { return t.pathTarget(args) }
 
@@ -242,20 +242,20 @@ func (t *editFile) Run(ctx context.Context, args json.RawMessage) (Result, error
 		return fail("%v", err), nil
 	}
 	if a.Path == "" || a.OldString == "" {
-		return fail("arguments invalides : path et old_string requis"), nil
+		return fail("invalid arguments: path and old_string required"), nil
 	}
 	p := t.resolve(a.Path)
 	data, err := os.ReadFile(p)
 	if err != nil {
-		return fail("lecture impossible : %v", err), nil
+		return fail("cannot read: %v", err), nil
 	}
 	s := string(data)
 	n := strings.Count(s, a.OldString)
 	if n == 0 {
-		return fail("texte introuvable dans %s", a.Path), nil
+		return fail("text not found in %s", a.Path), nil
 	}
 	if n > 1 && !a.ReplaceAll {
-		return fail("texte présent %d fois dans %s ; précisez le contexte ou utilisez replace_all", n, a.Path), nil
+		return fail("text found %d times in %s; add context or use replace_all", n, a.Path), nil
 	}
 	out := strings.ReplaceAll(s, a.OldString, a.NewString)
 	mode := os.FileMode(0o644)
@@ -263,10 +263,10 @@ func (t *editFile) Run(ctx context.Context, args json.RawMessage) (Result, error
 		mode = st.Mode().Perm()
 	}
 	if err := os.WriteFile(p, []byte(out), mode); err != nil {
-		return fail("écriture impossible : %v", err), nil
+		return fail("cannot write: %v", err), nil
 	}
 	return Result{
-		Content:    fmt.Sprintf("%d remplacement(s) dans %s", n, a.Path),
+		Content:    fmt.Sprintf("%d replacement(s) in %s", n, a.Path),
 		Path:       p,
 		HashBefore: hashOf(data),
 		HashAfter:  hashOf([]byte(out)),

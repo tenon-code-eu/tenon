@@ -48,7 +48,7 @@ func main() {
 
 	wd, err := os.Getwd()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "tenon : dossier courant illisible : %v\n", err)
+		fmt.Fprintf(os.Stderr, "tenon: cannot read current directory: %v\n", err)
 		os.Exit(1)
 	}
 

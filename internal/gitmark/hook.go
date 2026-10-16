@@ -39,7 +39,7 @@ const (
 )
 
 // ErrHookExists signale un hook commit-msg différent déjà installé.
-var ErrHookExists = errors.New("un hook commit-msg existe déjà")
+var ErrHookExists = errors.New("a commit-msg hook already exists")
 
 // InstallHook installe HookScript (mode 0755) comme hook commit-msg
 // dans le dossier de hooks effectif du dépôt contenant repoRoot (core.hooksPath
@@ -62,7 +62,7 @@ func InstallHook(repoRoot string, force bool) (string, error) {
 	}
 	dir := strings.TrimSuffix(string(out), "\n")
 	if dir == "" {
-		return "", errors.New("dossier des hooks git introuvable")
+		return "", errors.New("git hooks directory not found")
 	}
 	if !filepath.IsAbs(dir) {
 		dir = filepath.Join(top, dir)
@@ -78,28 +78,28 @@ func InstallHook(repoRoot string, force bool) (string, error) {
 			return path, fmt.Errorf("%w (%s)", ErrHookExists, path)
 		}
 		if err := os.Rename(path, path+".bak"); err != nil {
-			return path, fmt.Errorf("sauvegarde du hook existant : %w", err)
+			return path, fmt.Errorf("backing up existing hook: %w", err)
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return path, fmt.Errorf("lecture du hook existant : %w", err)
+		return path, fmt.Errorf("reading existing hook: %w", err)
 	}
 
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return path, fmt.Errorf("création du dossier des hooks : %w", err)
+		return path, fmt.Errorf("creating hooks directory: %w", err)
 	}
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o755)
 	if err != nil {
-		return path, fmt.Errorf("écriture du hook : %w", err)
+		return path, fmt.Errorf("writing hook: %w", err)
 	}
 	_, werr := f.WriteString(HookScript)
 	cerr := f.Close()
 	if err := errors.Join(werr, cerr); err != nil {
 		_ = os.Remove(path)
-		return path, fmt.Errorf("écriture du hook : %w", err)
+		return path, fmt.Errorf("writing hook: %w", err)
 	}
 	// Le umask a pu retirer des droits.
 	if err := os.Chmod(path, 0o755); err != nil {
-		return path, fmt.Errorf("droits du hook : %w", err)
+		return path, fmt.Errorf("hook permissions: %w", err)
 	}
 	return path, removeLegacy(dir)
 }
@@ -116,7 +116,7 @@ func removeLegacy(dir string) error {
 		return nil
 	}
 	if err := os.Remove(p); err != nil {
-		return fmt.Errorf("suppression de l'ancien hook %s : %w", legacyHookName, err)
+		return fmt.Errorf("removing legacy hook %s: %w", legacyHookName, err)
 	}
 	return nil
 }

@@ -24,14 +24,14 @@ func runShell(t *testing.T, tl Tool, args string) Result {
 
 func TestShellEcho(t *testing.T) {
 	res := runShell(t, newShell(t.TempDir(), 5*time.Second), `{"command":"echo bonjour"}`)
-	if res.IsError || !strings.Contains(res.Content, "bonjour") || !strings.Contains(res.Content, "[code de sortie: 0]") {
+	if res.IsError || !strings.Contains(res.Content, "bonjour") || !strings.Contains(res.Content, "[exit code: 0]") {
 		t.Fatalf("résultat inattendu : %+v", res)
 	}
 }
 
 func TestShellNonZero(t *testing.T) {
 	res := runShell(t, newShell(t.TempDir(), 5*time.Second), `{"command":"exit 3"}`)
-	if !res.IsError || !strings.Contains(res.Content, "[code de sortie: 3]") {
+	if !res.IsError || !strings.Contains(res.Content, "[exit code: 3]") {
 		t.Fatalf("résultat inattendu : %+v", res)
 	}
 }
@@ -54,7 +54,7 @@ func TestShellTimeoutKillsGroup(t *testing.T) {
 	if d := time.Since(start); d > 3*time.Second {
 		t.Fatalf("trop long : %v", d)
 	}
-	if !res.IsError || !strings.Contains(res.Content, "délai dépassé") {
+	if !res.IsError || !strings.Contains(res.Content, "timed out") {
 		t.Fatalf("résultat inattendu : %+v", res)
 	}
 }
@@ -65,7 +65,7 @@ func TestShellTimeoutArgOverrides(t *testing.T) {
 	if d := time.Since(start); d > 3*time.Second {
 		t.Fatalf("trop long : %v", d)
 	}
-	if !strings.Contains(res.Content, "délai dépassé") {
+	if !strings.Contains(res.Content, "timed out") {
 		t.Fatalf("résultat inattendu : %+v", res)
 	}
 }
@@ -85,14 +85,14 @@ func TestShellBackgroundChildDoesNotHang(t *testing.T) {
 	if d := time.Since(start); d > 3*time.Second {
 		t.Fatalf("trop long : %v", d)
 	}
-	if res.IsError || !strings.Contains(res.Content, "ok") || !strings.Contains(res.Content, "[code de sortie: 0]") {
+	if res.IsError || !strings.Contains(res.Content, "ok") || !strings.Contains(res.Content, "[exit code: 0]") {
 		t.Fatalf("résultat inattendu : %+v", res)
 	}
 }
 
 func TestShellOutputCapped(t *testing.T) {
 	res := runShell(t, Shell(t.TempDir(), time.Second, 1000), `{"command":"yes"}`)
-	if len(res.Content) > 1200 || !strings.Contains(res.Content, "sortie tronquée") {
+	if len(res.Content) > 1200 || !strings.Contains(res.Content, "output truncated") {
 		t.Fatalf("len=%d, contenu inattendu : %.200q", len(res.Content), res.Content)
 	}
 }

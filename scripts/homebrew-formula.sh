@@ -8,17 +8,17 @@
 # La formule installe les binaires publiés ; elle ne recompile pas.
 set -eu
 
-VERSION="${1:?usage : homebrew-formula.sh vX.Y.Z}"
+VERSION="${1:?usage: homebrew-formula.sh vX.Y.Z}"
 SUMS="${SUMS:-dist/SHA256SUMS}"
 REPO="tenon-code-eu/tenon"
 
-die() { printf 'homebrew-formula : %s\n' "$*" >&2; exit 1; }
+die() { printf 'homebrew-formula: %s\n' "$*" >&2; exit 1; }
 
-[ -f "$SUMS" ] || die "$SUMS introuvable (lancer make release VERSION=$VERSION)."
+[ -f "$SUMS" ] || die "$SUMS not found (run make release VERSION=$VERSION)."
 
 sum() { # sum OS ARCH
 	s="$(awk -v f="tenon_${VERSION}_$1_$2.tar.gz" '$2 == f { print $1 }' "$SUMS")"
-	[ -n "$s" ] || die "tenon_${VERSION}_$1_$2.tar.gz absent de $SUMS."
+	[ -n "$s" ] || die "tenon_${VERSION}_$1_$2.tar.gz missing from $SUMS."
 	printf '%s' "$s"
 }
 

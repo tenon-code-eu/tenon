@@ -92,10 +92,10 @@ func Render(base string, files []File) string {
 	var b strings.Builder
 	b.WriteString(base)
 	for _, f := range files {
-		b.WriteString("\n\n# Instructions du projet (" + f.Name + ")\n\n")
+		b.WriteString("\n\n# Project instructions (" + f.Name + ")\n\n")
 		b.WriteString(f.Content)
 		if f.Truncated {
-			b.WriteString("\n[… tronqué]")
+			b.WriteString("\n[… truncated]")
 		}
 	}
 	return b.String()

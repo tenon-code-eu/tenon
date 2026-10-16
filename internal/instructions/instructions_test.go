@@ -85,8 +85,8 @@ func TestRender(t *testing.T) {
 		{Name: "AGENTS.md", Content: "a"},
 		{Name: "TENON.md", Content: "t", Truncated: true},
 	})
-	want := "base\n\n# Instructions du projet (AGENTS.md)\n\na" +
-		"\n\n# Instructions du projet (TENON.md)\n\nt\n[… tronqué]"
+	want := "base\n\n# Project instructions (AGENTS.md)\n\na" +
+		"\n\n# Project instructions (TENON.md)\n\nt\n[… truncated]"
 	if got != want {
 		t.Fatalf("got %q\nwant %q", got, want)
 	}

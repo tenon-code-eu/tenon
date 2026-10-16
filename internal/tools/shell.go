@@ -37,12 +37,12 @@ type shellArgs struct {
 
 func (s *shellTool) Name() string { return "shell" }
 func (s *shellTool) Description() string {
-	return "Exécute une commande bash dans le répertoire du projet (sortie standard et erreur combinées)."
+	return "Runs a bash command in the project directory (stdout and stderr combined)."
 }
 func (s *shellTool) Risk() Risk { return Exec }
 func (s *shellTool) Schema() json.RawMessage {
-	return schema(`"command":{"type":"string","description":"commande bash à exécuter"},`+
-		`"timeout_seconds":{"type":"integer","description":"délai maximal en secondes (optionnel)"}`, "command")
+	return schema(`"command":{"type":"string","description":"bash command to run"},`+
+		`"timeout_seconds":{"type":"integer","description":"maximum duration in seconds (optional)"}`, "command")
 }
 
 func (s *shellTool) parse(args json.RawMessage) (shellArgs, error) {
@@ -51,10 +51,10 @@ func (s *shellTool) parse(args json.RawMessage) (shellArgs, error) {
 		return a, err
 	}
 	if a.Command == "" {
-		return a, errors.New("arguments invalides : command requis")
+		return a, errors.New("invalid arguments: command required")
 	}
 	if a.TimeoutSeconds != nil && *a.TimeoutSeconds <= 0 {
-		return a, errors.New("arguments invalides : timeout_seconds doit être > 0")
+		return a, errors.New("invalid arguments: timeout_seconds must be > 0")
 	}
 	return a, nil
 }
@@ -89,7 +89,7 @@ func (s *shellTool) Run(ctx context.Context, args json.RawMessage) (Result, erro
 	cmd.Cancel = func() error { return killGroup(cmd) }
 
 	if err := cmd.Start(); err != nil {
-		return fail("impossible de lancer la commande : %v", err), nil
+		return fail("cannot start command: %v", err), nil
 	}
 	waitErr := cmd.Wait()
 	// Le processus principal est terminé : aucun processus d'arrière-plan ne doit survivre.
@@ -100,7 +100,7 @@ func (s *shellTool) Run(ctx context.Context, args json.RawMessage) (Result, erro
 	}
 	out := buf.String(s.limit)
 	if tctx.Err() == context.DeadlineExceeded {
-		return Result{IsError: true, Content: fmt.Sprintf("%s\n[délai dépassé après %s]", out, timeout)}, nil
+		return Result{IsError: true, Content: fmt.Sprintf("%s\n[timed out after %s]", out, timeout)}, nil
 	}
 	code := 0
 	if waitErr != nil {
@@ -111,11 +111,11 @@ func (s *shellTool) Run(ctx context.Context, args json.RawMessage) (Result, erro
 		} else if errors.As(waitErr, &ee) {
 			code = ee.ExitCode()
 		} else {
-			return fail("%s\n[erreur d'exécution : %v]", out, waitErr), nil
+			return fail("%s\n[execution error: %v]", out, waitErr), nil
 		}
 	}
 	return Result{
-		Content: fmt.Sprintf("%s\n[code de sortie: %d]", out, code),
+		Content: fmt.Sprintf("%s\n[exit code: %d]", out, code),
 		IsError: code != 0,
 	}, nil
 }

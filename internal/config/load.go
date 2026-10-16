@@ -29,12 +29,12 @@ func Load(globalPath, projectPath string, getenv func(string) string) (Config, e
 		g.Providers = nil
 		md, err := toml.Decode(string(data), &g)
 		if err != nil {
-			return Config{}, fmt.Errorf("config globale : %w", err)
+			return Config{}, fmt.Errorf("global config: %w", err)
 		}
 		// Une clé mal orthographiée (ex. [[permission.rules]]) ferait
 		// disparaître silencieusement des règles : on la refuse.
 		if und := md.Undecoded(); len(und) > 0 {
-			return Config{}, fmt.Errorf("config globale : clé non autorisée %q", und[0].String())
+			return Config{}, fmt.Errorf("global config: key not allowed %q", und[0].String())
 		}
 		cfg.Lang, cfg.DefaultProvider = g.Lang, g.DefaultProvider
 		cfg.MaxIterations, cfg.ShellTimeout, cfg.OutputLimit = g.MaxIterations, g.ShellTimeout, g.OutputLimit
@@ -61,14 +61,14 @@ func Load(globalPath, projectPath string, getenv func(string) string) (Config, e
 		var p projectFile
 		md, err := toml.Decode(string(data), &p)
 		if err != nil {
-			return Config{}, fmt.Errorf("config projet : %w", err)
+			return Config{}, fmt.Errorf("project config: %w", err)
 		}
 		if und := md.Undecoded(); len(und) > 0 {
-			return Config{}, fmt.Errorf("config projet : clé non autorisée %q", und[0].String())
+			return Config{}, fmt.Errorf("project config: key not allowed %q", und[0].String())
 		}
 		for _, r := range p.Permissions.Rules {
 			if r.Decision == "allow" {
-				return Config{}, errors.New(`config projet : les règles "allow" sont interdites`)
+				return Config{}, errors.New(`project config: "allow" rules are not allowed`)
 			}
 		}
 		for i := range p.Permissions.Rules {

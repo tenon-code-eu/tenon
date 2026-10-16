@@ -25,11 +25,11 @@ const subscriberBuffer = 256
 
 var (
 	// ErrAuditFailure : un Sink a échoué ; l'engine refuse désormais tout tour.
-	ErrAuditFailure = errors.New("échec d'écriture du journal d'audit")
+	ErrAuditFailure = errors.New("audit log write failure")
 	// ErrUnknownPermission : Respond avec un identifiant inconnu ou déjà résolu.
-	ErrUnknownPermission = errors.New("demande de permission inconnue")
+	ErrUnknownPermission = errors.New("unknown permission request")
 	// ErrSessionActive : Restore sur une session déjà utilisée dans ce processus.
-	ErrSessionActive = errors.New("session déjà active dans ce processus")
+	ErrSessionActive = errors.New("session already active in this process")
 )
 
 // Deps regroupe les dépendances de l'engine.
@@ -189,7 +189,7 @@ func (e *Engine) emit(s *session, typ event.Type, payload any) error {
 		if err := sk.Write(ev); err != nil {
 			e.failed = true
 			s.seq++
-			msg := fmt.Sprintf("%v : %v ; aucune action ne sera exécutée", ErrAuditFailure, err)
+			msg := fmt.Sprintf("%v: %v; no action will be executed", ErrAuditFailure, err)
 			if fe, ferr := event.New(s.id, s.seq, e.d.Now(), event.Error,
 				event.ErrorPayload{Code: "audit_failure", Message: msg}); ferr == nil {
 				e.deliver(fe)

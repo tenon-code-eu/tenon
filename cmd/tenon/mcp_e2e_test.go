@@ -329,7 +329,7 @@ transport = "http"
 url = "https://mcp.example.com/mcp"
 `)
 	code, out, errb := e.run("config", "check")
-	if code != 1 || !strings.Contains(errb, "jurisdiction requise") {
+	if code != 1 || !strings.Contains(errb, "jurisdiction required") {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errb)
 	}
 	// Sans connexion : un serveur injoignable n'empêche pas la validation.
@@ -350,11 +350,11 @@ func TestMCPWarningNotice(t *testing.T) {
 	e := newEnvExtra(t, f, "eu", stdioDecl(t))
 	stdioMCP(t, e, "badschema")
 	code, _, errb := e.run("-p", "salut")
-	if code != 0 || !strings.Contains(errb, `MCP : serveur MCP test : outil "bad" ignoré`) {
+	if code != 0 || !strings.Contains(errb, `MCP : MCP server test: tool "bad" skipped`) {
 		t.Fatalf("code=%d stderr=%q", code, errb)
 	}
 	code, _, errb = e.run("--lang", "en", "-p", "salut")
-	if code != 0 || !strings.Contains(errb, `MCP: serveur MCP test : outil "bad" ignoré`) {
+	if code != 0 || !strings.Contains(errb, `MCP: MCP server test: tool "bad" skipped`) {
 		t.Fatalf("en : code=%d stderr=%q", code, errb)
 	}
 }
@@ -424,10 +424,10 @@ func TestTUIMCPWarnings(t *testing.T) {
 	e := newEnvExtra(t, f, "eu", stdioDecl(t))
 	stdioMCP(t, e, "badschema")
 	r := e.runTUI(func(tm *teatest.TestModel) {
-		waitText(t, tm, "ignoré")
+		waitText(t, tm, "skipped")
 		quitTUI(t, tm)
 	})
-	if r.code != 0 || len(r.opts.Notices) != 1 || !strings.HasPrefix(r.opts.Notices[0], `MCP : serveur MCP test : outil "bad" ignoré`) {
+	if r.code != 0 || len(r.opts.Notices) != 1 || !strings.HasPrefix(r.opts.Notices[0], `MCP : MCP server test: tool "bad" skipped`) {
 		t.Fatalf("code=%d notices=%q stderr=%q", r.code, r.opts.Notices, r.stderr)
 	}
 }

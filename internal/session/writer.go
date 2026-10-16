@@ -16,13 +16,13 @@ import (
 )
 
 // ErrNoSession means no matching session exists.
-var ErrNoSession = errors.New("aucune session trouvée")
+var ErrNoSession = errors.New("no session found")
 
 // ErrInvalidID means a session ID is not of the form s_<12 hex digits>.
-var ErrInvalidID = errors.New("identifiant de session invalide")
+var ErrInvalidID = errors.New("invalid session id")
 
 // ErrLocked means another process (or writer) already holds the session.
-var ErrLocked = errors.New("session déjà ouverte")
+var ErrLocked = errors.New("session already open")
 
 var idRe = regexp.MustCompile(`^s_[0-9a-f]{12}$`)
 
@@ -91,10 +91,10 @@ func Acquire(dir, sessionID string) (*Lock, error) {
 		return nil, err
 	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return nil, fmt.Errorf("création du dossier des sessions : %w", err)
+		return nil, fmt.Errorf("creating sessions directory: %w", err)
 	}
 	if err := os.Chmod(dir, 0o700); err != nil {
-		return nil, fmt.Errorf("permissions du dossier des sessions : %w", err)
+		return nil, fmt.Errorf("sessions directory permissions: %w", err)
 	}
 	path := filepath.Join(dir, sessionID+".jsonl")
 	lock, err := acquireLock(path + ".lock")
@@ -116,7 +116,7 @@ func (l *Lock) Release() {
 // the returned Writer owns the lock. On error the lock is still held.
 func (l *Lock) Open(redact func(string) string) (*Writer, error) {
 	if l.f == nil {
-		return nil, fmt.Errorf("session %s : verrou libéré", l.id)
+		return nil, fmt.Errorf("session %s: lock released", l.id)
 	}
 	// Le verrou est pris avant la réparation, qui tronque le fichier.
 	if err := repair(l.path); err != nil {
@@ -124,11 +124,11 @@ func (l *Lock) Open(redact func(string) string) (*Writer, error) {
 	}
 	f, err := os.OpenFile(l.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
-		return nil, fmt.Errorf("ouverture de la session %s : %w", l.id, err)
+		return nil, fmt.Errorf("opening session %s: %w", l.id, err)
 	}
 	if err := os.Chmod(l.path, 0o600); err != nil {
 		f.Close()
-		return nil, fmt.Errorf("permissions de la session %s : %w", l.id, err)
+		return nil, fmt.Errorf("session %s permissions: %w", l.id, err)
 	}
 	w := &Writer{id: l.id, redact: redact, f: f, lock: l.f}
 	l.f = nil
@@ -139,18 +139,18 @@ func (l *Lock) Open(redact func(string) string) (*Writer, error) {
 func acquireLock(path string) (*os.File, error) {
 	l, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
-		return nil, fmt.Errorf("verrou de la session : %w", err)
+		return nil, fmt.Errorf("session lock: %w", err)
 	}
 	if err := os.Chmod(path, 0o600); err != nil {
 		l.Close()
-		return nil, fmt.Errorf("permissions du verrou de la session : %w", err)
+		return nil, fmt.Errorf("session lock permissions: %w", err)
 	}
 	if err := syscall.Flock(int(l.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		l.Close()
 		if errors.Is(err, syscall.EWOULDBLOCK) {
 			return nil, ErrLocked
 		}
-		return nil, fmt.Errorf("verrou de la session : %w", err)
+		return nil, fmt.Errorf("session lock: %w", err)
 	}
 	return l, nil
 }
@@ -169,7 +169,7 @@ func repair(path string) error {
 		return nil
 	}
 	if err != nil {
-		return fmt.Errorf("lecture de la session : %w", err)
+		return fmt.Errorf("reading session: %w", err)
 	}
 	good, off := 0, 0
 	for off < len(data) {
@@ -192,17 +192,17 @@ func repair(path string) error {
 			return err
 		}
 		if err := os.Truncate(path, int64(good)); err != nil {
-			return fmt.Errorf("réparation de la session : %w", err)
+			return fmt.Errorf("repairing session: %w", err)
 		}
 	}
 	if good > 0 && data[good-1] != '\n' {
 		f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
 		if err != nil {
-			return fmt.Errorf("réparation de la session : %w", err)
+			return fmt.Errorf("repairing session: %w", err)
 		}
 		defer f.Close()
 		if _, err := f.Write([]byte("\n")); err != nil {
-			return fmt.Errorf("réparation de la session : %w", err)
+			return fmt.Errorf("repairing session: %w", err)
 		}
 	}
 	return nil
@@ -211,10 +211,10 @@ func repair(path string) error {
 // saveCorrupt writes data to path (0600), replacing any previous copy.
 func saveCorrupt(path string, data []byte) error {
 	if err := os.WriteFile(path, data, 0o600); err != nil {
-		return fmt.Errorf("copie de la session endommagée : %w", err)
+		return fmt.Errorf("copying damaged session: %w", err)
 	}
 	if err := os.Chmod(path, 0o600); err != nil {
-		return fmt.Errorf("copie de la session endommagée : %w", err)
+		return fmt.Errorf("copying damaged session: %w", err)
 	}
 	return nil
 }
@@ -234,25 +234,25 @@ func (w *Writer) Write(e event.Event) error {
 	}
 	var buf bytes.Buffer
 	if err := json.Compact(&buf, []byte(text)); err != nil {
-		return fmt.Errorf("charge utile invalide après masquage : %w", err)
+		return fmt.Errorf("invalid payload after redaction: %w", err)
 	}
 	e.Payload = json.RawMessage(buf.Bytes())
 	out, err := json.Marshal(e)
 	if err != nil {
-		return fmt.Errorf("sérialisation de l'événement : %w", err)
+		return fmt.Errorf("serializing event: %w", err)
 	}
 	out = append(out, '\n')
 
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.f == nil {
-		return errors.New("session fermée")
+		return errors.New("session closed")
 	}
 	if _, err := w.f.Write(out); err != nil {
-		return fmt.Errorf("écriture de la session : %w", err)
+		return fmt.Errorf("writing session: %w", err)
 	}
 	if err := w.f.Sync(); err != nil {
-		return fmt.Errorf("fsync de la session : %w", err)
+		return fmt.Errorf("fsync session: %w", err)
 	}
 	return nil
 }

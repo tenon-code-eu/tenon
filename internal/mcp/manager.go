@@ -156,7 +156,7 @@ func Start(ctx context.Context, servers []config.MCPServer, opts Options) (*Mana
 			continue
 		}
 		if skipped(decl, opts) {
-			down = append(down, Down{Server: decl.ID, Error: "serveur hors UE ignoré sans --allow-non-eu", NonEUSkipped: true})
+			down = append(down, Down{Server: decl.ID, Error: "non-EU server skipped without --allow-non-eu", NonEUSkipped: true})
 			continue
 		}
 		r := results[i]
@@ -171,17 +171,17 @@ func Start(ctx context.Context, servers []config.MCPServer, opts Options) (*Mana
 				continue
 			}
 			if exposed == maxToolsPerServer {
-				m.warnings = append(m.warnings, fmt.Sprintf("serveur MCP %s : plus de %d outils, les suivants sont ignorés", decl.ID, maxToolsPerServer))
+				m.warnings = append(m.warnings, fmt.Sprintf("MCP server %s: more than %d tools, the rest are skipped", decl.ID, maxToolsPerServer))
 				break
 			}
 			sch, err := validSchema(t.InputSchema)
 			if err != nil {
-				m.warnings = append(m.warnings, fmt.Sprintf("serveur MCP %s : outil %q ignoré (%v)", decl.ID, cleanText(t.Name), err))
+				m.warnings = append(m.warnings, fmt.Sprintf("MCP server %s: tool %q skipped (%v)", decl.ID, cleanText(t.Name), err))
 				continue
 			}
 			desc := cutRunes(cleanText(t.Description), maxDescription)
 			if size += len(desc) + len(sch); size > maxToolBytes {
-				m.warnings = append(m.warnings, fmt.Sprintf("serveur MCP %s : définitions d'outils de plus de %d Ko, les suivantes sont ignorées", decl.ID, maxToolBytes>>10))
+				m.warnings = append(m.warnings, fmt.Sprintf("MCP server %s: tool definitions over %d KB, the rest are skipped", decl.ID, maxToolBytes>>10))
 				break
 			}
 			exposed++
@@ -288,13 +288,13 @@ func connect(ctx context.Context, decl config.MCPServer, opts Options) (*server,
 		transport = t
 	case decl.Transport == "stdio":
 		if len(decl.Command) == 0 {
-			return nil, nil, errors.New("commande vide")
+			return nil, nil, errors.New("empty command")
 		}
 		// Rien n'est résolu depuis le projet (non fiable) : ni la commande, ni
 		// le répertoire de travail (python -m, node script.js, npx…).
 		home := opts.Getenv("HOME")
 		if home == "" {
-			return nil, nil, errors.New("HOME non défini : serveur stdio non lancé")
+			return nil, nil, errors.New("HOME not set: stdio server not started")
 		}
 		bin, err := resolveCommand(decl.Command[0], opts.Getenv("PATH"))
 		if err != nil {
@@ -313,7 +313,7 @@ func connect(ctx context.Context, decl config.MCPServer, opts Options) (*server,
 			DisableStandaloneSSE: true,
 		}
 	default:
-		return nil, nil, fmt.Errorf("transport inconnu %q", decl.Transport)
+		return nil, nil, fmt.Errorf("unknown transport %q", decl.Transport)
 	}
 
 	// Un serveur stdio muet ne doit pas survivre au délai de connexion.
@@ -353,7 +353,7 @@ func (s *server) killAfterFailure() {
 
 func timeoutErr(ctx context.Context, err error) error {
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		return fmt.Errorf("délai de connexion dépassé : %w", err)
+		return fmt.Errorf("connection timed out: %w", err)
 	}
 	return err
 }
@@ -369,7 +369,7 @@ func resolveCommand(name, path string) (string, error) {
 		return name, nil
 	}
 	if strings.ContainsRune(name, '/') {
-		return "", fmt.Errorf("commande %q : chemin absolu ou nom nu attendu", name)
+		return "", fmt.Errorf("command %q: absolute path or bare name expected", name)
 	}
 	for _, dir := range filepath.SplitList(path) {
 		// « . » ou une entrée vide désigneraient le dossier courant : le projet.
@@ -381,7 +381,7 @@ func resolveCommand(name, path string) (string, error) {
 			return p, nil
 		}
 	}
-	return "", fmt.Errorf("commande %q introuvable dans PATH", name)
+	return "", fmt.Errorf("command %q not found in PATH", name)
 }
 
 // minimalEnv : PATH, HOME, LANG, les seules variables env_from (non vides)
@@ -447,18 +447,18 @@ func riskOf(decl config.MCPServer) tools.Risk {
 func validSchema(s any) (json.RawMessage, error) {
 	raw, err := json.Marshal(s)
 	if err != nil {
-		return nil, errors.New("schéma illisible")
+		return nil, errors.New("unreadable schema")
 	}
 	if len(raw) > maxSchema {
-		return nil, fmt.Errorf("schéma de plus de %d Ko", maxSchema>>10)
+		return nil, fmt.Errorf("schema over %d KB", maxSchema>>10)
 	}
 	// Passe lexicale bon marché avant l'analyse complète, coûteuse sur un schéma très imbriqué.
 	if jsonDepth(raw) > maxSchemaDepth {
-		return nil, fmt.Errorf("schéma imbriqué sur plus de %d niveaux", maxSchemaDepth)
+		return nil, fmt.Errorf("schema nested more than %d levels deep", maxSchemaDepth)
 	}
 	var sch jsonschema.Schema
 	if err := json.Unmarshal(raw, &sch); err != nil {
-		return nil, errors.New("schéma JSON invalide")
+		return nil, errors.New("invalid JSON schema")
 	}
 	if sch.Type != "object" {
 		return nil, errors.New(`schéma sans type "object"`)
@@ -531,7 +531,7 @@ func (c *capBody) RoundTrip(r *http.Request) (*http.Response, error) {
 	return resp, err
 }
 
-var errBodyTooLarge = fmt.Errorf("réponse HTTP de plus de %d Mo", maxBody>>20)
+var errBodyTooLarge = fmt.Errorf("HTTP response over %d MB", maxBody>>20)
 
 // limitedBody renvoie une erreur dès que plus de left octets ont été lus.
 type limitedBody struct {

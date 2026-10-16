@@ -28,18 +28,18 @@ const (
 )
 
 // summaryPrompt est le prompt système de la requête de résumé.
-const summaryPrompt = "Résume fidèlement la conversation suivante pour qu'un agent de code puisse la poursuivre : objectifs, décisions, fichiers modifiés, points en suspens. Réponds uniquement par le résumé."
+const summaryPrompt = "Faithfully summarize the following conversation so that a coding agent can continue it: goals, decisions, modified files, open items. Reply with the summary only."
 
 // omittedLine précède le texte à résumer quand ses plus anciens messages ont
 // été omis pour tenir dans la fenêtre.
-const omittedLine = "[… messages plus anciens omis]"
+const omittedLine = "[… older messages omitted]"
 
 // truncatedMark termine un message tronqué pour tenir dans la fenêtre.
-const truncatedMark = "[… tronqué]"
+const truncatedMark = "[… truncated]"
 
 // summaryPrefix précède le résumé dans le message qui remplace la partie
 // compactée.
-const summaryPrefix = "Résumé de la conversation précédente :\n\n"
+const summaryPrefix = "Summary of the previous conversation:\n\n"
 
 // summaryMessage construit le message qui remplace la partie résumée ; partagé
 // par la compaction et par sa relecture dans Restore.
@@ -97,14 +97,14 @@ func renderConversation(msgs []llm.Message) string {
 			b.WriteString("\n\n")
 		}
 		b.WriteString(string(m.Role))
-		b.WriteString(" : ")
+		b.WriteString(": ")
 		b.WriteString(m.Content)
 		for _, c := range m.ToolCalls {
-			b.WriteString("\n[appel d'outil ")
+			b.WriteString("\n[tool call ")
 			b.WriteString(c.Name)
 			b.WriteString(" (")
 			b.WriteString(c.ID)
-			b.WriteString(") : ")
+			b.WriteString("): ")
 			b.Write(safeArgs(c.Args))
 			b.WriteString("]")
 		}
@@ -239,7 +239,7 @@ func (t *turn) compact(info llm.ProviderInfo, defs []llm.ToolDef, force bool) (r
 func (t *turn) tooLarge() (string, error) {
 	if err := t.emit(event.Error, event.ErrorPayload{
 		Code:    reasonTooLarge,
-		Message: "contexte trop volumineux : impossible de le compacter sous la fenêtre du modèle",
+		Message: "context too large: cannot compact it below the model window",
 	}); err != nil {
 		return "", err
 	}

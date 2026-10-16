@@ -131,7 +131,7 @@ With the default Go configuration (without `GOPROXY=direct`), modules also go th
 
 ### Corrupted audit log
 
-Symptoms: `tenon audit verify` reports `file:line`, or tenon refuses to start with "dernière ligne du journal illisible, chaîne non reprise" (last log line unreadable, chain not resumed).
+Symptoms: `tenon audit verify` reports `file:line`, or tenon refuses to start with "last log line unreadable, chain not resumed".
 
 Do not modify the log in place: it is evidence.
 

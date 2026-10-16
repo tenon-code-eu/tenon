@@ -36,7 +36,7 @@ A version that fails an item is not published.
 
 ## 3. Signature
 
-- [ ] Sign with minisign: `MINISIGN_KEY=<path to the secret key> make release VERSION=vX.Y.Z`. Without `MINISIGN_KEY`, the target prints "signature ignorée" (signature skipped): **do not publish** in this state. With `MINISIGN_KEY` but without `minisign` installed, the release fails.
+- [ ] Sign with minisign: `MINISIGN_KEY=<path to the secret key> make release VERSION=vX.Y.Z`. Without `MINISIGN_KEY`, the target prints "signature skipped": **do not publish** in this state. With `MINISIGN_KEY` but without `minisign` installed, the release fails.
 - [ ] Verify the signature with the published public key: `minisign -Vm dist/SHA256SUMS -p tenon.pub`.
 - [ ] The secret key has never left the maintainer's machine; it is not in the repository nor in the CI.
 

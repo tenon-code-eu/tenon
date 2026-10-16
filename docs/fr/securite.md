@@ -133,7 +133,7 @@ Avec la configuration par défaut de Go (sans `GOPROXY=direct`), les modules pas
 
 ### Journal d'audit corrompu
 
-Symptômes : `tenon audit verify` signale `fichier:ligne`, ou tenon refuse de démarrer avec « dernière ligne du journal illisible, chaîne non reprise ».
+Symptômes : `tenon audit verify` signale `fichier:ligne`, ou tenon refuse de démarrer avec « last log line unreadable, chain not resumed » (dernière ligne du journal illisible, chaîne non reprise).
 
 Ne modifiez pas le journal en place : il sert de preuve.
 

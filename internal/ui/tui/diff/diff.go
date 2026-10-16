@@ -44,7 +44,7 @@ const (
 
 // ErrBinary signale que le fichier courant ou le nouveau contenu est binaire :
 // aucun aperçu ligne à ligne n'est calculé.
-var ErrBinary = errors.New("diff : contenu binaire")
+var ErrBinary = errors.New("diff: binary content")
 
 // splitLines découpe en lignes ; un saut de ligne final ne crée pas de ligne vide.
 func splitLines(s string) []string {
@@ -242,7 +242,7 @@ func PreviewRedacted(tool string, args json.RawMessage, root string, redact func
 			Content string `json:"content"`
 		}
 		if err := json.Unmarshal(args, &a); err != nil {
-			return nil, 0, fmt.Errorf("arguments invalides : %w", err)
+			return nil, 0, fmt.Errorf("invalid arguments: %w", err)
 		}
 		p := a.Path
 		if !filepath.IsAbs(p) {
@@ -269,7 +269,7 @@ func PreviewRedacted(tool string, args json.RawMessage, root string, redact func
 			ReplaceAll bool   `json:"replace_all"`
 		}
 		if err := json.Unmarshal(args, &a); err != nil {
-			return nil, 0, fmt.Errorf("arguments invalides : %w", err)
+			return nil, 0, fmt.Errorf("invalid arguments: %w", err)
 		}
 		if isBinary(a.OldString) || isBinary(a.NewString) {
 			return nil, 0, ErrBinary

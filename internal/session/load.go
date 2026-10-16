@@ -24,7 +24,7 @@ func Load(dir, sessionID string) (events []event.Event, corrupt bool, err error)
 		return nil, false, ErrNoSession
 	}
 	if err != nil {
-		return nil, false, fmt.Errorf("ouverture de la session %s : %w", sessionID, err)
+		return nil, false, fmt.Errorf("opening session %s: %w", sessionID, err)
 	}
 	defer f.Close()
 	r := bufio.NewReader(f)
@@ -41,7 +41,7 @@ func Load(dir, sessionID string) (events []event.Event, corrupt bool, err error)
 			return events, false, nil
 		}
 		if rerr != nil {
-			return events, false, fmt.Errorf("lecture de la session %s : %w", sessionID, rerr)
+			return events, false, fmt.Errorf("reading session %s: %w", sessionID, rerr)
 		}
 	}
 }

@@ -140,7 +140,7 @@ func (t *turn) run(input string) error {
 func (t *turn) closeCalls(calls []llm.ToolCall, cause error) {
 	for _, c := range calls {
 		t.s.history = append(t.s.history, llm.Message{
-			Role: llm.Tool, Content: "annulé : " + cause.Error(), ToolCallID: c.ID,
+			Role: llm.Tool, Content: "cancelled: " + cause.Error(), ToolCallID: c.ID,
 		})
 	}
 }
@@ -352,27 +352,27 @@ func (t *turn) decideAndRun(c llm.ToolCall) (tools.Result, string, error) {
 		tool, ok = d.Tools.Get(c.Name)
 	}
 	if !ok {
-		return toolError("outil inconnu : %s", c.Name), "", nil
+		return toolError("unknown tool: %s", c.Name), "", nil
 	}
 	// Les marqueurs de masquage ne sont jamais restaurés : les écrire
 	// remplacerait la vraie valeur par le marqueur.
 	if tool.Risk() == tools.Write {
 		if m := findMarker(c.Args); m != "" {
-			return toolError("contenu masqué : impossible d'écrire un marqueur de masquage (%s)", m), deniedPolicy, nil
+			return toolError("redacted content: cannot write a redaction marker (%s)", m), deniedPolicy, nil
 		}
 	}
 	// De même pour un outil MCP, quel que soit son risque déclaré : le
 	// serveur recevrait le marqueur à la place de la valeur.
 	if strings.HasPrefix(c.Name, "mcp__") {
 		if m := findMarker(c.Args); m != "" {
-			return toolError("contenu masqué : impossible d'envoyer un marqueur de masquage à un serveur MCP (%s)", m), deniedPolicy, nil
+			return toolError("redacted content: cannot send a redaction marker to an MCP server (%s)", m), deniedPolicy, nil
 		}
 	}
 	target, err := tool.Target(c.Args)
 	if err != nil {
 		msg := err.Error()
-		if !strings.HasPrefix(msg, "arguments invalides") {
-			msg = "arguments invalides : " + msg
+		if !strings.HasPrefix(msg, "invalid arguments") {
+			msg = "invalid arguments: " + msg
 		}
 		return tools.Result{IsError: true, Content: msg}, "", nil
 	}
@@ -388,14 +388,14 @@ func (t *turn) decideAndRun(c llm.ToolCall) (tools.Result, string, error) {
 				return tools.Result{}, "", err
 			}
 			if !r.Allow {
-				return toolError("action refusée par l'utilisateur"), deniedUser, nil
+				return toolError("action denied by the user"), deniedUser, nil
 			}
 			if r.Remember {
 				t.s.remembered[key] = true
 			}
 		}
 	default:
-		return toolError("action refusée par la politique"), deniedPolicy, nil
+		return toolError("action denied by policy"), deniedPolicy, nil
 	}
 	res, err := tool.Run(t.ctx, c.Args)
 	if err != nil {

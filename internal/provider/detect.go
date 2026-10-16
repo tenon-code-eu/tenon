@@ -25,10 +25,10 @@ type Detected struct {
 }
 
 // ErrNoModel : le serveur ne sert aucun modèle utilisable.
-var ErrNoModel = errors.New("aucun modèle utilisable")
+var ErrNoModel = errors.New("no usable model")
 
 // ErrModelNotFound : le modèle demandé n'est pas servi.
-var ErrModelNotFound = errors.New("modèle absent du serveur")
+var ErrModelNotFound = errors.New("model not found on the server")
 
 // maxDetectBody plafonne chaque réponse lue pendant la détection.
 const maxDetectBody = 4 << 20
@@ -199,7 +199,7 @@ func DetectVLLM(ctx context.Context, c *http.Client, baseURL, model string) (Det
 	case len(list.Data) == 0:
 		return Detected{}, ErrNoModel
 	case len(list.Data) > 1:
-		return Detected{}, fmt.Errorf("plusieurs modèles servis (%s) : fixez model dans la configuration", strings.Join(ids, ", "))
+		return Detected{}, fmt.Errorf("several models served (%s): set model in the configuration", strings.Join(ids, ", "))
 	}
 	return Detected{Model: list.Data[0].ID, ContextWindow: list.Data[0].MaxModelLen}, nil
 }

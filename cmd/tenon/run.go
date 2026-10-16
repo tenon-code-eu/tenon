@@ -371,7 +371,7 @@ func loadSetup(getenv func(string) string, wd string) (setup, error) {
 	for _, r := range cfg.Permissions.Rules {
 		d, err := policy.ParseDecision(r.Decision)
 		if err != nil {
-			return setup{}, fmt.Errorf("règle de permission (%s %q) : %w", r.Tool, r.Match, err)
+			return setup{}, fmt.Errorf("permission rule (%s %q): %w", r.Tool, r.Match, err)
 		}
 		rules = append(rules, policy.Rule{Tool: r.Tool, Match: r.Match, Decision: d, Project: r.Project})
 	}
@@ -816,7 +816,7 @@ func auditVerify(lang i18n.Lang, stdout, stderr io.Writer, getenv func(string) s
 func newSessionID() (string, error) {
 	b := make([]byte, 6)
 	if _, err := rand.Read(b); err != nil {
-		return "", fmt.Errorf("identifiant de session : %w", err)
+		return "", fmt.Errorf("session id: %w", err)
 	}
 	return "s_" + hex.EncodeToString(b), nil
 }
@@ -837,7 +837,7 @@ var (
 func gitMark(ctx context.Context, args []string, stderr io.Writer, getenv func(string) string, wd string) int {
 	var err error
 	if len(args) != 1 || args[0] == "" {
-		err = errors.New("usage : tenon git mark <fichier-message>")
+		err = errors.New("usage: tenon git mark <message-file>")
 	} else {
 		ctx, cancel := context.WithTimeout(ctx, markTimeout)
 		defer cancel()

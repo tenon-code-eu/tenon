@@ -56,13 +56,13 @@ var mcpIDPattern = regexp.MustCompile(`^[a-z0-9_-]{1,32}$`)
 func validateMCPURL(id, raw string) error {
 	u, err := url.Parse(raw)
 	if raw == "" || err != nil || u.Host == "" || u.Hostname() == "" {
-		return fmt.Errorf("config : url invalide pour le serveur MCP %q", id)
+		return fmt.Errorf("config: invalid url for MCP server %q", id)
 	}
 	if u.User != nil {
-		return fmt.Errorf("config : url du serveur MCP %q : identifiants interdits dans l'URL (utiliser bearer_env)", id)
+		return fmt.Errorf("config: url of MCP server %q: credentials not allowed in the URL (use bearer_env)", id)
 	}
 	if u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || strings.ContainsAny(raw, "?#") {
-		return fmt.Errorf("config : url du serveur MCP %q : requête et fragment interdits dans l'URL (jeton via bearer_env)", id)
+		return fmt.Errorf("config: url of MCP server %q: query and fragment not allowed in the URL (token via bearer_env)", id)
 	}
 	switch u.Scheme {
 	case "https":
@@ -70,10 +70,10 @@ func validateMCPURL(id, raw string) error {
 		switch u.Hostname() {
 		case "localhost", "127.0.0.1", "::1":
 		default:
-			return fmt.Errorf("config : url du serveur MCP %q : https requis (http seulement vers localhost, 127.0.0.1 ou ::1)", id)
+			return fmt.Errorf("config: url of MCP server %q: https required (http only to localhost, 127.0.0.1 or ::1)", id)
 		}
 	default:
-		return fmt.Errorf("config : url du serveur MCP %q : schéma %q non pris en charge (https)", id, u.Scheme)
+		return fmt.Errorf("config: url of MCP server %q: unsupported scheme %q (https)", id, u.Scheme)
 	}
 	return nil
 }
@@ -82,40 +82,40 @@ func (m MCP) validate() error {
 	seen := map[string]bool{}
 	for _, s := range m.Servers {
 		if !mcpIDPattern.MatchString(s.ID) {
-			return fmt.Errorf("config : identifiant de serveur MCP invalide %q ([a-z0-9_-]{1,32})", s.ID)
+			return fmt.Errorf("config: invalid MCP server id %q ([a-z0-9_-]{1,32})", s.ID)
 		}
 		if seen[s.ID] {
-			return fmt.Errorf("config : identifiant de serveur MCP dupliqué %q", s.ID)
+			return fmt.Errorf("config: duplicate MCP server id %q", s.ID)
 		}
 		seen[s.ID] = true
 		switch s.Transport {
 		case "stdio":
 			if len(s.Command) == 0 || s.Command[0] == "" {
-				return fmt.Errorf("config : command requis pour le serveur MCP stdio %q", s.ID)
+				return fmt.Errorf("config: command required for stdio MCP server %q", s.ID)
 			}
 			// Un chemin relatif serait résolu depuis le projet, non fiable.
 			if c := s.Command[0]; !filepath.IsAbs(c) && strings.ContainsRune(c, '/') {
-				return fmt.Errorf("config : command du serveur MCP stdio %q : chemin absolu ou nom nu (cherché dans PATH) requis, pas %q", s.ID, c)
+				return fmt.Errorf("config: command of stdio MCP server %q: absolute path or bare name (looked up in PATH) required, not %q", s.ID, c)
 			}
 		case "http":
 			if err := validateMCPURL(s.ID, s.URL); err != nil {
 				return err
 			}
 			if s.Jurisdiction == "" {
-				return fmt.Errorf("config : jurisdiction requise pour le serveur MCP http %q (eu|non-eu|local)", s.ID)
+				return fmt.Errorf("config: jurisdiction required for http MCP server %q (eu|non-eu|local)", s.ID)
 			}
 		default:
-			return fmt.Errorf("config : transport invalide %q pour le serveur MCP %q (stdio|http)", s.Transport, s.ID)
+			return fmt.Errorf("config: invalid transport %q for MCP server %q (stdio|http)", s.Transport, s.ID)
 		}
 		switch s.Jurisdiction {
 		case "eu", "non-eu", "local":
 		default:
-			return fmt.Errorf("config : jurisdiction invalide %q pour le serveur MCP %q (eu|non-eu|local)", s.Jurisdiction, s.ID)
+			return fmt.Errorf("config: invalid jurisdiction %q for MCP server %q (eu|non-eu|local)", s.Jurisdiction, s.ID)
 		}
 		switch s.Risk {
 		case "", "read", "write", "exec", "network":
 		default:
-			return fmt.Errorf("config : risk invalide %q pour le serveur MCP %q (read|write|exec|network)", s.Risk, s.ID)
+			return fmt.Errorf("config: invalid risk %q for MCP server %q (read|write|exec|network)", s.Risk, s.ID)
 		}
 	}
 	return nil
@@ -232,48 +232,48 @@ func (c Config) validate() error {
 	switch c.Lang {
 	case "fr", "en":
 	default:
-		return fmt.Errorf("config : lang invalide %q (fr|en)", c.Lang)
+		return fmt.Errorf("config: invalid lang %q (fr|en)", c.Lang)
 	}
 	switch c.Audit.Level {
 	case "full", "metadata":
 	default:
-		return fmt.Errorf("config : audit.level invalide %q (full|metadata)", c.Audit.Level)
+		return fmt.Errorf("config: invalid audit.level %q (full|metadata)", c.Audit.Level)
 	}
 	if c.CompactionThreshold <= 0 || c.CompactionThreshold >= 1 {
-		return fmt.Errorf("config : compaction_threshold invalide %v (]0,1[)", c.CompactionThreshold)
+		return fmt.Errorf("config: invalid compaction_threshold %v (]0,1[)", c.CompactionThreshold)
 	}
 	for _, p := range c.Providers {
 		if p.ContextWindow < 0 {
-			return fmt.Errorf("config : context_window négatif pour le fournisseur %q", p.ID)
+			return fmt.Errorf("config: negative context_window for provider %q", p.ID)
 		}
 		switch p.Detect {
 		case "", "off", "ollama", "vllm":
 		default:
-			return fmt.Errorf("config : detect invalide %q pour le fournisseur %q (ollama|vllm|off)", p.Detect, p.ID)
+			return fmt.Errorf("config: invalid detect %q for provider %q (ollama|vllm|off)", p.Detect, p.ID)
 		}
 		switch p.Jurisdiction {
 		case "eu", "non-eu", "local":
 		default:
-			return fmt.Errorf("config : jurisdiction invalide %q pour le fournisseur %q (eu|non-eu|local)", p.Jurisdiction, p.ID)
+			return fmt.Errorf("config: invalid jurisdiction %q for provider %q (eu|non-eu|local)", p.Jurisdiction, p.ID)
 		}
 	}
 	for _, r := range c.Permissions.Rules {
 		switch r.Decision {
 		case "allow", "ask", "deny":
 		default:
-			return fmt.Errorf("config : decision invalide %q (allow|ask|deny)", r.Decision)
+			return fmt.Errorf("config: invalid decision %q (allow|ask|deny)", r.Decision)
 		}
 	}
 	for _, r := range c.Redaction.Rules {
 		if _, err := regexp.Compile(r.Pattern); err != nil {
-			return fmt.Errorf("config : pattern de masquage %q invalide : %w", r.Name, err)
+			return fmt.Errorf("config: invalid redaction pattern %q: %w", r.Name, err)
 		}
 	}
 	if err := c.MCP.validate(); err != nil {
 		return err
 	}
 	if _, ok := c.Provider(c.DefaultProvider); !ok {
-		return fmt.Errorf("config : default_provider inconnu %q", c.DefaultProvider)
+		return fmt.Errorf("config: unknown default_provider %q", c.DefaultProvider)
 	}
 	return nil
 }

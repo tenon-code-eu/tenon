@@ -210,12 +210,12 @@ func (r *renderer) printJSON(ev event.Event) {
 		ev.Type = event.Error
 		ev.Payload, _ = json.Marshal(event.ErrorPayload{
 			Code:    "redaction",
-			Message: "événement masqué illisible : non affiché",
+			Message: "unreadable redacted event: not shown",
 		})
 	}
 	b, err := json.Marshal(ev)
 	if err != nil {
-		b = []byte(`{"type":"Error","payload":{"code":"redaction","message":"événement non affichable"}}`)
+		b = []byte(`{"type":"Error","payload":{"code":"redaction","message":"event cannot be shown"}}`)
 	}
 	fmt.Fprintf(r.stdout, "%s\n", b)
 }

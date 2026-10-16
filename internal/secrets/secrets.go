@@ -14,7 +14,7 @@ import (
 // Service est le nom de service utilisé dans le trousseau système.
 const Service = "tenon"
 
-var errFournisseurVide = errors.New("identifiant de fournisseur vide")
+var errFournisseurVide = errors.New("empty provider id")
 
 // Lookup renvoie la clé du fournisseur et sa provenance : "env" (variable
 // d'environnement, prioritaire), "keyring" (trousseau) ou "" si la clé est
@@ -34,7 +34,7 @@ func Lookup(providerID, envName string, getenv func(string) string) (value, sour
 		return "", "", nil
 	}
 	if err != nil {
-		return "", "", fmt.Errorf("lecture du trousseau pour %q : %w", providerID, err)
+		return "", "", fmt.Errorf("reading keychain for %q: %w", providerID, err)
 	}
 	if v == "" {
 		return "", "", nil
@@ -48,10 +48,10 @@ func Set(providerID, value string) error {
 		return errFournisseurVide
 	}
 	if value == "" {
-		return errors.New("valeur de clé vide refusée")
+		return errors.New("empty key value rejected")
 	}
 	if err := keyring.Set(Service, providerID, value); err != nil {
-		return fmt.Errorf("écriture dans le trousseau pour %q : %w", providerID, err)
+		return fmt.Errorf("writing keychain for %q: %w", providerID, err)
 	}
 	return nil
 }
@@ -64,7 +64,7 @@ func Delete(providerID string) error {
 	}
 	err := keyring.Delete(Service, providerID)
 	if err != nil && !errors.Is(err, keyring.ErrNotFound) {
-		return fmt.Errorf("suppression dans le trousseau pour %q : %w", providerID, err)
+		return fmt.Errorf("deleting from keychain for %q: %w", providerID, err)
 	}
 	return nil
 }

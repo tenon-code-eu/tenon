@@ -45,7 +45,7 @@ func ParseDecision(s string) (Decision, error) {
 	case "deny":
 		return Deny, nil
 	}
-	return Ask, fmt.Errorf("décision inconnue %q (attendu : allow, ask ou deny)", s)
+	return Ask, fmt.Errorf("unknown decision %q (expected: allow, ask or deny)", s)
 }
 
 // Rule associe un outil ("*" = tous) et un motif à une décision. Project
@@ -75,11 +75,11 @@ type Permissions struct {
 func NewPermissions(root string, rules []Rule) (*Permissions, error) {
 	abs, err := filepath.Abs(root)
 	if err != nil {
-		return nil, fmt.Errorf("racine du projet : %w", err)
+		return nil, fmt.Errorf("project root: %w", err)
 	}
 	resolved, err := filepath.EvalSymlinks(abs)
 	if err != nil {
-		return nil, fmt.Errorf("racine du projet : %w", err)
+		return nil, fmt.Errorf("project root: %w", err)
 	}
 	return &Permissions{root: resolved, rawRoot: abs, rules: append([]Rule(nil), rules...)}, nil
 }

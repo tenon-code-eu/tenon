@@ -96,7 +96,7 @@ func TestRestoreClosesOrphanToolCalls(t *testing.T) {
 	for _, c := range []struct {
 		i       int
 		id, txt string
-	}{{3, "c1", "A"}, {4, "c2", "annulé : session interrompue"}, {7, "c3", "annulé : session interrompue"}} {
+	}{{3, "c1", "A"}, {4, "c2", "cancelled: session interrupted"}, {7, "c3", "cancelled: session interrupted"}} {
 		if msgs[c.i].ToolCallID != c.id || msgs[c.i].Content != c.txt {
 			t.Fatalf("message %d : %+v", c.i, msgs[c.i])
 		}

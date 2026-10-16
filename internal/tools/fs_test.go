@@ -51,7 +51,7 @@ func TestReadFileBinaryRejected(t *testing.T) {
 	root := t.TempDir()
 	write(t, filepath.Join(root, "b.bin"), "ab\x00cd")
 	res := run(t, find(t, root, "read_file"), `{"path":"b.bin"}`)
-	if !res.IsError || !strings.Contains(res.Content, "fichier binaire") {
+	if !res.IsError || !strings.Contains(res.Content, "binary file") {
 		t.Fatalf("got %+v", res)
 	}
 }
@@ -86,7 +86,7 @@ func TestEditFileAmbiguous(t *testing.T) {
 	write(t, p, "x x")
 	e := find(t, root, "edit_file")
 	res := run(t, e, `{"path":"e.txt","old_string":"x","new_string":"y"}`)
-	if !res.IsError || !strings.Contains(res.Content, "présent 2 fois") {
+	if !res.IsError || !strings.Contains(res.Content, "found 2 times") {
 		t.Fatalf("got %+v", res)
 	}
 	res = run(t, e, `{"path":"e.txt","old_string":"x","new_string":"y","replace_all":true}`)
@@ -100,7 +100,7 @@ func TestEditFileNotFound(t *testing.T) {
 	root := t.TempDir()
 	write(t, filepath.Join(root, "e.txt"), "abc")
 	res := run(t, find(t, root, "edit_file"), `{"path":"e.txt","old_string":"zzz","new_string":"y"}`)
-	if !res.IsError || !strings.Contains(res.Content, "texte introuvable") {
+	if !res.IsError || !strings.Contains(res.Content, "text not found") {
 		t.Fatalf("got %+v", res)
 	}
 }
@@ -125,7 +125,7 @@ func TestTruncate(t *testing.T) {
 		t.Fatal("court")
 	}
 	got := Truncate("abcdef", 3)
-	if got != "abc\n[… sortie tronquée à 3 caractères]" {
+	if got != "abc\n[… output truncated to 3 characters]" {
 		t.Fatalf("got %q", got)
 	}
 }

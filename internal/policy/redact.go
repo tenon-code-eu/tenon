@@ -92,11 +92,11 @@ func NewRedactor(custom []RedactionRule) (*Redactor, error) {
 	}
 	for _, c := range custom {
 		if strings.TrimSpace(c.Name) == "" {
-			return nil, fmt.Errorf("règle de masquage sans nom")
+			return nil, fmt.Errorf("redaction rule without a name")
 		}
 		re, err := regexp.Compile(c.Pattern)
 		if err != nil {
-			return nil, fmt.Errorf("règle de masquage %q invalide : %w", c.Name, err)
+			return nil, fmt.Errorf("invalid redaction rule %q: %w", c.Name, err)
 		}
 		r.steps = append(r.steps, step{typ: strings.ToUpper(c.Name), re: re})
 	}

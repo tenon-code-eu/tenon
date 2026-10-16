@@ -731,7 +731,7 @@ func TestCompactionEndToEnd(t *testing.T) {
 	}
 	summaries := 0
 	for _, b := range f.requests() {
-		if strings.Contains(b, "Résume fidèlement") {
+		if strings.Contains(b, "Faithfully summarize") {
 			summaries++
 		}
 	}
@@ -825,7 +825,7 @@ func TestResumeAfterContextTooLarge(t *testing.T) {
 		t.Fatalf("run 2 : code=%d stdout=%q stderr=%q", code, out, errb)
 	}
 	reqs := f.requests()
-	if len(reqs) != 2 || !strings.Contains(reqs[0], "Résume fidèlement") {
+	if len(reqs) != 2 || !strings.Contains(reqs[0], "Faithfully summarize") {
 		t.Fatalf("requêtes : %d", len(reqs))
 	}
 	n := 0
@@ -1051,7 +1051,7 @@ decision = "deny"
 	if string(gj) != string(wj) {
 		t.Fatalf("messages repris\n%s\nattendu\n%s", gj, wj)
 	}
-	if !strings.Contains(string(gj), "[SECRET_1]") || !strings.Contains(string(gj), "refusée par la politique") {
+	if !strings.Contains(string(gj), "[SECRET_1]") || !strings.Contains(string(gj), "denied by policy") {
 		t.Fatalf("messages repris : %s", gj)
 	}
 }

@@ -45,7 +45,7 @@ func compactArgs(args json.RawMessage) ([]byte, error) {
 	}
 	var buf bytes.Buffer
 	if err := json.Compact(&buf, args); err != nil {
-		return nil, errors.New("arguments invalides : JSON attendu")
+		return nil, errors.New("invalid arguments: JSON expected")
 	}
 	return buf.Bytes(), nil
 }
@@ -77,15 +77,15 @@ func (t *mcpTool) needsConsent() bool {
 func (t *mcpTool) Run(ctx context.Context, args json.RawMessage) (tools.Result, error) {
 	id := t.srv.decl.ID
 	if t.srv.down.Load() {
-		return tools.Result{IsError: true, Content: "serveur MCP " + id + " indisponible"}, nil
+		return tools.Result{IsError: true, Content: "MCP server " + id + " unavailable"}, nil
 	}
 	if t.opts.Consent != nil && !t.opts.Consent(id) {
-		return tools.Result{IsError: true, Denied: "policy", Content: "serveur MCP hors UE sans consentement"}, nil
+		return tools.Result{IsError: true, Denied: "policy", Content: "non-EU MCP server without consent"}, nil
 	}
 	c, err := compactArgs(args)
 	var obj map[string]json.RawMessage
 	if err == nil && (json.Unmarshal(c, &obj) != nil || obj == nil) {
-		err = errors.New("arguments invalides : objet JSON attendu")
+		err = errors.New("invalid arguments: JSON object expected")
 	}
 	if err != nil {
 		return tools.Result{IsError: true, Content: err.Error()}, nil
@@ -94,7 +94,7 @@ func (t *mcpTool) Run(ctx context.Context, args json.RawMessage) (tools.Result, 
 	tctx, cancel := context.WithTimeout(ctx, t.opts.CallTimeout)
 	defer cancel()
 	out, done, finished := t.call(tctx, c)
-	timeout := tools.Result{IsError: true, Content: fmt.Sprintf("[délai dépassé après %s]", t.opts.CallTimeout)}
+	timeout := tools.Result{IsError: true, Content: fmt.Sprintf("[timed out after %s]", t.opts.CallTimeout)}
 	if !finished {
 		// L'appel ne rend pas la main malgré l'expiration du contexte (écriture
 		// bloquée sur le pipe d'un serveur stdio qui ne lit plus) : le serveur
@@ -125,18 +125,18 @@ func (t *mcpTool) Run(ctx context.Context, args json.RawMessage) (tools.Result, 
 		}
 		if t.srv.closing.Load() {
 			// Fermeture volontaire (Manager.Close) : pas de signalement hors service.
-			return tools.Result{IsError: true, Content: "serveur MCP " + id + " fermé"}, nil
+			return tools.Result{IsError: true, Content: "MCP server " + id + " closed"}, nil
 		}
 		var werr *jsonrpc.Error
 		switch {
 		case isNetworkErr(err):
 		case hasWireCode(err, codeRejected):
 			// Refus transitoire du transport (statut 429/5xx, en-têtes…) : erreur, serveur en service.
-			return tools.Result{IsError: true, Content: "serveur MCP " + id + " : " + errText(err)}, nil
+			return tools.Result{IsError: true, Content: "MCP server " + id + ": " + errText(err)}, nil
 		case errors.As(err, &werr):
-			return tools.Result{IsError: true, Content: "erreur du serveur MCP " + id + " : " + cleanText(werr.Message)}, nil
+			return tools.Result{IsError: true, Content: "MCP server " + id + " error: " + cleanText(werr.Message)}, nil
 		}
-		r := tools.Result{IsError: true, Content: "serveur MCP " + id + " indisponible : " + errText(err)}
+		r := tools.Result{IsError: true, Content: "MCP server " + id + " unavailable: " + errText(err)}
 		if t.srv.markDown() {
 			r.ServerDown = id
 		}
@@ -242,15 +242,15 @@ func render(res *sdk.CallToolResult) string {
 		case *sdk.AudioContent:
 			parts = append(parts, "[audio "+cleanText(v.MIMEType)+"]")
 		case *sdk.ResourceLink:
-			parts = append(parts, "[ressource "+cleanText(v.URI)+"]")
+			parts = append(parts, "[resource "+cleanText(v.URI)+"]")
 		case *sdk.EmbeddedResource:
 			uri := ""
 			if v.Resource != nil {
 				uri = v.Resource.URI
 			}
-			parts = append(parts, "[ressource "+cleanText(uri)+"]")
+			parts = append(parts, "[resource "+cleanText(uri)+"]")
 		default:
-			parts = append(parts, "[contenu non textuel]")
+			parts = append(parts, "[non-text content]")
 		}
 	}
 	if len(parts) == 0 && res.StructuredContent != nil {

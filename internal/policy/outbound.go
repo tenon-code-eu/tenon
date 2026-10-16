@@ -10,7 +10,7 @@ import (
 )
 
 // ErrJurisdiction is returned when a non-EU provider has no recorded consent.
-var ErrJurisdiction = errors.New("fournisseur hors UE sans consentement")
+var ErrJurisdiction = errors.New("non-EU provider without consent")
 
 // Outbound gates and redacts every message sent to an LLM provider.
 type Outbound struct {

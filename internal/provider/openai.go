@@ -160,12 +160,12 @@ func (o *OpenAICompat) connect(ctx context.Context, body []byte) (*http.Response
 				// Le message du fournisseur dit la cause (débit, quota épuisé,
 				// modèle saturé) : il est gardé, tronqué, pour l'erreur finale.
 				b, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-				lastErr = fmt.Errorf("statut HTTP %d", resp.StatusCode)
+				lastErr = fmt.Errorf("HTTP status %d", resp.StatusCode)
 				if msg := strings.Join(strings.Fields(string(b)), " "); msg != "" {
 					if r := []rune(msg); len(r) > 300 {
 						msg = string(r[:300]) + "…"
 					}
-					lastErr = fmt.Errorf("statut HTTP %d: %s", resp.StatusCode, msg)
+					lastErr = fmt.Errorf("HTTP status %d: %s", resp.StatusCode, msg)
 				}
 				if s, perr := strconv.Atoi(strings.TrimSpace(resp.Header.Get("Retry-After"))); perr == nil && s >= 0 {
 					wait = time.Duration(s) * time.Second
@@ -180,7 +180,7 @@ func (o *OpenAICompat) connect(ctx context.Context, body []byte) (*http.Response
 						return nil, ErrContextLength
 					}
 				}
-				return nil, fmt.Errorf("fournisseur: statut HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
+				return nil, fmt.Errorf("provider: HTTP status %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
 			}
 		}
 		if attempt >= maxRetries {
@@ -315,7 +315,7 @@ func (o *OpenAICompat) pump(ctx context.Context, resp *http.Response, ch chan<- 
 		return
 	}
 	if rerr != nil {
-		final(llm.Chunk{Err: fmt.Errorf("lecture du flux: %w", rerr)})
+		final(llm.Chunk{Err: fmt.Errorf("reading stream: %w", rerr)})
 		return
 	}
 	if !finished {

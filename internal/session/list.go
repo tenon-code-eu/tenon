@@ -31,7 +31,7 @@ func List(dir, projectRoot string) ([]Summary, error) {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("lecture du dossier des sessions : %w", err)
+		return nil, fmt.Errorf("reading sessions directory: %w", err)
 	}
 	var out []Summary
 	for _, de := range ents {

@@ -60,7 +60,7 @@ repro-check:
 # dist/UNSAFE-DRY-RUN et interdit la signature : ne jamais l'utiliser pour publier.
 release:
 ifeq ($(ALLOW_VULN),1)
-	@echo "ATTENTION : ALLOW_VULN=1, govulncheck ignoré. Dry run local, ne JAMAIS publier." >&2
+	@echo "WARNING: ALLOW_VULN=1, govulncheck skipped. Local dry run, NEVER publish." >&2
 else
 	$(MAKE) vuln
 endif

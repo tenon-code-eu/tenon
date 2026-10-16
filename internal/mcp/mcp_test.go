@@ -235,14 +235,14 @@ func TestNonTextContentSummarised(t *testing.T) {
 	}
 	m, _ := start(t, []config.MCPServer{httpDecl("mem")}, Options{dial: memServer(t, setup), OutputLimit: 1000})
 	res := run(t, toolByName(t, m, "mcp__mem__mix"), `{}`)
-	want := "début\n[image image/png]\n[ressource file:///a.txt]\n[ressource file:///b.txt]\nfin"
+	want := "début\n[image image/png]\n[resource file:///a.txt]\n[resource file:///b.txt]\nfin"
 	if res.Content != want {
 		t.Fatalf("contenu %q", res.Content)
 	}
 	// Troncature de la sortie.
 	m2, _ := start(t, []config.MCPServer{httpDecl("mem")}, Options{dial: memServer(t, setup), OutputLimit: 3})
 	res = run(t, toolByName(t, m2, "mcp__mem__mix"), `{}`)
-	if !strings.HasPrefix(res.Content, "déb\n[… sortie tronquée") {
+	if !strings.HasPrefix(res.Content, "déb\n[… output truncated") {
 		t.Fatalf("troncature %q", res.Content)
 	}
 }
@@ -252,7 +252,7 @@ func TestConsentDenied(t *testing.T) {
 	opts := Options{dial: memServer(t, echoServer), Consent: func(id string) bool { asked = id; return false }}
 	m, _ := start(t, []config.MCPServer{httpDecl("mem")}, opts)
 	res := run(t, toolByName(t, m, "mcp__mem__echo"), `{"text":"x"}`)
-	if !res.IsError || res.Denied != "policy" || asked != "mem" || res.Content != "serveur MCP hors UE sans consentement" {
+	if !res.IsError || res.Denied != "policy" || asked != "mem" || res.Content != "non-EU MCP server without consent" {
 		t.Fatalf("résultat %+v (demandé %q)", res, asked)
 	}
 }
@@ -350,7 +350,7 @@ func TestCallTimeout(t *testing.T) {
 	if el := time.Since(t0); el > 3*time.Second {
 		t.Fatalf("appel trop long : %v", el)
 	}
-	if !res.IsError || !strings.Contains(res.Content, "délai") || res.ServerDown != "" {
+	if !res.IsError || !strings.Contains(res.Content, "timed out") || res.ServerDown != "" {
 		t.Fatalf("résultat %+v", res)
 	}
 	// Le serveur reste utilisable.
@@ -367,7 +367,7 @@ func TestServerCrashMidCall(t *testing.T) {
 		t.Fatalf("résultat %+v", res)
 	}
 	res = run(t, toolByName(t, m, "mcp__srv__echo"), `{"text":"x"}`)
-	if !res.IsError || res.Content != "serveur MCP srv indisponible" || res.ServerDown != "" {
+	if !res.IsError || res.Content != "MCP server srv unavailable" || res.ServerDown != "" {
 		t.Fatalf("appel suivant %+v", res)
 	}
 }
@@ -544,7 +544,7 @@ func TestHTTPServerGoneMarksDown(t *testing.T) {
 		t.Fatalf("serveur fermé %+v", res)
 	}
 	res = run(t, tl, `{"text":"c"}`)
-	if !res.IsError || res.Content != "serveur MCP web indisponible" || res.ServerDown != "" {
+	if !res.IsError || res.Content != "MCP server web unavailable" || res.ServerDown != "" {
 		t.Fatalf("appel suivant %+v", res)
 	}
 }
@@ -556,7 +556,7 @@ func TestHTTP503NotDown(t *testing.T) {
 	tl := toolByName(t, m, "mcp__web__echo")
 	unavailable.Store(true)
 	res := run(t, tl, `{"text":"a"}`)
-	if !res.IsError || res.ServerDown != "" || strings.Contains(res.Content, "indisponible :") {
+	if !res.IsError || res.ServerDown != "" || strings.Contains(res.Content, "unavailable:") {
 		t.Fatalf("503 %+v", res)
 	}
 	if !strings.Contains(res.Content, "Service Unavailable") {
@@ -723,13 +723,13 @@ func TestStuckStdioCallKilled(t *testing.T) {
 		if el := time.Since(t0); el > 3*time.Second {
 			t.Fatalf("Run trop long : %v", el)
 		}
-		if !res.IsError || res.ServerDown != "srv" || !strings.Contains(res.Content, "délai") {
+		if !res.IsError || res.ServerDown != "srv" || !strings.Contains(res.Content, "timed out") {
 			t.Fatalf("résultat %+v", res)
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("Run toujours bloqué après 10 s")
 	}
-	if res := run(t, tl, `{"text":"x"}`); !res.IsError || res.Content != "serveur MCP srv indisponible" || res.ServerDown != "" {
+	if res := run(t, tl, `{"text":"x"}`); !res.IsError || res.Content != "MCP server srv unavailable" || res.ServerDown != "" {
 		t.Fatalf("appel suivant %+v", res)
 	}
 	b, err := os.ReadFile(log)

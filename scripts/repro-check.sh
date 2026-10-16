@@ -53,7 +53,7 @@ for t in $TARGETS; do
 done
 
 if [ "$fail" -ne 0 ]; then
-	echo "repro-check: FAIL, builds non reproductibles" >&2
+	echo "repro-check: FAIL, builds are not reproducible" >&2
 	exit 1
 fi
 echo "repro-check: OK (version $VERSION, SOURCE_DATE_EPOCH $SOURCE_DATE_EPOCH)"

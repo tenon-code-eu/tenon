@@ -342,7 +342,7 @@ func TestUnavailableKeepsProviderMessage(t *testing.T) {
 		_, _ = w.Write([]byte("{\"message\": \"Requests rate limit exceeded\",\n \"type\": \"rate_limited\"}"))
 	})
 	_, err := p.Stream(context.Background(), req)
-	if !errors.Is(err, ErrUnavailable) || !strings.Contains(err.Error(), `statut HTTP 429: {"message": "Requests rate limit exceeded", "type": "rate_limited"}`) {
+	if !errors.Is(err, ErrUnavailable) || !strings.Contains(err.Error(), `HTTP status 429: {"message": "Requests rate limit exceeded", "type": "rate_limited"}`) {
 		t.Fatalf("err = %v", err)
 	}
 }

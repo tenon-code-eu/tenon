@@ -59,7 +59,7 @@ func TestNonEUServerNoConsentNoCall(t *testing.T) {
 		t.Fatalf("Target %+v (%v) : ForceAsk attendu", tg, err)
 	}
 	res := run(t, tl, `{"text":"secret"}`)
-	if !res.IsError || res.Denied != "policy" || res.Content != "serveur MCP hors UE sans consentement" {
+	if !res.IsError || res.Denied != "policy" || res.Content != "non-EU MCP server without consent" {
 		t.Fatalf("résultat %+v", res)
 	}
 	if n.Load() != 0 {

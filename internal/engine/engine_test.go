@@ -338,7 +338,7 @@ func TestToolCallAskDeniedByReply(t *testing.T) {
 		t.Fatalf("fichier créé malgré le refus : %v", err)
 	}
 	p := decode[event.ToolResultPayload](t, ofType(evs, event.ToolResult)[0])
-	if !p.IsError || !strings.Contains(p.Content, "refusée par l'utilisateur") || p.Denied != "user" {
+	if !p.IsError || !strings.Contains(p.Content, "denied by the user") || p.Denied != "user" {
 		t.Fatalf("ToolResult %+v", p)
 	}
 	if err := h.eng.Respond("s_1-p1", Reply{Allow: true}); !errors.Is(err, ErrUnknownPermission) {
@@ -414,10 +414,10 @@ func TestUnknownToolAndMalformedArgs(t *testing.T) {
 	}
 	p1 := decode[event.ToolResultPayload](t, res[0])
 	p2 := decode[event.ToolResultPayload](t, res[1])
-	if !p1.IsError || p1.Content != "outil inconnu : rm_rf" {
+	if !p1.IsError || p1.Content != "unknown tool: rm_rf" {
 		t.Fatalf("ToolResult 1 %+v", p1)
 	}
-	if !p2.IsError || !strings.HasPrefix(p2.Content, "arguments invalides : ") || strings.Count(p2.Content, "arguments invalides") != 1 {
+	if !p2.IsError || !strings.HasPrefix(p2.Content, "invalid arguments: ") || strings.Count(p2.Content, "invalid arguments") != 1 {
 		t.Fatalf("ToolResult 2 %+v", p2)
 	}
 	if tc := lastTurn(t, evs); tc.Reason != "done" {
@@ -601,7 +601,7 @@ func TestWriteWithRedactionMarkerRefused(t *testing.T) {
 		t.Fatalf("permission demandée avant le refus : %v", types(evs))
 	}
 	p := decode[event.ToolResultPayload](t, ofType(evs, event.ToolResult)[0])
-	want := "contenu masqué : impossible d'écrire un marqueur de masquage ([SECRET_1])"
+	want := "redacted content: cannot write a redaction marker ([SECRET_1])"
 	if !p.IsError || p.Content != want || p.Denied != "policy" {
 		t.Fatalf("ToolResult %+v", p)
 	}

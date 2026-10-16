@@ -41,11 +41,11 @@ type globTool struct{ base }
 
 func (*globTool) Name() string { return "glob" }
 func (*globTool) Description() string {
-	return "Liste les fichiers dont le chemin correspond à un motif (ex. **/*.go), depuis la racine du projet."
+	return "Lists files whose path matches a pattern (e.g. **/*.go), from the project root."
 }
 func (*globTool) Risk() Risk { return Read }
 func (*globTool) Schema() json.RawMessage {
-	return schema(`"pattern":{"type":"string","description":"Motif glob (doublestar), ex. **/*.go."}`, "pattern")
+	return schema(`"pattern":{"type":"string","description":"Glob pattern (doublestar), e.g. **/*.go."}`, "pattern")
 }
 func (t *globTool) Target(args json.RawMessage) (Target, error) {
 	var a struct{ Pattern string }
@@ -66,11 +66,11 @@ func (t *globTool) Run(ctx context.Context, args json.RawMessage) (Result, error
 		return fail("%v", err), nil
 	}
 	if a.Pattern == "" {
-		return fail("arguments invalides : pattern requis"), nil
+		return fail("invalid arguments: pattern required"), nil
 	}
 	matches, err := doublestar.Glob(os.DirFS(t.root), a.Pattern, doublestar.WithNoFollow())
 	if err != nil {
-		return fail("motif invalide : %v", err), nil
+		return fail("invalid pattern: %v", err), nil
 	}
 	linkCache := map[string]bool{}
 	var out []string
@@ -83,7 +83,7 @@ func (t *globTool) Run(ctx context.Context, args json.RawMessage) (Result, error
 	suffix := ""
 	if len(out) > maxGlobResults {
 		out = out[:maxGlobResults]
-		suffix = fmt.Sprintf("\n[… limité à %d résultats]", maxGlobResults)
+		suffix = fmt.Sprintf("\n[… limited to %d results]", maxGlobResults)
 	}
 	return t.out(strings.Join(out, "\n") + suffix), nil
 }
@@ -94,12 +94,12 @@ type grepTool struct{ base }
 
 func (*grepTool) Name() string { return "grep" }
 func (*grepTool) Description() string {
-	return "Recherche une expression régulière (syntaxe Go) dans les fichiers texte ; renvoie chemin:ligne:texte."
+	return "Searches text files for a regular expression (Go syntax); returns path:line:text."
 }
 func (*grepTool) Risk() Risk { return Read }
 func (*grepTool) Schema() json.RawMessage {
-	return schema(`"pattern":{"type":"string","description":"Expression régulière Go."},`+
-		`"glob":{"type":"string","description":"Motif glob pour restreindre les fichiers (ex. **/*.go)."}`, "pattern")
+	return schema(`"pattern":{"type":"string","description":"Go regular expression."},`+
+		`"glob":{"type":"string","description":"Glob pattern to restrict files (e.g. **/*.go)."}`, "pattern")
 }
 func (t *grepTool) Target(args json.RawMessage) (Target, error) {
 	var a struct{ Pattern string }
@@ -121,14 +121,14 @@ func (t *grepTool) Run(ctx context.Context, args json.RawMessage) (Result, error
 		return fail("%v", err), nil
 	}
 	if a.Pattern == "" {
-		return fail("arguments invalides : pattern requis"), nil
+		return fail("invalid arguments: pattern required"), nil
 	}
 	re, err := regexp.Compile(a.Pattern)
 	if err != nil {
-		return fail("expression régulière invalide : %v", err), nil
+		return fail("invalid regular expression: %v", err), nil
 	}
 	if a.Glob != "" && !doublestar.ValidatePattern(a.Glob) {
-		return fail("motif glob invalide : %s", a.Glob), nil
+		return fail("invalid glob pattern: %s", a.Glob), nil
 	}
 	root := t.root
 	if r, err := filepath.EvalSymlinks(root); err == nil {
@@ -187,11 +187,11 @@ func (t *grepTool) Run(ctx context.Context, args json.RawMessage) (Result, error
 		if cerr := ctx.Err(); cerr != nil {
 			return Result{}, cerr
 		}
-		return fail("parcours impossible : %v", walkErr), nil
+		return fail("cannot walk: %v", walkErr), nil
 	}
 	s := strings.Join(lines, "\n")
 	if truncated {
-		s += fmt.Sprintf("\n[… limité à %d correspondances]", maxGrepMatches)
+		s += fmt.Sprintf("\n[… limited to %d matches]", maxGrepMatches)
 	}
 	return t.out(s), nil
 }

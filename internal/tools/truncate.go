@@ -10,7 +10,7 @@ func Truncate(s string, limit int) string {
 	n := 0
 	for i := range s {
 		if n == limit {
-			return s[:i] + fmt.Sprintf("\n[… sortie tronquée à %d caractères]", limit)
+			return s[:i] + fmt.Sprintf("\n[… output truncated to %d characters]", limit)
 		}
 		n++
 	}

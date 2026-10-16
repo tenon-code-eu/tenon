@@ -95,9 +95,9 @@ func TestCompactionReplacesOldTurns(t *testing.T) {
 	}
 	sum := reqs[0]
 	if len(sum.Tools) != 0 || len(sum.Messages) != 2 || sum.Messages[0].Role != llm.System ||
-		!strings.HasPrefix(sum.Messages[0].Content, "Résume fidèlement la conversation suivante") ||
-		sum.Messages[1].Role != llm.User || !strings.Contains(sum.Messages[1].Content, "user : ") ||
-		!strings.Contains(sum.Messages[1].Content, "assistant : ") {
+		!strings.HasPrefix(sum.Messages[0].Content, "Faithfully summarize the following conversation") ||
+		sum.Messages[1].Role != llm.User || !strings.Contains(sum.Messages[1].Content, "user: ") ||
+		!strings.Contains(sum.Messages[1].Content, "assistant: ") {
 		t.Fatalf("requête de résumé %s", mustJSON(sum))
 	}
 	msgs := reqs[1].Messages
@@ -107,7 +107,7 @@ func TestCompactionReplacesOldTurns(t *testing.T) {
 	if msgs[0].Role != llm.System || msgs[0].Content != "Tu es un agent de test." {
 		t.Fatalf("premier message %+v", msgs[0])
 	}
-	if msgs[1].Role != llm.User || msgs[1].Content != "Résumé de la conversation précédente :\n\nLE RÉSUMÉ" {
+	if msgs[1].Role != llm.User || msgs[1].Content != "Summary of the previous conversation:\n\nLE RÉSUMÉ" {
 		t.Fatalf("message de résumé %+v", msgs[1])
 	}
 	if last := msgs[len(msgs)-1]; last.Role != llm.User || last.Content != "suite" {
@@ -143,7 +143,7 @@ func TestCompactionReplacesOldTurns(t *testing.T) {
 	if _, err := h.submit(t, "s_1", "encore", nil); err != nil {
 		t.Fatal(err)
 	}
-	if got := h.prov.reqs()[2].Messages[1].Content; !strings.HasPrefix(got, "Résumé de la conversation précédente") {
+	if got := h.prov.reqs()[2].Messages[1].Content; !strings.HasPrefix(got, "Summary of the previous conversation") {
 		t.Fatalf("tour suivant : %q", got)
 	}
 }
@@ -182,7 +182,7 @@ func TestCompactionKeepsToolPairs(t *testing.T) {
 	}
 	want := []llm.Message{
 		{Role: llm.System, Content: "Tu es un agent de test."},
-		{Role: llm.User, Content: "Résumé de la conversation précédente :\n\nR"},
+		{Role: llm.User, Content: "Summary of the previous conversation:\n\nR"},
 		{Role: llm.User, Content: "suite"},
 	}
 	if mustJSON(msgs) != mustJSON(want) {
@@ -243,7 +243,7 @@ func TestContextLengthForcesCompaction(t *testing.T) {
 	}
 	// Budget de queue : 0.3 × min(2000, 1316 rejetés) = 394 jetons ; le
 	// second échange (500) n'y tient pas, seul "suite" est conservé.
-	if m := reqs[2].Messages; len(m) != 3 || m[1].Content != "Résumé de la conversation précédente :\n\nR" {
+	if m := reqs[2].Messages; len(m) != 3 || m[1].Content != "Summary of the previous conversation:\n\nR" {
 		t.Fatalf("nouvelle tentative %s", mustJSON(m))
 	}
 	cc := ofType(evs, event.ContextCompacted)
@@ -335,7 +335,7 @@ func TestRestoreReplaysCompaction(t *testing.T) {
 	}
 	want := []llm.Message{
 		{Role: llm.System, Content: "Tu es un agent de test."},
-		{Role: llm.User, Content: "Résumé de la conversation précédente :\n\nR"},
+		{Role: llm.User, Content: "Summary of the previous conversation:\n\nR"},
 		{Role: llm.User, Content: "u2"},
 		{Role: llm.Assistant, Content: "a2"},
 		{Role: llm.User, Content: "u3"},
@@ -520,7 +520,7 @@ func TestSummaryRequestTruncatedToFit(t *testing.T) {
 	if n := estimate(reqs[0].Messages, nil); n > 960 {
 		t.Fatalf("requête de résumé de %d jetons (limite 960)", n)
 	}
-	if s := reqs[0].Messages[1].Content; !strings.HasSuffix(s, "[… tronqué]") || !strings.HasPrefix(s, "user : ") {
+	if s := reqs[0].Messages[1].Content; !strings.HasSuffix(s, "[… truncated]") || !strings.HasPrefix(s, "user: ") {
 		t.Fatalf("texte à résumer : %q…", s[:40])
 	}
 	if len(ofType(evs, event.ContextCompacted)) != 1 || len(ofType(evs, event.Error)) != 0 {
@@ -554,8 +554,8 @@ func TestSummaryRequestDropsOldest(t *testing.T) {
 		t.Fatalf("requête de résumé de %d jetons (limite 960)", n)
 	}
 	s := reqs[0].Messages[1].Content
-	if !strings.HasPrefix(s, "[… messages plus anciens omis]\n\n") || strings.Contains(s, "u0 ") ||
-		!strings.Contains(s, "assistant : a5 ") || strings.Contains(s, "[… tronqué]") {
+	if !strings.HasPrefix(s, "[… older messages omitted]\n\n") || strings.Contains(s, "u0 ") ||
+		!strings.Contains(s, "assistant: a5 ") || strings.Contains(s, "[… truncated]") {
 		t.Fatalf("texte à résumer : %q", s)
 	}
 	if p := decode[event.ContextCompactedPayload](t, ofType(evs, event.ContextCompacted)[0]); p.Replaced != 12 {
