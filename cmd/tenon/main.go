@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"sync"
 	"syscall"
 
@@ -12,7 +13,24 @@ import (
 )
 
 // version est surchargée à la compilation via -ldflags "-X main.version=...".
+// Sans elle (go install …@vX.Y.Z), la version du module est lue dans les
+// informations de build.
 var version = "dev"
+
+func init() {
+	if bi, ok := debug.ReadBuildInfo(); ok {
+		version = resolveVersion(version, bi.Main.Version)
+	}
+}
+
+// resolveVersion garde la version injectée par -ldflags ; à défaut, elle
+// prend la version du module, sauf « (devel) » (build hors module versionné).
+func resolveVersion(injected, module string) string {
+	if injected != "dev" || module == "" || module == "(devel)" {
+		return injected
+	}
+	return module
+}
 
 // handledSignals sont les signaux interceptés : le premier annule le contexte.
 var handledSignals = []os.Signal{os.Interrupt, syscall.SIGTERM, syscall.SIGHUP}
