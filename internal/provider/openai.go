@@ -157,7 +157,16 @@ func (o *OpenAICompat) connect(ctx context.Context, body []byte) (*http.Response
 				resp.Body.Close()
 				return nil, ErrAuth
 			case resp.StatusCode == 429 || resp.StatusCode >= 500:
+				// Le message du fournisseur dit la cause (débit, quota épuisé,
+				// modèle saturé) : il est gardé, tronqué, pour l'erreur finale.
+				b, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
 				lastErr = fmt.Errorf("statut HTTP %d", resp.StatusCode)
+				if msg := strings.Join(strings.Fields(string(b)), " "); msg != "" {
+					if r := []rune(msg); len(r) > 300 {
+						msg = string(r[:300]) + "…"
+					}
+					lastErr = fmt.Errorf("statut HTTP %d: %s", resp.StatusCode, msg)
+				}
 				if s, perr := strconv.Atoi(strings.TrimSpace(resp.Header.Get("Retry-After"))); perr == nil && s >= 0 {
 					wait = time.Duration(s) * time.Second
 				}
