@@ -20,6 +20,7 @@ type styles struct {
 	banner, user, assistant, tool, notice, err, busy, status lipgloss.Style
 	eu, local, nonEU                                         lipgloss.Style
 	perm, add, del                                           lipgloss.Style
+	md                                                       mdStyles
 	// r est le renderer qui a produit ces styles (écran de bienvenue).
 	r *lipgloss.Renderer
 }
@@ -41,6 +42,11 @@ func newStyles(r *lipgloss.Renderer) styles {
 		perm:      r.NewStyle().Bold(true).Foreground(lipgloss.Color("3")),
 		add:       r.NewStyle().Foreground(lipgloss.Color("2")),
 		del:       r.NewStyle().Foreground(lipgloss.Color("1")),
+		md: mdStyles{
+			bold:    r.NewStyle().Bold(true),
+			code:    r.NewStyle().Foreground(lipgloss.Color("6")),
+			heading: r.NewStyle().Bold(true).Underline(true),
+		},
 	}
 }
 
@@ -76,11 +82,19 @@ func (m Model) conversationLines() []string {
 	// Le cadre de bienvenue est un élément d'affichage local, premier de la
 	// conversation : il défile avec elle et n'entre pas dans la transcription.
 	out := m.welcomeLines()
-	for i, it := range m.tr.Items() {
-		if i > 0 || len(out) > 0 {
+	prev := ItemKind(-1)
+	for _, it := range m.tr.Items() {
+		// Un texte vide (fragment de l'assistant entre deux appels d'outils)
+		// n'occupe aucune ligne.
+		if it.Kind != ItemTool && strings.TrimSpace(it.Text) == "" {
+			continue
+		}
+		// Les appels d'outils consécutifs se suivent sans ligne vide.
+		if len(out) > 0 && !(it.Kind == ItemTool && prev == ItemTool) {
 			out = append(out, "")
 		}
 		out = append(out, strings.Split(m.renderItem(it), "\n")...)
+		prev = it.Kind
 	}
 	if m.busy() {
 		out = append(out, "", m.st.busy.Render(m.wrap(i18n.T(m.lang, "tui.busy"))))
@@ -108,7 +122,8 @@ func (m Model) renderItem(it Item) string {
 	case ItemError:
 		return m.st.err.Render(m.wrap(it.Text))
 	}
-	return m.st.assistant.Render(m.wrap(it.Text))
+	text := strings.Trim(sanitize(it.Text), "\n")
+	return m.st.assistant.Render(m.wrapStyled(renderMarkdown(text, m.st.md)))
 }
 
 // wrap nettoie s des caractères de contrôle puis le replie à la largeur. Le
@@ -116,7 +131,12 @@ func (m Model) renderItem(it Item) string {
 // commençant par une espace suivie d'un mot de la largeur) : elle est coupée
 // à la largeur exacte, sans perdre de caractère, plutôt que tronquée par View.
 func (m Model) wrap(s string) string {
-	return ansi.Hardwrap(ansi.Wrap(sanitize(s), m.width, ""), m.width, true)
+	return m.wrapStyled(sanitize(s))
+}
+
+// wrapStyled replie s, déjà nettoyé et éventuellement stylé, à la largeur.
+func (m Model) wrapStyled(s string) string {
+	return ansi.Hardwrap(ansi.Wrap(s, m.width, ""), m.width, true)
 }
 
 // sanitize remplace les tabulations et retire les caractères de contrôle
