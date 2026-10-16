@@ -214,6 +214,7 @@ func runInteractive(ctx context.Context, fs *flag.FlagSet, lang i18n.Lang, o eng
 		Provider:      st.provider,
 		ContextWindow: st.contextWindow,
 		ProjectRoot:   o.wd,
+		Version:       version,
 		Redact:        redactText(st.redactor),
 		// Serveurs indisponibles signalés dès l'ouverture, en plus de
 		// l'événement McpServerDown émis au premier tour.

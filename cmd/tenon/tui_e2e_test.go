@@ -176,6 +176,25 @@ func TestTUIConversation(t *testing.T) {
 	if !strings.Contains(r.view, strings.TrimSuffix(ents[0].Name(), ".jsonl")) {
 		t.Errorf("identifiant de session absent de la barre d'état :\n%s", r.view)
 	}
+	// Le cadre de bienvenue est un affichage local : version transmise, rien
+	// dans la session ni dans l'audit.
+	if r.opts.Version != version {
+		t.Errorf("version transmise %q, attendu %q", r.opts.Version, version)
+	}
+	for _, want := range []string{"████████", "Harness open-source"} {
+		if !strings.Contains(r.view, want) {
+			t.Errorf("vue finale sans %q :\n%s", want, r.view)
+		}
+	}
+	b, err := os.ReadFile(filepath.Join(e.sessionsDir(), ents[0].Name()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, where := range []string{string(b), e.auditContents()} {
+		if strings.Contains(where, "████") || strings.Contains(where, "Harness open-source") {
+			t.Errorf("cadre de bienvenue persisté :\n%s", where)
+		}
+	}
 }
 
 func TestTUIPermissionFlow(t *testing.T) {
@@ -437,6 +456,21 @@ func TestTUIRealRunCancelMidPrompt(t *testing.T) {
 	for _, r := range reqs {
 		if strings.Contains(r, "Zx8kq") {
 			t.Fatalf("secret envoyé : %s", r)
+		}
+	}
+}
+
+// Le mode non interactif n'affiche jamais le cadre de bienvenue.
+func TestHeadlessNoWelcome(t *testing.T) {
+	f := newFakeLLM(t, sseText("salut"))
+	e := newEnv(t, f, "eu")
+	code, out, errb := e.run("-p", "bonjour")
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, errb)
+	}
+	for _, s := range []string{out, errb} {
+		if strings.Contains(s, "████") || strings.Contains(s, "Harness open-source") || strings.Contains(s, "⬢ TENON") {
+			t.Errorf("cadre de bienvenue en mode -p :\n%s", s)
 		}
 	}
 }

@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/assets/logo-tenon.jpeg" alt="tenon — harness open-source européen et français" width="480"></p>
+
 # tenon
 
 tenon est un agent de code en terminal, écrit en Go.

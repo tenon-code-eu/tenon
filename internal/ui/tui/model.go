@@ -27,6 +27,8 @@ type Options struct {
 	Provider      llm.ProviderInfo
 	ContextWindow int
 	ProjectRoot   string
+	// Version est la version affichée dans l'écran de bienvenue ("dev" si vide).
+	Version string
 	// Redact masque tout texte venu des événements avant affichage (même
 	// fonction que le mode non interactif) ; nil : aucun masquage.
 	Redact func(string) string

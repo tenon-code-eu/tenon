@@ -20,10 +20,13 @@ type styles struct {
 	banner, user, assistant, tool, notice, err, busy, status lipgloss.Style
 	eu, local, nonEU                                         lipgloss.Style
 	perm, add, del                                           lipgloss.Style
+	// r est le renderer qui a produit ces styles (écran de bienvenue).
+	r *lipgloss.Renderer
 }
 
 func newStyles(r *lipgloss.Renderer) styles {
 	return styles{
+		r:         r,
 		banner:    r.NewStyle().Bold(true).Foreground(lipgloss.Color("6")),
 		user:      r.NewStyle().Bold(true),
 		assistant: r.NewStyle(),
@@ -70,9 +73,11 @@ func (m Model) View() string {
 // conversationLines rend les éléments de la transcription, repliés à la
 // largeur courante.
 func (m Model) conversationLines() []string {
-	var out []string
+	// Le cadre de bienvenue est un élément d'affichage local, premier de la
+	// conversation : il défile avec elle et n'entre pas dans la transcription.
+	out := m.welcomeLines()
 	for i, it := range m.tr.Items() {
-		if i > 0 {
+		if i > 0 || len(out) > 0 {
 			out = append(out, "")
 		}
 		out = append(out, strings.Split(m.renderItem(it), "\n")...)
