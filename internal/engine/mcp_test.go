@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"codeberg.org/tenon/tenon/internal/event"
-	"codeberg.org/tenon/tenon/internal/llm"
-	"codeberg.org/tenon/tenon/internal/tools"
+	"github.com/tenon-code-eu/tenon/internal/event"
+	"github.com/tenon-code-eu/tenon/internal/llm"
+	"github.com/tenon-code-eu/tenon/internal/tools"
 )
 
 // fakeTool renvoie les résultats de res, dans l'ordre (le dernier se répète).

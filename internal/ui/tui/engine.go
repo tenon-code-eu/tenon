@@ -3,8 +3,8 @@ package tui
 import (
 	"context"
 
-	"codeberg.org/tenon/tenon/internal/engine"
-	"codeberg.org/tenon/tenon/internal/event"
+	"github.com/tenon-code-eu/tenon/internal/engine"
+	"github.com/tenon-code-eu/tenon/internal/event"
 )
 
 // Engine est la partie de l'engine dont la TUI a besoin.

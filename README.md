@@ -21,14 +21,14 @@ tenon fonctionne sous Linux et macOS.
 
 ### Binaires
 
-Chaque version publiée sur la forge [Codeberg](https://codeberg.org/tenon/tenon/releases) fournit :
+Chaque version publiée sur la page [Releases GitHub](https://github.com/tenon-code-eu/tenon/releases) fournit :
 
 - une archive `.tar.gz` par plateforme : `linux/amd64`, `linux/arm64`, `darwin/amd64`, `darwin/arm64` ;
 - des paquets `.deb` et `.rpm` pour Linux (`amd64`, `arm64`) ;
 - un fichier `SHA256SUMS`, signé avec minisign (`SHA256SUMS.minisig`) ;
 - un SBOM CycloneDX.
 
-Vérifiez la signature avec la clé publique minisign publiée sur la forge (ici `tenon.pub`), puis les empreintes :
+Vérifiez la signature avec la clé publique minisign publiée avec les versions (ici `tenon.pub`), puis les empreintes :
 
 ```
 minisign -Vm SHA256SUMS -p tenon.pub
@@ -48,7 +48,7 @@ Go 1.26 ou plus récent est nécessaire ; utilisez le dernier correctif de Go 1.
 Les dépendances sont incluses dans le dépôt : aucun proxy de modules n'est contacté.
 
 ```
-git clone https://codeberg.org/tenon/tenon.git
+git clone https://github.com/tenon-code-eu/tenon.git
 cd tenon
 GOFLAGS=-mod=vendor go build -o tenon ./cmd/tenon
 ```
@@ -75,8 +75,9 @@ tenon git install-hook
 - [Guide d'utilisation](docs/utilisation.md) : touches, validation, mode non interactif, sessions, configuration, fournisseurs, MCP, marquage git, audit.
 - [Sécurité et limites](docs/securite.md) : critères de souveraineté, garanties, limites connues, récupération.
 - [Exemple de configuration](docs/config.example.toml) : fichier commenté, sans secret.
+- [Signaler une vulnérabilité](SECURITY.md) et [contribuer](CONTRIBUTING.md).
 - [Liste de contrôle de publication](RELEASE.md) : pour les mainteneurs.
-- [Spécification](https://codeberg.org/tenon/tenon/src/branch/main/docs/superpowers/specs/2026-10-14-tenon-design.md) : choix de conception.
+- [Spécification](docs/superpowers/specs/2026-10-14-tenon-design.md) : choix de conception.
 
 ## Licence
 

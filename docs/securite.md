@@ -121,7 +121,8 @@ La chaîne de développement (`make lint`, `make vuln`, `make release`, CI) fait
 - les outils de build lancés par `go run <module>@<version>` (staticcheck, govulncheck, cyclonedx-gomod, nfpm) sont téléchargés depuis leurs hôtes d'origine (`GOPROXY=direct`) : `honnef.co` (qui renvoie vers `github.com`), `golang.org` et `go.googlesource.com` (opéré par Google), `github.com` (opéré par Microsoft) ;
 - leurs empreintes sont vérifiées auprès de `sum.golang.org`, opéré par Google ;
 - `govulncheck` interroge la base de vulnérabilités `vuln.go.dev`, opérée par Google ;
-- la CI (`.forgejo/workflows/ci.yml`, `.woodpecker.yml`) télécharge ses images depuis Docker Hub (Docker Inc., États-Unis) : `golang` et, pour Woodpecker, `woodpeckerci/plugin-git`. Ces images sont épinglées à une version ; un miroir de registre européen peut les remplacer.
+- le dépôt et la CI GitHub Actions sont hébergés par GitHub (Microsoft, États-Unis) ; les fichiers `.forgejo/` et `.woodpecker.yml` permettent une CI sur une forge européenne ou auto-hébergée ;
+- la CI (`.github/workflows/ci.yml`, `.forgejo/workflows/ci.yml`, `.woodpecker.yml`) télécharge ses images depuis Docker Hub (Docker Inc., États-Unis) : `golang` et, pour Woodpecker, `woodpeckerci/plugin-git`. Ces images sont épinglées à une version ; un miroir de registre européen peut les remplacer.
 
 Ces services ne reçoivent aucune donnée de vos sessions.
 Avec la configuration par défaut de Go (sans `GOPROXY=direct`), les modules passent aussi par `proxy.golang.org`, opéré par Google.

@@ -1,4 +1,4 @@
-module codeberg.org/tenon/tenon
+module github.com/tenon-code-eu/tenon
 
 go 1.26.0
 

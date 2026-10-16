@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"codeberg.org/tenon/tenon/internal/policy"
-	"codeberg.org/tenon/tenon/internal/tools"
+	"github.com/tenon-code-eu/tenon/internal/policy"
+	"github.com/tenon-code-eu/tenon/internal/tools"
 )
 
 func TestVersionFlag(t *testing.T) {

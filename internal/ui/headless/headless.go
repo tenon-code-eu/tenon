@@ -13,10 +13,10 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
-	"codeberg.org/tenon/tenon/internal/engine"
-	"codeberg.org/tenon/tenon/internal/event"
-	"codeberg.org/tenon/tenon/internal/i18n"
-	"codeberg.org/tenon/tenon/internal/llm"
+	"github.com/tenon-code-eu/tenon/internal/engine"
+	"github.com/tenon-code-eu/tenon/internal/event"
+	"github.com/tenon-code-eu/tenon/internal/i18n"
+	"github.com/tenon-code-eu/tenon/internal/llm"
 )
 
 // Output choisit le format de sortie.

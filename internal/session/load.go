@@ -10,7 +10,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"codeberg.org/tenon/tenon/internal/event"
+	"github.com/tenon-code-eu/tenon/internal/event"
 )
 
 // Load reads a session. It stops at the first unreadable line, returning the

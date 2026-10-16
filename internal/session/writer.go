@@ -12,7 +12,7 @@ import (
 	"sync"
 	"syscall"
 
-	"codeberg.org/tenon/tenon/internal/event"
+	"github.com/tenon-code-eu/tenon/internal/event"
 )
 
 // ErrNoSession means no matching session exists.

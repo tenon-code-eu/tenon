@@ -7,8 +7,8 @@ Une version qui ne remplit pas un point n'est pas publiée.
 ## 1. Avant le tag
 
 - [ ] La branche à publier est à jour et la CI est verte (`make ci`, `make repro-check`).
-- [ ] Go = dernier correctif 1.26.x : la machine de release et les images CI (`golang:1.26.N` dans `.forgejo/workflows/ci.yml` et `.woodpecker.yml`) utilisent le dernier correctif publié de Go 1.26 (≥ 1.26.9 au 2026-10-15). `govulncheck` signale les failles de la bibliothèque standard des correctifs antérieurs.
-- [ ] Le mainteneur des paquets (`maintainer` dans `packaging/nfpm.yaml`) est le vrai nom et une adresse de contact réelle, pas la valeur provisoire « Projet tenon <tenon@noreply.codeberg.org> ».
+- [ ] Go = dernier correctif 1.26.x : la machine de release et les images CI (`golang:1.26.N` dans `.github/workflows/ci.yml`, `.forgejo/workflows/ci.yml` et `.woodpecker.yml`) utilisent le dernier correctif publié de Go 1.26 (≥ 1.26.9 au 2026-10-15). `govulncheck` signale les failles de la bibliothèque standard des correctifs antérieurs.
+- [ ] Le mainteneur des paquets (`maintainer` dans `packaging/nfpm.yaml`) est le vrai nom et une adresse de contact réelle, pas la valeur provisoire « Projet tenon <noreply@digicactus.com> ».
 - [ ] `GOFLAGS=-mod=vendor go test -race ./...` passe en local.
 - [ ] `LICENSE` est le texte officiel anglais de l'EUPL-1.2 publié par la Commission européenne. Source et date de la comparaison consignées dans la section [Sources vérifiées](#sources-vérifiées).
 - [ ] Pour chaque préréglage de `internal/config/presets.go` (`mistral`, `scaleway`, `ovhcloud`, `ollama`, `vllm`) :
@@ -17,7 +17,7 @@ Une version qui ne remplit pas un point n'est pas publiée.
   - fenêtre de contexte (`ContextWindow`) vérifiée ;
   - source (URL et date) consignée ci-dessous.
 - [ ] Plus aucun `TODO(release)` dans `internal/config/presets.go`, ou chaque valeur restante est listée ci-dessous avec la raison.
-- [ ] Le nom `tenon` est disponible : organisation Codeberg, domaines `.fr` et `.eu`, marques INPI et EUIPO dans les classes logicielles.
+- [ ] Le nom `tenon` est disponible : organisation GitHub (`tenon-code-eu`), domaines `.fr` et `.eu`, marques INPI et EUIPO dans les classes logicielles.
 - [ ] `docs/config.example.toml` se charge (`TestConfigExampleLoads`) et la documentation (`README.md`, `docs/`) décrit le comportement de la version.
 
 ## 2. Construction
@@ -42,7 +42,7 @@ Une version qui ne remplit pas un point n'est pas publiée.
 
 ## 4. Publication sur la forge
 
-- [ ] Pousser le tag sur Codeberg : `git push origin vX.Y.Z`.
+- [ ] Pousser le tag sur GitHub : `git push origin vX.Y.Z`.
 - [ ] Créer la version sur la forge à partir du tag.
 - [ ] Joindre les archives, les paquets, le SBOM, `SHA256SUMS` et `SHA256SUMS.minisig`.
 - [ ] Notes de version : changements visibles, changements de configuration, limites connues nouvelles ou levées.
@@ -80,8 +80,9 @@ L'utilisateur les règle par un bloc `[[providers]]` (`model`, `context_window`)
 - **Répétition à blanc sous Linux** (conteneur `golang:1.26.9`, GNU tar 1.35, linux/arm64) : `make ci` réussit ; `make release VERSION=v0.0.0-test` lancé deux fois donne un `SHA256SUMS` identique octet pour octet (4 archives, 2 `.deb`, 2 `.rpm`, SBOM) ; `sha256sum -c` réussit. La branche GNU tar est donc testée.
 - **Nom `tenon`** :
   - Codeberg : l'organisation `tenon` et le dépôt `tenon/tenon` sont libres.
+  - GitHub : l'organisation `tenon-code-eu` et le dépôt `tenon-code-eu/tenon` sont créés (dépôt principal).
   - Paquets Debian, Fedora, Arch, Homebrew : nom libre.
   - Nom déjà pris sur npm, PyPI et crates.io (projets sans rapport, peu actifs) : ne pas publier sur ces registres sous ce nom.
-  - Homonymes sans rapport : le service d'accessibilité Tenon.io, une petite bibliothèque Go `github.com/kmoneil/tenon` (le chemin de module `codeberg.org/tenon/tenon` ne la heurte pas).
-  - Domaines `tenon.fr`, `tenon.eu`, `tenon.dev` (et `.io`, `.com`) : déjà enregistrés. Utiliser les pages Codeberg ou un autre domaine.
+  - Homonymes sans rapport : le service d'accessibilité Tenon.io, une petite bibliothèque Go `github.com/kmoneil/tenon` (le chemin de module `github.com/tenon-code-eu/tenon` ne la heurte pas).
+  - Domaines `tenon.fr`, `tenon.eu`, `tenon.dev` (et `.io`, `.com`) : déjà enregistrés. Utiliser les pages GitHub ou un autre domaine.
   - **Marques (EUIPO/TMview, INPI) : recherche non effectuée** (services injoignables depuis l'outillage). À faire à la main pour « TENON », classes 9 et 42, avant toute annonce publique : https://www.tmdn.org/tmview/ et https://data.inpi.fr/.

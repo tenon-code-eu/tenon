@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"codeberg.org/tenon/tenon/internal/llm"
+	"github.com/tenon-code-eu/tenon/internal/llm"
 )
 
 func sse(w http.ResponseWriter, lines ...string) {

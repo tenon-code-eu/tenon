@@ -13,12 +13,12 @@ import (
 	"testing"
 	"time"
 
-	"codeberg.org/tenon/tenon/internal/event"
-	"codeberg.org/tenon/tenon/internal/i18n"
-	"codeberg.org/tenon/tenon/internal/llm"
-	"codeberg.org/tenon/tenon/internal/policy"
-	"codeberg.org/tenon/tenon/internal/provider"
-	"codeberg.org/tenon/tenon/internal/tools"
+	"github.com/tenon-code-eu/tenon/internal/event"
+	"github.com/tenon-code-eu/tenon/internal/i18n"
+	"github.com/tenon-code-eu/tenon/internal/llm"
+	"github.com/tenon-code-eu/tenon/internal/policy"
+	"github.com/tenon-code-eu/tenon/internal/provider"
+	"github.com/tenon-code-eu/tenon/internal/tools"
 )
 
 var update = flag.Bool("update", false, "régénère les fichiers golden")

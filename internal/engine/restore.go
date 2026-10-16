@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"strings"
 
-	"codeberg.org/tenon/tenon/internal/event"
-	"codeberg.org/tenon/tenon/internal/llm"
+	"github.com/tenon-code-eu/tenon/internal/event"
+	"github.com/tenon-code-eu/tenon/internal/llm"
 )
 
 // interruptedMsg répond aux appels d'outil restés sans résultat dans le

@@ -7,8 +7,8 @@ import (
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"codeberg.org/tenon/tenon/internal/config"
-	"codeberg.org/tenon/tenon/internal/mcp/mcptest"
+	"github.com/tenon-code-eu/tenon/internal/config"
+	"github.com/tenon-code-eu/tenon/internal/mcp/mcptest"
 )
 
 // Variables d'environnement du serveur MCP de test (binaire de test relancé).

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"codeberg.org/tenon/tenon/internal/event"
+	"github.com/tenon-code-eu/tenon/internal/event"
 )
 
 var day1 = time.Date(2026, 10, 14, 10, 0, 0, 0, time.UTC)

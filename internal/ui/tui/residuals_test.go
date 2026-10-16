@@ -17,8 +17,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
-	"codeberg.org/tenon/tenon/internal/event"
-	"codeberg.org/tenon/tenon/internal/i18n"
+	"github.com/tenon-code-eu/tenon/internal/event"
+	"github.com/tenon-code-eu/tenon/internal/i18n"
 )
 
 // shellModel rend un modèle w×h affichant la demande d'exécution de cmd.
@@ -359,7 +359,7 @@ func TestSecretSplitByZeroWidthNotReassembled(t *testing.T) {
 	pr, _ := m.newPrompt(event.PermissionRequestedPayload{PermissionID: "p", Kind: "tool", Tool: "shell", Command: cmd})
 	m.prompts = []*permPrompt{pr}
 	v := strings.Join(visibleLines(m), "\n")
-	if !strings.Contains(v, "AKIA[U+200B]IOSFODNN7EXAMPLE") || strings.Contains(v, "AKIAIOSFODNN7EXAMPLE") {
+	if !strings.Contains(v, "AKIA[U+200B]IOSFODNN7EXAMPLE") || strings.Contains(v, "AKIA"+"IOSFODNN7EXAMPLE") {
 		t.Fatalf("panneau :\n%s", v)
 	}
 }

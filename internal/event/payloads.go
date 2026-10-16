@@ -3,7 +3,7 @@ package event
 import (
 	"encoding/json"
 
-	"codeberg.org/tenon/tenon/internal/llm"
+	"github.com/tenon-code-eu/tenon/internal/llm"
 )
 
 // SessionStartedPayload opens a session.

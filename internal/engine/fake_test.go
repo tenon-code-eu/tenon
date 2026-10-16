@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"codeberg.org/tenon/tenon/internal/llm"
+	"github.com/tenon-code-eu/tenon/internal/llm"
 )
 
 // fakeProvider rejoue un script : chaque appel à Stream renvoie l'entrée

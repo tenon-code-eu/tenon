@@ -18,13 +18,13 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 
-	"codeberg.org/tenon/tenon/internal/engine"
-	"codeberg.org/tenon/tenon/internal/event"
-	"codeberg.org/tenon/tenon/internal/i18n"
-	"codeberg.org/tenon/tenon/internal/llm"
-	"codeberg.org/tenon/tenon/internal/mcp"
-	"codeberg.org/tenon/tenon/internal/ui/headless"
-	"codeberg.org/tenon/tenon/internal/ui/tui/diff"
+	"github.com/tenon-code-eu/tenon/internal/engine"
+	"github.com/tenon-code-eu/tenon/internal/event"
+	"github.com/tenon-code-eu/tenon/internal/i18n"
+	"github.com/tenon-code-eu/tenon/internal/llm"
+	"github.com/tenon-code-eu/tenon/internal/mcp"
+	"github.com/tenon-code-eu/tenon/internal/ui/headless"
+	"github.com/tenon-code-eu/tenon/internal/ui/tui/diff"
 )
 
 // permPrompt est une demande de permission en attente de réponse. L'aperçu

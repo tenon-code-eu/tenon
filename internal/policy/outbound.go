@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"sync"
 
-	"codeberg.org/tenon/tenon/internal/llm"
+	"github.com/tenon-code-eu/tenon/internal/llm"
 )
 
 // ErrJurisdiction is returned when a non-EU provider has no recorded consent.

@@ -11,9 +11,9 @@ import (
 	"sync"
 	"testing"
 
-	"codeberg.org/tenon/tenon/internal/event"
-	"codeberg.org/tenon/tenon/internal/llm"
-	"codeberg.org/tenon/tenon/internal/provider"
+	"github.com/tenon-code-eu/tenon/internal/event"
+	"github.com/tenon-code-eu/tenon/internal/llm"
+	"github.com/tenon-code-eu/tenon/internal/provider"
 )
 
 // runes renvoie une chaîne de n runes (2 octets chacune en UTF-8).

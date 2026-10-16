@@ -1,0 +1,38 @@
+# CI GitHub Actions (dépôt principal : github.com/tenon-code-eu/tenon).
+# Mêmes étapes que .forgejo/workflows/ci.yml et .woodpecker.yml.
+# Aucune action tierce (`uses:`) : le dépôt est récupéré par git dans le
+# conteneur, avec le jeton du job en lecture seule.
+# L'image golang vient de Docker Hub ; golang:1.26.9 est épinglée au dernier
+# correctif de Go 1.26 (govulncheck signale des failles de la bibliothèque
+# standard dans les versions antérieures) : à relever à chaque correctif de Go.
+name: ci
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    container: golang:1.26.9 # à relever à chaque correctif de Go
+    env:
+      GOPROXY: direct
+      GOSUMDB: sum.golang.org
+    steps:
+      - name: Récupérer le dépôt
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          git config --global --add safe.directory "$PWD"
+          git init -q .
+          git remote add origin "${{ github.server_url }}/${{ github.repository }}"
+          auth="$(printf 'x-access-token:%s' "$TOKEN" | base64 | tr -d '\n')"
+          git -c "http.extraheader=Authorization: Basic $auth" fetch -q --tags origin "${{ github.sha }}"
+          git checkout -q --detach "${{ github.sha }}"
+      - name: Contrôles (vet, test, lint, vuln)
+        run: make ci
+      - name: Build reproductible
+        run: make repro-check

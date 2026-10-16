@@ -5,9 +5,9 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"codeberg.org/tenon/tenon/internal/event"
-	"codeberg.org/tenon/tenon/internal/llm"
-	"codeberg.org/tenon/tenon/internal/provider"
+	"github.com/tenon-code-eu/tenon/internal/event"
+	"github.com/tenon-code-eu/tenon/internal/llm"
+	"github.com/tenon-code-eu/tenon/internal/provider"
 )
 
 const (
