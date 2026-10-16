@@ -181,3 +181,13 @@ func TestStreamingHoldbackWithRedact(t *testing.T) {
 		t.Fatalf("après interruption = %q", got)
 	}
 }
+
+func TestTranscriptShowsTyped(t *testing.T) {
+	tr := NewTranscript(i18n.FR)
+	tr.Apply(ev(t, event.UserMessage, event.UserMessagePayload{Text: "corps du skill", Typed: "/review main.go", Skill: "review"}))
+	tr.Apply(ev(t, event.UserMessage, event.UserMessagePayload{Text: "simple"}))
+	it := tr.Items()
+	if len(it) != 2 || it[0].Text != "/review main.go" || it[1].Text != "simple" {
+		t.Fatalf("items = %+v", it)
+	}
+}

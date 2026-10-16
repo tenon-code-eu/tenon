@@ -25,9 +25,16 @@ type MCPServerInfo struct {
 	Country      string           `json:"country,omitempty"`
 }
 
-// UserMessagePayload carries text typed by the user.
+// UserMessagePayload carries a user message.
 type UserMessagePayload struct {
+	// Text is what the model receives.
 	Text string `json:"text"`
+	// Typed is what the user actually typed; UIs show it instead of Text when set.
+	Typed string `json:"typed,omitempty"`
+	// Skill is the name of the skill that produced Text, if any.
+	Skill string `json:"skill,omitempty"`
+	// SkillSHA256 is the hash of the skill file content used, if any.
+	SkillSHA256 string `json:"skill_sha256,omitempty"`
 }
 
 // ContextCompactedPayload records a context compaction: the first Replaced

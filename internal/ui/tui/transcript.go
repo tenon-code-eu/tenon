@@ -151,7 +151,11 @@ func (t *Transcript) Apply(ev event.Event) {
 			return
 		}
 		t.busy = true
-		t.add(Item{Kind: ItemUser, Text: p.Text})
+		shown := p.Text
+		if p.Typed != "" {
+			shown = p.Typed // saisie brute, pas le corps du skill
+		}
+		t.add(Item{Kind: ItemUser, Text: shown})
 	case event.AssistantDelta:
 		var p event.AssistantDeltaPayload
 		if !t.decode(ev, &p) {

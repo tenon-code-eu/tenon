@@ -773,3 +773,29 @@ func TestEngineDefaultIsFrench(t *testing.T) {
 		t.Fatal("DefaultSystemPrompt doit égaler le prompt FR")
 	}
 }
+
+func TestSubmitInputRecordsSkill(t *testing.T) {
+	h := newHarness(t, euInfo, [][]llm.Chunk{text("ok")})
+	in := Input{Text: "T", Typed: "/review", Skill: "review", SkillSHA256: "ab"}
+	if err := h.eng.SubmitInput(context.Background(), "s_1", in); err != nil {
+		t.Fatal(err)
+	}
+	msgs := h.prov.reqs()[0].Messages
+	if last := msgs[len(msgs)-1]; last.Role != llm.User || last.Content != "T" {
+		t.Fatalf("dernier message %+v, attendu user \"T\"", last)
+	}
+	var got []event.Event
+	for _, e := range h.sink.events {
+		if e.Type == event.UserMessage {
+			got = append(got, e)
+		}
+	}
+	if len(got) != 1 {
+		t.Fatalf("%d UserMessage, attendu 1", len(got))
+	}
+	p := decode[event.UserMessagePayload](t, got[0])
+	want := event.UserMessagePayload{Text: "T", Typed: "/review", Skill: "review", SkillSHA256: "ab"}
+	if p != want {
+		t.Fatalf("payload %+v, attendu %+v", p, want)
+	}
+}
