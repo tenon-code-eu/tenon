@@ -68,14 +68,13 @@ Une version qui ne remplit pas un point n'est pas publiée.
 | `vllm` : modèle, fenêtre | <https://docs.vllm.ai/en/latest/cli/serve/> : `--served-model-name` (« If not specified, the model name will be the same as the --model argument »), `--max-model-len` (« If unspecified, will be automatically derived from the model config ») | 2026-10-15 | **non vérifiable** : `default` et `32000` conservés, voir ci-dessous |
 | Disponibilité du nom `tenon` | | | |
 
-### Valeurs non vérifiées (`TODO(release)` restants)
+### Valeurs lues sur le serveur (`ollama`, `vllm`)
 
-Ces valeurs dépendent du serveur local de l'utilisateur. Aucune documentation ne fixe une valeur universelle.
-L'utilisateur les règle par un bloc `[[providers]]` (`model`, `context_window`).
+Le modèle servi et la fenêtre appliquée dépendent du serveur local de l'utilisateur : aucune valeur universelle n'existe.
+tenon les lit au démarrage (`internal/provider/detect.go`) ; la configuration (`model`, `context_window`) prime.
 
-- `ollama`, `ContextWindow = 32000` : la fenêtre effective est celle du serveur (`OLLAMA_CONTEXT_LENGTH`, par défaut 4k, 32k ou 256k selon la VRAM), pas celle du modèle (128K). Une valeur supérieure à celle du serveur ferait tronquer la conversation sans compaction.
-- `vllm`, `Model = "default"` : vLLM répond au nom donné par `--served-model-name`, sinon au chemin passé à `--model`. Aucun nom par défaut n'est documenté.
-- `vllm`, `ContextWindow = 32000` : la fenêtre effective est `--max-model-len`, sinon celle de la configuration du modèle servi.
+- `ollama` : modèle installé le plus récent acceptant les outils (`/api/tags`, champ `capabilities`), fenêtre du modèle chargé (`/api/ps`, `context_length`). Vérifié le 2026-10-16 avec Ollama 0.32.15 et `qwen3:8b` : fenêtre de 4096 jetons par défaut sur 18 Gio de mémoire unifiée.
+- `vllm` : `GET /v1/models` (`id`, `max_model_len`).
 
 ## Vérifications effectuées le 2026-10-16
 

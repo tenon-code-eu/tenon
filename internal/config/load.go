@@ -87,9 +87,15 @@ func Load(globalPath, projectPath string, getenv func(string) string) (Config, e
 	return cfg, nil
 }
 
+// mergeProvider remplace le fournisseur de même identifiant. Une entrée qui
+// remplace un préréglage détecté (ollama, vllm) hérite de sa détection, sauf
+// detect = "off" : model ou context_window laissés vides restent détectés.
 func (c *Config) mergeProvider(p Provider) {
 	for i := range c.Providers {
 		if c.Providers[i].ID == p.ID {
+			if p.Detect == "" {
+				p.Detect = c.Providers[i].Detect
+			}
 			c.Providers[i] = p
 			return
 		}

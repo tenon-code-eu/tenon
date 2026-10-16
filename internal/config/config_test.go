@@ -35,7 +35,8 @@ func TestDefaults(t *testing.T) {
 	}
 	for _, id := range []string{"ollama", "vllm"} {
 		p, ok := c.Provider(id)
-		if !ok || p.Jurisdiction != "local" || p.Model == "" {
+		// Modèle et fenêtre lus sur le serveur au démarrage.
+		if !ok || p.Jurisdiction != "local" || p.Model != "" || p.ContextWindow != 0 || p.Detect != id {
 			t.Fatalf("préréglage %s : %+v ok=%v", id, p, ok)
 		}
 	}
@@ -265,8 +266,8 @@ func TestPresetValues(t *testing.T) {
 		{"mistral", "https://api.mistral.ai/v1", "mistral-medium-3-5", 256000},
 		{"scaleway", "https://api.scaleway.ai/v1", "mistral-medium-3.5-128b", 180000},
 		{"ovhcloud", "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1", "Qwen3.8-27B", 262000},
-		{"ollama", "http://localhost:11434/v1", "devstral", 32000},
-		{"vllm", "http://localhost:8000/v1", "default", 32000},
+		{"ollama", "http://localhost:11434/v1", "", 32000}, // détectés au démarrage
+		{"vllm", "http://localhost:8000/v1", "", 32000},
 	}
 	c := Defaults(env(nil))
 	for _, w := range want {
@@ -460,5 +461,35 @@ decision = "ask"
 	r := c.Permissions.Rules
 	if len(r) != 2 || r[0].Project || !r[1].Project {
 		t.Fatalf("%+v", r)
+	}
+}
+
+func TestDetectInheritedAndValidated(t *testing.T) {
+	dir := t.TempDir()
+	g := filepath.Join(dir, "config.toml")
+	write := func(body string) {
+		t.Helper()
+		if err := os.WriteFile(g, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("[[providers]]\nid = \"ollama\"\nbase_url = \"http://gpu.lan:11434/v1\"\nmodel = \"qwen3:8b\"\njurisdiction = \"local\"\n")
+	c, err := Load(g, "", env(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p, _ := c.Provider("ollama"); p.Detect != "ollama" || p.Model != "qwen3:8b" || p.BaseURL != "http://gpu.lan:11434/v1" {
+		t.Fatalf("détection non héritée : %+v", p)
+	}
+	write("[[providers]]\nid = \"ollama\"\ndetect = \"off\"\nmodel = \"m\"\njurisdiction = \"local\"\n")
+	if c, err = Load(g, "", env(nil)); err != nil {
+		t.Fatal(err)
+	}
+	if p, _ := c.Provider("ollama"); p.Detect != "off" {
+		t.Fatalf("detect = off ignoré : %+v", p)
+	}
+	write("[[providers]]\nid = \"x\"\ndetect = \"lmstudio\"\n")
+	if _, err := Load(g, "", env(nil)); err == nil || !strings.Contains(err.Error(), "detect invalide") {
+		t.Fatalf("detect invalide accepté : %v", err)
 	}
 }

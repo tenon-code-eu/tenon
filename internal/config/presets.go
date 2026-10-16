@@ -18,19 +18,13 @@ func presets() []Provider {
 			Model:   "Qwen3.8-27B",
 			Country: "FR", Jurisdiction: "eu",
 			ContextWindow: 262000},
+		// Locaux : le modèle servi et la fenêtre appliquée sont fixés par le
+		// serveur (Ollama : OLLAMA_CONTEXT_LENGTH ; vLLM : --served-model-name,
+		// --max-model-len). Ils sont lus au démarrage (Detect), sauf si la
+		// configuration les fixe.
 		{ID: "ollama", Name: "Ollama", BaseURL: "http://localhost:11434/v1",
-			Model:        "devstral",
-			Jurisdiction: "local",
-			// TODO(release): fenêtre fixée par le serveur (OLLAMA_CONTEXT_LENGTH,
-			// 4k/32k/256k selon la VRAM par défaut), pas par le modèle (128K).
-			ContextWindow: 32000},
+			Jurisdiction: "local", Detect: "ollama"},
 		{ID: "vllm", Name: "vLLM", BaseURL: "http://localhost:8000/v1",
-			// TODO(release): nom fixé par le serveur (--served-model-name, sinon
-			// --model) ; aucun nom par défaut documenté.
-			Model:        "default",
-			Jurisdiction: "local",
-			// TODO(release): fenêtre fixée par le serveur (--max-model-len, sinon
-			// la configuration du modèle).
-			ContextWindow: 32000},
+			Jurisdiction: "local", Detect: "vllm"},
 	}
 }

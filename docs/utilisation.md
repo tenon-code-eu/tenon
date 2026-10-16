@@ -285,7 +285,7 @@ Préréglages :
 
 La juridiction désigne le **droit applicable à l'opérateur**, pas l'emplacement de ses serveurs.
 Un fournisseur ajouté sans `jurisdiction` est traité comme `non-eu`.
-Un bloc `[[providers]]` qui reprend l'`id` d'un préréglage remplace tout le préréglage.
+Un bloc `[[providers]]` qui reprend l'`id` d'un préréglage remplace tout le préréglage (sauf la détection des modèles locaux, voir ci-dessous).
 
 Envoi à un fournisseur `non-eu` :
 
@@ -294,6 +294,42 @@ Envoi à un fournisseur `non-eu` :
 - avec `--allow-non-eu` : aucune question ; un avertissement est affiché et enregistré dans le journal.
 
 tenon ne bascule jamais automatiquement vers un autre fournisseur.
+
+### Modèles locaux (Ollama, vLLM)
+
+Pour `ollama` et `vllm`, tenon lit au démarrage le modèle servi et la fenêtre de contexte appliquée par le serveur, à l'adresse configurée seulement :
+
+- **Ollama** : sans `model`, tenon choisit le modèle installé le plus récemment parmi ceux qui acceptent les appels d'outils (`ollama list`). Il charge le modèle, puis lit la fenêtre réelle (`/api/ps`).
+- **vLLM** : tenon lit `GET /v1/models`. Sans `model`, le serveur doit servir un seul modèle. La fenêtre est `max_model_len`.
+
+Le modèle et la fenêtre détectés s'affichent au démarrage.
+Une valeur fixée dans la configuration (`model`, `context_window`) n'est jamais remplacée ; `detect = "off"` désactive la détection.
+
+```
+ollama pull qwen3:8b           # modèle de 5 Go, appels d'outils pris en charge
+tenon --provider ollama
+```
+
+**Fenêtre de contexte d'Ollama.** Par défaut, Ollama limite la fenêtre selon la mémoire de la machine (4096 jetons sous 24 Gio de VRAM), quelle que soit celle du modèle.
+4096 jetons ne suffisent pas à un agent : tenon l'indique au démarrage.
+Augmentez la fenêtre du serveur, puis relancez Ollama :
+
+- application macOS : réglage « Context length » d'Ollama, ou `launchctl setenv OLLAMA_CONTEXT_LENGTH 32768` puis redémarrage de l'application ;
+- service Linux : `Environment="OLLAMA_CONTEXT_LENGTH=32768"` dans `systemctl edit ollama`, puis `systemctl restart ollama` ;
+- en ligne de commande : `OLLAMA_CONTEXT_LENGTH=32768 ollama serve`.
+
+Une fenêtre plus grande consomme plus de mémoire (environ 4,5 Go de plus pour 32768 jetons avec `qwen3:8b`).
+
+Exemple pour un serveur Ollama sur une autre machine :
+
+```toml
+[[providers]]
+id = "ollama"
+name = "Ollama (serveur GPU)"
+base_url = "http://gpu.lan:11434/v1"
+model = "qwen3:8b"          # context_window absent : lu sur le serveur
+jurisdiction = "local"
+```
 
 ## Clés d'API et trousseau
 

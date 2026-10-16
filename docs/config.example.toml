@@ -42,7 +42,9 @@ level = "full"
 # ollama et vllm (juridiction "local").
 #
 # Un bloc [[providers]] dont l'id est celui d'un préréglage REMPLACE tout le
-# préréglage : renseignez alors tous les champs.
+# préréglage : renseignez alors tous les champs. Exception : pour ollama et
+# vllm, model et context_window absents restent lus sur le serveur au
+# démarrage (detect = "off" désactive cette détection).
 #
 # jurisdiction désigne le droit applicable à l'opérateur, pas l'emplacement
 # des serveurs : "eu", "non-eu" ou "local". Sans valeur, un fournisseur

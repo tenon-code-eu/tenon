@@ -125,6 +125,6 @@ It reads your project, proposes changes and runs commands under your control.
 Install: `brew install tenon-code-eu/tap/tenon`, or `curl -fsSL https://raw.githubusercontent.com/tenon-code-eu/tenon/main/install.sh | sh`.
 Quick start: `tenon key set mistral`, then `tenon` (interactive) or `tenon -p "<prompt>"` (scripts).
 Use `--lang en` or `lang = "en"` in the configuration for an English interface.
-The documentation is in French: [usage](docs/utilisation.md), [security and limits](docs/securite.md), [example configuration](docs/config.example.toml).
+Documentation: [usage](docs/en/usage.md), [security and limits](docs/en/security.md), [example configuration](docs/config.example.toml) (French reference: [utilisation](docs/utilisation.md), [sécurité](docs/securite.md)).
 
 Licence: [EUPL-1.2](LICENSE).

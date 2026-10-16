@@ -423,7 +423,8 @@ type started struct {
 	// close ferme les serveurs MCP, puis le journal d'audit et le fichier de
 	// session ; à appeler après la fin du tour.
 	close func()
-	// notices sont les avertissements du démarrage (MCP), déjà traduits.
+	// notices sont les avertissements du démarrage (fournisseur local
+	// détecté, MCP), déjà traduits.
 	notices []string
 	// downNotices signalent les serveurs MCP indisponibles au démarrage, déjà
 	// traduits ; le mode non interactif les affiche via l'événement McpServerDown.
@@ -450,6 +451,10 @@ func startEngine(o engineOptions) (started, error) {
 	pc, ok := cfg.Provider(providerID)
 	if !ok {
 		return started{}, errors.New(i18n.T(lang, "err.unknown_provider", providerID))
+	}
+	pc, detectNotices, err := detectLocal(o.ctx, lang, pc)
+	if err != nil {
+		return started{}, err
 	}
 	info := llm.ProviderInfo{
 		ID: pc.ID, Name: pc.Name, BaseURL: pc.BaseURL, Model: pc.Model,
@@ -637,7 +642,7 @@ func startEngine(o engineOptions) (started, error) {
 		}
 	}
 	return started{
-		eng: eng, redactor: red, sessionID: sid, close: closeAll, notices: notices,
+		eng: eng, redactor: red, sessionID: sid, close: closeAll, notices: append(detectNotices, notices...),
 		downNotices: downNotices(o.lang, unavailable, red),
 		provider:    info, contextWindow: pc.Window(),
 	}, nil

@@ -154,6 +154,10 @@ type Provider struct {
 	Country       string `toml:"country"`
 	Jurisdiction  string `toml:"jurisdiction"`
 	ContextWindow int    `toml:"context_window"`
+	// Detect : "ollama" ou "vllm" pour interroger le serveur au démarrage
+	// (modèle servi, fenêtre appliquée) quand model ou context_window est
+	// vide ; "off" désactive la détection héritée d'un préréglage.
+	Detect string `toml:"detect"`
 }
 
 // defaultWindow : fenêtre de contexte (jetons) si le fournisseur n'en déclare pas.
@@ -242,6 +246,11 @@ func (c Config) validate() error {
 	for _, p := range c.Providers {
 		if p.ContextWindow < 0 {
 			return fmt.Errorf("config : context_window négatif pour le fournisseur %q", p.ID)
+		}
+		switch p.Detect {
+		case "", "off", "ollama", "vllm":
+		default:
+			return fmt.Errorf("config : detect invalide %q pour le fournisseur %q (ollama|vllm|off)", p.Detect, p.ID)
 		}
 		switch p.Jurisdiction {
 		case "eu", "non-eu", "local":
