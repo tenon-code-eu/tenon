@@ -65,6 +65,23 @@ A broad `allow` rule (`tool = "shell"`, `match = "*"`) gives this power to the m
 The same applies to a stdio MCP server: it is a program that runs with your permissions.
 This version has no system isolation.
 
+### Project skills are untrusted content
+
+A skill in `.tenon/skills`, `.claude/skills` or `.agents/skills` of a repository is content written by the repository authors, like `AGENTS.md`.
+Its text can contain instructions meant to mislead the model (instruction injection), and the model can load it on its own when the description matches.
+tenon does not filter this text.
+
+What a skill cannot do:
+
+- It cannot raise permissions. `allowed-tools` is read, shown and logged, but never changes a decision.
+- Its scripts are not run by the skill system: they run through the `shell` tool, with the usual validation, and every command that no `allow` rule covers needs your approval.
+- It cannot shadow a user skill: when names are equal, the user skill wins and a notice reports the project skill as ignored.
+- Its files are read with the same protections as other files: no symbolic link, no path outside the skill folder, no sensitive file.
+
+What you should do: read a skill from an unknown repository before you use the project, as you would read `AGENTS.md`.
+`tenon skills` lists the skills that tenon found, with their source. A `deny` rule on `tool = "skill"` forbids one.
+Each load is in the audit log with the SHA-256 of the file read (see [usage.md](usage.md#skills)).
+
 ### Jurisdiction is declarative
 
 tenon does not verify the jurisdiction of a provider or of a server.
