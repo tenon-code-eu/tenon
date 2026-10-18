@@ -12,8 +12,9 @@ type Engine interface {
 	// Subscribe renvoie un abonnement aux événements ; l'engine bloque quand
 	// son tampon est plein, la TUI doit donc le lire en continu.
 	Subscribe() <-chan event.Event
-	// Submit exécute un tour et rend la main à sa fin.
-	Submit(ctx context.Context, sessionID, input string) error
+	// SubmitInput exécute un tour (texte simple ou skill développé) et rend
+	// la main à sa fin.
+	SubmitInput(ctx context.Context, sessionID string, in engine.Input) error
 	// Respond répond à une demande de permission.
 	Respond(permissionID string, r engine.Reply) error
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/tenon-code-eu/tenon/internal/event"
 	"github.com/tenon-code-eu/tenon/internal/i18n"
 	"github.com/tenon-code-eu/tenon/internal/llm"
+	"github.com/tenon-code-eu/tenon/internal/skills"
 	"github.com/tenon-code-eu/tenon/internal/ui/headless"
 )
 
@@ -38,6 +39,9 @@ type Options struct {
 	// Notices sont des avis du démarrage (avertissements MCP) placés en tête
 	// de la conversation, nettoyés et masqués par Redact.
 	Notices []string
+	// Skills est le catalogue des skills (/<nom>, /skills, complétion) ;
+	// nil : aucun skill.
+	Skills *skills.Catalog
 	// Now remplace l'horloge (délai d'armement des acceptations, double
 	// Ctrl+C). Réservé aux tests ; nil : time.Now.
 	Now func() time.Time
@@ -53,6 +57,7 @@ const (
 	inputPrompt    = "> "
 	quitCommand    = "/quit"
 	helpCommand    = "/help"
+	skillsCommand  = "/skills"
 	tokenRuneRatio = 4
 	// turnFinishTimeout borne l'attente de la fin du tour en cours à la
 	// sortie de Run.
@@ -342,6 +347,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case key.Matches(msg, keys.Submit):
 		return m.submit()
+	case key.Matches(msg, keys.Complete):
+		m.complete()
+		return m, nil
 	}
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
@@ -368,8 +376,37 @@ func (m Model) submit() (tea.Model, tea.Cmd) {
 	case helpCommand:
 		m.input.Reset()
 		m.tr.notice(i18n.T(m.lang, "tui.help"))
+		if names := m.skillNames(); len(names) > 0 {
+			m.tr.notice(i18n.T(m.lang, "tui.help.skills", "/"+strings.Join(names, ", /")))
+		}
 		m.scrollBack = 0
 		return m, nil
+	case skillsCommand:
+		m.input.Reset()
+		m.skillsNotices()
+		m.scrollBack = 0
+		return m, nil
+	}
+	in := engine.Input{Text: text}
+	if m.opts.Skills != nil && strings.HasPrefix(text, "/") {
+		exp, ok, err := m.opts.Skills.Expand(text)
+		switch {
+		case errors.Is(err, skills.ErrUnknownCommand):
+			// La saisie est conservée pour être corrigée.
+			tok, _, _ := strings.Cut(text, " ")
+			m.tr.notice(i18n.T(m.lang, "skills.unknown", cleanToken(tok)))
+			m.scrollBack = 0
+			return m, nil
+		case err != nil:
+			m.tr.notice(err.Error())
+			m.scrollBack = 0
+			return m, nil
+		case ok:
+			in = engine.Input{Text: exp.Text, Skill: exp.Skill, SkillSHA256: exp.SHA256}
+			if exp.Skill != "" {
+				in.Typed = text
+			}
+		}
 	}
 	m.input.Reset()
 	m.scrollBack = 0
@@ -380,7 +417,7 @@ func (m Model) submit() (tea.Model, tea.Cmd) {
 	m.lastCtrlC = time.Time{}
 	eng, sid := m.eng, m.opts.SessionID
 	return m, func() tea.Msg {
-		err := eng.Submit(ctx, sid, text)
+		err := eng.SubmitInput(ctx, sid, in)
 		close(done)
 		return submitDone{err: err}
 	}

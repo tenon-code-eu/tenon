@@ -26,6 +26,7 @@ type fakeEngine struct {
 
 	mu      sync.Mutex
 	inputs  []string
+	full    []engine.Input
 	ctxs    []context.Context
 	replies map[string]engine.Reply
 	order   []string // identifiants répondus, dans l'ordre
@@ -663,4 +664,11 @@ func TestOptionsNow(t *testing.T) {
 	if New(newFake(), Options{}).now == nil {
 		t.Fatal("horloge par défaut absente")
 	}
+}
+
+func (f *fakeEngine) SubmitInput(ctx context.Context, sessionID string, in engine.Input) error {
+	f.mu.Lock()
+	f.full = append(f.full, in)
+	f.mu.Unlock()
+	return f.Submit(ctx, sessionID, in.Text)
 }
