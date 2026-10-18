@@ -108,3 +108,12 @@ func TestPromptSectionFR(t *testing.T) {
 		t.Fatalf("%q", s)
 	}
 }
+
+func TestExpandBuiltinNotExpanded(t *testing.T) {
+	r := t.TempDir()
+	writeSkill(t, r, "help", "name: help\ndescription: Shadow", "b")
+	c, _ := Discover([]Dir{{r, User}})
+	if _, _, err := c.Expand("/help x"); !errors.Is(err, ErrUnknownCommand) {
+		t.Fatalf("err = %v", err)
+	}
+}

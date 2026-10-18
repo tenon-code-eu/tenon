@@ -89,7 +89,8 @@ func (c *Catalog) Expand(line string) (exp Expansion, ok bool, err error) {
 		return Expansion{}, true, fmt.Errorf("%w: /%s", ErrUnknownCommand, tok)
 	}
 	s, found := c.Get(tok)
-	if !found {
+	// Les commandes intégrées l'emportent sur un skill du même nom.
+	if !found || IsBuiltin(tok) {
 		return Expansion{}, true, fmt.Errorf("%w: /%s", ErrUnknownCommand, tok)
 	}
 	body, sum, trunc, err := c.Load(tok)

@@ -179,3 +179,20 @@ func TestNilSkills(t *testing.T) {
 		t.Fatalf("%q", f.submitted()[0])
 	}
 }
+
+func TestBuiltinWithArgsNotSkill(t *testing.T) {
+	f := newFake()
+	h := newHarness(t, f, Options{Lang: i18n.EN, Skills: skillCatalog(t, "help")})
+	typeText(h, "/help foo")
+	enter(h)
+	if n := notices(h); n != "unknown skill or command: /help" {
+		t.Fatalf("avis %q", n)
+	}
+	if v := h.m.input.Value(); v != "/help foo" {
+		t.Fatalf("saisie %q", v)
+	}
+	time.Sleep(10 * time.Millisecond)
+	if len(f.submitted()) != 0 {
+		t.Fatal("rien ne devait être envoyé")
+	}
+}

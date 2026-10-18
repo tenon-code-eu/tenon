@@ -398,7 +398,7 @@ func (m Model) submit() (tea.Model, tea.Cmd) {
 			m.scrollBack = 0
 			return m, nil
 		case err != nil:
-			m.tr.notice(err.Error())
+			m.tr.notice(cleanToken(err.Error()))
 			m.scrollBack = 0
 			return m, nil
 		case ok:
