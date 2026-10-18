@@ -127,6 +127,31 @@ func TestSlashUnknownHeadless(t *testing.T) {
 	if code != 1 || !strings.Contains(errb, "unknown skill or command: /nope") || len(f.requests()) != 0 {
 		t.Fatalf("code=%d stderr=%q requêtes=%d", code, errb, len(f.requests()))
 	}
+	if ents, _ := e.sessionFiles(); len(ents) != 0 {
+		t.Fatalf("session créée : %v", ents)
+	}
+	if _, err := os.Stat(filepath.Join(e.dataDir, "audit")); err == nil && e.auditContents() != "" {
+		t.Fatal("audit écrit")
+	}
+	// Sans clé de fournisseur : même message.
+	delete(e.vars, "TEST_KEY")
+	code, _, errb = e.run("-p", "/nope", "--lang", "en")
+	if code != 1 || !strings.Contains(errb, "unknown skill or command: /nope") {
+		t.Fatalf("sans clé : code=%d stderr=%q", code, errb)
+	}
+}
+
+func TestSkillsListSanitised(t *testing.T) {
+	e := newEnv(t, nil, "eu")
+	e.writeFile(filepath.Join(e.wd, ".tenon", "skills", "evil", "SKILL.md"),
+		"---\nname: evil\ndescription: joli \x1b[31mrouge \u202efin\n---\ncorps\n")
+	code, out, _ := e.run("skills")
+	if code != 0 || !strings.Contains(out, "evil  project") {
+		t.Fatalf("code=%d out=%q", code, out)
+	}
+	if strings.ContainsAny(out, "\x1b\u202e") {
+		t.Fatalf("caractères dangereux : %q", out)
+	}
 }
 
 func TestSlashBuiltinAndEscapeHeadless(t *testing.T) {

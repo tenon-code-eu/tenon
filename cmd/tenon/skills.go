@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"unicode"
 
 	"github.com/tenon-code-eu/tenon/internal/engine"
 	"github.com/tenon-code-eu/tenon/internal/i18n"
@@ -14,14 +15,33 @@ import (
 // promptBudget est la taille maximale de la section « skills » du prompt.
 const promptBudget = 8000
 
+// discovered est le résultat de discoverSkills.
+type discovered struct {
+	cat     *skills.Catalog
+	section string
+	notices []string
+}
+
+// clean remplace les caractères de contrôle et de format (ESC, U+202E…) par
+// une espace : les skills du projet ne sont pas dignes de confiance.
+func clean(s string) string {
+	return strings.Map(func(c rune) rune {
+		if unicode.IsControl(c) || unicode.Is(unicode.Cf, c) {
+			return ' '
+		}
+		return c
+	}, s)
+}
+
 // discoverSkills découvre les skills de l'utilisateur et du projet wd.
 // notices (déjà traduits) : avis de découverte, bannière, skills omis du
 // prompt, skills masqués par une commande intégrée. section est le texte à
 // ajouter au prompt système ("" s'il n'y a aucun skill invocable).
-func discoverSkills(lang i18n.Lang, getenv func(string) string, wd string) (cat *skills.Catalog, section string, notices []string) {
+func discoverSkills(lang i18n.Lang, getenv func(string) string, wd string) discovered {
 	cat, disc := skills.Discover(skills.Dirs(getenv, wd))
+	var notices []string
 	for _, n := range disc {
-		notices = append(notices, string(n))
+		notices = append(notices, clean(string(n)))
 	}
 	list := cat.List()
 	if len(list) > 0 {
@@ -39,10 +59,10 @@ func discoverSkills(lang i18n.Lang, getenv func(string) string, wd string) (cat 
 	}
 	for _, s := range list {
 		if skills.IsBuiltin(s.Name) {
-			notices = append(notices, i18n.T(lang, "skills.builtin_conflict", s.Name))
+			notices = append(notices, i18n.T(lang, "skills.builtin_conflict", clean(s.Name)))
 		}
 	}
-	return cat, section, notices
+	return discovered{cat: cat, section: section, notices: notices}
 }
 
 // listSkills affiche « tenon skills » : un skill par ligne, puis les avis.
@@ -53,15 +73,15 @@ func listSkills(lang i18n.Lang, stdout io.Writer, getenv func(string) string, wd
 		fmt.Fprintln(stdout, i18n.T(lang, "skills.none"))
 	}
 	for _, s := range list {
-		desc := strings.Join(strings.Fields(s.Description), " ")
-		line := fmt.Sprintf("%s  %s  %s  %s", s.Name, s.Source, s.Dir, desc)
+		desc := strings.Join(strings.Fields(clean(s.Description)), " ")
+		line := fmt.Sprintf("%s  %s  %s  %s", clean(s.Name), s.Source, clean(s.Dir), desc)
 		if len(s.AllowedTools) > 0 {
-			line += "  allowed-tools: " + strings.Join(s.AllowedTools, ", ")
+			line += "  allowed-tools: " + clean(strings.Join(s.AllowedTools, ", "))
 		}
 		fmt.Fprintln(stdout, line)
 	}
 	for _, n := range disc {
-		fmt.Fprintln(stdout, string(n))
+		fmt.Fprintln(stdout, clean(string(n)))
 	}
 	return 0
 }
@@ -77,8 +97,9 @@ func headlessInput(lang i18n.Lang, cat *skills.Catalog, prompt string) (engine.I
 	exp, ok, err := cat.Expand(prompt)
 	switch {
 	case errors.Is(err, skills.ErrUnknownCommand):
-		_, cmd, _ := strings.Cut(err.Error(), ": ")
-		return engine.Input{}, errors.New(i18n.T(lang, "skills.unknown", cmd))
+		tok, _, _ := strings.Cut(prompt, " ")
+		tok = strings.Fields(tok + " ")[0]
+		return engine.Input{}, errors.New(i18n.T(lang, "skills.unknown", clean(tok)))
 	case err != nil:
 		return engine.Input{}, err
 	case !ok:

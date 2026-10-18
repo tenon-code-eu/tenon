@@ -164,9 +164,17 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		return 1
 	}
 
+	// Skills et commande slash avant startEngine : un /<inconnu> ne crée ni
+	// session, ni audit, ni verrou, et ne dépend d'aucune clé.
+	disc := discoverSkills(lang, getenv, wd)
+	in, err := headlessInput(lang, disc.cat, *prompt)
+	if err != nil {
+		fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", err))
+		return 1
+	}
 	st, err := startEngine(engineOptions{
 		ctx: ctx, getenv: getenv, wd: wd, providerID: *providerID, allowNonEU: *allowNonEU,
-		lang: lang, resume: *resume, stderr: stderr,
+		lang: lang, resume: *resume, stderr: stderr, skills: &disc,
 	})
 	if err != nil {
 		fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", err))
@@ -178,11 +186,6 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	red := st.redactor
 	for _, n := range st.notices {
 		fmt.Fprintln(stderr, redactText(red)(n))
-	}
-	in, err := headlessInput(lang, st.skills, *prompt)
-	if err != nil {
-		fmt.Fprintln(stderr, redactText(red)(i18n.T(lang, "err.prefix", err)))
-		return 1
 	}
 	return headless.Run(ctx, st.eng, st.sessionID, in, headless.Options{
 		Output:     out,
@@ -425,6 +428,8 @@ type engineOptions struct {
 	// hors UE y est validé par l'utilisateur (ForceAsk) ; sans interface, il
 	// exige --allow-non-eu.
 	interactive bool
+	// skills : skills déjà découverts (nil : startEngine les découvre).
+	skills *discovered
 }
 
 // started est un Engine prêt pour la session sessionID.
@@ -600,7 +605,12 @@ func startEngine(o engineOptions) (started, error) {
 	ts := append(tools.FS(wd, cfg.OutputLimit, tools.WithReadFilter(readable)),
 		tools.Shell(wd, cfg.ShellTimeout.Duration, cfg.OutputLimit))
 	// Skills : l'outil skill rejoint les outils internes, avant ceux de MCP.
-	cat, skillsSection, skillNotices := discoverSkills(lang, getenv, wd)
+	disc := o.skills
+	if disc == nil {
+		d := discoverSkills(lang, getenv, wd)
+		disc = &d
+	}
+	cat, skillsSection, skillNotices := disc.cat, disc.section, disc.notices
 	ts = append(ts, skills.NewTool(cat, cfg.OutputLimit))
 
 	red := s.redactor
