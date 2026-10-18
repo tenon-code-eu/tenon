@@ -4,7 +4,9 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/tenon-code-eu/tenon/internal/llm"
 )
@@ -79,4 +81,11 @@ func (r *Registry) Defs() []llm.ToolDef {
 	}
 	sort.Slice(defs, func(i, j int) bool { return defs[i].Name < defs[j].Name })
 	return defs
+}
+
+// IsSensitive rapporte si le nom de base du chemin désigne un fichier de
+// secrets : préfixe .env ou id_rsa, suffixe .pem (insensible à la casse).
+func IsSensitive(path string) bool {
+	b := strings.ToLower(filepath.Base(path))
+	return strings.HasPrefix(b, ".env") || strings.HasSuffix(b, ".pem") || strings.HasPrefix(b, "id_rsa")
 }

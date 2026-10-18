@@ -31,7 +31,7 @@ func (t *turn) done(iter int, reason string) error {
 	return t.emit(event.TurnCompleted, event.TurnCompletedPayload{Iterations: iter, Reason: reason})
 }
 
-func (t *turn) run(input string) error {
+func (t *turn) run(in Input) error {
 	d := t.e.d
 	info := d.Provider.Info()
 	if !t.s.started {
@@ -48,8 +48,10 @@ func (t *turn) run(input string) error {
 			}
 		}
 	}
-	t.s.history = append(t.s.history, llm.Message{Role: llm.User, Content: input})
-	if err := t.emit(event.UserMessage, event.UserMessagePayload{Text: input}); err != nil {
+	t.s.history = append(t.s.history, llm.Message{Role: llm.User, Content: in.Text})
+	if err := t.emit(event.UserMessage, event.UserMessagePayload{
+		Text: in.Text, Typed: in.Typed, Skill: in.Skill, SkillSHA256: in.SkillSHA256,
+	}); err != nil {
 		return err
 	}
 

@@ -47,11 +47,11 @@ const (
 	exitRefused = 3
 )
 
-// Run soumet prompt à eng dans la session sessionID et renvoie le code de
+// Run soumet in à eng dans la session sessionID et renvoie le code de
 // sortie : 3 si une action a été refusée (permission, politique) ou le tour
-// bloqué, 1 si Submit échoue ou si le tour n'a pas pu tourner (contexte trop
+// bloqué, 1 si SubmitInput échoue ou si le tour n'a pas pu tourner (contexte trop
 // volumineux), sinon 0.
-func Run(ctx context.Context, eng *engine.Engine, sessionID, prompt string, opts Options, stdout, stderr io.Writer) int {
+func Run(ctx context.Context, eng *engine.Engine, sessionID string, in engine.Input, opts Options, stdout, stderr io.Writer) int {
 	out := opts.Output
 	redact := opts.Redact
 	if redact == nil {
@@ -67,7 +67,7 @@ func Run(ctx context.Context, eng *engine.Engine, sessionID, prompt string, opts
 	}
 	ch := eng.Subscribe()
 	errc := make(chan error, 1)
-	go func() { errc <- eng.Submit(ctx, sessionID, prompt) }()
+	go func() { errc <- eng.SubmitInput(ctx, sessionID, in) }()
 
 	r := &renderer{eng: eng, out: out, lang: lang, redact: redact, redactText: redactText, stdout: stdout, stderr: stderr}
 	var err error

@@ -135,9 +135,20 @@ func (e *Engine) Respond(permissionID string, r Reply) error {
 	return nil
 }
 
-// Submit exécute un tour complet et bloque jusqu'à sa fin (TurnCompleted,
-// erreur du fournisseur, annulation du contexte ou échec d'audit).
+// Input est un message utilisateur : Text part au modèle, les autres champs
+// documentent un éventuel skill (Typed = saisie brute de l'utilisateur).
+type Input struct {
+	Text, Typed, Skill, SkillSHA256 string
+}
+
+// Submit exécute un tour complet sur un texte simple ; voir SubmitInput.
 func (e *Engine) Submit(ctx context.Context, sessionID, input string) error {
+	return e.SubmitInput(ctx, sessionID, Input{Text: input})
+}
+
+// SubmitInput exécute un tour complet et bloque jusqu'à sa fin (TurnCompleted,
+// erreur du fournisseur, annulation du contexte ou échec d'audit).
+func (e *Engine) SubmitInput(ctx context.Context, sessionID string, in Input) error {
 	if e.isFailed() {
 		return ErrAuditFailure
 	}
@@ -145,7 +156,7 @@ func (e *Engine) Submit(ctx context.Context, sessionID, input string) error {
 	s.turn.Lock()
 	defer s.turn.Unlock()
 	t := &turn{e: e, s: s, ctx: ctx}
-	return t.run(input)
+	return t.run(in)
 }
 
 func (e *Engine) isFailed() bool {

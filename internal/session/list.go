@@ -61,12 +61,18 @@ func List(dir, projectRoot string) ([]Summary, error) {
 					if json.Unmarshal(e.Payload, &p) == nil {
 						// Caractères de contrôle et de format (U+202E,
 						// U+200B…) : ils pourraient tromper le terminal.
+						// Ce que l'utilisateur a tapé prime sur le texte
+						// développé (skill) envoyé au modèle.
+						first := p.Text
+						if p.Typed != "" {
+							first = p.Typed
+						}
 						r := []rune(strings.Map(func(c rune) rune {
 							if unicode.IsControl(c) || unicode.Is(unicode.Cf, c) {
 								return ' '
 							}
 							return c
-						}, p.Text))
+						}, first))
 						if len(r) > promptMax {
 							r = r[:promptMax]
 						}

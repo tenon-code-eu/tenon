@@ -206,3 +206,21 @@ func TestInstructionsInSessionStarted(t *testing.T) {
 		t.Fatalf("SessionStarted %s", evs[0].Payload)
 	}
 }
+
+func TestRestoreSkillMessage(t *testing.T) {
+	l := &evLog{t: t, sid: "s_1"}
+	l.add(event.SessionStarted, event.SessionStartedPayload{Provider: euInfo}).
+		add(event.UserMessage, event.UserMessagePayload{Text: "T", Typed: "/review", Skill: "review", SkillSHA256: "ab"}).
+		add(event.TurnCompleted, event.TurnCompletedPayload{Iterations: 1, Reason: "done"})
+	h := newHarness(t, euInfo, [][]llm.Chunk{text("ok")})
+	if err := h.eng.Restore("s_1", l.evs); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.submit(t, "s_1", "suite", nil); err != nil {
+		t.Fatal(err)
+	}
+	got := h.prov.reqs()[0].Messages
+	if len(got) < 2 || got[1].Role != llm.User || got[1].Content != "T" {
+		t.Fatalf("messages %s", mustJSON(got))
+	}
+}

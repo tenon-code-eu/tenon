@@ -449,3 +449,18 @@ func TestAcquireThenOpen(t *testing.T) {
 	}
 	l2.Release()
 }
+
+func TestFirstPromptPrefersTyped(t *testing.T) {
+	dir := t.TempDir()
+	w := mustOpen(t, dir, sidA)
+	mustWrite(t, w, ev(t, sidA, 1, event.SessionStarted, event.SessionStartedPayload{ProjectRoot: "/p"}))
+	mustWrite(t, w, ev(t, sidA, 2, event.UserMessage, event.UserMessagePayload{Text: "Use the skill \"review\".\n<skill>", Typed: "/review\x1b[31m main.go", Skill: "review"}))
+	w.Close()
+	got, err := List(dir, "/p")
+	if err != nil || len(got) != 1 {
+		t.Fatalf("%v %v", got, err)
+	}
+	if got[0].FirstPrompt != "/review [31m main.go" {
+		t.Fatalf("FirstPrompt = %q", got[0].FirstPrompt)
+	}
+}

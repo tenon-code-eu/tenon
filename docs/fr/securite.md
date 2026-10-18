@@ -67,6 +67,23 @@ Une règle `allow` large (`tool = "shell"`, `match = "*"`) donne ce pouvoir au m
 Il en va de même pour un serveur MCP stdio : c'est un programme lancé avec vos droits.
 L'isolation système n'existe pas dans cette version.
 
+### Les skills de projet ne sont pas dignes de confiance
+
+Un skill placé dans `.tenon/skills`, `.claude/skills` ou `.agents/skills` d'un dépôt est un contenu écrit par les auteurs du dépôt, comme `AGENTS.md`.
+Son texte peut contenir des instructions destinées à tromper le modèle (injection d'instructions), et le modèle peut le charger de lui-même quand la description correspond.
+tenon ne filtre pas ce texte.
+
+Ce qu'un skill ne peut pas faire :
+
+- Il ne peut pas élargir les permissions. `allowed-tools` est lu, affiché et journalisé, mais ne change jamais une décision.
+- Ses scripts ne sont pas exécutés par le système de skills : ils passent par l'outil `shell`, avec la validation habituelle, et toute commande qu'aucune règle `allow` ne couvre demande votre validation.
+- Il ne peut pas masquer un skill utilisateur : à nom égal, le skill utilisateur l'emporte et un avis signale le skill de projet comme ignoré.
+- Ses fichiers sont lus avec les mêmes protections que les autres fichiers : pas de lien symbolique, pas de chemin hors du dossier du skill, pas de fichier sensible.
+
+Ce que vous devez faire : lire les skills d'un dépôt inconnu avant d'utiliser le projet, comme vous liriez `AGENTS.md`.
+`tenon skills` liste les skills trouvés par tenon, avec leur source. Une règle `deny` sur `tool = "skill"` en interdit un.
+Chaque chargement figure dans le journal d'audit avec le SHA-256 du fichier lu (voir [utilisation.md](utilisation.md#skills)).
+
 ### La juridiction est déclarative
 
 tenon ne vérifie pas la juridiction d'un fournisseur ou d'un serveur.

@@ -12,6 +12,7 @@ For a commented configuration example, see [config.example.toml](config.example.
 - [Sessions](#sessions)
 - [Language](#language)
 - [Configuration](#configuration)
+- [Skills](#skills)
 - [Providers and jurisdictions](#providers-and-jurisdictions)
 - [API keys and keyring](#api-keys-and-keyring)
 - [MCP servers](#mcp-servers)
@@ -25,6 +26,7 @@ For a commented configuration example, see [config.example.toml](config.example.
 tenon [--resume <id|last>] [--lang fr|en] [--allow-non-eu] [--provider <id>]
 tenon -p "<prompt>" [--resume <id|last>] [--lang fr|en] [--output text|json] [--allow-non-eu] [--provider <id>]
 tenon sessions [--lang fr|en]
+tenon skills [--lang fr|en]
 tenon key set|delete <provider>
 tenon audit verify
 tenon config check
@@ -70,7 +72,10 @@ The token count is an estimate.
 | Esc | Cancels the current turn. |
 | Ctrl+C | Cancels the current turn. Outside a turn, quits. Twice in less than 2 s during a turn: quits. |
 | PgUp / PgDn | Scrolls the conversation. |
-| `/help` | Shows the key help. |
+| `/help` | Shows the key help and the available skills. |
+| `/skills` | Lists the skills. |
+| `/<name> [arguments]` | Starts a skill (see [Skills](#skills)). |
+| Tab | Completes a command or a skill name after `/`. |
 | `/quit` | Quits. |
 
 When you quit, tenon waits at most 10 s for the current turn to end.
@@ -274,6 +279,123 @@ An `allow` rule on a command never covers a chained command: `go test *` does no
 `AGENTS.md`, then `TENON.md`, at the project root, are added to the system prompt.
 Each file is limited to 32,768 bytes.
 A symbolic link is ignored.
+
+## Skills
+
+A skill is a folder that contains a `SKILL.md` file: instructions that the model, or you, load on demand.
+tenon reads the open Agent Skills format. A skill written for Claude Code works without change.
+
+### Folders and priority
+
+A skill is a subfolder `<name>/` with a `SKILL.md` file in it.
+tenon looks in these folders, from the highest priority to the lowest:
+
+1. user: `$XDG_CONFIG_HOME/tenon/skills` (else `~/.config/tenon/skills`), `~/.claude/skills`, `~/.agents/skills`;
+2. project, at the project root only: `.tenon/skills`, `.claude/skills`, `.agents/skills`.
+
+When two skills have the same name, the first one found wins. The other is ignored and a notice reports it.
+So a user skill always shadows a project skill of the same name.
+A missing folder is ignored without a notice.
+`~/.claude/skills` and `~/.agents/skills` are ignored when `HOME` is empty or is not an absolute path.
+An empty or relative `XDG_CONFIG_HOME` is replaced by `$HOME/.config`. If neither is absolute, the user tenon folder is ignored too.
+
+Reads follow the same rules as [project instructions](#project-instructions): only regular files are read, and a symbolic link or a FIFO is ignored.
+A skill folder that is itself a symbolic link is skipped. So is a skills directory (for example `.claude/skills`) that is a symbolic link: a notice reports it.
+`SKILL.md` is limited to 32,768 bytes: the rest is cut and marked as truncated.
+tenon keeps at most 200 skills. The following ones are ignored, with a notice.
+An unreadable folder or an invalid skill produces a notice and never prevents startup.
+
+### Format of `SKILL.md`
+
+The file starts with `---`, a YAML block, then `---`. The block is limited to 8 KiB and 200 lines.
+Fields that tenon reads:
+
+| Field | Rule |
+|---|---|
+| `name` | Required. Characters `[a-z0-9-]`, 1 to 64, equal to the folder name. |
+| `description` | Required, not empty, 1024 characters at most. |
+| `disable-model-invocation` | Boolean, default `false`. With `true`, the skill is not listed for the model: only `/<name>` starts it. |
+| `allowed-tools` | String or list. Shown and logged, but it has no effect: it never changes permissions. |
+
+Other fields (`license`, `metadata`, `compatibility`...) are ignored.
+tenon uses its own minimal YAML parser: top-level keys, plain or quoted values, `>` and `|` blocks, `- item` and `[a, b]` lists, and booleans.
+Nested tables are skipped.
+A skill with an invalid header or name is ignored, with a notice.
+
+### Use by the model
+
+The system prompt gets a section after the project instructions:
+
+```
+## Available skills
+Call the `skill` tool with a skill's name before acting when its description matches the request.
+- <name>: <description>
+```
+
+Skills with `disable-model-invocation: true` are not in this list.
+The section is limited to 8,000 bytes. Beyond that, descriptions are cut to 200 characters. If that is not enough, the last skills are removed and a notice gives their number.
+
+The model loads a skill with the `skill` tool, with `{"name": "<name>"}`.
+The result is a header `Skill <name> (<source>, <absolute folder>)`, the body of `SKILL.md` without the YAML header, then the list of files of the folder (3 levels, 100 entries at most).
+With `{"name": "<name>", "file": "<relative path>"}`, the tool reads one file of the skill folder.
+It refuses absolute paths, `..` components, symbolic links, files that are not regular, and sensitive files (`.env*`, `*.pem`, `id_rsa*`).
+The content of a file is limited by `output_limit`, like `read_file`.
+An error (unknown skill, refused or missing file) is returned to the model as an error result, and the turn continues.
+
+The `skill` tool is a read tool: it is allowed without a request, even for a user skill outside the project.
+`deny` and `ask` rules apply to `tool = "skill"`. The `match` pattern is the skill name, or `<name>/<file>` for a file.
+A project can forbid a skill with `match = "<name>*"`.
+The scripts of a skill run through the `shell` tool, with the usual approval.
+
+### Use by you: `/<name>`
+
+In the interface, or with `-p`, `/<name> [arguments]` starts a skill.
+tenon sends one message to the model:
+
+```
+Use the skill "<name>".
+<skill name="<name>" source="<source>" dir="<absolute folder>">
+<body of SKILL.md>
+</skill>
+User request: <arguments>
+```
+
+The last line is omitted when there are no arguments.
+This works also for a skill with `disable-model-invocation: true`.
+The skill file is read again each time. If it was truncated, `[… truncated]` ends the body.
+
+- `/help`, `/quit` and `/skills` are built-in commands and win over a skill of the same name. Such a skill is available to the model only, and tenon shows a notice at startup. In the interface, a built-in name followed by arguments (for example `/help foo`) is refused with `unknown skill or command`, whether or not a skill has that name.
+- `/<unknown>` shows `unknown skill or command: /<unknown>` and sends nothing. In the interface, your text stays in the input to correct it.
+- A text that starts with `/ ` (slash, then space) is sent as is. A text that starts with `//` is sent without the first slash.
+- The substitutions of Claude Code (`$ARGUMENTS`, `` !command ``, `@file`) are not supported.
+
+In the interface:
+
+- `/skills` lists the skills: name, source and description.
+- `Tab` completes a command or a skill name after a `/` at the start of the input: a single match is completed with a space, several matches are completed up to their common prefix.
+- `/help` also lists the available skills.
+
+In non-interactive mode, `-p "/<name> ..."` expands the skill the same way.
+An unknown `/x` stops with exit code 1 before any session or audit entry is created.
+`/help`, `/quit` and `/skills` are commands of the interactive interface: with `-p`, they are sent to the model as plain text, with or without arguments.
+
+### List the skills
+
+```
+tenon skills [--lang fr|en]
+```
+
+One line per skill: name, source (`user` or `project`), absolute folder, description, and `allowed-tools: ...` when the skill has it.
+Discovery notices follow. Without skills, tenon prints `no skills`.
+At startup, the banner adds `skills: N (project: M)` when there is at least one skill.
+Names, descriptions and notices are shown with control characters replaced by spaces, because project skills are not trusted.
+
+### Session and audit
+
+- Each load by the `skill` tool is an ordinary tool call in the [audit log](#audit-log). The `hash_after` field of the result holds the SHA-256 of the bytes read, in the form `sha256:<hex>`. `SKILL.md` is read up to 32,768 bytes; an annex file is read up to four times the `output_limit` plus one byte (1 MiB when there is no limit), so the hash covers that prefix when the file is longer. The log proves which version guided the agent.
+- A message started with `/<name>` records the fields `skill` (the name) and `skill_sha256` in the `UserMessage` event.
+- `tenon sessions` shows the typed `/<name> ...` as first message, not the body of the skill.
+- `--resume` replays the text that was sent, not the skill read again.
 
 ## Providers and jurisdictions
 
