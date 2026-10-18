@@ -394,6 +394,9 @@ func (m Model) submit() (tea.Model, tea.Cmd) {
 		case errors.Is(err, skills.ErrUnknownCommand):
 			// La saisie est conservée pour être corrigée.
 			tok, _, _ := strings.Cut(text, " ")
+			if f := strings.Fields(text); len(f) > 0 {
+				tok = f[0]
+			}
 			m.tr.notice(i18n.T(m.lang, "skills.unknown", cleanToken(tok)))
 			m.scrollBack = 0
 			return m, nil

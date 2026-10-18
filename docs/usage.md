@@ -300,7 +300,7 @@ A missing folder is ignored without a notice.
 An empty or relative `XDG_CONFIG_HOME` is replaced by `$HOME/.config`. If neither is absolute, the user tenon folder is ignored too.
 
 Reads follow the same rules as [project instructions](#project-instructions): only regular files are read, and a symbolic link or a FIFO is ignored.
-A skill folder that is itself a symbolic link is skipped.
+A skill folder that is itself a symbolic link is skipped. So is a skills directory (for example `.claude/skills`) that is a symbolic link: a notice reports it.
 `SKILL.md` is limited to 32,768 bytes: the rest is cut and marked as truncated.
 tenon keeps at most 200 skills. The following ones are ignored, with a notice.
 An unreadable folder or an invalid skill produces a notice and never prevents startup.
@@ -392,7 +392,7 @@ Names, descriptions and notices are shown with control characters replaced by sp
 
 ### Session and audit
 
-- Each load by the `skill` tool is an ordinary tool call in the [audit log](#audit-log). The `hash_after` field of the result holds the SHA-256 of the file read, in the form `sha256:<hex>`. The log proves which version guided the agent.
+- Each load by the `skill` tool is an ordinary tool call in the [audit log](#audit-log). The `hash_after` field of the result holds the SHA-256 of the bytes read, in the form `sha256:<hex>`. `SKILL.md` is read up to 32,768 bytes; an annex file is read up to four times the `output_limit` plus one byte (1 MiB when there is no limit), so the hash covers that prefix when the file is longer. The log proves which version guided the agent.
 - A message started with `/<name>` records the fields `skill` (the name) and `skill_sha256` in the `UserMessage` event.
 - `tenon sessions` shows the typed `/<name> ...` as first message, not the body of the skill.
 - `--resume` replays the text that was sent, not the skill read again.

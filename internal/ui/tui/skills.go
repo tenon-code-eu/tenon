@@ -64,7 +64,7 @@ func (m *Model) complete() {
 	}
 	prefix := v[1:]
 	var matches []string
-	for _, n := range append([]string{"help", "quit", "skills"}, m.skillNames()...) {
+	for _, n := range append(slices.Clone(skills.Builtins), m.skillNames()...) {
 		if strings.HasPrefix(n, prefix) && !slices.Contains(matches, n) {
 			matches = append(matches, n)
 		}

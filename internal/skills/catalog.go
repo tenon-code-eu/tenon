@@ -93,6 +93,11 @@ func Discover(dirs []Dir) (*Catalog, []Notice) {
 	c := &Catalog{byName: map[string]int{}}
 	var notices []Notice
 	for _, d := range dirs {
+		// Une base qui est un lien symbolique n'est pas suivie.
+		if fi, err := os.Lstat(d.Path); err == nil && fi.Mode()&fs.ModeSymlink != 0 {
+			notices = append(notices, Notice(fmt.Sprintf("skills directory %s ignored: it is a symbolic link", d.Path)))
+			continue
+		}
 		entries, err := os.ReadDir(d.Path)
 		if errors.Is(err, fs.ErrNotExist) {
 			continue

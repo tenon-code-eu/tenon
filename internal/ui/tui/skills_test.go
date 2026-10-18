@@ -196,3 +196,12 @@ func TestBuiltinWithArgsNotSkill(t *testing.T) {
 		t.Fatal("rien ne devait être envoyé")
 	}
 }
+
+func TestSubmitUnknownNewline(t *testing.T) {
+	h := newHarness(t, newFake(), Options{Lang: i18n.EN, Skills: skillCatalog(t, "review")})
+	h.m.input.SetValue("/nope\nfoo")
+	enter(h)
+	if n := notices(h); n != "unknown skill or command: /nope" {
+		t.Fatalf("avis %q", n)
+	}
+}

@@ -799,3 +799,26 @@ func TestSubmitInputRecordsSkill(t *testing.T) {
 		t.Fatalf("payload %+v, attendu %+v", p, want)
 	}
 }
+
+func TestPlainSubmitPayloadHasNoSkillKeys(t *testing.T) {
+	h := newHarness(t, euInfo, [][]llm.Chunk{text("ok")})
+	if err := h.eng.Submit(context.Background(), "s_1", "bonjour"); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	for _, e := range h.sink.events {
+		if e.Type != event.UserMessage {
+			continue
+		}
+		n++
+		raw := string(e.Payload)
+		for _, k := range []string{`"typed"`, `"skill"`, `"skill_sha256"`} {
+			if strings.Contains(raw, k) {
+				t.Fatalf("payload %s contient %s", raw, k)
+			}
+		}
+	}
+	if n != 1 {
+		t.Fatalf("%d UserMessage", n)
+	}
+}

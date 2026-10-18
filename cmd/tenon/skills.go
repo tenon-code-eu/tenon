@@ -91,7 +91,11 @@ func listSkills(lang i18n.Lang, stdout io.Writer, getenv func(string) string, wd
 // développé, //texte est envoyé sans la première barre. Un /<inconnu> renvoie
 // une erreur traduite : rien n'est envoyé.
 func headlessInput(lang i18n.Lang, cat *skills.Catalog, prompt string) (engine.Input, error) {
-	if tok, _, _ := strings.Cut(strings.TrimPrefix(prompt, "/"), " "); strings.HasPrefix(prompt, "/") && skills.IsBuiltin(tok) {
+	rest := strings.TrimPrefix(prompt, "/")
+	if i := strings.IndexAny(rest, " \t\r\n"); i >= 0 {
+		rest = rest[:i]
+	}
+	if strings.HasPrefix(prompt, "/") && skills.IsBuiltin(rest) {
 		return engine.Input{Text: prompt}, nil
 	}
 	exp, ok, err := cat.Expand(prompt)

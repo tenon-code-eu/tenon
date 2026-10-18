@@ -112,13 +112,23 @@ func splitKey(line string) (key, val string, ok bool) {
 // scalarValue renvoie la valeur d'un scalaire : simple, entre guillemets
 // ou bloc `>` / `|`. Une table imbriquée (valeur vide) donne "".
 func scalarValue(val string, cont []string) string {
-	if val == "" {
-		return ""
+	if val != "" {
+		if c := val[0]; (c == '>' || c == '|') && strings.Trim(val[1:], "+-0123456789") == "" {
+			return blockScalar(c == '>', cont)
+		}
 	}
-	if c := val[0]; (c == '>' || c == '|') && strings.Trim(val[1:], "+-0123456789") == "" {
-		return blockScalar(c == '>', cont)
+	// Scalaire simple ou entre guillemets sur plusieurs lignes : les lignes
+	// de continuation sont jointes par une espace (sémantique YAML).
+	parts := []string{}
+	if val != "" {
+		parts = append(parts, val)
 	}
-	return unquote(val)
+	for _, l := range cont {
+		if l = strings.TrimSpace(l); l != "" {
+			parts = append(parts, l)
+		}
+	}
+	return unquote(strings.Join(parts, " "))
 }
 
 // blockScalar assemble un bloc `>` (lignes jointes par un espace) ou

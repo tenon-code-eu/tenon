@@ -224,3 +224,17 @@ func TestClaudeSkillCompat(t *testing.T) {
 	}
 	t.Fatal("aucun ToolResult shell")
 }
+
+func TestSlashBuiltinWithWhitespaceHeadless(t *testing.T) {
+	f := newFakeLLM(t, sseText("ok"))
+	e := skillEnv(t, f)
+	for _, p := range []string{"/help\tx", "/skills\nfoo"} {
+		if code, _, errb := e.run("-p", p); code != 0 {
+			t.Fatalf("%q: code=%d stderr=%q", p, code, errb)
+		}
+	}
+	reqs := f.requests()
+	if len(reqs) != 2 || !strings.Contains(reqs[0], `"content":"/help\tx"`) || !strings.Contains(reqs[1], `"content":"/skills\nfoo"`) {
+		t.Fatalf("requêtes : %q", reqs)
+	}
+}

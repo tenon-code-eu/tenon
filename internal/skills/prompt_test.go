@@ -117,3 +117,25 @@ func TestExpandBuiltinNotExpanded(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestPromptSectionEmptyWhenNoneListed(t *testing.T) {
+	r := t.TempDir()
+	writeSkill(t, r, "review", "name: review\ndescription: "+strings.Repeat("d", 300), "b")
+	c, _ := Discover([]Dir{{r, User}})
+	// Budget plus petit que l'en-tête : plus aucun skill ne tient.
+	s, dropped := c.PromptSection(i18n.EN, 5)
+	if s != "" || dropped != 1 {
+		t.Fatalf("section %q dropped %d, attendu \"\" et 1", s, dropped)
+	}
+}
+
+func TestBuiltinsSingleSource(t *testing.T) {
+	for _, n := range Builtins {
+		if !IsBuiltin(n) {
+			t.Fatalf("IsBuiltin(%q) faux", n)
+		}
+	}
+	if len(Builtins) != 3 {
+		t.Fatalf("Builtins %v", Builtins)
+	}
+}

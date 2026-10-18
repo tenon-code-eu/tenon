@@ -300,7 +300,7 @@ Un dossier absent est ignoré sans avis.
 Un `XDG_CONFIG_HOME` vide ou relatif est remplacé par `$HOME/.config`. Si aucun des deux n'est absolu, le dossier utilisateur de tenon est ignoré aussi.
 
 La lecture suit les mêmes règles que les [instructions du projet](#instructions-du-projet) : seuls les fichiers réguliers sont lus, un lien symbolique ou un FIFO est ignoré.
-Un dossier de skill qui est lui-même un lien symbolique est écarté.
+Un dossier de skill qui est lui-même un lien symbolique est écarté. Il en va de même d'un répertoire de skills (par exemple `.claude/skills`) qui est un lien symbolique : un avis le signale.
 `SKILL.md` est limité à 32 768 octets : le reste est coupé et marqué comme tronqué.
 tenon retient 200 skills au plus. Les suivants sont ignorés, avec un avis.
 Un dossier illisible ou un skill invalide produit un avis et n'empêche jamais le démarrage.
@@ -393,7 +393,7 @@ Noms, descriptions et avis sont affichés avec les caractères de contrôle remp
 
 ### Session et audit
 
-- Chaque chargement par l'outil `skill` est un appel d'outil ordinaire du [journal d'audit](#journal-daudit). Le champ `hash_after` du résultat contient le SHA-256 du fichier lu, sous la forme `sha256:<hex>`. Le journal prouve quelle version a guidé l'agent.
+- Chaque chargement par l'outil `skill` est un appel d'outil ordinaire du [journal d'audit](#journal-daudit). Le champ `hash_after` du résultat contient le SHA-256 des octets lus, sous la forme `sha256:<hex>`. `SKILL.md` est lu jusqu'à 32 768 octets ; un fichier annexe est lu jusqu'à quatre fois `output_limit` plus un octet (1 Mio sans limite), donc le hash couvre ce préfixe si le fichier est plus long. Le journal prouve quelle version a guidé l'agent.
 - Un message déclenché par `/<nom>` enregistre les champs `skill` (le nom) et `skill_sha256` dans l'événement `UserMessage`.
 - `tenon sessions` affiche le `/<nom> ...` tapé comme premier message, pas le corps du skill.
 - `--resume` rejoue le texte envoyé, pas le skill relu.

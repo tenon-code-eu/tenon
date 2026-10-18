@@ -3,6 +3,7 @@ package skills
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/tenon-code-eu/tenon/internal/i18n"
@@ -19,14 +20,14 @@ type Expansion struct {
 	Text, Skill, SHA256 string
 }
 
+// Builtins liste les commandes intégrées (sans la barre oblique), source
+// unique pour IsBuiltin et la complétion de la TUI.
+var Builtins = []string{"help", "quit", "skills"}
+
 // IsBuiltin indique si name (sans la barre oblique) est une commande
 // intégrée, prioritaire sur les skills.
 func IsBuiltin(name string) bool {
-	switch name {
-	case "help", "quit", "skills":
-		return true
-	}
-	return false
+	return slices.Contains(Builtins, name)
 }
 
 // PromptSection renvoie la section du prompt système listant les skills
@@ -64,6 +65,9 @@ func (c *Catalog) PromptSection(lang i18n.Lang, budget int) (section string, dro
 	for len(out) > budget && n > 0 {
 		n--
 		out = build(n, maxPromptDescChars)
+	}
+	if n == 0 {
+		return "", len(skills)
 	}
 	return out, len(skills) - n
 }

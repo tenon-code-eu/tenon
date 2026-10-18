@@ -185,3 +185,18 @@ func TestLoadRefusesSymlinkedFolder(t *testing.T) {
 		t.Fatalf("expected error, got %q", body)
 	}
 }
+
+func TestDiscoverSkipsSymlinkedBase(t *testing.T) {
+	out, proj := t.TempDir(), t.TempDir()
+	writeSkill(t, out, "x", valid("x"), "")
+	if err := os.Symlink(out, filepath.Join(proj, "skills")); err != nil {
+		t.Fatal(err)
+	}
+	c, notices := Discover([]Dir{{filepath.Join(proj, "skills"), Project}})
+	if len(c.List()) != 0 {
+		t.Fatalf("list: %+v", c.List())
+	}
+	if len(notices) != 1 || !strings.Contains(string(notices[0]), "symbolic link") {
+		t.Fatalf("notices: %v", notices)
+	}
+}
