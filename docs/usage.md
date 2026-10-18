@@ -300,7 +300,7 @@ A missing folder is ignored without a notice.
 An empty or relative `XDG_CONFIG_HOME` is replaced by `$HOME/.config`. If neither is absolute, the user tenon folder is ignored too.
 
 Reads follow the same rules as [project instructions](#project-instructions): only regular files are read, and a symbolic link or a FIFO is ignored.
-A skill folder that is itself a symbolic link is skipped. So is a skills directory (for example `.claude/skills`) that is a symbolic link: a notice reports it.
+A skill folder that is itself a symbolic link is skipped. So is a project skills directory (for example `.claude/skills` in the project) that is a symbolic link: a notice reports it. A user skills directory may be a symbolic link (for example `~/.claude/skills` managed with dotfiles).
 `SKILL.md` is limited to 32,768 bytes: the rest is cut and marked as truncated.
 tenon keeps at most 200 skills. The following ones are ignored, with a notice.
 An unreadable folder or an invalid skill produces a notice and never prevents startup.

@@ -300,7 +300,7 @@ Un dossier absent est ignoré sans avis.
 Un `XDG_CONFIG_HOME` vide ou relatif est remplacé par `$HOME/.config`. Si aucun des deux n'est absolu, le dossier utilisateur de tenon est ignoré aussi.
 
 La lecture suit les mêmes règles que les [instructions du projet](#instructions-du-projet) : seuls les fichiers réguliers sont lus, un lien symbolique ou un FIFO est ignoré.
-Un dossier de skill qui est lui-même un lien symbolique est écarté. Il en va de même d'un répertoire de skills (par exemple `.claude/skills`) qui est un lien symbolique : un avis le signale.
+Un dossier de skill qui est lui-même un lien symbolique est écarté. Il en va de même d'un répertoire de skills du projet (par exemple `.claude/skills` dans le projet) qui est un lien symbolique : un avis le signale. Un répertoire de skills utilisateur peut être un lien symbolique (par exemple `~/.claude/skills` géré avec des dotfiles).
 `SKILL.md` est limité à 32 768 octets : le reste est coupé et marqué comme tronqué.
 tenon retient 200 skills au plus. Les suivants sont ignorés, avec un avis.
 Un dossier illisible ou un skill invalide produit un avis et n'empêche jamais le démarrage.

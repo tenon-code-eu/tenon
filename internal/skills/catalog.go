@@ -93,8 +93,10 @@ func Discover(dirs []Dir) (*Catalog, []Notice) {
 	c := &Catalog{byName: map[string]int{}}
 	var notices []Notice
 	for _, d := range dirs {
-		// Une base qui est un lien symbolique n'est pas suivie.
-		if fi, err := os.Lstat(d.Path); err == nil && fi.Mode()&fs.ModeSymlink != 0 {
+		// Une base de projet qui est un lien symbolique n'est pas suivie : un
+		// dépôt ne doit pas pointer ailleurs. Une base utilisateur peut l'être
+		// (dotfiles : ~/.claude/skills relié à un dépôt de configuration).
+		if fi, err := os.Lstat(d.Path); err == nil && fi.Mode()&fs.ModeSymlink != 0 && d.Source == Project {
 			notices = append(notices, Notice(fmt.Sprintf("skills directory %s ignored: it is a symbolic link", d.Path)))
 			continue
 		}

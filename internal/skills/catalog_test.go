@@ -200,3 +200,16 @@ func TestDiscoverSkipsSymlinkedBase(t *testing.T) {
 		t.Fatalf("notices: %v", notices)
 	}
 }
+
+// Une base utilisateur reliée (dotfiles) est suivie.
+func TestDiscoverFollowsSymlinkedUserBase(t *testing.T) {
+	out, home := t.TempDir(), t.TempDir()
+	writeSkill(t, out, "x", valid("x"), "")
+	if err := os.Symlink(out, filepath.Join(home, "skills")); err != nil {
+		t.Fatal(err)
+	}
+	c, notices := Discover([]Dir{{filepath.Join(home, "skills"), User}})
+	if s, ok := c.Get("x"); !ok || s.Source != User || len(notices) != 0 {
+		t.Fatalf("skill %+v ok=%v notices %v", s, ok, notices)
+	}
+}
