@@ -296,7 +296,8 @@ tenon parcourt ces dossiers, du plus prioritaire au moins prioritaire :
 Quand deux skills portent le même nom, le premier trouvé l'emporte. L'autre est ignoré et un avis le signale.
 Un skill utilisateur masque donc toujours un skill de projet du même nom.
 Un dossier absent est ignoré sans avis.
-Les dossiers utilisateur sont ignorés quand `HOME` (ou `XDG_CONFIG_HOME`) est vide ou n'est pas un chemin absolu.
+`~/.claude/skills` et `~/.agents/skills` sont ignorés quand `HOME` est vide ou n'est pas un chemin absolu.
+Un `XDG_CONFIG_HOME` vide ou relatif est remplacé par `$HOME/.config`. Si aucun des deux n'est absolu, le dossier utilisateur de tenon est ignoré aussi.
 
 La lecture suit les mêmes règles que les [instructions du projet](#instructions-du-projet) : seuls les fichiers réguliers sont lus, un lien symbolique ou un FIFO est ignoré.
 Un dossier de skill qui est lui-même un lien symbolique est écarté.
@@ -333,7 +334,7 @@ Appelez l'outil `skill` avec le nom d'un skill avant d'agir quand sa description
 
 (En anglais : `## Available skills`.)
 Les skills avec `disable-model-invocation: true` ne figurent pas dans cette liste.
-La section est limitée à 8 000 caractères. Au-delà, les descriptions sont coupées à 200 caractères. Si cela ne suffit pas, les derniers skills sont retirés et un avis donne leur nombre.
+La section est limitée à 8 000 octets. Au-delà, les descriptions sont coupées à 200 caractères. Si cela ne suffit pas, les derniers skills sont retirés et un avis donne leur nombre.
 
 Le modèle charge un skill avec l'outil `skill`, avec `{"name": "<nom>"}`.
 Le résultat est un en-tête `Skill <nom> (<source>, <dossier absolu>)`, le corps de `SKILL.md` sans l'en-tête YAML, puis la liste des fichiers du dossier (3 niveaux, 100 entrées au plus).
@@ -364,7 +365,7 @@ La dernière ligne est omise sans arguments.
 Cela fonctionne aussi pour un skill avec `disable-model-invocation: true`.
 Le fichier du skill est relu à chaque fois. S'il a été tronqué, `[… truncated]` termine le corps.
 
-- `/help`, `/quit` et `/skills` sont des commandes intégrées et l'emportent sur un skill du même nom. Un tel skill n'est utilisable que par le modèle, et tenon affiche un avis au démarrage. Un nom intégré suivi d'arguments est refusé avec `skill ou commande inconnu` quand un skill porte le même nom.
+- `/help`, `/quit` et `/skills` sont des commandes intégrées et l'emportent sur un skill du même nom. Un tel skill n'est utilisable que par le modèle, et tenon affiche un avis au démarrage. Dans l'interface, un nom intégré suivi d'arguments (par exemple `/help foo`) est refusé avec `skill ou commande inconnu`, qu'un skill porte ce nom ou non.
 - `/<inconnu>` affiche `skill ou commande inconnu : /<inconnu>` et n'envoie rien. Dans l'interface, votre texte reste dans la saisie pour être corrigé.
 - Un texte qui commence par `/ ` (barre oblique puis espace) est envoyé tel quel. Un texte qui commence par `//` est envoyé sans la première barre oblique.
 - Les substitutions propres à Claude Code (`$ARGUMENTS`, `` !commande ``, `@fichier`) ne sont pas prises en charge.
@@ -377,7 +378,7 @@ Dans l'interface :
 
 En mode non interactif, `-p "/<nom> ..."` développe le skill de la même façon.
 Un `/x` inconnu s'arrête avec le code de sortie 1 avant la création de toute session ou entrée d'audit.
-`/help`, `/quit` et `/skills` sont des commandes de l'interface interactive : avec `-p`, elles sont envoyées au modèle comme du texte ordinaire.
+`/help`, `/quit` et `/skills` sont des commandes de l'interface interactive : avec `-p`, elles sont envoyées au modèle comme du texte ordinaire, avec ou sans arguments.
 
 ### Lister les skills
 

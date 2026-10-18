@@ -296,7 +296,8 @@ tenon looks in these folders, from the highest priority to the lowest:
 When two skills have the same name, the first one found wins. The other is ignored and a notice reports it.
 So a user skill always shadows a project skill of the same name.
 A missing folder is ignored without a notice.
-User folders are ignored when `HOME` (or `XDG_CONFIG_HOME`) is empty or is not an absolute path.
+`~/.claude/skills` and `~/.agents/skills` are ignored when `HOME` is empty or is not an absolute path.
+An empty or relative `XDG_CONFIG_HOME` is replaced by `$HOME/.config`. If neither is absolute, the user tenon folder is ignored too.
 
 Reads follow the same rules as [project instructions](#project-instructions): only regular files are read, and a symbolic link or a FIFO is ignored.
 A skill folder that is itself a symbolic link is skipped.
@@ -332,7 +333,7 @@ Call the `skill` tool with a skill's name before acting when its description mat
 ```
 
 Skills with `disable-model-invocation: true` are not in this list.
-The section is limited to 8,000 characters. Beyond that, descriptions are cut to 200 characters. If that is not enough, the last skills are removed and a notice gives their number.
+The section is limited to 8,000 bytes. Beyond that, descriptions are cut to 200 characters. If that is not enough, the last skills are removed and a notice gives their number.
 
 The model loads a skill with the `skill` tool, with `{"name": "<name>"}`.
 The result is a header `Skill <name> (<source>, <absolute folder>)`, the body of `SKILL.md` without the YAML header, then the list of files of the folder (3 levels, 100 entries at most).
@@ -363,7 +364,7 @@ The last line is omitted when there are no arguments.
 This works also for a skill with `disable-model-invocation: true`.
 The skill file is read again each time. If it was truncated, `[… truncated]` ends the body.
 
-- `/help`, `/quit` and `/skills` are built-in commands and win over a skill of the same name. Such a skill is available to the model only, and tenon shows a notice at startup. A built-in name followed by arguments is refused with `unknown skill or command` when a skill has the same name.
+- `/help`, `/quit` and `/skills` are built-in commands and win over a skill of the same name. Such a skill is available to the model only, and tenon shows a notice at startup. In the interface, a built-in name followed by arguments (for example `/help foo`) is refused with `unknown skill or command`, whether or not a skill has that name.
 - `/<unknown>` shows `unknown skill or command: /<unknown>` and sends nothing. In the interface, your text stays in the input to correct it.
 - A text that starts with `/ ` (slash, then space) is sent as is. A text that starts with `//` is sent without the first slash.
 - The substitutions of Claude Code (`$ARGUMENTS`, `` !command ``, `@file`) are not supported.
@@ -376,7 +377,7 @@ In the interface:
 
 In non-interactive mode, `-p "/<name> ..."` expands the skill the same way.
 An unknown `/x` stops with exit code 1 before any session or audit entry is created.
-`/help`, `/quit` and `/skills` are commands of the interactive interface: with `-p`, they are sent to the model as plain text.
+`/help`, `/quit` and `/skills` are commands of the interactive interface: with `-p`, they are sent to the model as plain text, with or without arguments.
 
 ### List the skills
 
