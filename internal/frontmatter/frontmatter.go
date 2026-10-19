@@ -1,5 +1,6 @@
-// Package skills découvre et charge les skills au format Agent Skills (SKILL.md).
-package skills
+// Package frontmatter lit l'en-tête YAML minimal des fichiers Markdown
+// (SKILL.md, agents) : scalaires, listes, blocs `>` / `|`.
+package frontmatter
 
 import (
 	"errors"
@@ -11,25 +12,62 @@ const (
 	maxFrontmatterLines = 200
 )
 
-// frontmatter regroupe les champs lus de l'en-tête d'un SKILL.md.
-// Les autres champs sont ignorés.
-type frontmatter struct {
-	Name                   string
-	Description            string
-	DisableModelInvocation bool
-	AllowedTools           []string
+// Fields regroupe les champs de premier niveau de l'en-tête. Chaque clé garde
+// sa valeur brute et ses lignes de continuation ; le décodage se fait à la demande.
+type Fields struct {
+	raw map[string]rawField
 }
 
-// parseFrontmatter lit l'en-tête YAML minimal d'un SKILL.md et renvoie
-// les champs et le corps (contenu après la ligne `---` de fermeture).
+type rawField struct {
+	val  string
+	cont []string
+}
+
+// Has indique si la clé est présente, même avec une valeur vide.
+func (f Fields) Has(key string) bool {
+	_, ok := f.raw[key]
+	return ok
+}
+
+// String renvoie la valeur scalaire de la clé ("" si absente).
+func (f Fields) String(key string) string {
+	r, ok := f.raw[key]
+	if !ok {
+		return ""
+	}
+	return scalarValue(r.val, r.cont)
+}
+
+// List renvoie la valeur de la clé comme liste (nil si absente ou vide).
+func (f Fields) List(key string) []string {
+	r, ok := f.raw[key]
+	if !ok {
+		return nil
+	}
+	return listValue(r.val, r.cont)
+}
+
+// Bool renvoie vrai si la valeur de la clé est `true` (insensible à la casse).
+func (f Fields) Bool(key string) bool {
+	return strings.EqualFold(f.String(key), "true")
+}
+
+// Name renvoie le champ name.
+func (f Fields) Name() string { return f.String("name") }
+
+// Description renvoie le champ description.
+func (f Fields) Description() string { return f.String("description") }
+
+// Parse lit l'en-tête YAML minimal et renvoie les champs et le corps
+// (contenu après la ligne `---` de fermeture).
 // Seule la présence de name et description est vérifiée ici.
-func parseFrontmatter(data []byte) (fm frontmatter, body string, err error) {
+func Parse(data []byte) (f Fields, body string, err error) {
 	text := strings.TrimPrefix(string(data), "\xef\xbb\xbf")
 	text = strings.ReplaceAll(text, "\r\n", "\n")
 
 	first, rest, _ := strings.Cut(text, "\n")
 	if strings.TrimRight(first, " \t") != "---" {
-		return fm, "", errors.New("frontmatter missing: file must start with ---")
+		return f, "", errors.New("frontmatter missing: file must start with ---")
 	}
 
 	var lines []string
@@ -44,17 +82,17 @@ func parseFrontmatter(data []byte) (fm frontmatter, body string, err error) {
 		}
 		lines = append(lines, line)
 		if len(lines) > maxFrontmatterLines {
-			return fm, "", errors.New("frontmatter too long (more than 200 lines)")
+			return f, "", errors.New("frontmatter too long (more than 200 lines)")
 		}
 		if !found {
 			break
 		}
 	}
 	if !closed {
-		return fm, "", errors.New("frontmatter not closed: missing closing ---")
+		return f, "", errors.New("frontmatter not closed: missing closing ---")
 	}
 	if len(strings.Join(lines, "\n")) > maxFrontmatterBytes {
-		return fm, "", errors.New("frontmatter too large (more than 8 KiB)")
+		return f, "", errors.New("frontmatter too large (more than 8 KiB)")
 	}
 
 	for i := 0; i < len(lines); {
@@ -71,25 +109,19 @@ func parseFrontmatter(data []byte) (fm frontmatter, body string, err error) {
 		}
 		cont := lines[start:i]
 
-		switch key {
-		case "name":
-			fm.Name = scalarValue(val, cont)
-		case "description":
-			fm.Description = scalarValue(val, cont)
-		case "disable-model-invocation":
-			fm.DisableModelInvocation = strings.EqualFold(scalarValue(val, cont), "true")
-		case "allowed-tools":
-			fm.AllowedTools = listValue(val, cont)
+		if f.raw == nil {
+			f.raw = map[string]rawField{}
 		}
+		f.raw[key] = rawField{val: val, cont: cont}
 	}
 
-	if fm.Name == "" {
-		return fm, "", errors.New("frontmatter: missing name")
+	if f.Name() == "" {
+		return f, "", errors.New("frontmatter: missing name")
 	}
-	if fm.Description == "" {
-		return fm, "", errors.New("frontmatter: missing description")
+	if f.Description() == "" {
+		return f, "", errors.New("frontmatter: missing description")
 	}
-	return fm, rest, nil
+	return f, rest, nil
 }
 
 // splitKey découpe une ligne `clé: valeur` de premier niveau.

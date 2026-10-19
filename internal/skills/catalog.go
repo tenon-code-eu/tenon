@@ -1,3 +1,4 @@
+// Package skills découvre et charge les skills au format Agent Skills (SKILL.md).
 package skills
 
 import (
@@ -11,6 +12,7 @@ import (
 	"regexp"
 	"unicode/utf8"
 
+	"github.com/tenon-code-eu/tenon/internal/frontmatter"
 	"github.com/tenon-code-eu/tenon/internal/safefile"
 )
 
@@ -122,7 +124,7 @@ func Discover(dirs []Dir) (*Catalog, []Notice) {
 			if !ok {
 				continue
 			}
-			fm, _, err := parseFrontmatter(data)
+			fm, _, err := frontmatter.Parse(data)
 			if err == nil {
 				err = validate(fm, e.Name())
 			}
@@ -130,36 +132,36 @@ func Discover(dirs []Dir) (*Catalog, []Notice) {
 				notices = append(notices, Notice(fmt.Sprintf("skill %q in %s ignored: %v", e.Name(), dir, err)))
 				continue
 			}
-			if i, dup := c.byName[fm.Name]; dup {
-				notices = append(notices, Notice(fmt.Sprintf("skill %q in %s ignored: shadowed by %s", fm.Name, dir, c.skills[i].Dir)))
+			if i, dup := c.byName[fm.Name()]; dup {
+				notices = append(notices, Notice(fmt.Sprintf("skill %q in %s ignored: shadowed by %s", fm.Name(), dir, c.skills[i].Dir)))
 				continue
 			}
 			if len(c.skills) >= MaxSkills {
-				notices = append(notices, Notice(fmt.Sprintf("skill %q in %s ignored: limit of %d skills reached", fm.Name, dir, MaxSkills)))
+				notices = append(notices, Notice(fmt.Sprintf("skill %q in %s ignored: limit of %d skills reached", fm.Name(), dir, MaxSkills)))
 				continue
 			}
-			c.byName[fm.Name] = len(c.skills)
+			c.byName[fm.Name()] = len(c.skills)
 			c.skills = append(c.skills, Skill{
-				Name:           fm.Name,
-				Description:    fm.Description,
+				Name:           fm.Name(),
+				Description:    fm.Description(),
 				Source:         d.Source,
 				Dir:            dir,
-				AllowedTools:   fm.AllowedTools,
-				ModelInvocable: !fm.DisableModelInvocation,
+				AllowedTools:   fm.List("allowed-tools"),
+				ModelInvocable: !fm.Bool("disable-model-invocation"),
 			})
 		}
 	}
 	return c, notices
 }
 
-func validate(fm frontmatter, folder string) error {
-	if !nameRe.MatchString(fm.Name) {
-		return fmt.Errorf("invalid name %q (expected [a-z0-9-], 1 to 64 chars)", fm.Name)
+func validate(fm frontmatter.Fields, folder string) error {
+	if !nameRe.MatchString(fm.Name()) {
+		return fmt.Errorf("invalid name %q (expected [a-z0-9-], 1 to 64 chars)", fm.Name())
 	}
-	if fm.Name != folder {
-		return fmt.Errorf("name %q does not match folder name %q", fm.Name, folder)
+	if fm.Name() != folder {
+		return fmt.Errorf("name %q does not match folder name %q", fm.Name(), folder)
 	}
-	if n := utf8.RuneCountInString(fm.Description); n > maxDescriptionChars {
+	if n := utf8.RuneCountInString(fm.Description()); n > maxDescriptionChars {
 		return fmt.Errorf("description too long (%d chars, max %d)", n, maxDescriptionChars)
 	}
 	return nil
@@ -193,7 +195,7 @@ func (c *Catalog) Load(name string) (body string, sha256hex string, truncated bo
 	if !ok {
 		return "", "", false, fmt.Errorf("skill %q: %s missing or not a regular file", name, skillFile)
 	}
-	_, body, err = parseFrontmatter(data)
+	_, body, err = frontmatter.Parse(data)
 	if err != nil {
 		return "", "", false, err
 	}
