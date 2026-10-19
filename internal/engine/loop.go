@@ -37,6 +37,7 @@ type loopResult struct {
 	Iterations int
 	Reason     string
 	Text       string // dernier texte d'assistant non vide (même incomplet)
+	Final      string // texte du dernier message d'assistant (raison done)
 	ProvErr    error
 }
 
@@ -93,9 +94,9 @@ func (t *turn) run(in Input) error {
 func (t *turn) loop() (loopResult, error) {
 	d := t.e.d
 	info := d.Provider.Info()
-	var last string
+	var last, final string
 	res := func(iter int, reason string) loopResult {
-		return loopResult{Iterations: iter, Reason: reason, Text: last}
+		return loopResult{Iterations: iter, Reason: reason, Text: last, Final: final}
 	}
 	for iter := 1; iter <= d.MaxIterations; iter++ {
 		var defs []llm.ToolDef
@@ -165,6 +166,7 @@ func (t *turn) loop() (loopResult, error) {
 			return res(iter, ""), err
 		}
 		if len(calls) == 0 {
+			final = text
 			return res(iter, "done"), nil
 		}
 		for i, c := range calls {

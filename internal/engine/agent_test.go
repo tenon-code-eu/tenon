@@ -489,3 +489,46 @@ func TestNoAgentsNoTool(t *testing.T) {
 		t.Fatal("agent proposé sans catalogue")
 	}
 }
+
+// Le résultat ok est le texte du DERNIER message, pas un texte intermédiaire.
+func TestSubagentFinalTextOnly(t *testing.T) {
+	h := newAgentEngine(t, [][]llm.Chunk{
+		call("m1", "agent", agentCall),
+		{{Text: "Let me look"}, {Done: true, ToolCalls: []llm.ToolCall{{ID: "s1", Name: "read_file", Args: json.RawMessage(`{"path":"a.txt"}`)}}}},
+		text(),
+		text("done"),
+	}, nil)
+	evs, err := h.submit(t, "s_1", "go", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := toolResultOf(t, evs, "agent")
+	if r.IsError || r.Content != "sub-agent returned no text" {
+		t.Fatalf("ToolResult agent %+v", r)
+	}
+	if cp := decode[event.SubagentCompletedPayload](t, ofType(evs, event.SubagentCompleted)[0]); cp.Status != "ok" {
+		t.Fatalf("%+v", cp)
+	}
+}
+
+// Un échec d'audit dans le sous-agent est fatal : pas de ToolResult agent.
+func TestSubagentAuditFailure(t *testing.T) {
+	h := newAgentEngine(t, [][]llm.Chunk{
+		call("m1", "agent", agentCall),
+		text("never"),
+	}, nil)
+	h.sink.failOn = event.SubagentStarted
+	_, err := h.submit(t, "s_1", "go", nil)
+	if !errors.Is(err, ErrAuditFailure) {
+		t.Fatalf("err %v", err)
+	}
+	for _, e := range h.sink.events {
+		if e.Type == event.ToolResult {
+			t.Fatalf("ToolResult écrit après l'échec d'audit")
+		}
+	}
+	h.sink.failOn = ""
+	if _, err := h.submit(t, "s_2", "encore", nil); !errors.Is(err, ErrAuditFailure) {
+		t.Fatalf("2e Submit : %v", err)
+	}
+}

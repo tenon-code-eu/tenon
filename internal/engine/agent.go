@@ -100,7 +100,10 @@ func (t *turn) runSubagent(c llm.ToolCall) (tools.Result, error) {
 		return tools.Result{}, err
 	}
 
-	status, content := "ok", res.Text
+	status, content := "ok", res.Final
+	if res.Reason == "done" && content == "" {
+		content = "sub-agent returned no text"
+	}
 	if res.Reason != "done" {
 		status = "error"
 		switch {
