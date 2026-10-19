@@ -22,8 +22,8 @@ const hashPrefix = "sha256:"
 
 // keepHashes rassemble les hash_before des sessions modifiées dans les
 // retentionDays derniers jours (un fichier illisible est ignoré). Une copie
-// dédupliquée garde son ancien mtime : elle doit rester protégée tant qu'une
-// session récente la référence.
+// référencée par une session récente reste protégée même si son mtime est
+// ancien (copie écrite il y a longtemps, session reprise depuis).
 func keepHashes(sdir string, retentionDays int, now time.Time) map[string]bool {
 	keep := map[string]bool{}
 	ents, err := os.ReadDir(sdir)
@@ -69,7 +69,7 @@ func openCheckpoints(lang i18n.Lang, getenv func(string) string, retentionDays i
 	}
 	store, err := checkpoint.Open(checkpoint.Dir(getenv))
 	if err != nil {
-		return nil, []string{i18n.T(lang, "checkpoints.prune_failed", err)}
+		return nil, []string{i18n.T(lang, "checkpoints.unavailable", err)}
 	}
 	now := time.Now()
 	keep := keepHashes(sessionsDir(getenv), retentionDays, now)

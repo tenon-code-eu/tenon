@@ -679,6 +679,10 @@ func startEngine(o engineOptions) (started, error) {
 			_, err := store.Save(old)
 			return err
 		}))
+	} else {
+		// Copies désactivées ou magasin indisponible : chaque écriture d'un
+		// fichier existant porte no_checkpoint.
+		fsOpts = append(fsOpts, tools.WithoutCheckpoints())
 	}
 	ts := append(tools.FS(wd, cfg.OutputLimit, fsOpts...),
 		tools.Shell(wd, cfg.ShellTimeout.Duration, cfg.OutputLimit))
