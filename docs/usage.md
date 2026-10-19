@@ -13,6 +13,7 @@ For a commented configuration example, see [config.example.toml](config.example.
 - [Language](#language)
 - [Configuration](#configuration)
 - [Skills](#skills)
+- [Sub-agents](#sub-agents)
 - [Providers and jurisdictions](#providers-and-jurisdictions)
 - [API keys and keyring](#api-keys-and-keyring)
 - [MCP servers](#mcp-servers)
@@ -27,6 +28,7 @@ tenon [--resume <id|last>] [--lang fr|en] [--allow-non-eu] [--provider <id>]
 tenon -p "<prompt>" [--resume <id|last>] [--lang fr|en] [--output text|json] [--allow-non-eu] [--provider <id>]
 tenon sessions [--lang fr|en]
 tenon skills [--lang fr|en]
+tenon agents [--lang fr|en]
 tenon key set|delete <provider>
 tenon audit verify
 tenon config check
@@ -74,6 +76,7 @@ The token count is an estimate.
 | PgUp / PgDn | Scrolls the conversation. |
 | `/help` | Shows the key help and the available skills. |
 | `/skills` | Lists the skills. |
+| `/agents` | Lists the sub-agents (see [Sub-agents](#sub-agents)). |
 | `/<name> [arguments]` | Starts a skill (see [Skills](#skills)). |
 | Tab | Completes a command or a skill name after `/`. |
 | `/quit` | Quits. |
@@ -136,7 +139,7 @@ Only reads inside the project and actions covered by an `allow` rule run.
 ### Outputs
 
 - `--output text` (default): the final answer goes to standard output. The banner, warnings and denials go to standard error.
-- `--output json`: one JSON event per line on standard output, with a redacted payload. Fields: `id`, `session`, `seq`, `ts`, `type`, `payload`. The first event, `SessionStarted`, contains the model, the provider, the country and the jurisdiction.
+- `--output json`: one JSON event per line on standard output, with a redacted payload. Fields: `id`, `session`, `seq`, `ts`, `type`, `payload`. The first event, `SessionStarted`, contains the model, the provider, the country and the jurisdiction. When the model launches a sub-agent, the events `SubagentStarted` and `SubagentCompleted` appear, and the events of the sub-agent carry a `parent_call_id` field (see [Sub-agents](#sub-agents)).
 
 ### Exit codes
 
@@ -396,6 +399,150 @@ Names, descriptions and notices are shown with control characters replaced by sp
 - A message started with `/<name>` records the fields `skill` (the name) and `skill_sha256` in the `UserMessage` event.
 - `tenon sessions` shows the typed `/<name> ...` as first message, not the body of the skill.
 - `--resume` replays the text that was sent, not the skill read again.
+
+## Sub-agents
+
+A sub-agent is a helper that the main agent launches for a self-contained task.
+It works in its own context and returns one final answer.
+tenon reads the Claude Code format (`.claude/agents/*.md`). An agent written for Claude Code works without change.
+
+### Folders and priority
+
+A sub-agent is a file `<name>.md`: a YAML header, then the body, which is its system prompt.
+tenon looks in these folders, from the highest priority to the lowest:
+
+1. user: `$XDG_CONFIG_HOME/tenon/agents` (else `~/.config/tenon/agents`), `~/.claude/agents`, `~/.agents/agents`;
+2. project, at the project root only: `.tenon/agents`, `.claude/agents`, `.agents/agents`.
+
+The rules are the same as for skills. When two agents have the same name, the first one found wins and a notice reports the other.
+A user folder is ignored when `HOME` is empty or is not an absolute path.
+A project agents directory that is a symbolic link is skipped, with a notice. Only regular files are read.
+A file is limited to 32,768 bytes: the rest is cut. tenon keeps at most 100 agents.
+An unreadable folder or an invalid agent produces a notice and never prevents startup.
+
+### Format of an agent file
+
+```markdown
+---
+name: reviewer
+description: Reviews a change for bugs and missing tests.
+tools: Read, Grep
+model: sonnet
+---
+You are a careful code reviewer. Read the files you are given and report problems.
+```
+
+| Field | Rule |
+|---|---|
+| `name` | Required. Characters `[a-z0-9-]`, 1 to 64, equal to the file name without `.md`. |
+| `description` | Required, not empty, 1024 characters at most. |
+| `tools` | Optional. Comma-separated string or list. Without it, the sub-agent gets all the tools of the session except `agent`. |
+| `model` | Read and shown, but it has no effect: a sub-agent always uses the provider and the model of the session. |
+
+Other fields (`color`...) are ignored.
+The names of Claude Code tools are translated:
+
+| Claude Code | tenon |
+|---|---|
+| `Read` | `read_file` |
+| `Write` | `write_file` |
+| `Edit`, `MultiEdit` | `edit_file` |
+| `Bash` | `shell` |
+| `Grep` | `grep` |
+| `Glob` | `glob` |
+| `Skill` | `skill` |
+
+tenon names and `mcp__<server>__<tool>` names are accepted as they are.
+A restriction in parentheses (`Bash(git:*)`) is removed: only the tool name counts.
+An unknown name (for example `WebFetch`, `Task` or `agent`) is ignored, with a notice.
+The sub-agent gets only the listed tools that exist in the session, and never `agent`.
+
+### Built-in agent
+
+`general-purpose` always exists: all the tools except `agent`, and no extra instructions.
+Its description is `General-purpose agent for multi-step research, code search and tasks.`
+A file named `general-purpose` replaces it.
+
+### Use by the model
+
+The system prompt gets a section after the skills:
+
+```
+## Available agents
+Use the `agent` tool to delegate a self-contained task. The sub-agent does not see this conversation: give it everything it needs in `prompt`.
+- <name>: <description>
+```
+
+The section is limited to 4,000 bytes. Beyond that, descriptions are cut to 200 characters. If that is not enough, the last agents are removed and a notice gives their number.
+
+The model launches a sub-agent with the `agent` tool:
+
+| Argument | Rule |
+|---|---|
+| `agent` | Optional. Name of the agent. Default: `general-purpose`. |
+| `description` | Required. Short description of the task (3 to 5 words). |
+| `prompt` | Required. Complete instructions: the sub-agent does not see the conversation. |
+
+The result is the last answer of the sub-agent, cut by `output_limit` and masked like any tool result.
+An unknown agent (`unknown agent: <name>`), an empty `prompt` or invalid arguments are returned to the model as an error result, and the turn continues.
+
+The sub-agent has its own history: the instructions of tenon and of the project, a short preamble, the body of the agent file, then your `prompt`.
+It shares the provider, the model, the masking, the permission rules and the approvals "yes for the session" with the main agent.
+`max_iterations` applies to the sub-agent. If it is reached, the result is an error that starts with `sub-agent stopped: iteration limit reached`, followed by the last partial answer.
+A provider error also gives an error result. Esc or Ctrl+C cancels the whole turn.
+
+### Permissions
+
+The `agent` tool is a read tool: it is allowed without a request.
+`deny` and `ask` rules apply to `tool = "agent"`. The `match` pattern is the agent name.
+
+```toml
+[[permissions.rules]]
+tool = "agent"
+match = "reviewer"
+decision = "ask"
+```
+
+The actions of the sub-agent follow the usual rules, one by one. The `agent` rule only decides whether it can start.
+Approvals ask for your confirmation as usual.
+
+### Limits
+
+- Sub-agents run one after the other: the main agent waits for the answer. Several `agent` calls in one message run in sequence.
+- A sub-agent cannot launch a sub-agent.
+- A sub-agent uses the model of the session. There is no other model or provider.
+
+### In the interface
+
+- `⏺ agent <name> · <description> [pending]` appears when the sub-agent starts. At the end, the status becomes `ok`, `error` or `cancelled`, followed by `· N iterations`.
+- The tool calls of the sub-agent are shown under this line, indented: `  ⎿ <tool> <detail> [status]`.
+- The messages of the sub-agent are not shown. Its text is not streamed.
+- An approval panel for an action of a sub-agent adds the line `sub-agent <name> · <description>`.
+- `/agents` lists the agents: name, source and description. `/help` mentions it.
+
+### In non-interactive mode
+
+The text output is unchanged: only the answer of the main agent.
+With `--output json`, the events of the sub-agent are included. `SubagentStarted` (`call_id`, `agent`, `description`) and `SubagentCompleted` (`call_id`, `status`, `iterations`) frame them.
+The events emitted during the sub-agent turn carry a `parent_call_id` field: the `call_id` of the `agent` call. The field is absent for the main agent.
+Actions that need an approval are denied, as for the main agent.
+
+### List the agents
+
+```
+tenon agents [--lang fr|en]
+```
+
+One line per agent: name, source (`builtin`, `user` or `project`), file (not for `builtin`), description, `tools: ...` (`tools: all` without a `tools` field) and `model: ...` when the file has it.
+Discovery notices follow.
+At startup, the banner adds `agents: N (project: M)` when there is at least one agent file.
+Names, descriptions and notices are shown with control characters replaced by spaces, because project agents are not trusted.
+
+### Session and audit
+
+- The actions of a sub-agent are in the same [audit log](#audit-log), in the same chain. `tenon audit verify` is unchanged.
+- Files written by a sub-agent count as written by the agent for [git marking](#git-marking-of-generated-code).
+- `--resume` rebuilds the history of the main agent and ignores the events of sub-agents. A sub-agent interrupted by a crash is not restarted: its `agent` call gets `cancelled: session interrupted`.
 
 ## Providers and jurisdictions
 

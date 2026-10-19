@@ -15,6 +15,7 @@ Pour un exemple de configuration commenté, voir [config.example.toml](../config
 - [Langue](#langue)
 - [Configuration](#configuration)
 - [Skills](#skills)
+- [Sous-agents](#sous-agents)
 - [Fournisseurs et juridictions](#fournisseurs-et-juridictions)
 - [Clés d'API et trousseau](#clés-dapi-et-trousseau)
 - [Serveurs MCP](#serveurs-mcp)
@@ -29,6 +30,7 @@ tenon [--resume <id|last>] [--lang fr|en] [--allow-non-eu] [--provider <id>]
 tenon -p "<prompt>" [--resume <id|last>] [--lang fr|en] [--output text|json] [--allow-non-eu] [--provider <id>]
 tenon sessions [--lang fr|en]
 tenon skills [--lang fr|en]
+tenon agents [--lang fr|en]
 tenon key set|delete <fournisseur>
 tenon audit verify
 tenon config check
@@ -74,6 +76,7 @@ Le nombre de jetons est une estimation.
 | PgPréc / PgSuiv | Fait défiler la conversation. |
 | `/help` | Affiche l'aide des touches et les skills disponibles. |
 | `/skills` | Liste les skills. |
+| `/agents` | Liste les sous-agents (voir [Sous-agents](#sous-agents)). |
 | `/<nom> [arguments]` | Déclenche un skill (voir [Skills](#skills)). |
 | Tab | Complète une commande ou un nom de skill après `/`. |
 | `/quit` | Quitte. |
@@ -136,7 +139,7 @@ Seules les lectures dans le projet et les actions couvertes par une règle `allo
 ### Sorties
 
 - `--output text` (défaut) : la réponse finale va sur la sortie standard. La bannière, les avertissements et les refus vont sur la sortie d'erreur.
-- `--output json` : un événement JSON par ligne sur la sortie standard, charge utile masquée. Champs : `id`, `session`, `seq`, `ts`, `type`, `payload`. Le premier événement, `SessionStarted`, contient le modèle, le fournisseur, le pays et la juridiction.
+- `--output json` : un événement JSON par ligne sur la sortie standard, charge utile masquée. Champs : `id`, `session`, `seq`, `ts`, `type`, `payload`. Le premier événement, `SessionStarted`, contient le modèle, le fournisseur, le pays et la juridiction. Quand le modèle lance un sous-agent, les événements `SubagentStarted` et `SubagentCompleted` apparaissent, et les événements du sous-agent portent un champ `parent_call_id` (voir [Sous-agents](#sous-agents)).
 
 ### Codes de sortie
 
@@ -397,6 +400,151 @@ Noms, descriptions et avis sont affichés avec les caractères de contrôle remp
 - Un message déclenché par `/<nom>` enregistre les champs `skill` (le nom) et `skill_sha256` dans l'événement `UserMessage`.
 - `tenon sessions` affiche le `/<nom> ...` tapé comme premier message, pas le corps du skill.
 - `--resume` rejoue le texte envoyé, pas le skill relu.
+
+## Sous-agents
+
+Un sous-agent est un assistant que l'agent principal lance pour une tâche autonome.
+Il travaille dans son propre contexte et renvoie une seule réponse finale.
+tenon lit le format de Claude Code (`.claude/agents/*.md`). Un agent écrit pour Claude Code fonctionne sans modification.
+
+### Dossiers et priorité
+
+Un sous-agent est un fichier `<nom>.md` : un en-tête YAML, puis le corps, qui est son prompt système.
+tenon parcourt ces dossiers, du plus prioritaire au moins prioritaire :
+
+1. utilisateur : `$XDG_CONFIG_HOME/tenon/agents` (sinon `~/.config/tenon/agents`), `~/.claude/agents`, `~/.agents/agents` ;
+2. projet, à la racine uniquement : `.tenon/agents`, `.claude/agents`, `.agents/agents`.
+
+Les règles sont celles des skills. Quand deux agents portent le même nom, le premier trouvé l'emporte et un avis signale l'autre.
+Un dossier utilisateur est ignoré quand `HOME` est vide ou n'est pas un chemin absolu.
+Un répertoire d'agents du projet qui est un lien symbolique est écarté, avec un avis. Seuls les fichiers réguliers sont lus.
+Un fichier est limité à 32 768 octets : le reste est coupé. tenon retient 100 agents au plus.
+Un dossier illisible ou un agent invalide produit un avis et n'empêche jamais le démarrage.
+
+### Format d'un fichier d'agent
+
+```markdown
+---
+name: reviewer
+description: Relit une modification pour trouver des bogues et des tests manquants.
+tools: Read, Grep
+model: sonnet
+---
+Tu es un relecteur de code rigoureux. Lis les fichiers qu'on te donne et signale les problèmes.
+```
+
+| Champ | Règle |
+|---|---|
+| `name` | Obligatoire. Caractères `[a-z0-9-]`, 1 à 64, égal au nom du fichier sans `.md`. |
+| `description` | Obligatoire, non vide, 1024 caractères au plus. |
+| `tools` | Facultatif. Chaîne séparée par des virgules, ou liste. Sans ce champ, le sous-agent reçoit tous les outils de la session sauf `agent`. |
+| `model` | Lu et affiché, mais sans effet : un sous-agent utilise toujours le fournisseur et le modèle de la session. |
+
+Les autres champs (`color`...) sont ignorés.
+Les noms d'outils de Claude Code sont traduits :
+
+| Claude Code | tenon |
+|---|---|
+| `Read` | `read_file` |
+| `Write` | `write_file` |
+| `Edit`, `MultiEdit` | `edit_file` |
+| `Bash` | `shell` |
+| `Grep` | `grep` |
+| `Glob` | `glob` |
+| `Skill` | `skill` |
+
+Les noms de tenon et les noms `mcp__<serveur>__<outil>` sont acceptés tels quels.
+Une restriction entre parenthèses (`Bash(git:*)`) est retirée : seul le nom de l'outil compte.
+Un nom inconnu (par exemple `WebFetch`, `Task` ou `agent`) est ignoré, avec un avis.
+Le sous-agent reçoit seulement les outils listés qui existent dans la session, et jamais `agent`.
+
+### Agent intégré
+
+`general-purpose` existe toujours : tous les outils sauf `agent`, sans consigne supplémentaire.
+Sa description est `Agent généraliste pour les recherches, la recherche dans le code et les tâches en plusieurs étapes.`
+Un fichier nommé `general-purpose` le remplace.
+
+### Utilisation par le modèle
+
+Le prompt système reçoit une section après celle des skills :
+
+```
+## Agents disponibles
+Utilisez l'outil `agent` pour déléguer une tâche autonome. Le sous-agent ne voit pas cette conversation : donnez-lui tout ce qu'il faut dans `prompt`.
+- <nom>: <description>
+```
+
+(En anglais : `## Available agents`.)
+La section est limitée à 4 000 octets. Au-delà, les descriptions sont coupées à 200 caractères. Si cela ne suffit pas, les derniers agents sont retirés et un avis donne leur nombre.
+
+Le modèle lance un sous-agent avec l'outil `agent` :
+
+| Argument | Règle |
+|---|---|
+| `agent` | Facultatif. Nom de l'agent. Défaut : `general-purpose`. |
+| `description` | Obligatoire. Description courte de la tâche (3 à 5 mots). |
+| `prompt` | Obligatoire. Instructions complètes : le sous-agent ne voit pas la conversation. |
+
+Le résultat est la dernière réponse du sous-agent, coupée par `output_limit` et masquée comme tout résultat d'outil.
+Un agent inconnu (`unknown agent: <nom>`), un `prompt` vide ou des arguments invalides sont renvoyés au modèle comme résultat en erreur, et le tour continue.
+
+Le sous-agent a son propre historique : les consignes de tenon et du projet, un court préambule, le corps du fichier d'agent, puis votre `prompt`.
+Il partage avec l'agent principal le fournisseur, le modèle, le masquage, les règles de permission et les validations « oui pour la session ».
+`max_iterations` s'applique au sous-agent. S'il est atteint, le résultat est une erreur qui commence par `sub-agent stopped: iteration limit reached`, suivie de la dernière réponse partielle.
+Une erreur du fournisseur donne aussi un résultat en erreur. Échap ou Ctrl+C annule le tour entier.
+
+### Permissions
+
+L'outil `agent` est un outil de lecture : il est autorisé sans demande.
+Les règles `deny` et `ask` s'appliquent à `tool = "agent"`. Le motif `match` est le nom de l'agent.
+
+```toml
+[[permissions.rules]]
+tool = "agent"
+match = "reviewer"
+decision = "ask"
+```
+
+Les actions du sous-agent suivent les règles habituelles, une par une. La règle `agent` décide seulement s'il peut démarrer.
+Les validations vous sont demandées comme d'habitude.
+
+### Limites
+
+- Les sous-agents s'exécutent l'un après l'autre : l'agent principal attend la réponse. Plusieurs appels `agent` d'un même message s'exécutent à la suite.
+- Un sous-agent ne peut pas lancer de sous-agent.
+- Un sous-agent utilise le modèle de la session. Il n'y a ni autre modèle ni autre fournisseur.
+
+### Dans l'interface
+
+- `⏺ agent <nom> · <description> [en attente]` apparaît quand le sous-agent démarre. À la fin, le statut devient `ok`, `erreur` ou `annulé`, suivi de `· N itérations`.
+- Les appels d'outils du sous-agent sont affichés sous cette ligne, en retrait : `  ⎿ <outil> <détail> [statut]`.
+- Les messages du sous-agent ne sont pas affichés. Son texte n'est pas diffusé au fil de l'eau.
+- Un panneau de validation pour une action d'un sous-agent ajoute la ligne `sous-agent <nom> · <description>`.
+- `/agents` liste les agents : nom, source et description. `/help` le mentionne.
+
+### En mode non interactif
+
+La sortie texte est inchangée : seulement la réponse de l'agent principal.
+Avec `--output json`, les événements du sous-agent sont inclus. `SubagentStarted` (`call_id`, `agent`, `description`) et `SubagentCompleted` (`call_id`, `status`, `iterations`) les encadrent.
+Les événements émis pendant le tour du sous-agent portent un champ `parent_call_id` : le `call_id` de l'appel `agent`. Le champ est absent pour l'agent principal.
+Les actions qui demandent une validation sont refusées, comme pour l'agent principal.
+
+### Lister les agents
+
+```
+tenon agents [--lang fr|en]
+```
+
+Une ligne par agent : nom, source (`builtin`, `user` ou `project`), fichier (pas pour `builtin`), description, `tools: ...` (`tools: all` sans champ `tools`) et `model: ...` si le fichier en a un.
+Les avis de découverte suivent.
+Au démarrage, la bannière ajoute `agents : N (projet : M)` quand il y a au moins un fichier d'agent.
+Noms, descriptions et avis sont affichés avec les caractères de contrôle remplacés par des espaces, car les agents de projet ne sont pas dignes de confiance.
+
+### Session et audit
+
+- Les actions d'un sous-agent figurent dans le même [journal d'audit](#journal-daudit), dans la même chaîne. `tenon audit verify` est inchangé.
+- Les fichiers écrits par un sous-agent comptent comme écrits par l'agent pour le [marquage git](#marquage-git-du-code-produit).
+- `--resume` reconstruit l'historique de l'agent principal et ignore les événements des sous-agents. Un sous-agent interrompu par un arrêt brutal n'est pas relancé : son appel `agent` reçoit `cancelled: session interrupted`.
 
 ## Fournisseurs et juridictions
 

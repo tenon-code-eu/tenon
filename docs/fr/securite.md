@@ -84,6 +84,19 @@ Ce que vous devez faire : lire les skills d'un dépôt inconnu avant d'utiliser 
 `tenon skills` liste les skills trouvés par tenon, avec leur source. Une règle `deny` sur `tool = "skill"` en interdit un.
 Chaque chargement figure dans le journal d'audit avec le SHA-256 du fichier lu (voir [utilisation.md](utilisation.md#skills)).
 
+### Les sous-agents agissent avec les droits de la session
+
+Un sous-agent s'exécute avec les mêmes permissions, le même masquage, le même accord de juridiction et le même audit que l'agent principal.
+Chacune de ses actions passe par les mêmes règles et les mêmes validations. Ses actions figurent dans le même journal d'audit, dans la même chaîne.
+Il n'obtient jamais plus de droits que la session, et il ne peut pas lancer de sous-agent.
+Le champ `model` d'un fichier d'agent est ignoré : un sous-agent utilise le fournisseur et le modèle de la session, donc il n'ajoute aucune nouvelle juridiction.
+
+Un fichier placé dans `.tenon/agents`, `.claude/agents` ou `.agents/agents` d'un dépôt est un contenu non fiable, comme `AGENTS.md` et les skills de projet.
+Son texte devient le prompt système d'un sous-agent, et peut contenir des instructions destinées à tromper le modèle. tenon ne filtre pas ce texte.
+Un agent de projet ne peut pas masquer un agent utilisateur, et `tools` ne peut que restreindre les outils de la session.
+Ce que vous devez faire : lire les agents d'un dépôt inconnu avant d'utiliser le projet.
+`tenon agents` liste les agents trouvés par tenon, avec leur source. Une règle `deny` sur `tool = "agent"` en interdit un (voir [utilisation.md](utilisation.md#sous-agents)).
+
 ### La juridiction est déclarative
 
 tenon ne vérifie pas la juridiction d'un fournisseur ou d'un serveur.

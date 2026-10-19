@@ -13,7 +13,8 @@ It is designed for Europe:
 - everything is recorded in a hash-chained, verifiable audit log;
 - secrets and some personal data are masked before anything is sent;
 - commits that contain code written by the agent can be marked;
-- reusable skills in the open Agent Skills format (`SKILL.md`), loaded by the model or with `/<name>`, never able to widen permissions.
+- reusable skills in the open Agent Skills format (`SKILL.md`), loaded by the model or with `/<name>`, never able to widen permissions;
+- sub-agents (`.claude/agents/*.md` format) that the model launches for a self-contained task, with the same permissions, masking and audit as the main agent.
 
 Any OpenAI-compatible endpoint works.
 tenon runs on Linux and macOS.
@@ -91,6 +92,7 @@ tenon key set mistral                  # stores the key in the system keyring
 tenon                                  # interactive interface, in the project directory
 tenon -p "explain the project layout"  # one turn without the interface, for scripts
 tenon skills                           # lists the skills found for this project
+tenon agents                           # lists the sub-agents found for this project
 ```
 
 The key can also come from the `MISTRAL_API_KEY` variable.
@@ -126,6 +128,7 @@ Les fournisseurs préconfigurés sont européens (Mistral AI, Scaleway, OVHcloud
 Tout envoi hors de l'UE demande votre accord explicite, et tout est tracé dans un journal d'audit chaîné.
 Par défaut, les écritures, les commandes et les appels d'outils MCP attendent votre validation.
 Les skills au format ouvert Agent Skills (`SKILL.md`) sont chargés par le modèle ou avec `/<nom>`, sans jamais élargir les permissions.
+Les sous-agents (format `.claude/agents/*.md`) sont lancés par le modèle pour une tâche autonome, avec les mêmes permissions, le même masquage et le même audit que l'agent principal.
 L'interface est en anglais par défaut : lancez `tenon --lang fr` ou mettez `lang = "fr"` dans la configuration.
 
 Documentation en français : [guide d'utilisation](docs/fr/utilisation.md), [sécurité et limites](docs/fr/securite.md).

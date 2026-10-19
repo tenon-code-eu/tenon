@@ -82,6 +82,19 @@ What you should do: read a skill from an unknown repository before you use the p
 `tenon skills` lists the skills that tenon found, with their source. A `deny` rule on `tool = "skill"` forbids one.
 Each load is in the audit log with the SHA-256 of the file read (see [usage.md](usage.md#skills)).
 
+### Sub-agents run with the rights of the session
+
+A sub-agent runs with the same permissions, masking, jurisdiction consent and audit as the main agent.
+Each of its actions goes through the same rules and the same approvals. Its actions are in the same audit log, in the same chain.
+It never gets more rights than the session, and it cannot launch a sub-agent.
+The `model` field of an agent file is ignored: a sub-agent uses the provider and the model of the session, so it adds no new jurisdiction.
+
+A file in `.tenon/agents`, `.claude/agents` or `.agents/agents` of a repository is untrusted content, like `AGENTS.md` and project skills.
+Its text becomes the system prompt of a sub-agent, and can contain instructions meant to mislead the model. tenon does not filter it.
+A project agent cannot shadow a user agent, and `tools` can only restrict the tools of the session.
+What you should do: read the agents of an unknown repository before you use the project.
+`tenon agents` lists the agents that tenon found, with their source. A `deny` rule on `tool = "agent"` forbids one (see [usage.md](usage.md#sub-agents)).
+
 ### Jurisdiction is declarative
 
 tenon does not verify the jurisdiction of a provider or of a server.
