@@ -27,6 +27,8 @@ const (
 	Error               Type = "Error"
 	SubagentStarted     Type = "SubagentStarted"
 	SubagentCompleted   Type = "SubagentCompleted"
+	HookStarted         Type = "HookStarted"
+	HookCompleted       Type = "HookCompleted"
 )
 
 // Event is one entry of a session log.

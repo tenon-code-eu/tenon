@@ -55,3 +55,102 @@ func TestWithParent(t *testing.T) {
 		t.Error("TurnCompletedPayload must stay unchanged")
 	}
 }
+
+func TestHookStartedPayloadJSON(t *testing.T) {
+	p := HookStartedPayload{RunID: "s_1-4", HookID: "h1", Event: "PreToolUse", Type: "command", Command: "echo hi", CallID: "c1"}
+	got, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"run_id":"s_1-4","hook_id":"h1","event":"PreToolUse","type":"command","command":"echo hi","call_id":"c1"}`
+	if string(got) != want {
+		t.Fatalf("got %s", got)
+	}
+	minimal, _ := json.Marshal(HookStartedPayload{RunID: "r", HookID: "h", Event: "Stop", Type: "prompt", Prompt: "p"})
+	wantMin := `{"run_id":"r","hook_id":"h","event":"Stop","type":"prompt","prompt":"p"}`
+	if string(minimal) != wantMin {
+		t.Fatalf("got %s", minimal)
+	}
+}
+
+func TestHookCompletedPayloadJSON(t *testing.T) {
+	// Champs obligatoires présents même vides ; les autres omis quand vides.
+	empty, err := json.Marshal(HookCompletedPayload{RunID: "r", HookID: "h", Event: "Stop", Status: "ok"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantEmpty := `{"run_id":"r","hook_id":"h","event":"Stop","status":"ok","duration_ms":0}`
+	if string(empty) != wantEmpty {
+		t.Fatalf("got %s", empty)
+	}
+	code := 2
+	full, err := json.Marshal(HookCompletedPayload{
+		RunID: "r", HookID: "h", Event: "PreToolUse", Status: "blocked",
+		ExitCode: &code, Decision: "deny", Reason: "no", UpdatedInput: json.RawMessage(`{"a":1}`),
+		SystemMessage: "sm", Stop: true, StopReason: "sr", Error: "e", DurationMS: 12,
+		Stdout: "out", Stderr: "err", CallID: "c1", ParentCallID: "p1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantFull := `{"run_id":"r","hook_id":"h","event":"PreToolUse","status":"blocked","exit_code":2,"decision":"deny","reason":"no","updated_input":{"a":1},"system_message":"sm","stop":true,"stop_reason":"sr","error":"e","duration_ms":12,"stdout":"out","stderr":"err","call_id":"c1","parent_call_id":"p1"}`
+	if string(full) != wantFull {
+		t.Fatalf("got %s", full)
+	}
+	zero := 0
+	withZero, _ := json.Marshal(HookCompletedPayload{RunID: "r", HookID: "h", Event: "Stop", Status: "ok", ExitCode: &zero})
+	if !strings.Contains(string(withZero), `"exit_code":0`) {
+		t.Fatalf("exit_code 0 must be kept: %s", withZero)
+	}
+}
+
+func TestHookFieldsOmittedWhenEmpty(t *testing.T) {
+	um, _ := json.Marshal(UserMessagePayload{Text: "x"})
+	if string(um) != `{"text":"x"}` {
+		t.Fatalf("UserMessagePayload changed: %s", um)
+	}
+	um, _ = json.Marshal(UserMessagePayload{Text: "x", HookContext: "ctx", Blocked: true, Hook: "Stop"})
+	wantUM := `{"text":"x","hook_context":"ctx","blocked":true,"hook":"Stop"}`
+	if string(um) != wantUM {
+		t.Fatalf("got %s", um)
+	}
+	cc, _ := json.Marshal(ContextCompactedPayload{Summary: "s"})
+	if strings.Contains(string(cc), "hook_context") {
+		t.Fatalf("hook_context present when empty: %s", cc)
+	}
+	cc, _ = json.Marshal(ContextCompactedPayload{Summary: "s", HookContext: "hc"})
+	if !strings.Contains(string(cc), `"hook_context":"hc"`) {
+		t.Fatalf("got %s", cc)
+	}
+	pr, _ := json.Marshal(PermissionRequestedPayload{PermissionID: "p"})
+	if strings.Contains(string(pr), "hook_reason") {
+		t.Fatalf("hook_reason present when empty: %s", pr)
+	}
+	pr, _ = json.Marshal(PermissionRequestedPayload{PermissionID: "p", HookReason: "r"})
+	if !strings.Contains(string(pr), `"hook_reason":"r"`) {
+		t.Fatalf("got %s", pr)
+	}
+}
+
+func TestWithParentHookPayloads(t *testing.T) {
+	for _, p := range []any{
+		HookStartedPayload{RunID: "r", HookID: "h", Event: "PreToolUse", Type: "command"},
+		HookCompletedPayload{RunID: "r", HookID: "h", Event: "PreToolUse", Status: "ok"},
+	} {
+		got, _ := json.Marshal(WithParent(p, "c1"))
+		if !strings.Contains(string(got), `"parent_call_id":"c1"`) {
+			t.Errorf("%T: missing parent_call_id: %s", p, got)
+		}
+		orig, _ := json.Marshal(p)
+		same, _ := json.Marshal(WithParent(p, ""))
+		if string(same) != string(orig) {
+			t.Errorf("%T: empty parent changed output: %s", p, same)
+		}
+	}
+}
+
+func TestHookEventTypes(t *testing.T) {
+	if HookStarted != "HookStarted" || HookCompleted != "HookCompleted" {
+		t.Fatalf("got %q %q", HookStarted, HookCompleted)
+	}
+}

@@ -35,6 +35,12 @@ type UserMessagePayload struct {
 	Skill string `json:"skill,omitempty"`
 	// SkillSHA256 is the hash of the skill file content used, if any.
 	SkillSHA256 string `json:"skill_sha256,omitempty"`
+	// HookContext is the additional context a hook returned for the model, if any.
+	HookContext string `json:"hook_context,omitempty"`
+	// Blocked is true when a hook blocked the message (feedback message).
+	Blocked bool `json:"blocked,omitempty"`
+	// Hook names the event that produced a feedback message: "Stop" or "SubagentStop".
+	Hook string `json:"hook,omitempty"`
 }
 
 // ContextCompactedPayload records a context compaction: the first Replaced
@@ -45,6 +51,8 @@ type ContextCompactedPayload struct {
 	Replaced     int    `json:"replaced"`
 	TokensBefore int    `json:"tokens_before"`
 	TokensAfter  int    `json:"tokens_after"`
+	// HookContext is the additional context a PreCompact hook returned, if any.
+	HookContext string `json:"hook_context,omitempty"`
 	// ParentCallID is the call_id of the "agent" tool call that produced this
 	// event inside a sub-agent run; empty for the main agent.
 	ParentCallID string `json:"parent_call_id,omitempty"`
@@ -84,6 +92,8 @@ type PermissionRequestedPayload struct {
 	Paths        []string          `json:"paths,omitempty"`
 	Command      string            `json:"command"`
 	Provider     *llm.ProviderInfo `json:"provider,omitempty"`
+	// HookReason is the reason a PreToolUse hook gave for asking, if any.
+	HookReason string `json:"hook_reason,omitempty"`
 	// ParentCallID is the call_id of the "agent" tool call that produced this
 	// event inside a sub-agent run; empty for the main agent.
 	ParentCallID string `json:"parent_call_id,omitempty"`
@@ -171,6 +181,48 @@ type SubagentCompletedPayload struct {
 	Iterations int    `json:"iterations"`
 }
 
+// HookStartedPayload opens a hook run. RunID is the ID of this event
+// ("<session>-<seq>"); HookCompleted carries it back to pair the two events.
+// Type is "command", "prompt" or "agent". Command and Prompt are truncated
+// to 4096 bytes.
+type HookStartedPayload struct {
+	RunID   string `json:"run_id"`
+	HookID  string `json:"hook_id"`
+	Event   string `json:"event"`
+	Type    string `json:"type"`
+	Command string `json:"command,omitempty"`
+	Prompt  string `json:"prompt,omitempty"`
+	CallID  string `json:"call_id,omitempty"`
+	// ParentCallID is the call_id of the "agent" tool call that produced this
+	// event inside a sub-agent run; empty for the main agent.
+	ParentCallID string `json:"parent_call_id,omitempty"`
+}
+
+// HookCompletedPayload closes a hook run started by the HookStarted event RunID.
+// Status is "ok", "blocked", "error", "timeout" or "cancelled". Stdout and
+// Stderr are truncated to 4096 bytes.
+type HookCompletedPayload struct {
+	RunID         string          `json:"run_id"`
+	HookID        string          `json:"hook_id"`
+	Event         string          `json:"event"`
+	Status        string          `json:"status"`
+	ExitCode      *int            `json:"exit_code,omitempty"`
+	Decision      string          `json:"decision,omitempty"`
+	Reason        string          `json:"reason,omitempty"`
+	UpdatedInput  json.RawMessage `json:"updated_input,omitempty"`
+	SystemMessage string          `json:"system_message,omitempty"`
+	Stop          bool            `json:"stop,omitempty"`
+	StopReason    string          `json:"stop_reason,omitempty"`
+	Error         string          `json:"error,omitempty"`
+	DurationMS    int64           `json:"duration_ms"`
+	Stdout        string          `json:"stdout,omitempty"`
+	Stderr        string          `json:"stderr,omitempty"`
+	CallID        string          `json:"call_id,omitempty"`
+	// ParentCallID is the call_id of the "agent" tool call that produced this
+	// event inside a sub-agent run; empty for the main agent.
+	ParentCallID string `json:"parent_call_id,omitempty"`
+}
+
 // WithParent returns a copy of payload (a value type) with ParentCallID set.
 // Other payload types, and an empty parentCallID, return payload unchanged.
 func WithParent(payload any, parentCallID string) any {
@@ -206,6 +258,12 @@ func WithParent(payload any, parentCallID string) any {
 		p.ParentCallID = parentCallID
 		return p
 	case McpServerDownPayload:
+		p.ParentCallID = parentCallID
+		return p
+	case HookStartedPayload:
+		p.ParentCallID = parentCallID
+		return p
+	case HookCompletedPayload:
 		p.ParentCallID = parentCallID
 		return p
 	}
