@@ -155,3 +155,58 @@ func TestHookEventTypes(t *testing.T) {
 		t.Fatalf("got %q %q", HookStarted, HookCompleted)
 	}
 }
+
+func TestRewoundEventType(t *testing.T) {
+	if Rewound != "Rewound" {
+		t.Fatalf("got %q", Rewound)
+	}
+}
+
+func TestRewoundPayloadJSON(t *testing.T) {
+	full, err := json.Marshal(RewoundPayload{
+		ToSeq: 3, Mode: "code",
+		Files: []RewoundFile{
+			{Path: "a.go", Action: "restored", Status: "ok", Hash: "h1"},
+			{Path: "b.go", Action: "deleted", Status: "error", Error: "busy"},
+		},
+		UntrackedCalls: 2, Note: "n",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantFull := `{"to_seq":3,"mode":"code","files":[{"path":"a.go","action":"restored","status":"ok","hash":"h1"},{"path":"b.go","action":"deleted","status":"error","error":"busy"}],"untracked_calls":2,"note":"n"}`
+	if string(full) != wantFull {
+		t.Fatalf("got %s", full)
+	}
+	minimal, err := json.Marshal(RewoundPayload{ToSeq: 3, Mode: "code"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(minimal) != `{"to_seq":3,"mode":"code"}` {
+		t.Fatalf("got %s", minimal)
+	}
+}
+
+func TestToolResultCheckpointFieldsOmittedWhenFalse(t *testing.T) {
+	old := ToolResultPayload{CallID: "c", Tool: "write_file", Content: "ok", Path: "a.go", HashBefore: "b", HashAfter: "a"}
+	got, err := json.Marshal(old)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"call_id":"c","tool":"write_file","content":"ok","is_error":false,"path":"a.go","hash_before":"b","hash_after":"a"}`
+	if string(got) != want {
+		t.Fatalf("old payload changed:\n got %s\nwant %s", got, want)
+	}
+}
+
+func TestToolResultCheckpointFieldsPresentWhenTrue(t *testing.T) {
+	p := ToolResultPayload{CallID: "c", Tool: "bash", NoCheckpoint: true, Untracked: true}
+	got, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"call_id":"c","tool":"bash","content":"","is_error":false,"path":"","hash_before":"","hash_after":"","no_checkpoint":true,"untracked":true}`
+	if string(got) != want {
+		t.Fatalf("got %s", got)
+	}
+}

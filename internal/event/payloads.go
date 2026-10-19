@@ -129,6 +129,10 @@ type ToolResultPayload struct {
 	HashBefore string `json:"hash_before"`
 	HashAfter  string `json:"hash_after"`
 	Denied     string `json:"denied,omitempty"`
+	// NoCheckpoint is true when the call changed files but no checkpoint could be saved for them.
+	NoCheckpoint bool `json:"no_checkpoint,omitempty"`
+	// Untracked is true when the call may have changed files outside the checkpoint tracking (e.g. bash).
+	Untracked bool `json:"untracked,omitempty"`
 	// ParentCallID is the call_id of the "agent" tool call that produced this
 	// event inside a sub-agent run; empty for the main agent.
 	ParentCallID string `json:"parent_call_id,omitempty"`
@@ -229,6 +233,29 @@ type HookCompletedPayload struct {
 	// ParentCallID is the call_id of the "agent" tool call that produced this
 	// event inside a sub-agent run; empty for the main agent.
 	ParentCallID string `json:"parent_call_id,omitempty"`
+}
+
+// RewoundPayload records a rewind to the checkpoint taken before event ToSeq.
+// Mode is the rewind mode (e.g. "code"). Files lists the per-file outcome;
+// UntrackedCalls counts tool calls whose file changes were not tracked.
+// Emitted by the main agent only, so it carries no ParentCallID.
+type RewoundPayload struct {
+	ToSeq          uint64        `json:"to_seq"`
+	Mode           string        `json:"mode"`
+	Files          []RewoundFile `json:"files,omitempty"`
+	UntrackedCalls int           `json:"untracked_calls,omitempty"`
+	Note           string        `json:"note,omitempty"`
+}
+
+// RewoundFile is the outcome of restoring one file during a rewind. Action
+// describes what was done to the file and Status its result. Hash is the
+// content hash after the rewind, empty if the file was deleted or unchanged.
+type RewoundFile struct {
+	Path   string `json:"path"`
+	Action string `json:"action"`
+	Status string `json:"status"`
+	Hash   string `json:"hash,omitempty"`
+	Error  string `json:"error,omitempty"`
 }
 
 // WithParent returns a copy of payload (a value type) with ParentCallID set.

@@ -29,6 +29,7 @@ const (
 	SubagentCompleted   Type = "SubagentCompleted"
 	HookStarted         Type = "HookStarted"
 	HookCompleted       Type = "HookCompleted"
+	Rewound             Type = "Rewound"
 )
 
 // Event is one entry of a session log.
