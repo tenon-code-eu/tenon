@@ -494,3 +494,20 @@ func TestDetectInheritedAndValidated(t *testing.T) {
 		t.Fatalf("detect invalide accepté : %v", err)
 	}
 }
+
+func TestHooksGlobalKey(t *testing.T) {
+	c, err := Load(write(t, "[hooks]\nclaude_settings = true\ndisabled = true\n"), "", env(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !c.Hooks.ClaudeSettings || !c.Hooks.Disabled {
+		t.Fatalf("hooks = %+v", c.Hooks)
+	}
+}
+
+func TestHooksProjectKeyRefused(t *testing.T) {
+	_, err := Load("", write(t, "[hooks]\ndisabled = true\n"), env(nil))
+	if err == nil || !strings.Contains(err.Error(), "key not allowed") {
+		t.Fatalf("err = %v", err)
+	}
+}

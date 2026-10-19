@@ -93,6 +93,14 @@ type pathInfo struct {
 // Check applique l'algorithme : deny, validation forcée (ForceAsk),
 // confinement/fichiers sensibles, ask du projet, allow, ask, défaut.
 func (p *Permissions) Check(c Call) Decision {
+	d, _ := p.Decide(c)
+	return d
+}
+
+// Decide applique l'algorithme de Check et indique en plus si un Ask peut être
+// levé par un hook : liftable vaut true seulement pour un Ask issu d'une règle
+// ask globale ou du défaut selon le risque.
+func (p *Permissions) Decide(c Call) (d Decision, liftable bool) {
 	infos := make([]pathInfo, len(c.Target.Paths))
 	for i, raw := range c.Target.Paths {
 		infos[i] = p.inspect(raw)
@@ -151,44 +159,44 @@ func (p *Permissions) Check(c Call) Decision {
 	// deny : aussi sur la forme lexicale, pour ne pas être contourné par un lien.
 	for _, r := range p.rules {
 		if r.Decision == Deny && matches(r, true) {
-			return Deny
+			return Deny, false
 		}
 	}
 
 	// Validation humaine imposée par l'outil (serveur MCP hors UE) : aucune
 	// règle allow ni le défaut des lectures ne la lèvent.
 	if c.Target.ForceAsk {
-		return Ask
+		return Ask, false
 	}
 
 	for _, in := range infos {
 		if !in.inside || isSensitive(in.given) || isSensitive(in.resolved) {
-			return Ask
+			return Ask, false
 		}
 	}
 
 	// ask du projet : prime les allow (globales, le projet n'en a pas).
 	for _, r := range p.rules {
 		if r.Project && r.Decision == Ask && matches(r, false) {
-			return Ask
+			return Ask, false
 		}
 	}
 
 	for _, r := range p.rules {
 		if r.Decision == Allow && matches(r, false) {
-			return Allow
+			return Allow, false
 		}
 	}
 	for _, r := range p.rules {
 		if r.Decision == Ask && matches(r, false) {
-			return Ask
+			return Ask, true
 		}
 	}
 
 	if c.Risk == tools.Read {
-		return Allow
+		return Allow, false
 	}
-	return Ask
+	return Ask, true
 }
 
 func (p *Permissions) inspect(raw string) pathInfo {

@@ -30,6 +30,15 @@ type Config struct {
 	// MCP : serveurs MCP. Clé globale uniquement (un serveur stdio est une
 	// exécution de code arbitraire : un dépôt ne peut pas en déclarer).
 	MCP MCP `toml:"mcp"`
+	// Hooks : réglages des hooks. Clé globale uniquement (un hook est une
+	// exécution de code arbitraire : un dépôt ne peut pas les activer).
+	Hooks Hooks `toml:"hooks"`
+}
+
+// Hooks règle le chargement des hooks utilisateur.
+type Hooks struct {
+	ClaudeSettings bool `toml:"claude_settings"` // lit aussi ~/.claude/settings.json
+	Disabled       bool `toml:"disabled"`        // ne charge aucun hook
 }
 
 type MCP struct {

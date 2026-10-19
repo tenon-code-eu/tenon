@@ -363,3 +363,37 @@ func TestProjectAskOverridesGlobalAllow(t *testing.T) {
 		t.Errorf("deny: got %v want Deny", got)
 	}
 }
+
+func TestDecideLiftable(t *testing.T) {
+	writeCall := func(root, name string) Call {
+		return Call{Tool: "write_file", Risk: tools.Write, Target: tools.Target{Paths: []string{filepath.Join(root, name)}}}
+	}
+	tests := []struct {
+		name  string
+		rules []Rule
+		call  func(root string) Call
+		want  Decision
+		lift  bool
+	}{
+		{"default write", nil, func(r string) Call { return writeCall(r, "a.txt") }, Ask, true},
+		{"global ask rule", []Rule{{Tool: "write_file", Match: "*", Decision: Ask}}, func(r string) Call { return writeCall(r, "a.txt") }, Ask, true},
+		{"project ask rule", []Rule{{Tool: "write_file", Match: "*", Decision: Ask, Project: true}}, func(r string) Call { return writeCall(r, "a.txt") }, Ask, false},
+		{"force ask", nil, func(r string) Call {
+			return Call{Tool: "mcp__x__y", Risk: tools.Read, Target: tools.Target{ForceAsk: true}}
+		}, Ask, false},
+		{"outside root", nil, func(r string) Call { return writeCall(r, "../outside.txt") }, Ask, false},
+		{"dotenv", nil, func(r string) Call { return writeCall(r, ".env") }, Ask, false},
+		{"deny rule", []Rule{{Tool: "write_file", Match: "*", Decision: Deny}}, func(r string) Call { return writeCall(r, "a.txt") }, Deny, false},
+		{"read in project", nil, func(r string) Call { return readCall(filepath.Join(r, "a.txt")) }, Allow, false},
+	}
+	for _, tt := range tests {
+		p, root := newPerms(t, tt.rules)
+		d, lift := p.Decide(tt.call(root))
+		if d != tt.want || lift != tt.lift {
+			t.Errorf("%s: got (%v, %v) want (%v, %v)", tt.name, d, lift, tt.want, tt.lift)
+		}
+		if got := p.Check(tt.call(root)); got != d {
+			t.Errorf("%s: Check = %v, Decide = %v", tt.name, got, d)
+		}
+	}
+}
