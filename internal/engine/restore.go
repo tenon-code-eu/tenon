@@ -27,7 +27,11 @@ const interruptedMsg = "cancelled: session interrupted"
 // l'utilisateur ou de l'assistant, et après le dernier événement. Le compteur
 // de séquence et celui des demandes de permission reprennent aux plus grandes
 // valeurs lues ; les autorisations « pour la session » et l'avertissement de
-// juridiction ne sont pas restaurés. Les événements portant parent_call_id
+// juridiction ne sont pas restaurés. Le contexte des hooks (hook_context) est
+// rejoint aux messages utilisateur et au résumé comme pendant le tour ; un
+// UserMessage bloqué par un hook est ignoré, un message de retour de hook Stop
+// est un message utilisateur comme un autre ; HookStarted et HookCompleted
+// sont ignorés. Les événements portant parent_call_id
 // (sous-agents) sont ignorés, sauf PermissionRequested pour le compteur. Les
 // autres types sont ignorés.
 func (e *Engine) Restore(sessionID string, events []event.Event) error {
@@ -73,8 +77,12 @@ func (e *Engine) Restore(sessionID string, events []event.Event) error {
 			if err := unmarshalPayload(ev, &p); err != nil {
 				return err
 			}
+			// Prompt bloqué par un hook : jamais entré dans l'historique.
+			if p.Blocked {
+				continue
+			}
 			closePending()
-			history = append(history, llm.Message{Role: llm.User, Content: p.Text})
+			history = append(history, llm.Message{Role: llm.User, Content: withHookContext(p.Text, p.HookContext)})
 		case event.AssistantMessage:
 			var p event.AssistantMessagePayload
 			if err := unmarshalPayload(ev, &p); err != nil {
@@ -115,7 +123,7 @@ func (e *Engine) Restore(sessionID string, events []event.Event) error {
 			}
 			rest := history[1+p.Replaced:]
 			nh := make([]llm.Message, 0, 2+len(rest))
-			nh = append(nh, history[0], summaryMessage(p.Summary))
+			nh = append(nh, history[0], summaryMessage(p.Summary, p.HookContext))
 			history = append(nh, rest...)
 		case event.PermissionRequested:
 			var p event.PermissionRequestedPayload

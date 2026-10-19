@@ -3,6 +3,8 @@ package engine
 import (
 	"encoding/json"
 	"errors"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -312,5 +314,34 @@ func TestRestorePermCounterIncludesNested(t *testing.T) {
 	h.eng.session("s_1").turn.Unlock()
 	if n != 3 {
 		t.Fatalf("permN %d, attendu 3 (prochain ID s_1-p4)", n)
+	}
+}
+
+func TestRestoreHookContext(t *testing.T) {
+	dir := t.TempDir()
+	hs := withHooks(t,
+		hk{"SessionStart", "", jsonHook(t, ctxOut("SessionStart", "START"))},
+		hk{"UserPromptSubmit", "", cmd(hookScript(t, `in=$(cat); if [[ "$in" == *secret* ]]; then echo no >&2; exit 2; fi; echo CTX`))},
+		hk{"Stop", "", cmd(hookScript(t, "cat >/dev/null\n"+onceFlag(filepath.Join(dir, "flag"), `echo more >&2; exit 2`)))})
+	h := newHarness(t, euInfo, [][]llm.Chunk{text("a1"), text("a2"), text("b1")}, hs)
+	for _, in := range []string{"hi", "secret", "bye"} {
+		if _, err := h.submit(t, "s_1", in, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	live := h.eng.sessions["s_1"].history
+	js := mustJSON(live)
+	if !strings.Contains(js, "[hook context]") || !strings.Contains(js, "Stop hook feedback: more") || strings.Contains(js, "secret") {
+		t.Fatalf("historique vivant %s", js)
+	}
+	if len(ofType(h.sink.events, event.HookStarted)) == 0 || len(ofType(h.sink.events, event.HookCompleted)) == 0 {
+		t.Fatal("aucun événement de hook dans le journal")
+	}
+	h2 := newHarness(t, euInfo, [][]llm.Chunk{text("ok")})
+	if err := h2.eng.Restore("s_1", h.sink.events); err != nil {
+		t.Fatal(err)
+	}
+	if got := mustJSON(h2.eng.sessions["s_1"].history); got != js {
+		t.Fatalf("historique restauré\n%s\nattendu\n%s", got, js)
 	}
 }

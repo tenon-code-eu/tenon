@@ -22,6 +22,7 @@ func TestNewMarshalsPayload(t *testing.T) {
 
 func TestWithParent(t *testing.T) {
 	payloads := []any{
+		UserMessagePayload{Text: "x"},
 		AssistantMessagePayload{Text: "x"},
 		ToolCallRequestedPayload{CallID: "a", Args: json.RawMessage(`{}`)},
 		ToolResultPayload{CallID: "a"},

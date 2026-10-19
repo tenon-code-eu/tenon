@@ -33,8 +33,11 @@ type turn struct {
 	// noHooks : tour d'un hook agent, dont les appels ne déclenchent aucun hook.
 	noHooks bool
 	// stopReason : non vide après un hook continue:false ; le tour s'arrête
-	// après l'outil en cours avec cette raison.
+	// après l'outil en cours (ou au prochain point de contrôle de la boucle)
+	// avec cette raison.
 	stopReason string
+	// agent : nom de l'agent d'un sous-agent (entrée de SubagentStop).
+	agent string
 }
 
 // loopResult résume la fin de loop. Reason vaut l'une des raisons de
@@ -58,6 +61,7 @@ func (t *turn) done(iter int, reason string) error {
 func (t *turn) run(in Input) error {
 	d := t.e.d
 	info := d.Provider.Info()
+	var startCtx string // contexte des hooks SessionStart (premier tour)
 	if !t.s.started {
 		if err := t.emit(event.SessionStarted, event.SessionStartedPayload{
 			Provider: info, ProjectRoot: d.ProjectRoot, Resumed: t.s.resumed, Instructions: d.Instructions,
@@ -71,12 +75,42 @@ func (t *turn) run(in Input) error {
 				return err
 			}
 		}
+		source := "startup"
+		if t.s.resumed {
+			source = "resume"
+		}
+		out, err := t.runHooks(hooks.SessionStart, "", map[string]any{"source": source}, source)
+		if err != nil {
+			return t.hookFailed(err)
+		}
+		startCtx = out.Context
 	}
-	*t.h = append(*t.h, llm.Message{Role: llm.User, Content: in.Text})
-	if err := t.emit(event.UserMessage, event.UserMessagePayload{
-		Text: in.Text, Typed: in.Typed, Skill: in.Skill, SkillSHA256: in.SkillSHA256,
-	}); err != nil {
+	prompt := in.Typed
+	if prompt == "" {
+		prompt = in.Text
+	}
+	out, err := t.runHooks(hooks.UserPromptSubmit, "", map[string]any{"prompt": prompt})
+	if err != nil {
+		return t.hookFailed(err)
+	}
+	um := event.UserMessagePayload{Text: in.Text, Typed: in.Typed, Skill: in.Skill, SkillSHA256: in.SkillSHA256}
+	// Prompt bloqué : ni historique, ni requête ; le message est journalisé
+	// comme bloqué.
+	if out.Block {
+		um.Blocked = true
+		if err := t.emit(event.UserMessage, um); err != nil {
+			return err
+		}
+		return t.done(0, "blocked_by_hook")
+	}
+	um.HookContext = joinContext(startCtx, out.Context)
+	*t.h = append(*t.h, llm.Message{Role: llm.User, Content: withHookContext(in.Text, um.HookContext)})
+	if err := t.emit(event.UserMessage, um); err != nil {
 		return err
+	}
+	// continue:false de SessionStart ou UserPromptSubmit : fin avant toute requête.
+	if t.stopReason != "" {
+		return t.done(0, t.stopReason)
 	}
 
 	res, err := t.loop()
@@ -93,6 +127,15 @@ func (t *turn) run(in Input) error {
 	return t.done(res.Iterations, res.Reason)
 }
 
+// hookFailed traite l'erreur d'un hook de run avant la boucle : après une
+// annulation, le tour est clos (au mieux) avec la raison cancelled.
+func (t *turn) hookFailed(err error) error {
+	if t.ctx.Err() != nil {
+		t.cancelled(0)
+	}
+	return err
+}
+
 // loop exécute les itérations du tour sur *t.h. Il n'émet pas TurnCompleted :
 // l'appelant le fait à partir du résultat. Une erreur du fournisseur est
 // signalée par un événement Error puis par ProvErr ; l'error renvoyée est
@@ -104,6 +147,8 @@ func (t *turn) loop() (loopResult, error) {
 	res := func(iter int, reason string) loopResult {
 		return loopResult{Iterations: iter, Reason: reason, Text: last, Final: final}
 	}
+	// stopActive : le tour a déjà été relancé par un hook Stop/SubagentStop.
+	stopActive := false
 	for iter := 1; iter <= d.MaxIterations; iter++ {
 		var defs []llm.ToolDef
 		if t.tools != nil {
@@ -111,6 +156,10 @@ func (t *turn) loop() (loopResult, error) {
 		}
 		if stop, reason, err := t.compactOrStop(info, defs, false, iter-1); stop || err != nil {
 			return res(iter-1, reason), err
+		}
+		// continue:false d'un hook de compaction (PreCompact, SessionStart).
+		if t.stopReason != "" {
+			return res(iter-1, t.stopReason), nil
 		}
 
 		var (
@@ -127,6 +176,10 @@ func (t *turn) loop() (loopResult, error) {
 			if !ok {
 				return res(iter-1, "blocked"), nil
 			}
+			// continue:false d'un hook Notification (demande de juridiction).
+			if t.stopReason != "" {
+				return res(iter-1, t.stopReason), nil
+			}
 			text, calls, provErr, err = t.stream(llm.Request{Model: info.Model, Messages: msgs, Tools: defs}, t.deltas)
 			if err != nil {
 				return res(iter, ""), err
@@ -139,6 +192,9 @@ func (t *turn) loop() (loopResult, error) {
 			compacted = true
 			if stop, reason, err := t.compactOrStop(info, defs, true, iter); stop || err != nil {
 				return res(iter, reason), err
+			}
+			if t.stopReason != "" {
+				return res(iter, t.stopReason), nil
 			}
 		}
 		if provErr != nil {
@@ -173,6 +229,22 @@ func (t *turn) loop() (loopResult, error) {
 		}
 		if len(calls) == 0 {
 			final = text
+			// Stop / SubagentStop : seulement pour une fin done. Un blocage
+			// relance la boucle (l'itération compte pour MaxIterations).
+			again, err := t.stopHook(stopActive)
+			if err != nil {
+				if t.ctx.Err() != nil {
+					return res(iter, "cancelled"), err
+				}
+				return res(iter, ""), err
+			}
+			if t.stopReason != "" {
+				return res(iter, t.stopReason), nil
+			}
+			if again {
+				stopActive = true
+				continue
+			}
 			return res(iter, "done"), nil
 		}
 		for i, c := range calls {
@@ -342,6 +414,12 @@ func (t *turn) ask(p event.PermissionRequestedPayload) (Reply, error) {
 		e.mu.Unlock()
 	}
 	if err := t.emit(event.PermissionRequested, p); err != nil {
+		forget()
+		return Reply{}, err
+	}
+	// Notification : à l'ouverture du panneau de validation. Un continue:false
+	// arrête le tour au prochain point de contrôle, après la réponse.
+	if err := t.notifyPermission(p); err != nil {
 		forget()
 		return Reply{}, err
 	}

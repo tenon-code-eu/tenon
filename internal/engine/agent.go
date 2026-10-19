@@ -88,7 +88,7 @@ func (t *turn) runSubagent(c llm.ToolCall) (tools.Result, error) {
 		{Role: llm.System, Content: agents.SystemPrompt(d.Lang, d.BasePrompt, d.SkillsSection, a, withSkills)},
 		{Role: llm.User, Content: args.Prompt},
 	}
-	child := &turn{e: t.e, s: t.s, ctx: t.ctx, h: &h, tools: reg, parent: c.ID}
+	child := &turn{e: t.e, s: t.s, ctx: t.ctx, h: &h, tools: reg, parent: c.ID, agent: a.Name}
 	res, err := child.loop()
 	if err != nil {
 		if t.ctx.Err() != nil {

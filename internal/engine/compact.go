@@ -6,6 +6,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/tenon-code-eu/tenon/internal/event"
+	"github.com/tenon-code-eu/tenon/internal/hooks"
 	"github.com/tenon-code-eu/tenon/internal/llm"
 	"github.com/tenon-code-eu/tenon/internal/provider"
 )
@@ -41,10 +42,11 @@ const truncatedMark = "[… truncated]"
 // compactée.
 const summaryPrefix = "Summary of the previous conversation:\n\n"
 
-// summaryMessage construit le message qui remplace la partie résumée ; partagé
-// par la compaction et par sa relecture dans Restore.
-func summaryMessage(summary string) llm.Message {
-	return llm.Message{Role: llm.User, Content: summaryPrefix + summary}
+// summaryMessage construit le message qui remplace la partie résumée, avec le
+// contexte hc des hooks SessionStart (compact) ; partagé par la compaction et
+// par sa relecture dans Restore.
+func summaryMessage(summary, hc string) llm.Message {
+	return llm.Message{Role: llm.User, Content: withHookContext(summaryPrefix+summary, hc)}
 }
 
 // isSummary indique si m est un message de résumé construit par
@@ -178,6 +180,13 @@ func (t *turn) compact(info llm.ProviderInfo, defs []llm.ToolDef, force bool) (r
 		return t.tooLarge()
 	}
 
+	// PreCompact (tour principal seulement) : avant la requête de résumé.
+	if t.parent == "" {
+		if _, err := t.runHooks(hooks.PreCompact, "", map[string]any{"trigger": "auto"}, "auto"); err != nil {
+			return t.compactHookErr(err)
+		}
+	}
+
 	// Premier passage par le contrôle sortant : les arguments d'appels
 	// d'outils sont masqués par RedactJSON avant d'être rendus en texte,
 	// comme sur le chemin normal. La requête entière y repasse ensuite.
@@ -223,16 +232,37 @@ func (t *turn) compact(info llm.ProviderInfo, defs []llm.ToolDef, force bool) (r
 		return "", provErr
 	}
 
+	// SessionStart (compact, tour principal seulement) : son contexte est
+	// joint au message de résumé et enregistré dans ContextCompacted.
+	var hc string
+	if t.parent == "" {
+		out, err := t.runHooks(hooks.SessionStart, "", map[string]any{"source": "compact"}, "compact")
+		if err != nil {
+			return t.compactHookErr(err)
+		}
+		hc = out.Context
+	}
+
 	nh := make([]llm.Message, 0, 2+len(conv)-start)
-	nh = append(nh, h[0], summaryMessage(summary))
+	nh = append(nh, h[0], summaryMessage(summary, hc))
 	nh = append(nh, conv[start:]...)
 	if err := t.emit(event.ContextCompacted, event.ContextCompactedPayload{
 		Summary: summary, Replaced: start, TokensBefore: before, TokensAfter: estimate(nh, defs),
+		HookContext: hc,
 	}); err != nil {
 		return "", err
 	}
 	*t.h = nh
 	return "", nil
+}
+
+// compactHookErr traite l'erreur d'un hook de compaction : après une annulation,
+// reasonCancelled (le tour est clos par l'appelant).
+func (t *turn) compactHookErr(err error) (string, error) {
+	if t.ctx.Err() != nil {
+		return reasonCancelled, err
+	}
+	return "", err
 }
 
 // tooLarge émet Error{context_too_large} et renvoie reasonTooLarge.

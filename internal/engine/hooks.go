@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/tenon-code-eu/tenon/internal/event"
@@ -117,6 +118,7 @@ func (t *turn) evalPrompt(ctx context.Context, prompt string) (string, error) {
 	d := t.e.d
 	tc := *t // copie superficielle : même session, contexte du hook
 	tc.ctx = ctx
+	tc.noHooks = true // la requête d'un hook prompt ne déclenche aucun hook
 	info := d.Provider.Info()
 	msgs, ok, err := tc.outbound(info, []llm.Message{
 		{Role: llm.System, Content: i18n.T(d.Lang, "hooks.prompt_system")},
@@ -184,3 +186,75 @@ func cutBytes(s string, n int) string {
 }
 
 var _ hooks.Evaluator = hookEval{}
+
+// hookContextHeader sépare un message du contexte ajouté par des hooks.
+const hookContextHeader = "\n\n[hook context]\n"
+
+// withHookContext joint à text le contexte ctx renvoyé par des hooks
+// (UserPromptSubmit, SessionStart), dans un bloc séparé ; text si ctx est vide.
+// Partagé par run, compact et Restore.
+func withHookContext(text, ctx string) string {
+	if ctx == "" {
+		return text
+	}
+	return text + hookContextHeader + ctx
+}
+
+// joinContext joint les contextes non vides par une ligne vide.
+func joinContext(parts ...string) string {
+	var out []string
+	for _, p := range parts {
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return strings.Join(out, "\n\n")
+}
+
+// notifyPermission exécute les hooks Notification pour la demande p (si
+// Deps.Notify, c'est-à-dire dans l'interface). Messages en anglais : ils
+// partent au hook, pas à l'interface.
+func (t *turn) notifyPermission(p event.PermissionRequestedPayload) error {
+	if !t.e.d.Notify {
+		return nil
+	}
+	msg := "tenon needs your permission to use " + p.Tool
+	if p.Kind == "jurisdiction" && p.Provider != nil {
+		msg = "tenon needs your permission to send data to " + p.Provider.ID
+	}
+	_, err := t.runHooks(hooks.Notification, "", map[string]any{
+		"message": msg, "notification_type": "permission_prompt",
+	}, "permission_prompt")
+	return err
+}
+
+// stopFeedback est le préfixe du message renvoyé au modèle quand un hook Stop
+// ou SubagentStop bloque la fin (destiné au modèle : hors i18n).
+const stopFeedback = "Stop hook feedback: "
+
+// stopHook exécute Stop (tour principal) ou SubagentStop (sous-agent) quand
+// la boucle se termine avec la raison done. Sur un blocage, il ajoute le
+// message de retour à l'historique, l'émet, et renvoie again = vrai : la
+// boucle continue.
+func (t *turn) stopHook(active bool) (again bool, err error) {
+	if t.noHooks {
+		return false, nil
+	}
+	ev := hooks.Stop
+	fields := map[string]any{"stop_hook_active": active}
+	if t.parent != "" {
+		ev = hooks.SubagentStop
+		fields["agent"] = t.agent
+		fields["tool_use_id"] = t.parent
+	}
+	out, err := t.runHooks(ev, "", fields)
+	if err != nil || t.stopReason != "" || !out.Block {
+		return false, err
+	}
+	msg := stopFeedback + out.Reason
+	*t.h = append(*t.h, llm.Message{Role: llm.User, Content: msg})
+	if err := t.emit(event.UserMessage, event.UserMessagePayload{Text: msg, Hook: string(ev)}); err != nil {
+		return false, err
+	}
+	return true, nil
+}

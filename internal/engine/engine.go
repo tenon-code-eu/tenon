@@ -192,6 +192,30 @@ func (e *Engine) SubmitInput(ctx context.Context, sessionID string, in Input) er
 	return t.run(in)
 }
 
+// EndSession exécute les hooks SessionEnd (reason) d'une session démarrée dans
+// ce processus ; sans effet sinon. Le délai de chaque hook est plafonné à 5 s
+// (hooks.Run). Un continue:false est sans effet. Aucun TurnCompleted n'est émis.
+func (e *Engine) EndSession(ctx context.Context, sessionID, reason string) error {
+	e.mu.Lock()
+	s, ok := e.sessions[sessionID]
+	e.mu.Unlock()
+	if !ok {
+		return nil
+	}
+	s.turn.Lock()
+	defer s.turn.Unlock()
+	if !s.started {
+		return nil
+	}
+	if e.isFailed() {
+		return ErrAuditFailure
+	}
+	// Tour éphémère : mêmes sinks et abonnés ; son stopReason est ignoré.
+	t := &turn{e: e, s: s, ctx: ctx, h: &s.history, tools: e.tools}
+	_, err := t.runHooks(hooks.SessionEnd, "", map[string]any{"reason": reason})
+	return err
+}
+
 func (e *Engine) isFailed() bool {
 	e.emitMu.Lock()
 	defer e.emitMu.Unlock()

@@ -806,3 +806,507 @@ func TestContinueFalseInSubagent(t *testing.T) {
 		t.Fatalf("TurnCompleted %+v", tc)
 	}
 }
+
+// recHook est un hook command qui ajoute son entrée JSON (une ligne) à rec,
+// puis exécute tail.
+func recHook(t *testing.T, rec, tail string) map[string]any {
+	t.Helper()
+	return cmd(hookScript(t, "in=$(cat)\nprintf '%s\\n' \"$in\" >> '"+rec+"'\n"+tail))
+}
+
+// onceFlag renvoie un fragment bash qui exécute body à la première exécution
+// seulement (fichier témoin flag).
+func onceFlag(flag, body string) string {
+	return "if [ ! -e '" + flag + "' ]; then touch '" + flag + "'; " + body + "; fi"
+}
+
+// inputs relit les entrées enregistrées par recHook ; nil si rec n'existe pas.
+func inputs(t *testing.T, rec string) []map[string]any {
+	t.Helper()
+	b, err := os.ReadFile(rec)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []map[string]any
+	for _, l := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+		var m map[string]any
+		if err := json.Unmarshal([]byte(l), &m); err != nil {
+			t.Fatalf("entrée %q : %v", l, err)
+		}
+		out = append(out, m)
+	}
+	return out
+}
+
+func userMessages(t *testing.T, evs []event.Event) []event.UserMessagePayload {
+	t.Helper()
+	var out []event.UserMessagePayload
+	for _, e := range ofType(evs, event.UserMessage) {
+		out = append(out, decode[event.UserMessagePayload](t, e))
+	}
+	return out
+}
+
+// lastContent renvoie le contenu du dernier message de la requête.
+func lastContent(r llm.Request) string { return r.Messages[len(r.Messages)-1].Content }
+
+func ctxOut(ev, ctx string) string {
+	return `{"hookSpecificOutput":{"hookEventName":"` + ev + `","additionalContext":"` + ctx + `"}}`
+}
+
+func TestWithHookContext(t *testing.T) {
+	if got := withHookContext("hi", ""); got != "hi" {
+		t.Fatalf("sans contexte %q", got)
+	}
+	if got := withHookContext("hi", "CTX"); got != "hi\n\n[hook context]\nCTX" {
+		t.Fatalf("avec contexte %q", got)
+	}
+}
+
+func TestUserPromptSubmitBlock(t *testing.T) {
+	block := cmd(hookScript(t, `in=$(cat); if [[ "$in" == *secret* ]]; then echo "not that" >&2; exit 2; fi`))
+	h := newHarness(t, euInfo, [][]llm.Chunk{text("ok")}, withHooks(t, hk{"UserPromptSubmit", "", block}))
+	evs, err := h.submit(t, "s_1", "secret plan", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := len(h.prov.reqs()); n != 0 {
+		t.Fatalf("%d requêtes", n)
+	}
+	um := userMessages(t, evs)
+	if len(um) != 1 || !um[0].Blocked || um[0].Text != "secret plan" || um[0].HookContext != "" {
+		t.Fatalf("UserMessage %+v", um)
+	}
+	if tc := lastTurn(t, evs); tc.Reason != "blocked_by_hook" || tc.Iterations != 0 {
+		t.Fatalf("TurnCompleted %+v", tc)
+	}
+	if hc := hookCompleted(t, evs); len(hc) != 1 || hc[0].Reason != "not that" || hc[0].Status != "blocked" {
+		t.Fatalf("HookCompleted %+v", hc)
+	}
+	if _, err := h.submit(t, "s_1", "hello", nil); err != nil {
+		t.Fatal(err)
+	}
+	reqs := h.prov.reqs()
+	if len(reqs) != 1 || strings.Contains(mustJSON(reqs[0]), "secret") {
+		t.Fatalf("requêtes %s", mustJSON(reqs))
+	}
+	if n := len(reqs[0].Messages); n != 2 {
+		t.Fatalf("%d messages", n)
+	}
+}
+
+func TestUserPromptSubmitContext(t *testing.T) {
+	rec := filepath.Join(t.TempDir(), "rec")
+	h := newHarness(t, euInfo, [][]llm.Chunk{text("ok")},
+		withHooks(t, hk{"UserPromptSubmit", "", recHook(t, rec, "echo CTX")}))
+	evs, err := h.submit(t, "s_1", "hi", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := lastContent(h.prov.reqs()[0]); got != withHookContext("hi", "CTX") {
+		t.Fatalf("message %q", got)
+	}
+	if um := userMessages(t, evs); len(um) != 1 || um[0].Text != "hi" || um[0].HookContext != "CTX" {
+		t.Fatalf("UserMessage %+v", um)
+	}
+	if in := inputs(t, rec); len(in) != 1 || in[0]["prompt"] != "hi" || in[0]["hook_event_name"] != "UserPromptSubmit" {
+		t.Fatalf("entrées %v", in)
+	}
+	if tc := lastTurn(t, evs); tc.Reason != "done" {
+		t.Fatalf("TurnCompleted %+v", tc)
+	}
+}
+
+func TestSessionStartContext(t *testing.T) {
+	rec := filepath.Join(t.TempDir(), "rec")
+	never := filepath.Join(t.TempDir(), "never")
+	hs := withHooks(t,
+		hk{"SessionStart", "startup|resume", recHook(t, rec, "cat <<'EOF'\n"+ctxOut("SessionStart", "START")+"\nEOF")},
+		hk{"SessionStart", "compact", recHook(t, never, "")},
+		hk{"UserPromptSubmit", "", cmd(hookScript(t, "cat >/dev/null; echo CTX"))})
+	h := newHarness(t, euInfo, [][]llm.Chunk{text("ok")}, hs)
+	evs, err := h.submit(t, "s_1", "hi", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := withHookContext("hi", "START\n\nCTX")
+	if got := lastContent(h.prov.reqs()[0]); got != want {
+		t.Fatalf("message %q", got)
+	}
+	if um := userMessages(t, evs); len(um) != 1 || um[0].HookContext != "START\n\nCTX" {
+		t.Fatalf("UserMessage %+v", um)
+	}
+	// SessionStart vient après SessionStarted et avant UserMessage.
+	ty := types(evs)
+	if ty[0] != event.SessionStarted || ty[1] != event.HookStarted {
+		t.Fatalf("ordre %v", ty)
+	}
+	if _, err := h.submit(t, "s_1", "again", nil); err != nil {
+		t.Fatal(err)
+	}
+	reqs := h.prov.reqs()
+	if got := lastContent(reqs[1]); got != withHookContext("again", "CTX") {
+		t.Fatalf("second tour %q", got)
+	}
+	if in := inputs(t, rec); len(in) != 1 || in[0]["source"] != "startup" {
+		t.Fatalf("entrées %v", in)
+	}
+	if exists(never) {
+		t.Fatal("matcher compact au démarrage")
+	}
+
+	// Reprise : source resume.
+	l := &evLog{t: t, sid: "s_2"}
+	l.add(event.SessionStarted, event.SessionStartedPayload{Provider: euInfo}).
+		add(event.UserMessage, event.UserMessagePayload{Text: "a"})
+	h2 := newHarness(t, euInfo, [][]llm.Chunk{text("ok")}, hs)
+	if err := h2.eng.Restore("s_2", l.evs); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h2.submit(t, "s_2", "b", nil); err != nil {
+		t.Fatal(err)
+	}
+	if in := inputs(t, rec); len(in) != 2 || in[1]["source"] != "resume" {
+		t.Fatalf("entrées %v", in)
+	}
+}
+
+func TestPromptHookStop(t *testing.T) {
+	stop := `{"continue":false,"stopReason":"enough"}`
+	for _, ev := range []string{"SessionStart", "UserPromptSubmit"} {
+		t.Run(ev, func(t *testing.T) {
+			h := newHarness(t, euInfo, [][]llm.Chunk{text("ok")}, withHooks(t, hk{ev, "", jsonHook(t, stop)}))
+			evs, err := h.submit(t, "s_1", "hi", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if n := len(h.prov.reqs()); n != 0 {
+				t.Fatalf("%d requêtes", n)
+			}
+			if tc := lastTurn(t, evs); tc.Reason != "stopped_by_hook" || tc.Iterations != 0 {
+				t.Fatalf("TurnCompleted %+v", tc)
+			}
+			if um := userMessages(t, evs); len(um) != 1 || um[0].Blocked {
+				t.Fatalf("UserMessage %+v", um)
+			}
+			// Le message est dans l'historique.
+			msgs := h.eng.sessions["s_1"].history
+			if last := msgs[len(msgs)-1]; last.Role != llm.User || last.Content != "hi" {
+				t.Fatalf("historique %s", mustJSON(msgs))
+			}
+		})
+	}
+}
+
+func TestStopHookContinues(t *testing.T) {
+	dir := t.TempDir()
+	rec := filepath.Join(dir, "rec")
+	stop := recHook(t, rec, onceFlag(filepath.Join(dir, "flag"), `echo '{"decision":"block","reason":"more"}'`))
+	h := newHarness(t, euInfo, [][]llm.Chunk{text("first"), text("second")}, withHooks(t, hk{"Stop", "", stop}))
+	evs, err := h.submit(t, "s_1", "go", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reqs := h.prov.reqs()
+	if len(reqs) != 2 {
+		t.Fatalf("%d requêtes", len(reqs))
+	}
+	m := reqs[1].Messages
+	if last := m[len(m)-1]; last.Role != llm.User || last.Content != "Stop hook feedback: more" {
+		t.Fatalf("messages %s", mustJSON(m))
+	}
+	if prev := m[len(m)-2]; prev.Role != llm.Assistant || prev.Content != "first" {
+		t.Fatalf("messages %s", mustJSON(m))
+	}
+	in := inputs(t, rec)
+	if len(in) != 2 || in[0]["stop_hook_active"] != false || in[1]["stop_hook_active"] != true {
+		t.Fatalf("entrées %v", in)
+	}
+	um := userMessages(t, evs)
+	if len(um) != 2 || um[1].Text != "Stop hook feedback: more" || um[1].Hook != "Stop" || um[1].ParentCallID != "" {
+		t.Fatalf("UserMessage %+v", um)
+	}
+	if tc := lastTurn(t, evs); tc.Reason != "done" || tc.Iterations != 2 {
+		t.Fatalf("TurnCompleted %+v", tc)
+	}
+}
+
+func TestStopHookAlwaysBlocks(t *testing.T) {
+	rec := filepath.Join(t.TempDir(), "rec")
+	h := newHarness(t, euInfo, [][]llm.Chunk{text("x")},
+		func(d *Deps) { d.MaxIterations = 3 },
+		withHooks(t, hk{"Stop", "", recHook(t, rec, `echo again >&2; exit 2`)}))
+	evs, err := h.submit(t, "s_1", "go", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tc := lastTurn(t, evs); tc.Reason != "max_iterations" || tc.Iterations != 3 {
+		t.Fatalf("TurnCompleted %+v", tc)
+	}
+	if n := len(h.prov.reqs()); n != 3 {
+		t.Fatalf("%d requêtes", n)
+	}
+	in := inputs(t, rec)
+	if len(in) != 3 || in[0]["stop_hook_active"] != false || in[1]["stop_hook_active"] != true || in[2]["stop_hook_active"] != true {
+		t.Fatalf("entrées %v", in)
+	}
+}
+
+func TestStopHookContinueFalse(t *testing.T) {
+	h := newHarness(t, euInfo, [][]llm.Chunk{text("x")},
+		withHooks(t, hk{"Stop", "", jsonHook(t, `{"continue":false,"decision":"block","reason":"r"}`)}))
+	evs, err := h.submit(t, "s_1", "go", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tc := lastTurn(t, evs); tc.Reason != "stopped_by_hook" || tc.Iterations != 1 {
+		t.Fatalf("TurnCompleted %+v", tc)
+	}
+	if n := len(h.prov.reqs()); n != 1 {
+		t.Fatalf("%d requêtes", n)
+	}
+}
+
+func TestStopNotOnCancelOrError(t *testing.T) {
+	for name, script := range map[string][][]llm.Chunk{
+		"provider error": {{{Done: true, Err: errors.New("boom")}}},
+		"incomplete":     {{{Text: "par"}}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			rec := filepath.Join(t.TempDir(), "rec")
+			h := newHarness(t, euInfo, script, withHooks(t, hk{"Stop", "", recHook(t, rec, "")}))
+			evs, _ := h.submit(t, "s_1", "go", nil)
+			if n := len(ofType(evs, event.HookStarted)); n != 0 || exists(rec) {
+				t.Fatalf("%d HookStarted", n)
+			}
+		})
+	}
+	t.Run("cancelled", func(t *testing.T) {
+		rec := filepath.Join(t.TempDir(), "rec")
+		h := newHarness(t, euInfo, [][]llm.Chunk{text("x")}, withHooks(t, hk{"Stop", "", recHook(t, rec, "")}))
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		if err := h.eng.Submit(ctx, "s_1", "go"); !errors.Is(err, context.Canceled) {
+			t.Fatalf("err %v", err)
+		}
+		if n := len(ofType(h.sink.events, event.HookStarted)); n != 0 || exists(rec) {
+			t.Fatalf("%d HookStarted", n)
+		}
+	})
+}
+
+func TestSubagentStop(t *testing.T) {
+	dir := t.TempDir()
+	subRec, stopRec := filepath.Join(dir, "sub"), filepath.Join(dir, "stop")
+	h := newAgentEngine(t, [][]llm.Chunk{
+		call("m1", "agent", agentCall),
+		text("sub first"),
+		text("sub second"),
+		text("main done"),
+	}, nil, withHooks(t,
+		hk{"SubagentStop", "", recHook(t, subRec, onceFlag(filepath.Join(dir, "flag"), `echo once >&2; exit 2`))},
+		hk{"Stop", "", recHook(t, stopRec, "")}))
+	evs, err := h.submit(t, "s_1", "go", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reqs := h.prov.reqs()
+	if len(reqs) != 4 {
+		t.Fatalf("%d requêtes", len(reqs))
+	}
+	if got := lastContent(reqs[2]); got != "Stop hook feedback: once" {
+		t.Fatalf("requête du sous-agent %q", got)
+	}
+	in := inputs(t, subRec)
+	if len(in) != 2 || in[0]["agent"] != "general-purpose" || in[0]["tool_use_id"] != "m1" ||
+		in[0]["stop_hook_active"] != false || in[1]["stop_hook_active"] != true {
+		t.Fatalf("entrées SubagentStop %v", in)
+	}
+	if in := inputs(t, stopRec); len(in) != 1 {
+		t.Fatalf("entrées Stop %v", in)
+	}
+	if tr := toolResultOf(t, evs, "agent"); tr.IsError || tr.Content != "sub second" {
+		t.Fatalf("ToolResult %+v", tr)
+	}
+	um := userMessages(t, evs)
+	if len(um) != 2 || um[1].Hook != "SubagentStop" || um[1].ParentCallID != "m1" || um[1].Text != "Stop hook feedback: once" {
+		t.Fatalf("UserMessage %+v", um)
+	}
+	// Le retour au sous-agent n'entre pas dans l'historique principal.
+	if strings.Contains(mustJSON(reqs[3]), "Stop hook feedback") {
+		t.Fatal("retour du sous-agent dans l'historique principal")
+	}
+}
+
+func TestPreCompactAndSessionStartCompact(t *testing.T) {
+	dir := t.TempDir()
+	pre, post := filepath.Join(dir, "pre"), filepath.Join(dir, "post")
+	hs := withHooks(t,
+		hk{"PreCompact", "auto", recHook(t, pre, "")},
+		hk{"SessionStart", "compact", recHook(t, post, "cat <<'EOF'\n"+ctxOut("SessionStart", "AFTER")+"\nEOF")})
+	h := newHarness(t, euInfo, [][]llm.Chunk{text("LE RÉSUMÉ"), text("ok")}, window(1000), hs)
+	l := &evLog{t: t, sid: "s_1"}
+	for _, m := range longHistory() {
+		if m.Role == llm.User {
+			l.add(event.UserMessage, event.UserMessagePayload{Text: m.Content})
+		} else {
+			l.add(event.AssistantMessage, event.AssistantMessagePayload{Text: m.Content})
+		}
+	}
+	if err := h.eng.Restore("s_1", l.evs); err != nil {
+		t.Fatal(err)
+	}
+	evs, err := h.submit(t, "s_1", "suite", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var order []string
+	for _, p := range hookStarted(t, evs) {
+		order = append(order, p.Event)
+	}
+	if strings.Join(order, ",") != "PreCompact,SessionStart" {
+		t.Fatalf("hooks %v", order)
+	}
+	if in := inputs(t, pre); len(in) != 1 || in[0]["trigger"] != "auto" {
+		t.Fatalf("entrées PreCompact %v", in)
+	}
+	if in := inputs(t, post); len(in) != 1 || in[0]["source"] != "compact" {
+		t.Fatalf("entrées SessionStart %v", in)
+	}
+	cc := ofType(evs, event.ContextCompacted)
+	if len(cc) != 1 {
+		t.Fatalf("events %v", types(evs))
+	}
+	if p := decode[event.ContextCompactedPayload](t, cc[0]); p.HookContext != "AFTER" || p.Summary != "LE RÉSUMÉ" {
+		t.Fatalf("ContextCompacted %+v", p)
+	}
+	sum := h.prov.reqs()[1].Messages[1].Content
+	if sum != withHookContext(summaryPrefix+"LE RÉSUMÉ", "AFTER") || !strings.Contains(sum, "[hook context]") {
+		t.Fatalf("message de résumé %q", sum)
+	}
+
+	// La reprise reconstruit le même résumé.
+	live := h.eng.sessions["s_1"].history
+	h2 := newHarness(t, euInfo, [][]llm.Chunk{text("ok")})
+	if err := h2.eng.Restore("s_1", append(l.evs, h.sink.events...)); err != nil {
+		t.Fatal(err)
+	}
+	if got := h2.eng.sessions["s_1"].history; mustJSON(got) != mustJSON(live) {
+		t.Fatalf("historique restauré\n%s\nattendu\n%s", mustJSON(got), mustJSON(live))
+	}
+}
+
+func TestNotification(t *testing.T) {
+	notify := func(d *Deps) { d.Notify = true }
+	t.Run("tool", func(t *testing.T) {
+		rec := filepath.Join(t.TempDir(), "rec")
+		h := newHarness(t, euInfo, [][]llm.Chunk{
+			call("c1", "write_file", `{"path":"a.txt","content":"x"}`),
+			text("ok"),
+		}, notify, withHooks(t, hk{"Notification", "permission_prompt", recHook(t, rec, "")}))
+		if _, err := h.submit(t, "s_1", "go", func(event.PermissionRequestedPayload) Reply { return Reply{Allow: true} }); err != nil {
+			t.Fatal(err)
+		}
+		in := inputs(t, rec)
+		if len(in) != 1 || in[0]["message"] != "tenon needs your permission to use write_file" ||
+			in[0]["notification_type"] != "permission_prompt" {
+			t.Fatalf("entrées %v", in)
+		}
+	})
+	t.Run("jurisdiction", func(t *testing.T) {
+		rec := filepath.Join(t.TempDir(), "rec")
+		h := newHarness(t, nonEUInfo, [][]llm.Chunk{text("ok")},
+			notify, withHooks(t, hk{"Notification", "", recHook(t, rec, "")}))
+		if _, err := h.submit(t, "s_1", "go", func(event.PermissionRequestedPayload) Reply { return Reply{Allow: true} }); err != nil {
+			t.Fatal(err)
+		}
+		if in := inputs(t, rec); len(in) != 1 || in[0]["message"] != "tenon needs your permission to send data to openai" {
+			t.Fatalf("entrées %v", in)
+		}
+	})
+	t.Run("disabled", func(t *testing.T) {
+		rec := filepath.Join(t.TempDir(), "rec")
+		h := newHarness(t, euInfo, [][]llm.Chunk{
+			call("c1", "write_file", `{"path":"a.txt","content":"x"}`),
+			text("ok"),
+		}, withHooks(t, hk{"Notification", "", recHook(t, rec, "")}))
+		evs, err := h.submit(t, "s_1", "go", func(event.PermissionRequestedPayload) Reply { return Reply{Allow: true} })
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n := len(ofType(evs, event.HookStarted)); n != 0 || exists(rec) {
+			t.Fatalf("%d HookStarted", n)
+		}
+	})
+}
+
+func TestEndSession(t *testing.T) {
+	rec := filepath.Join(t.TempDir(), "rec")
+	hs := withHooks(t,
+		hk{"SessionEnd", "", recHook(t, rec, "")},
+		hk{"SessionEnd", "", cmd("sleep 10")})
+	h := newHarness(t, euInfo, [][]llm.Chunk{text("ok")}, hs)
+	if _, err := h.submit(t, "s_1", "hi", nil); err != nil {
+		t.Fatal(err)
+	}
+	n0 := len(h.sink.events)
+	start := time.Now()
+	if err := h.eng.EndSession(context.Background(), "s_1", "prompt_input_exit"); err != nil {
+		t.Fatal(err)
+	}
+	if d := time.Since(start); d > 6*time.Second {
+		t.Fatalf("durée %v", d)
+	}
+	evs := h.sink.events[n0:]
+	if n := len(ofType(evs, event.TurnCompleted)); n != 0 {
+		t.Fatalf("%d TurnCompleted", n)
+	}
+	hc := hookCompleted(t, evs)
+	if len(hc) != 2 || hc[0].Status != "ok" || hc[1].Status != "timeout" || hc[0].Event != "SessionEnd" {
+		t.Fatalf("HookCompleted %+v", hc)
+	}
+	if in := inputs(t, rec); len(in) != 1 || in[0]["reason"] != "prompt_input_exit" {
+		t.Fatalf("entrées %v", in)
+	}
+
+	// Session jamais démarrée (inconnue, ou restaurée sans tour) : aucun hook.
+	rec2 := filepath.Join(t.TempDir(), "rec")
+	h2 := newHarness(t, euInfo, [][]llm.Chunk{text("ok")}, withHooks(t, hk{"SessionEnd", "", recHook(t, rec2, "")}))
+	if err := h2.eng.EndSession(context.Background(), "s_x", "other"); err != nil {
+		t.Fatal(err)
+	}
+	if err := h2.eng.Restore("s_r", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := h2.eng.EndSession(context.Background(), "s_r", "other"); err != nil {
+		t.Fatal(err)
+	}
+	if exists(rec2) || len(h2.sink.events) != 0 {
+		t.Fatalf("events %v", types(h2.sink.events))
+	}
+	if _, ok := h2.eng.sessions["s_x"]; ok {
+		t.Fatal("session créée par EndSession")
+	}
+}
+
+func TestEndSessionIgnoresContinueFalse(t *testing.T) {
+	h := newHarness(t, euInfo, [][]llm.Chunk{text("ok")},
+		withHooks(t, hk{"SessionEnd", "", jsonHook(t, `{"continue":false,"stopReason":"x"}`)}))
+	if _, err := h.submit(t, "s_1", "hi", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.eng.EndSession(context.Background(), "s_1", "other"); err != nil {
+		t.Fatal(err)
+	}
+	// La session reste utilisable normalement.
+	evs, err := h.submit(t, "s_1", "again", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tc := lastTurn(t, evs); tc.Reason != "done" {
+		t.Fatalf("TurnCompleted %+v", tc)
+	}
+}

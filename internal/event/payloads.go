@@ -41,6 +41,9 @@ type UserMessagePayload struct {
 	Blocked bool `json:"blocked,omitempty"`
 	// Hook names the event that produced a feedback message: "Stop" or "SubagentStop".
 	Hook string `json:"hook,omitempty"`
+	// ParentCallID is the call_id of the "agent" tool call whose sub-agent
+	// received this message (SubagentStop feedback); empty for the main agent.
+	ParentCallID string `json:"parent_call_id,omitempty"`
 }
 
 // ContextCompactedPayload records a context compaction: the first Replaced
@@ -230,6 +233,9 @@ func WithParent(payload any, parentCallID string) any {
 		return payload
 	}
 	switch p := payload.(type) {
+	case UserMessagePayload:
+		p.ParentCallID = parentCallID
+		return p
 	case AssistantMessagePayload:
 		p.ParentCallID = parentCallID
 		return p
