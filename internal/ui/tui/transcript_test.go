@@ -231,3 +231,13 @@ func TestTranscriptCallIDCollision(t *testing.T) {
 		t.Fatalf("items = %+v", it)
 	}
 }
+
+func TestTranscriptSubagentControlChars(t *testing.T) {
+	tr := NewTranscript(i18n.EN)
+	args := json.RawMessage(`{"prompt":"p"}`)
+	tr.Apply(ev(t, event.ToolCallRequested, event.ToolCallRequestedPayload{CallID: "c1", Tool: "agent", Args: args}))
+	tr.Apply(ev(t, event.SubagentStarted, event.SubagentStartedPayload{CallID: "c1", Agent: "g", Description: "review\ncode\x1b[0m"}))
+	if d := tr.Items()[0].Detail; d != "g · review code [0m" {
+		t.Fatalf("detail %q", d)
+	}
+}

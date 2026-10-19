@@ -216,3 +216,17 @@ func TestAgentsCommand(t *testing.T) {
 		t.Fatalf("avis %q", n)
 	}
 }
+
+func TestAgentsCommandControlChars(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "rev.md"), []byte("---\nname: rev\ndescription: \"review\\ncode\"\n---\nb\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cat, _ := agents.Discover(i18n.EN, []agents.Dir{{Path: dir, Source: agents.User}})
+	h := newHarness(t, newFake(), Options{Lang: i18n.EN, Agents: cat})
+	typeText(h, "/agents")
+	enter(h)
+	if n := notices(h); !strings.Contains(n, "rev  user  review code") {
+		t.Fatalf("avis %q", n)
+	}
+}

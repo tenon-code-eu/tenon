@@ -290,10 +290,10 @@ func (t *Transcript) mainCall(id string) *Item {
 	return nil
 }
 
-// oneLine masque s, retire ses caractères de contrôle et de format et réduit
+// oneLine masque s, remplace ses caractères de contrôle et de format par des espaces et réduit
 // les blancs : le texte vient d'un fichier d'agent ou du modèle.
 func (t *Transcript) oneLine(s string) string {
-	return strings.Join(strings.Fields(cleanToken(t.redact(s))), " ")
+	return strings.Join(strings.Fields(spaceClean(t.redact(s))), " ")
 }
 
 func (t *Transcript) toolResult(p event.ToolResultPayload) {

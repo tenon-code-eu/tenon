@@ -21,6 +21,17 @@ func cleanToken(s string) string {
 	}, s)
 }
 
+// spaceClean remplace les caractères de contrôle et de format par des espaces
+// (avant le regroupement des blancs : « a\nb » devient « a b »).
+func spaceClean(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
+			return ' '
+		}
+		return r
+	}, s)
+}
+
 // skillNames renvoie les noms des skills (hors noms réservés aux commandes
 // intégrées, inutilisables par /<nom>), dans l'ordre du catalogue.
 func (m Model) skillNames() []string {
@@ -98,7 +109,7 @@ func (m *Model) agentsNotices() {
 		return
 	}
 	for _, a := range list {
-		desc := strings.Join(strings.Fields(cleanToken(a.Description)), " ")
+		desc := strings.Join(strings.Fields(spaceClean(a.Description)), " ")
 		m.tr.notice(cleanToken(a.Name) + "  " + cleanToken(string(a.Source)) + "  " + desc)
 	}
 }

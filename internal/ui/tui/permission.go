@@ -561,7 +561,7 @@ func (m Model) headLines(p *permPrompt, collapse bool) []string {
 	var out []string
 	if info, ok := m.subagents[p.p.ParentCallID]; ok && p.p.ParentCallID != "" {
 		text := i18n.T(m.lang, "tui.perm.subagent", m.redact(info.agent), m.redact(info.description))
-		line := strings.Join(strings.Fields(cleanToken(text)), " ")
+		line := strings.Join(strings.Fields(spaceClean(text)), " ")
 		out = append(out, m.st.notice.Render(m.truncate(line)))
 	}
 	cmd := p.command

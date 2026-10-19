@@ -802,3 +802,14 @@ func TestPermissionSubagentLongDescription(t *testing.T) {
 		t.Fatalf("touches absentes : %s", out)
 	}
 }
+
+func TestPermissionSubagentContextControlChars(t *testing.T) {
+	f := newFake()
+	h := newHarness(t, f, Options{Lang: i18n.EN})
+	f.emit(t, event.SubagentStarted, event.SubagentStartedPayload{CallID: "a1", Agent: "g", Description: "review\ncode"})
+	h.until("sous-agent", func() bool { return len(h.m.subagents) == 1 })
+	askPermNow(t, h, f, event.PermissionRequestedPayload{PermissionID: "p1", Kind: "tool", Tool: "shell", Command: "ls", ParentCallID: "a1"})
+	if out := strings.Join(h.m.promptLines(), "\n"); !strings.Contains(out, "g · review code") {
+		t.Fatalf("panneau %q", out)
+	}
+}
