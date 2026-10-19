@@ -37,6 +37,9 @@ type Result struct {
 	Path       string
 	HashBefore string
 	HashAfter  string
+	// NoCheckpoint vaut true quand l'écriture n'a pas pu être copiée (fichier
+	// trop volumineux pour une copie, voir SnapshotMaxBytes).
+	NoCheckpoint bool
 	// Denied vaut "policy" quand l'outil a refusé l'appel par règle (vide sinon).
 	Denied string
 	// ServerDown porte l'identifiant d'un serveur MCP qui vient de tomber pendant

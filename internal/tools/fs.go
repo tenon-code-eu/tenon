@@ -19,7 +19,7 @@ func FS(root string, limit int, opts ...Option) []Tool {
 	for _, opt := range opts {
 		opt(&o)
 	}
-	b := base{root: root, limit: limit, filter: o.readFilter}
+	b := base{root: root, limit: limit, filter: o.readFilter, save: o.save}
 	return []Tool{
 		&readFile{b}, &writeFile{b}, &editFile{b},
 		&globTool{b}, &grepTool{b},
@@ -28,10 +28,22 @@ func FS(root string, limit int, opts ...Option) []Tool {
 
 type options struct {
 	readFilter func(tool, absPath string) bool
+	save       func(path string, old []byte) error
 }
+
+// SnapshotMaxBytes est la taille au-delà de laquelle un fichier n'est pas copié
+// avant écriture (même valeur que checkpoint.MaxBytes ; tools n'importe pas checkpoint).
+const SnapshotMaxBytes = 10 << 20
 
 // Option configure FS.
 type Option func(*options)
+
+// WithSnapshot fait appeler save(chemin, ancien contenu) par write_file et
+// edit_file avant d'écraser un fichier existant de taille <= SnapshotMaxBytes.
+// Une erreur de save annule l'écriture.
+func WithSnapshot(save func(path string, old []byte) error) Option {
+	return func(o *options) { o.save = save }
+}
 
 // WithReadFilter fait ignorer à grep et glob les fichiers pour lesquels f
 // renvoie false.
@@ -43,9 +55,25 @@ type base struct {
 	root   string
 	limit  int
 	filter func(tool, absPath string) bool
+	save   func(path string, old []byte) error
 }
 
 func (b base) allowed(tool, abs string) bool { return b.filter == nil || b.filter(tool, abs) }
+
+// snapshot sauvegarde old avant écriture. skipped vaut true quand le fichier
+// dépasse SnapshotMaxBytes (pas de copie). Sans save, ne fait rien.
+func (b base) snapshot(p string, old []byte) (skipped bool, err error) {
+	if b.save == nil {
+		return false, nil
+	}
+	if len(old) > SnapshotMaxBytes {
+		return true, nil
+	}
+	return false, b.save(p, old)
+}
+
+// skipNote est ajouté au contenu du résultat quand la copie a été ignorée.
+const skipNote = "\ncheckpoint skipped (file too large)"
 
 func (b base) resolve(p string) string {
 	if filepath.IsAbs(p) {
@@ -194,11 +222,17 @@ func (t *writeFile) Run(ctx context.Context, args json.RawMessage) (Result, erro
 	p := t.resolve(a.Path)
 	res := Result{Path: p}
 	mode := os.FileMode(0o644)
+	skipped := false
 	if old, err := os.ReadFile(p); err == nil {
 		res.HashBefore = hashOf(old)
 		if st, err := os.Stat(p); err == nil {
 			mode = st.Mode().Perm()
 		}
+		sk, err := t.snapshot(p, old)
+		if err != nil {
+			return fail("cannot save checkpoint: %v", err), nil
+		}
+		skipped = sk
 	}
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return fail("cannot create directory: %v", err), nil
@@ -208,6 +242,10 @@ func (t *writeFile) Run(ctx context.Context, args json.RawMessage) (Result, erro
 	}
 	res.HashAfter = hashOf([]byte(a.Content))
 	res.Content = fmt.Sprintf("file written: %s", a.Path)
+	if skipped {
+		res.Content += skipNote
+		res.NoCheckpoint = true
+	}
 	return res, nil
 }
 
@@ -257,6 +295,10 @@ func (t *editFile) Run(ctx context.Context, args json.RawMessage) (Result, error
 	if n > 1 && !a.ReplaceAll {
 		return fail("text found %d times in %s; add context or use replace_all", n, a.Path), nil
 	}
+	skipped, err := t.snapshot(p, data)
+	if err != nil {
+		return fail("cannot save checkpoint: %v", err), nil
+	}
 	out := strings.ReplaceAll(s, a.OldString, a.NewString)
 	mode := os.FileMode(0o644)
 	if st, err := os.Stat(p); err == nil {
@@ -265,10 +307,15 @@ func (t *editFile) Run(ctx context.Context, args json.RawMessage) (Result, error
 	if err := os.WriteFile(p, []byte(out), mode); err != nil {
 		return fail("cannot write: %v", err), nil
 	}
-	return Result{
-		Content:    fmt.Sprintf("%d replacement(s) in %s", n, a.Path),
-		Path:       p,
-		HashBefore: hashOf(data),
-		HashAfter:  hashOf([]byte(out)),
-	}, nil
+	res := Result{
+		Content:      fmt.Sprintf("%d replacement(s) in %s", n, a.Path),
+		Path:         p,
+		HashBefore:   hashOf(data),
+		HashAfter:    hashOf([]byte(out)),
+		NoCheckpoint: skipped,
+	}
+	if skipped {
+		res.Content += skipNote
+	}
+	return res, nil
 }
