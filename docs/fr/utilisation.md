@@ -419,7 +419,7 @@ tenon parcourt ces dossiers, du plus prioritaire au moins prioritaire :
 Les règles sont celles des skills. Quand deux agents portent le même nom, le premier trouvé l'emporte et un avis signale l'autre.
 Un dossier utilisateur est ignoré quand `HOME` est vide ou n'est pas un chemin absolu.
 Un répertoire d'agents du projet qui est un lien symbolique est écarté, avec un avis. Seuls les fichiers réguliers sont lus.
-Un fichier est limité à 32 768 octets : le reste est coupé. tenon retient 100 agents au plus.
+Un fichier est limité à 32 768 octets : le reste est coupé, avec un avis, et `tenon agents` affiche `(truncated)` après le chemin. L'en-tête d'un fichier d'agent est limité à 16 Kio et 400 lignes. tenon retient 100 agents au plus.
 Un dossier illisible ou un agent invalide produit un avis et n'empêche jamais le démarrage.
 
 ### Format d'un fichier d'agent
@@ -436,9 +436,9 @@ Tu es un relecteur de code rigoureux. Lis les fichiers qu'on te donne et signale
 
 | Champ | Règle |
 |---|---|
-| `name` | Obligatoire. Caractères `[a-z0-9-]`, 1 à 64, égal au nom du fichier sans `.md`. |
-| `description` | Obligatoire, non vide, 1024 caractères au plus. |
-| `tools` | Facultatif. Chaîne séparée par des virgules, ou liste. Sans ce champ, le sous-agent reçoit tous les outils de la session sauf `agent`. |
+| `name` | Obligatoire. Caractères `[a-z0-9-]`, 1 à 64. Il n'a pas à correspondre au nom du fichier : l'agent est connu par son `name`. |
+| `description` | Obligatoire, non vide. Au-delà de 1024 caractères, elle est coupée à 1024, avec un avis. |
+| `tools` | Facultatif. Chaîne séparée par des virgules, ou liste. Sans ce champ, le sous-agent reçoit tous les outils de la session sauf `agent`. Une clé `tools:` vide signifie aucun outil (`tenon agents` affiche `tools: none`). |
 | `model` | Lu et affiché, mais sans effet : un sous-agent utilise toujours le fournisseur et le modèle de la session. |
 
 Les autres champs (`color`...) sont ignorés.

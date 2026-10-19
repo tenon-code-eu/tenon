@@ -93,6 +93,8 @@ A file in `.tenon/agents`, `.claude/agents` or `.agents/agents` of a repository 
 Its text becomes the system prompt of a sub-agent, and can contain instructions meant to mislead the model. tenon does not filter it.
 A project agent cannot shadow a user agent, and `tools` can only restrict the tools of the session.
 What you should do: read the agents of an unknown repository before you use the project.
+A project file named `general-purpose` replaces the built-in agent, which is the default target of the `agent` tool: a repository can therefore change the instructions and tools of every delegation that does not name an agent.
+The approvals "yes for the session" are shared between the main agent and its sub-agents: an approval given for a sub-agent action also covers the main agent, and the other way round.
 `tenon agents` lists the agents that tenon found, with their source. A `deny` rule on `tool = "agent"` forbids one (see [usage.md](usage.md#sub-agents)).
 
 ### Jurisdiction is declarative

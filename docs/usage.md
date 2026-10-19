@@ -418,7 +418,7 @@ tenon looks in these folders, from the highest priority to the lowest:
 The rules are the same as for skills. When two agents have the same name, the first one found wins and a notice reports the other.
 A user folder is ignored when `HOME` is empty or is not an absolute path.
 A project agents directory that is a symbolic link is skipped, with a notice. Only regular files are read.
-A file is limited to 32,768 bytes: the rest is cut. tenon keeps at most 100 agents.
+A file is limited to 32,768 bytes: the rest is cut, with a notice, and `tenon agents` shows `(truncated)` after the path. The header of an agent file is limited to 16 KiB and 400 lines. tenon keeps at most 100 agents.
 An unreadable folder or an invalid agent produces a notice and never prevents startup.
 
 ### Format of an agent file
@@ -435,9 +435,9 @@ You are a careful code reviewer. Read the files you are given and report problem
 
 | Field | Rule |
 |---|---|
-| `name` | Required. Characters `[a-z0-9-]`, 1 to 64, equal to the file name without `.md`. |
-| `description` | Required, not empty, 1024 characters at most. |
-| `tools` | Optional. Comma-separated string or list. Without it, the sub-agent gets all the tools of the session except `agent`. |
+| `name` | Required. Characters `[a-z0-9-]`, 1 to 64. It does not have to match the file name: the agent is known by its `name`. |
+| `description` | Required, not empty. Beyond 1024 characters it is cut to 1024, with a notice. |
+| `tools` | Optional. Comma-separated string or list. Without it, the sub-agent gets all the tools of the session except `agent`. An empty `tools:` key means no tool at all (`tenon agents` shows `tools: none`). |
 | `model` | Read and shown, but it has no effect: a sub-agent always uses the provider and the model of the session. |
 
 Other fields (`color`...) are ignored.

@@ -40,9 +40,11 @@ Mêmes règles que les skills (spec skills §3.1, §3.3) : à nom égal le premi
 
 | Champ | Règle |
 |---|---|
-| `name` | Obligatoire. `[a-z0-9-]`, 1 à 64 caractères, égal au nom du fichier sans `.md` |
-| `description` | Obligatoire, non vide, 1024 caractères au plus |
-| `tools` | Facultatif. Chaîne séparée par des virgules ou liste. Absent : tous les outils de la session sauf `agent` |
+| `name` | Obligatoire. `[a-z0-9-]`, 1 à 64 caractères. Indépendant du nom de fichier : le catalogue est indexé par `name` |
+| `description` | Obligatoire, non vide. Au-delà de 1024 caractères : coupée à 1024 (runes entières), avec un avis |
+| `tools` | Facultatif. Chaîne séparée par des virgules ou liste. Absent : tous les outils de la session sauf `agent`. Clé présente et vide : aucun outil |
+
+Limites d'en-tête des agents : 16 384 octets et 400 lignes (skills : 8 192 et 200). Un fichier tronqué à 32 768 octets produit un avis et `(truncated)` dans `tenon agents`.
 | `model` | Lu et affiché, sans effet |
 
 Autres champs (`color`…) ignorés. Traduction des noms d'outils Claude Code : `Read`→`read_file`, `Write`→`write_file`, `Edit` et `MultiEdit`→`edit_file`, `Bash`→`shell`, `Grep`→`grep`, `Glob`→`glob`, `Skill`→`skill`. Les noms tenon et `mcp__<serveur>__<outil>` sont acceptés tels quels. Une parenthèse de restriction (`Bash(git:*)`) est retirée : seul le nom de l'outil compte. Un nom inconnu (ex. `WebFetch`, `Task`, `agent`) est ignoré avec un avis.

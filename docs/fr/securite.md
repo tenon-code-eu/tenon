@@ -95,6 +95,8 @@ Un fichier placé dans `.tenon/agents`, `.claude/agents` ou `.agents/agents` d'u
 Son texte devient le prompt système d'un sous-agent, et peut contenir des instructions destinées à tromper le modèle. tenon ne filtre pas ce texte.
 Un agent de projet ne peut pas masquer un agent utilisateur, et `tools` ne peut que restreindre les outils de la session.
 Ce que vous devez faire : lire les agents d'un dépôt inconnu avant d'utiliser le projet.
+Un fichier de projet nommé `general-purpose` remplace l'agent intégré, qui est la cible par défaut de l'outil `agent` : un dépôt peut donc changer les instructions et les outils de toute délégation qui ne nomme pas d'agent.
+Les approbations « oui pour la session » sont partagées entre l'agent principal et ses sous-agents : une approbation donnée pour une action d'un sous-agent vaut aussi pour l'agent principal, et inversement.
 `tenon agents` liste les agents trouvés par tenon, avec leur source. Une règle `deny` sur `tool = "agent"` en interdit un (voir [utilisation.md](utilisation.md#sous-agents)).
 
 ### La juridiction est déclarative
