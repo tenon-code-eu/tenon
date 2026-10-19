@@ -680,7 +680,7 @@ func TestViewNestedTool(t *testing.T) {
 	if !strings.HasPrefix(ansi.Strip(out), "  ⎿ read_file") {
 		t.Fatalf("rendu %q", out)
 	}
-	ag := h.m.renderItem(Item{Kind: ItemTool, Tool: "agent", Detail: "g · l", Status: "ok", Iterations: 2})
+	ag := h.m.renderItem(Item{Kind: ItemTool, Tool: "agent", Detail: "g · l", Status: "ok", Iterations: 2, sub: true})
 	if !strings.Contains(ansi.Strip(ag), "[ok] · 2 iterations") {
 		t.Fatalf("rendu %q", ag)
 	}

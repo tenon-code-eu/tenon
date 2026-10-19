@@ -781,3 +781,24 @@ func TestPermissionSubagentContext(t *testing.T) {
 		t.Fatalf("appel principal ne doit pas correspondre : %s", got)
 	}
 }
+
+func TestPermissionSubagentLongDescription(t *testing.T) {
+	f := newFake()
+	h := newHarness(t, f, Options{Lang: i18n.EN})
+	f.emit(t, event.SubagentStarted, event.SubagentStartedPayload{CallID: "a1", Agent: "g", Description: strings.Repeat("x", 2000)})
+	h.until("sous-agent", func() bool { return len(h.m.subagents) == 1 })
+	askPermNow(t, h, f, event.PermissionRequestedPayload{PermissionID: "p1", Kind: "tool", Tool: "shell", Command: "ls", ParentCallID: "a1"})
+	lines := h.m.promptLines()
+	n := 0
+	for _, l := range lines {
+		if strings.Contains(l, "sub-agent g") {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("%d lignes de contexte : %q", n, lines)
+	}
+	if out := strings.Join(lines, "\n"); !strings.Contains(out, i18n.T(i18n.EN, "tui.perm.keys_tool")[:10]) {
+		t.Fatalf("touches absentes : %s", out)
+	}
+}

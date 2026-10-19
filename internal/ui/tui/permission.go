@@ -562,9 +562,7 @@ func (m Model) headLines(p *permPrompt, collapse bool) []string {
 	if info, ok := m.subagents[p.p.ParentCallID]; ok && p.p.ParentCallID != "" {
 		text := i18n.T(m.lang, "tui.perm.subagent", m.redact(info.agent), m.redact(info.description))
 		line := strings.Join(strings.Fields(cleanToken(text)), " ")
-		for _, piece := range breakTokens(headTokens(line), m.width) {
-			out = append(out, m.st.notice.Render(piece))
-		}
+		out = append(out, m.st.notice.Render(m.truncate(line)))
 	}
 	cmd := p.command
 	if n := len(splitLines(cmd)); cmd != "" && n > 1 {

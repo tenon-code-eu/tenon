@@ -119,7 +119,7 @@ func (m Model) renderItem(it Item) string {
 		if it.Status != "" {
 			text += " [" + i18n.T(m.lang, "tui.tool."+it.Status) + "]"
 		}
-		if it.Iterations > 0 && it.Status != "pending" {
+		if it.sub && it.Status != "pending" {
 			text += " · " + i18n.T(m.lang, "tui.agent.iterations", it.Iterations)
 		}
 		return m.st.tool.Render(m.wrap(text))
