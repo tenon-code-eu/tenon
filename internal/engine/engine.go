@@ -12,6 +12,7 @@ import (
 
 	"github.com/tenon-code-eu/tenon/internal/agents"
 	"github.com/tenon-code-eu/tenon/internal/event"
+	"github.com/tenon-code-eu/tenon/internal/hooks"
 	"github.com/tenon-code-eu/tenon/internal/i18n"
 	"github.com/tenon-code-eu/tenon/internal/llm"
 	"github.com/tenon-code-eu/tenon/internal/policy"
@@ -69,6 +70,12 @@ type Deps struct {
 	Lang i18n.Lang
 	// OutputLimit tronque le résultat d'un sous-agent, en caractères (0 : non).
 	OutputLimit int
+	// Hooks est l'ensemble des hooks utilisateur (nil : aucun hook).
+	Hooks *hooks.Set
+	// TranscriptPath est le fichier de session transmis aux hooks.
+	TranscriptPath string
+	// Notify active l'événement de hook Notification (vrai dans l'interface).
+	Notify bool
 }
 
 // Reply répond à un PermissionRequested.

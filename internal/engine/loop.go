@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/tenon-code-eu/tenon/internal/event"
+	"github.com/tenon-code-eu/tenon/internal/hooks"
 	"github.com/tenon-code-eu/tenon/internal/llm"
 	"github.com/tenon-code-eu/tenon/internal/policy"
 	"github.com/tenon-code-eu/tenon/internal/provider"
@@ -29,6 +30,11 @@ type turn struct {
 	tools  *tools.Registry // outils proposés et exécutables (peut être nil)
 	parent string          // call_id de l'appel agent parent ("" pour le tour principal)
 	deltas bool            // émettre AssistantDelta
+	// noHooks : tour d'un hook agent, dont les appels ne déclenchent aucun hook.
+	noHooks bool
+	// stopReason : non vide après un hook continue:false ; le tour s'arrête
+	// après l'outil en cours avec cette raison.
+	stopReason string
 }
 
 // loopResult résume la fin de loop. Reason vaut l'une des raisons de
@@ -179,6 +185,10 @@ func (t *turn) loop() (loopResult, error) {
 				return res(iter, ""), err
 			}
 			*t.h = append(*t.h, llm.Message{Role: llm.Tool, Content: tr.Content, ToolCallID: c.ID})
+			if t.stopReason != "" {
+				t.closeCalls(calls[i+1:], errors.New("stopped by hook"))
+				return res(iter, t.stopReason), nil
+			}
 		}
 	}
 	return res(d.MaxIterations, "max_iterations"), nil
@@ -362,12 +372,27 @@ func (t *turn) runTool(c llm.ToolCall) (tools.Result, error) {
 	}); err != nil {
 		return tools.Result{}, err
 	}
-	res, denied, err := t.decideAndRun(c)
+	res, denied, ran, err := t.decideAndRun(c)
 	if err != nil {
 		return tools.Result{}, err
 	}
 	if denied == "" {
 		denied = res.Denied // refus décidé par l'outil lui-même
+	}
+	// PostToolUse : seulement après une exécution réelle, jamais après un refus.
+	if ran {
+		fields := toolFields(c)
+		fields["tool_response"] = map[string]any{"content": res.Content, "is_error": res.IsError}
+		out, err := t.runHooks(hooks.PostToolUse, c.ID, fields, hooks.ClaudeName(c.Name), c.Name)
+		if err != nil {
+			return tools.Result{}, err
+		}
+		if out.Block {
+			res.Content += "\n\nhook feedback: " + out.Reason
+		}
+		if out.Context != "" {
+			res.Content += "\n\n" + out.Context
+		}
 	}
 	if err := t.emit(event.ToolResult, event.ToolResultPayload{
 		CallID: c.ID, Tool: c.Name, Content: res.Content, IsError: res.IsError,
@@ -386,15 +411,45 @@ func (t *turn) runTool(c llm.ToolCall) (tools.Result, error) {
 	return res, nil
 }
 
-// Valeurs de ToolResultPayload.Denied.
+// Valeurs de ToolResultPayload.Denied (deniedHook : hooks.go).
 const (
 	deniedPolicy = "policy"
 	deniedUser   = "user"
 )
 
-// decideAndRun renvoie aussi l'origine d'un refus (deniedPolicy, deniedUser)
-// ou "" si l'appel n'a pas été refusé.
-func (t *turn) decideAndRun(c llm.ToolCall) (tools.Result, string, error) {
+// checkArgs applique les garde-fous de marqueurs puis Target. ok vaut false
+// si l'appel est refusé : res est alors le résultat d'erreur et denied son
+// origine (deniedPolicy pour un marqueur, "" pour des arguments invalides).
+func checkArgs(tool tools.Tool, name string, args json.RawMessage) (target tools.Target, res tools.Result, denied string, ok bool) {
+	// Les marqueurs de masquage ne sont jamais restaurés : les écrire
+	// remplacerait la vraie valeur par le marqueur.
+	if tool.Risk() == tools.Write {
+		if m := findMarker(args); m != "" {
+			return target, toolError("redacted content: cannot write a redaction marker (%s)", m), deniedPolicy, false
+		}
+	}
+	// De même pour un outil MCP, quel que soit son risque déclaré : le
+	// serveur recevrait le marqueur à la place de la valeur.
+	if strings.HasPrefix(name, "mcp__") {
+		if m := findMarker(args); m != "" {
+			return target, toolError("redacted content: cannot send a redaction marker to an MCP server (%s)", m), deniedPolicy, false
+		}
+	}
+	target, err := tool.Target(args)
+	if err != nil {
+		msg := err.Error()
+		if !strings.HasPrefix(msg, "invalid arguments") {
+			msg = "invalid arguments: " + msg
+		}
+		return target, tools.Result{IsError: true, Content: msg}, "", false
+	}
+	return target, tools.Result{}, "", true
+}
+
+// decideAndRun renvoie aussi l'origine d'un refus (deniedPolicy, deniedUser,
+// deniedHook, "" si l'appel n'a pas été refusé) et ran, vrai si l'outil a été
+// réellement exécuté.
+func (t *turn) decideAndRun(c llm.ToolCall) (res tools.Result, denied string, ran bool, err error) {
 	d := t.e.d
 	var tool tools.Tool
 	ok := false
@@ -402,61 +457,86 @@ func (t *turn) decideAndRun(c llm.ToolCall) (tools.Result, string, error) {
 		tool, ok = t.tools.Get(c.Name)
 	}
 	if !ok {
-		return toolError("unknown tool: %s", c.Name), "", nil
+		return toolError("unknown tool: %s", c.Name), "", false, nil
 	}
-	// Les marqueurs de masquage ne sont jamais restaurés : les écrire
-	// remplacerait la vraie valeur par le marqueur.
-	if tool.Risk() == tools.Write {
-		if m := findMarker(c.Args); m != "" {
-			return toolError("redacted content: cannot write a redaction marker (%s)", m), deniedPolicy, nil
-		}
+	target, bad, denied, ok := checkArgs(tool, c.Name, c.Args)
+	if !ok {
+		return bad, denied, false, nil
 	}
-	// De même pour un outil MCP, quel que soit son risque déclaré : le
-	// serveur recevrait le marqueur à la place de la valeur.
-	if strings.HasPrefix(c.Name, "mcp__") {
-		if m := findMarker(c.Args); m != "" {
-			return toolError("redacted content: cannot send a redaction marker to an MCP server (%s)", m), deniedPolicy, nil
-		}
-	}
-	target, err := tool.Target(c.Args)
+
+	// PreToolUse : après la validation, avant les permissions.
+	out, err := t.runHooks(hooks.PreToolUse, c.ID, toolFields(c), hooks.ClaudeName(c.Name), c.Name)
 	if err != nil {
-		msg := err.Error()
-		if !strings.HasPrefix(msg, "invalid arguments") {
-			msg = "invalid arguments: " + msg
-		}
-		return tools.Result{IsError: true, Content: msg}, "", nil
+		return tools.Result{}, "", false, err
 	}
-	switch d.Permissions.Check(policy.Call{Tool: c.Name, Risk: tool.Risk(), Target: target}) {
+	switch {
+	case out.Stop:
+		return toolError("stopped by hook: %s", out.StopReason), deniedHook, false, nil
+	case out.Conflict:
+		return toolError("conflicting updatedInput from hooks"), deniedHook, false, nil
+	case out.Block:
+		return toolError("blocked by hook: %s", out.Reason), deniedHook, false, nil
+	}
+	args := c.Args
+	if out.UpdatedInput != nil {
+		// Nouvelle entrée : retraduite, revalidée ; c'est elle qui est
+		// vérifiée par les permissions puis exécutée.
+		args, err = hooks.FromClaude(c.Name, out.UpdatedInput)
+		if err != nil {
+			return toolError("invalid updatedInput from hook: %s", err), deniedHook, false, nil
+		}
+		if target, bad, _, ok = checkArgs(tool, c.Name, args); !ok {
+			return toolError("invalid updatedInput from hook: %s", bad.Content), deniedHook, false, nil
+		}
+	}
+
+	// Un allow de hook vaut une règle allow globale : il ne lève qu'un Ask
+	// levable (règle ask globale ou défaut), jamais un Deny. Un ask de hook
+	// impose la demande, même si les règles autorisent.
+	dec, liftable := d.Permissions.Decide(policy.Call{Tool: c.Name, Risk: tool.Risk(), Target: target})
+	var prompt bool
+	switch dec {
 	case policy.Allow:
+		prompt = out.Ask
 	case policy.Ask:
+		prompt = !(out.Allow && liftable && !out.Ask)
+	default:
+		return toolError("action denied by policy"), deniedPolicy, false, nil
+	}
+	if prompt {
 		key := c.Name + "\x00" + target.Command + "\x00" + strings.Join(target.Paths, "\x00")
-		if !t.s.remembered[key] {
-			r, err := t.ask(event.PermissionRequestedPayload{
+		// Une approbation mémorisée ne dispense jamais d'une demande de hook,
+		// et la réponse à celle-ci n'est pas mémorisée.
+		if out.Ask || !t.s.remembered[key] {
+			p := event.PermissionRequestedPayload{
 				Kind: "tool", Tool: c.Name, Paths: target.Paths, Command: target.Command,
-			})
+			}
+			if out.Ask {
+				p.HookReason = out.Reason
+			}
+			r, err := t.ask(p)
 			if err != nil {
-				return tools.Result{}, "", err
+				return tools.Result{}, "", false, err
 			}
 			if !r.Allow {
-				return toolError("action denied by the user"), deniedUser, nil
+				return toolError("action denied by the user"), deniedUser, false, nil
 			}
-			if r.Remember {
+			if r.Remember && !out.Ask {
 				t.s.remembered[key] = true
 			}
 		}
-	default:
-		return toolError("action denied by policy"), deniedPolicy, nil
 	}
-	var res tools.Result
 	if _, isAgent := tool.(agentTool); isAgent {
-		res, err = t.runSubagent(c)
+		run := c
+		run.Args = args
+		res, err = t.runSubagent(run)
 	} else {
-		res, err = tool.Run(t.ctx, c.Args)
+		res, err = tool.Run(t.ctx, args)
 	}
 	if err != nil {
-		return tools.Result{}, "", err
+		return tools.Result{}, "", false, err
 	}
-	return res, "", nil
+	return res, "", true, nil
 }
 
 // safeArgs garantit un JSON valide pour les payloads d'événements : des

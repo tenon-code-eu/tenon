@@ -119,6 +119,8 @@ var catalog = map[Lang]map[string]string{
 		"skills.banner":                     "skills : %d (projet : %d)",
 		"skills.dropped":                    "%d skills omis du prompt (limite de taille)",
 		"skills.builtin_conflict":           "skill %q masqué par une commande intégrée : utilisable par le modèle seulement",
+		"hooks.prompt_system":               "Vous évaluez un hook pour un agent de code. Répondez par un seul objet JSON : {\"ok\": true} pour laisser faire, ou {\"ok\": false, \"reason\": \"...\"} pour bloquer.",
+		"hooks.agent_preamble":              "Vous vérifiez une condition pour un agent de code avec des outils en lecture seule. Terminez par un seul objet JSON : {\"ok\": true} ou {\"ok\": false, \"reason\": \"...\"}.",
 	},
 	EN: {
 		"banner.jurisdiction.eu":            "EU",
@@ -238,5 +240,7 @@ var catalog = map[Lang]map[string]string{
 		"skills.banner":                     "skills: %d (project: %d)",
 		"skills.dropped":                    "%d skills left out of the prompt (size limit)",
 		"skills.builtin_conflict":           "skill %q shadowed by a built-in command: model use only",
+		"hooks.prompt_system":               "You evaluate a hook for a coding agent. Reply with one JSON object only: {\"ok\": true} to let it proceed, or {\"ok\": false, \"reason\": \"...\"} to block it.",
+		"hooks.agent_preamble":              "You verify a condition for a coding agent with read-only tools. End with one JSON object only: {\"ok\": true} or {\"ok\": false, \"reason\": \"...\"}.",
 	},
 }
