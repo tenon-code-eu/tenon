@@ -653,7 +653,7 @@ JSON fields:
 
 | Field | Effect |
 |---|---|
-| `continue: false` | Stops the turn after this hook. `stopReason` is shown to you. Turn reason: `stopped_by_hook`. For `PreToolUse`, the tool does not run. For `PreCompact` and `Notification`, see the table. Only `SessionEnd` ignores it. |
+| `continue: false` | Stops the turn after this hook. `stopReason` is shown to you. Turn reason: `stopped_by_hook`. For `PreToolUse`, the tool does not run. For `PreCompact` and `Notification`, see the table. Only `SessionEnd` ignores it. Inside a sub-agent, it stops only the sub-agent: the `agent` call returns an error (`sub-agent stopped: stopped_by_hook`) and the main turn goes on. |
 | `systemMessage` | Shown to you as a warning, and logged. |
 | `suppressOutput` | Accepted, no visible effect. |
 | `decision`, `reason` | `block` + `reason` blocks, for the events that can block. |
@@ -711,12 +711,14 @@ The hook receives both the Claude Code names and the tenon names. Fields that te
 A failing hook never blocks: an error, a timeout, an unreadable JSON or a provider error for a `prompt` or `agent` hook is a non-blocking error. The action goes on, and a warning is shown and logged. Only a deliberate decision blocks (exit `2`, `deny`, `block`, `ok: false`).
 If you cancel the turn during a hook, the hook is killed (`status: cancelled`) and the turn stops as for any cancel.
 Test your hooks: a security hook that fails silently does not protect you.
+Warnings of `SessionEnd` hooks are not shown: these hooks run after the interface has closed. They are only in the audit log.
 
 ### In the interface
 
 - At startup, the banner adds `hooks: N (claude: M)` when at least one hook is loaded, then the notices (ignored project hooks).
 - A successful hook with no effect is invisible. A line `⏺ hook <event> · <command or type> [blocked|asked|error|timeout] <reason>` appears for a block, a request, an error or a timeout. `systemMessage` and `stopReason` are shown as warnings.
-- The approval panel adds the line `hook: <reason>` when the request comes from a hook.
+- The approval panel adds the line `hook: <reason>` when the request comes from a hook (`(no reason given)` if the hook gave none). When a hook changed the tool input (`updatedInput`), the diff preview shows the input that will run.
+- A turn blocked or stopped by a hook ends with a notice ("prompt blocked by a hook", "turn stopped by a hook").
 - `/hooks` lists the hooks. `/help` mentions it.
 - Text that comes from a hook (reasons, `systemMessage`, `stopReason`, stderr) is shown with control characters replaced by spaces and secrets masked.
 

@@ -655,7 +655,7 @@ Champs JSON :
 
 | Champ | Effet |
 |---|---|
-| `continue: false` | Arrête le tour après ce hook. `stopReason` vous est affiché. Raison du tour : `stopped_by_hook`. Pour `PreToolUse`, l'outil ne s'exécute pas. Pour `PreCompact` et `Notification`, voir le tableau. Seul `SessionEnd` l'ignore. |
+| `continue: false` | Arrête le tour après ce hook. `stopReason` vous est affiché. Raison du tour : `stopped_by_hook`. Pour `PreToolUse`, l'outil ne s'exécute pas. Pour `PreCompact` et `Notification`, voir le tableau. Seul `SessionEnd` l'ignore. Dans un sous-agent, il arrête seulement le sous-agent : l'appel `agent` renvoie une erreur (`sub-agent stopped: stopped_by_hook`) et le tour principal continue. |
 | `systemMessage` | Affiché comme avertissement, et journalisé. |
 | `suppressOutput` | Accepté, sans effet visible. |
 | `decision`, `reason` | `block` + `reason` bloque, pour les événements qui peuvent bloquer. |
@@ -713,12 +713,14 @@ Les outils `mcp__<serveur>__<outil>` gardent leur nom.
 Un hook en échec ne bloque jamais : une erreur, un délai, un JSON illisible ou une erreur du fournisseur pour un hook `prompt` ou `agent` est une erreur non bloquante. L'action continue, et un avertissement est affiché et journalisé. Seule une décision volontaire bloque (code `2`, `deny`, `block`, `ok: false`).
 Si vous annulez le tour pendant un hook, le hook est tué (`status: cancelled`) et le tour s'arrête comme pour toute annulation.
 Testez vos hooks : un hook de sécurité qui échoue en silence ne vous protège pas.
+Les avertissements des hooks `SessionEnd` ne sont pas affichés : ces hooks s'exécutent après la fermeture de l'interface. Ils sont seulement dans le journal d'audit.
 
 ### Dans l'interface
 
 - Au démarrage, la bannière ajoute `hooks : N (claude : M)` quand au moins un hook est chargé, puis les avis (hooks de projet ignorés).
 - Un hook réussi sans effet est invisible. Une ligne `⏺ hook <événement> · <commande ou type> [bloqué|demandé|erreur|délai dépassé] <raison>` s'affiche pour un blocage, une demande, une erreur ou un délai. `systemMessage` et `stopReason` s'affichent comme avertissements.
-- Le panneau de validation ajoute la ligne `hook : <raison>` quand la demande vient d'un hook.
+- Le panneau de validation ajoute la ligne `hook : <raison>` quand la demande vient d'un hook (`(no reason given)` si le hook n'en donne pas). Quand un hook a modifié l'entrée de l'outil (`updatedInput`), l'aperçu du diff montre l'entrée qui sera exécutée.
+- Un tour bloqué ou arrêté par un hook se termine par un avis (« prompt bloqué par un hook », « tour arrêté par un hook »).
 - `/hooks` liste les hooks. `/help` le mentionne.
 - Le texte qui vient d'un hook (raisons, `systemMessage`, `stopReason`, stderr) est affiché avec les caractères de contrôle remplacés par des espaces et les secrets masqués.
 

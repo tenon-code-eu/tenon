@@ -102,7 +102,7 @@ Les approbations « oui pour la session » sont partagées entre l'agent princip
 ### Les hooks exécutent votre code, avec vos droits
 
 Un hook est un programme que vous avez écrit ou installé. Il s'exécute sous votre identité, hors des règles de permission.
-Seuls vos propres fichiers sont lus (`~/.config/tenon/hooks.json`, et `~/.claude/settings.json` si vous mettez `hooks.claude_settings = true`). **Les hooks d'un projet ne s'exécutent jamais** : tenon affiche seulement un avis. Un dépôt ne peut pas vous faire exécuter de code par un hook.
+Seuls vos propres fichiers sont lus (`~/.config/tenon/hooks.json`, et `~/.claude/settings.json` si vous mettez `hooks.claude_settings = true`). **Les hooks d'un projet ne s'exécutent jamais** : tenon affiche seulement un avis. Un dépôt ne peut pas vous faire exécuter de code par un hook qui lui appartient. Mais un de vos hooks qui exécute un fichier du projet (`$CLAUDE_PROJECT_DIR/.claude/hooks/x.sh`, `./scripts/...`, `npm test`) exécute du code du dépôt, avec vos droits : n'écrivez de tels hooks que pour des dépôts de confiance.
 
 Un hook ne peut pas élargir les permissions de la session. `allow` lève seulement un `ask` issu des règles, comme le ferait une règle `allow` globale. Il ne lève jamais une règle `deny`, une action protégée, un chemin hors du projet, un fichier sensible ni une règle `ask` du projet. Un hook peut toujours restreindre : `deny`, `ask`, ou une modification de l'entrée de l'outil, qui est revalidée.
 

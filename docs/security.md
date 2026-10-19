@@ -100,7 +100,7 @@ The approvals "yes for the session" are shared between the main agent and its su
 ### Hooks run your code, with your rights
 
 A hook is a program you wrote or installed. It runs as you, outside the permission rules.
-Only your own files are read (`~/.config/tenon/hooks.json`, and `~/.claude/settings.json` if you set `hooks.claude_settings = true`). **Hooks of a project never run**: tenon only shows a notice. A repository cannot make you run code through a hook.
+Only your own files are read (`~/.config/tenon/hooks.json`, and `~/.claude/settings.json` if you set `hooks.claude_settings = true`). **Hooks of a project never run**: tenon only shows a notice. A repository cannot make you run code through a hook of its own. But a hook of yours that runs a file of the project (`$CLAUDE_PROJECT_DIR/.claude/hooks/x.sh`, `./scripts/...`, `npm test`) runs code of the repository, with your rights: write such hooks only for repositories you trust.
 
 A hook cannot widen the permissions of the session. `allow` lifts only an `ask` that comes from the rules, as a global `allow` rule would. It never lifts a `deny` rule, a protected action, a path outside the project, a sensitive file or an `ask` rule of the project. A hook can always restrict: `deny`, `ask`, or a change of the tool input that is checked again.
 
