@@ -11,6 +11,14 @@ type keyMap struct {
 	Complete  key.Binding // complète une commande /...
 	PageUp    key.Binding
 	PageDown  key.Binding
+	LineUp    key.Binding // une ligne vers le haut
+	LineDown  key.Binding // une ligne vers le bas
+	// HalfUp, HalfDown, Top et Bottom ne font défiler que si la saisie est
+	// vide : sinon ils gardent leur rôle d'édition (Ctrl+U, Ctrl+D, Début, Fin).
+	HalfUp   key.Binding
+	HalfDown key.Binding
+	Top      key.Binding
+	Bottom   key.Binding
 }
 
 var keys = keyMap{
@@ -21,4 +29,10 @@ var keys = keyMap{
 	Complete:  key.NewBinding(key.WithKeys("tab")),
 	PageUp:    key.NewBinding(key.WithKeys("pgup")),
 	PageDown:  key.NewBinding(key.WithKeys("pgdown")),
+	LineUp:    key.NewBinding(key.WithKeys("shift+up")),
+	LineDown:  key.NewBinding(key.WithKeys("shift+down")),
+	HalfUp:    key.NewBinding(key.WithKeys("ctrl+u")),
+	HalfDown:  key.NewBinding(key.WithKeys("ctrl+d")),
+	Top:       key.NewBinding(key.WithKeys("home")),
+	Bottom:    key.NewBinding(key.WithKeys("end")),
 }

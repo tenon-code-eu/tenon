@@ -186,6 +186,9 @@ func (m Model) statusBar() string {
 			b.WriteString(m.st.status.Render(sanitize(s)))
 		}
 	}
+	if m.unseen {
+		b.WriteString(m.st.status.Render(i18n.T(m.lang, "tui.scroll.new")))
+	}
 	write(parts)
 	b.WriteString(m.st.status.Render(sep))
 	b.WriteString(m.jurisdictionStyle(p.Jurisdiction).Render(jur))

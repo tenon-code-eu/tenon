@@ -77,7 +77,11 @@ Le nombre de jetons est une estimation.
 | Alt+Entrée ou Ctrl+J | Insère un retour à la ligne. |
 | Échap | Annule le tour en cours. Deux fois en moins de 1 s hors tour : ouvre `/rewind`. |
 | Ctrl+C | Annule le tour en cours. Hors tour, quitte. Deux fois en moins de 2 s pendant un tour : quitte. |
-| PgPréc / PgSuiv | Fait défiler la conversation. |
+| PgPréc / PgSuiv | Fait défiler la conversation d'une page (sur un Mac portable : fn + ↑ / fn + ↓). |
+| Maj + ↑ / Maj + ↓ | Fait défiler d'une ligne. |
+| Molette ou trackpad | Fait défiler de 3 lignes. Pour sélectionner du texte à la souris, maintenez Option (iTerm2, Terminal) ou Maj (la plupart des terminaux Linux) en glissant. |
+| Ctrl+U / Ctrl+D | Fait défiler d'une demi-page, quand la saisie est vide (sinon, ces touches modifient la saisie). |
+| Début / Fin | Va en haut ou en bas de la conversation, quand la saisie est vide. |
 | `/help` | Affiche l'aide des touches, une ligne par commande intégrée, et les skills disponibles. |
 | `/skills` | Liste les skills. |
 | `/agents` | Liste les sous-agents (voir [Sous-agents](#sous-agents)). |
@@ -86,6 +90,8 @@ Le nombre de jetons est une estimation.
 | `/<nom> [arguments]` | Déclenche un skill (voir [Skills](#skills)). |
 | Tab | Complète une commande ou un nom de skill après `/`. |
 | `/quit` | Quitte. |
+
+Pendant que vous lisez plus haut, le nouveau texte ne déplace pas la vue : la barre d'état commence par `↓ nouveau texte`. Fin, PgSuiv ou la molette jusqu'en bas rétablissent le suivi automatique.
 
 ### Écran d'accueil
 

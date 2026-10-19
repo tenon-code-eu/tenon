@@ -54,11 +54,13 @@ type Options struct {
 }
 
 const (
-	defaultWidth   = 80
-	defaultHeight  = 24
-	inputHeight    = 3
-	statusHeight   = 1
-	ctrlCWindow    = 2 * time.Second
+	defaultWidth  = 80
+	defaultHeight = 24
+	inputHeight   = 3
+	statusHeight  = 1
+	ctrlCWindow   = 2 * time.Second
+	// wheelLines est le nombre de lignes défilées par cran de molette.
+	wheelLines     = 3
 	minConvHeight  = 1
 	inputPrompt    = "> "
 	quitCommand    = "/quit"
@@ -150,6 +152,8 @@ type Model struct {
 	// scrollBack est le nombre de lignes de conversation masquées sous la vue
 	// (0 : la vue suit le bas).
 	scrollBack int
+	// unseen indique qu'un texte est arrivé sous la vue pendant la lecture.
+	unseen bool
 
 	// turn est l'état du tour en cours, partagé par toutes les copies du
 	// modèle et par Run, qui l'annule et l'attend même sans modèle final.
@@ -235,7 +239,7 @@ func Run(ctx context.Context, eng Engine, opts Options, in io.Reader, out io.Wri
 	m := New(eng, opts)
 	m.ctx = runCtx
 	m.st = newStyles(lipgloss.NewRenderer(out))
-	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithContext(ctx), tea.WithInput(in), tea.WithOutput(out))
+	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion(), tea.WithContext(ctx), tea.WithInput(in), tea.WithOutput(out))
 	_, err := p.Run()
 	// L'état du tour est partagé : annulation, vidage de l'abonnement et
 	// attente ont lieu même si Bubble Tea ne rend pas de modèle final.
@@ -301,7 +305,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Type == event.UserMessage && m.busy() {
 			m.userSeen = true
 		}
+		// Pendant la lecture (vue remontée), la vue reste sur les mêmes
+		// lignes : le texte qui arrive s'ajoute dessous, sans la déplacer.
+		reading := m.scrollBack > 0
+		var before int
+		if reading {
+			before = len(m.conversationLines())
+		}
 		m.tr.Apply(event.Event(msg))
+		if reading {
+			if added := len(m.conversationLines()) - before; added > 0 {
+				m.scrollBack += added
+				m.unseen = true
+			}
+		}
 		preview := m.trackEvent(event.Event(msg))
 		// La lecture n'est jamais suspendue, même pendant une demande de
 		// permission : l'engine bloquerait sur un tampon plein.
@@ -335,6 +352,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.KeyMsg:
 		return m.handleKey(msg)
+	case tea.MouseMsg:
+		if msg.Action == tea.MouseActionPress {
+			switch msg.Button {
+			case tea.MouseButtonWheelUp:
+				m.scroll(wheelLines)
+			case tea.MouseButtonWheelDown:
+				m.scroll(-wheelLines)
+			}
+		}
+		return m, nil
 	}
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
@@ -382,6 +409,24 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, keys.PageDown):
 		m.scroll(-m.convHeight())
 		return m, nil
+	case key.Matches(msg, keys.LineUp):
+		m.scroll(1)
+		return m, nil
+	case key.Matches(msg, keys.LineDown):
+		m.scroll(-1)
+		return m, nil
+	case m.input.Value() == "" && key.Matches(msg, keys.HalfUp):
+		m.scroll(max(1, m.convHeight()/2))
+		return m, nil
+	case m.input.Value() == "" && key.Matches(msg, keys.HalfDown):
+		m.scroll(-max(1, m.convHeight()/2))
+		return m, nil
+	case m.input.Value() == "" && key.Matches(msg, keys.Top):
+		m.scroll(len(m.conversationLines()))
+		return m, nil
+	case m.input.Value() == "" && key.Matches(msg, keys.Bottom):
+		m.scroll(-m.scrollBack)
+		return m, nil
 	case key.Matches(msg, keys.Submit):
 		return m.submit()
 	case key.Matches(msg, keys.Complete):
@@ -419,22 +464,22 @@ func (m Model) submit() (tea.Model, tea.Cmd) {
 		if names := m.skillNames(); len(names) > 0 {
 			m.tr.notice(i18n.T(m.lang, "tui.help.skills", "/"+strings.Join(names, ", /")))
 		}
-		m.scrollBack = 0
+		m.scrollBack, m.unseen = 0, false
 		return m, nil
 	case skillsCommand:
 		m.input.Reset()
 		m.skillsNotices()
-		m.scrollBack = 0
+		m.scrollBack, m.unseen = 0, false
 		return m, nil
 	case agentsCommand:
 		m.input.Reset()
 		m.agentsNotices()
-		m.scrollBack = 0
+		m.scrollBack, m.unseen = 0, false
 		return m, nil
 	case hooksCommand:
 		m.input.Reset()
 		m.hooksNotices()
-		m.scrollBack = 0
+		m.scrollBack, m.unseen = 0, false
 		return m, nil
 	case rewindCommand:
 		m.input.Reset()
@@ -452,11 +497,11 @@ func (m Model) submit() (tea.Model, tea.Cmd) {
 				tok = f[0]
 			}
 			m.tr.notice(i18n.T(m.lang, "skills.unknown", cleanToken(tok)))
-			m.scrollBack = 0
+			m.scrollBack, m.unseen = 0, false
 			return m, nil
 		case err != nil:
 			m.tr.notice(cleanToken(err.Error()))
-			m.scrollBack = 0
+			m.scrollBack, m.unseen = 0, false
 			return m, nil
 		case ok:
 			in = engine.Input{Text: exp.Text, Skill: exp.Skill, SkillSHA256: exp.SHA256}
@@ -466,7 +511,7 @@ func (m Model) submit() (tea.Model, tea.Cmd) {
 		}
 	}
 	m.input.Reset()
-	m.scrollBack = 0
+	m.scrollBack, m.unseen = 0, false
 	ctx, cancel := context.WithCancel(m.ctx)
 	done := make(chan struct{})
 	m.turn.start(cancel, done)
@@ -533,4 +578,7 @@ func (m Model) convHeight() int {
 func (m *Model) scroll(n int) {
 	limit := max(0, len(m.conversationLines())-m.convHeight())
 	m.scrollBack = min(max(0, m.scrollBack+n), limit)
+	if m.scrollBack == 0 {
+		m.unseen = false
+	}
 }

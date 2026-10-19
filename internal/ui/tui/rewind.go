@@ -69,11 +69,11 @@ func (m *Model) openRewind() {
 	pts := m.eng.RewindPoints(m.opts.SessionID)
 	if len(pts) == 0 {
 		m.tr.notice(i18n.T(m.lang, "tui.rewind.nothing"))
-		m.scrollBack = 0
+		m.scrollBack, m.unseen = 0, false
 		return
 	}
 	m.rw = &rewindUI{points: pts}
-	m.scrollBack = 0
+	m.scrollBack, m.unseen = 0, false
 }
 
 // clean nettoie et masque un texte venu de la session ou du disque.
@@ -97,7 +97,7 @@ func (m *Model) closeRewind(notice string) {
 	if notice != "" {
 		m.tr.notice(notice)
 	}
-	m.scrollBack = 0
+	m.scrollBack, m.unseen = 0, false
 }
 
 func (m Model) handleRewindKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -244,7 +244,7 @@ func (m Model) execRewind() (tea.Model, tea.Cmd) {
 // finishRewind ferme le panneau, affiche le bilan et remet le prompt.
 func (m *Model) finishRewind(d rewindDone) {
 	m.rw = nil
-	m.scrollBack = 0
+	m.scrollBack, m.unseen = 0, false
 	if d.err != nil {
 		m.tr.notice(i18n.T(m.lang, "tui.rewind.error", m.clean(d.err.Error())))
 		return

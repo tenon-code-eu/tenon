@@ -77,7 +77,11 @@ The token count is an estimate.
 | Alt+Enter or Ctrl+J | Inserts a line break. |
 | Esc | Cancels the current turn. Twice in less than 1 s outside a turn: opens `/rewind`. |
 | Ctrl+C | Cancels the current turn. Outside a turn, quits. Twice in less than 2 s during a turn: quits. |
-| PgUp / PgDn | Scrolls the conversation. |
+| PgUp / PgDn | Scrolls the conversation by one page (on a Mac laptop: fn + ↑ / fn + ↓). |
+| Shift + ↑ / Shift + ↓ | Scrolls by one line. |
+| Mouse wheel or trackpad | Scrolls by 3 lines. To select text with the mouse, hold Option (iTerm2, Terminal) or Shift (most Linux terminals) while dragging. |
+| Ctrl+U / Ctrl+D | Scrolls by half a page, when the input is empty (otherwise they edit the input). |
+| Home / End | Goes to the top or the bottom of the conversation, when the input is empty. |
 | `/help` | Shows the key help, one line per built-in command, and the available skills. |
 | `/skills` | Lists the skills. |
 | `/agents` | Lists the sub-agents (see [Sub-agents](#sub-agents)). |
@@ -86,6 +90,8 @@ The token count is an estimate.
 | `/<name> [arguments]` | Starts a skill (see [Skills](#skills)). |
 | Tab | Completes a command or a skill name after `/`. |
 | `/quit` | Quits. |
+
+While you read higher up, new text does not move the view: the status bar starts with `↓ new text`. End, PgDn or the wheel down to the bottom brings back automatic following.
 
 ### Welcome screen
 
