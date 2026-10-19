@@ -45,6 +45,9 @@ type ContextCompactedPayload struct {
 	Replaced     int    `json:"replaced"`
 	TokensBefore int    `json:"tokens_before"`
 	TokensAfter  int    `json:"tokens_after"`
+	// ParentCallID is the call_id of the "agent" tool call that produced this
+	// event inside a sub-agent run; empty for the main agent.
+	ParentCallID string `json:"parent_call_id,omitempty"`
 }
 
 // AssistantDeltaPayload carries a streamed fragment of an assistant reply.
@@ -57,6 +60,9 @@ type AssistantMessagePayload struct {
 	Text       string         `json:"text"`
 	ToolCalls  []llm.ToolCall `json:"tool_calls,omitempty"`
 	Incomplete bool           `json:"incomplete"`
+	// ParentCallID is the call_id of the "agent" tool call that produced this
+	// event inside a sub-agent run; empty for the main agent.
+	ParentCallID string `json:"parent_call_id,omitempty"`
 }
 
 // ToolCallRequestedPayload records a tool call requested by the model.
@@ -64,6 +70,9 @@ type ToolCallRequestedPayload struct {
 	CallID string          `json:"call_id"`
 	Tool   string          `json:"tool"`
 	Args   json.RawMessage `json:"args"`
+	// ParentCallID is the call_id of the "agent" tool call that produced this
+	// event inside a sub-agent run; empty for the main agent.
+	ParentCallID string `json:"parent_call_id,omitempty"`
 }
 
 // PermissionRequestedPayload asks for approval of a tool or jurisdiction action.
@@ -75,6 +84,9 @@ type PermissionRequestedPayload struct {
 	Paths        []string          `json:"paths,omitempty"`
 	Command      string            `json:"command"`
 	Provider     *llm.ProviderInfo `json:"provider,omitempty"`
+	// ParentCallID is the call_id of the "agent" tool call that produced this
+	// event inside a sub-agent run; empty for the main agent.
+	ParentCallID string `json:"parent_call_id,omitempty"`
 }
 
 // PermissionResolvedPayload records the answer to a permission request.
@@ -82,6 +94,9 @@ type PermissionResolvedPayload struct {
 	PermissionID string `json:"permission_id"`
 	Allowed      bool   `json:"allowed"`
 	Remember     bool   `json:"remember"`
+	// ParentCallID is the call_id of the "agent" tool call that produced this
+	// event inside a sub-agent run; empty for the main agent.
+	ParentCallID string `json:"parent_call_id,omitempty"`
 }
 
 // ToolResultPayload records the outcome of a tool run. Denied is "policy"
@@ -96,6 +111,9 @@ type ToolResultPayload struct {
 	HashBefore string `json:"hash_before"`
 	HashAfter  string `json:"hash_after"`
 	Denied     string `json:"denied,omitempty"`
+	// ParentCallID is the call_id of the "agent" tool call that produced this
+	// event inside a sub-agent run; empty for the main agent.
+	ParentCallID string `json:"parent_call_id,omitempty"`
 }
 
 // McpServerDownPayload reports an MCP server that is unreachable (at start or
@@ -103,16 +121,25 @@ type ToolResultPayload struct {
 type McpServerDownPayload struct {
 	Server string `json:"server"`
 	Error  string `json:"error"`
+	// ParentCallID is the call_id of the "agent" tool call that produced this
+	// event inside a sub-agent run; empty for the main agent.
+	ParentCallID string `json:"parent_call_id,omitempty"`
 }
 
 // JurisdictionWarningPayload warns that a provider lies outside the preferred jurisdiction.
 type JurisdictionWarningPayload struct {
 	Provider llm.ProviderInfo `json:"provider"`
+	// ParentCallID is the call_id of the "agent" tool call that produced this
+	// event inside a sub-agent run; empty for the main agent.
+	ParentCallID string `json:"parent_call_id,omitempty"`
 }
 
 // RedactionAppliedPayload counts secrets redacted before sending.
 type RedactionAppliedPayload struct {
 	Counts map[string]int `json:"counts"`
+	// ParentCallID is the call_id of the "agent" tool call that produced this
+	// event inside a sub-agent run; empty for the main agent.
+	ParentCallID string `json:"parent_call_id,omitempty"`
 }
 
 // TurnCompletedPayload ends a turn. Reason is "done", "max_iterations", "incomplete", "blocked", "cancelled" or "context_too_large".
@@ -125,4 +152,62 @@ type TurnCompletedPayload struct {
 type ErrorPayload struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
+	// ParentCallID is the call_id of the "agent" tool call that produced this
+	// event inside a sub-agent run; empty for the main agent.
+	ParentCallID string `json:"parent_call_id,omitempty"`
+}
+
+// SubagentStartedPayload opens a sub-agent run launched by the "agent" tool call CallID.
+type SubagentStartedPayload struct {
+	CallID      string `json:"call_id"`
+	Agent       string `json:"agent"`
+	Description string `json:"description"`
+}
+
+// SubagentCompletedPayload closes a sub-agent run. Status is "ok", "error" or "cancelled".
+type SubagentCompletedPayload struct {
+	CallID     string `json:"call_id"`
+	Status     string `json:"status"`
+	Iterations int    `json:"iterations"`
+}
+
+// WithParent returns a copy of payload (a value type) with ParentCallID set.
+// Other payload types, and an empty parentCallID, return payload unchanged.
+func WithParent(payload any, parentCallID string) any {
+	if parentCallID == "" {
+		return payload
+	}
+	switch p := payload.(type) {
+	case AssistantMessagePayload:
+		p.ParentCallID = parentCallID
+		return p
+	case ToolCallRequestedPayload:
+		p.ParentCallID = parentCallID
+		return p
+	case ToolResultPayload:
+		p.ParentCallID = parentCallID
+		return p
+	case PermissionRequestedPayload:
+		p.ParentCallID = parentCallID
+		return p
+	case PermissionResolvedPayload:
+		p.ParentCallID = parentCallID
+		return p
+	case ContextCompactedPayload:
+		p.ParentCallID = parentCallID
+		return p
+	case RedactionAppliedPayload:
+		p.ParentCallID = parentCallID
+		return p
+	case JurisdictionWarningPayload:
+		p.ParentCallID = parentCallID
+		return p
+	case ErrorPayload:
+		p.ParentCallID = parentCallID
+		return p
+	case McpServerDownPayload:
+		p.ParentCallID = parentCallID
+		return p
+	}
+	return payload
 }

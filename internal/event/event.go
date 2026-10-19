@@ -25,6 +25,8 @@ const (
 	McpServerDown       Type = "McpServerDown"
 	TurnCompleted       Type = "TurnCompleted"
 	Error               Type = "Error"
+	SubagentStarted     Type = "SubagentStarted"
+	SubagentCompleted   Type = "SubagentCompleted"
 )
 
 // Event is one entry of a session log.
