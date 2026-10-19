@@ -342,6 +342,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Le double Échap doit être consécutif : toute autre touche l'annule.
+	if !key.Matches(msg, keys.Cancel) {
+		m.lastEsc = time.Time{}
+	}
 	if m.rw != nil {
 		return m.handleRewindKey(msg)
 	}

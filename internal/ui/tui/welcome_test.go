@@ -212,3 +212,14 @@ func TestWelcomeWraps(t *testing.T) {
 		t.Errorf("retrait des lignes de suite : %q", lines)
 	}
 }
+
+// Le séparateur « · » occupe 3 colonnes (4 octets) : une ligne qui tient
+// exactement n'est pas coupée.
+func TestWrapAtSeparatorsDisplayWidth(t *testing.T) {
+	if got := wrapAtSeparators("ab · cd", 0, 7); len(got) != 1 || got[0] != "ab · cd" {
+		t.Fatalf("lignes %q", got)
+	}
+	if got := wrapAtSeparators("ab · cd", 0, 6); len(got) != 2 {
+		t.Fatalf("lignes %q", got)
+	}
+}

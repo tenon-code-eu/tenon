@@ -114,13 +114,14 @@ func TestRewindPointsListAndPreview(t *testing.T) {
 	typeText(h, "/rewind")
 	enter(h)
 	v := view(h)
-	if !strings.Contains(v, "#5  second") || !strings.Contains(v, "#2  first (code only)") {
+	// Numérotés depuis le plus ancien (#1), comme tenon rewind --list.
+	if !strings.Contains(v, "#2  second") || !strings.Contains(v, "#1  first (code only)") || strings.Contains(v, "#5") {
 		t.Fatalf("liste :\n%s", v)
 	}
 	enter(h)
 	v = view(h)
 	for _, want := range []string{
-		"restore a.go", "delete b.go", "conflict: modified since c.go", "unrestorable d.go",
+		"restore a.go", "delete b.go", "conflict (modified since): c.go", "unrestorable d.go",
 		"unchanged e.go", "restore /elsewhere/f.go", "2 shell or MCP calls are not undone",
 		"code and conversation", "conversation only", "code only",
 	} {
@@ -224,7 +225,7 @@ func TestRewindResultNotice(t *testing.T) {
 	f.rwRes = engine.RewindResult{Files: []event.RewoundFile{
 		{Path: "/p/a.go", Status: "restored"}, {Path: "/p/b.go", Status: "deleted"},
 		{Path: "/p/c.go", Status: "kept"}, {Path: "/p/d.go", Status: "failed", Error: "boom\x1b[31m"},
-		{Path: "/p/e.go", Status: "unchanged"},
+		{Path: "/p/e.go", Status: "unchanged"}, {Path: "/p/f.go", Status: "skipped"},
 	}, Prompt: "again"}
 	h := rwHarness(t, f)
 	typeText(h, "/rewind")
@@ -234,7 +235,7 @@ func TestRewindResultNotice(t *testing.T) {
 	typeText(h, "n")
 	h.until("fin", func() bool { return h.m.rw == nil })
 	n := notices(h)
-	if !strings.Contains(n, "rewind: 1 restored · 1 deleted · 1 kept · 1 failed") || !strings.Contains(n, "failed: d.go: boom [31m") {
+	if !strings.Contains(n, "rewind: 1 restored · 1 deleted · 1 kept · 1 skipped · 1 failed") || !strings.Contains(n, "failed: d.go: boom [31m") {
 		t.Fatalf("notices %q", n)
 	}
 	if strings.ContainsRune(n, 0x1b) {
@@ -294,5 +295,46 @@ func TestRewindListCleanedAndMasked(t *testing.T) {
 	}
 	if strings.Contains(v, "SECRET123") || !strings.Contains(v, "[REDACTED]") {
 		t.Fatalf("secret non masqué :\n%s", v)
+	}
+}
+
+// Rien à faire, mais des fichiers non restaurables : l'aperçu les montre,
+// tous les modes grisés.
+func TestRewindNothingButUnrestorable(t *testing.T) {
+	f := rwFake()
+	f.rwPlan = checkpoint.Plan{Files: []checkpoint.FilePlan{
+		{Path: "/p/d.go", Action: "restore", Status: "unrestorable"},
+		{Path: "/p/e.go", Status: "noop"},
+	}}
+	h := rwHarness(t, f)
+	typeText(h, "/rewind")
+	enter(h)
+	enter(h)
+	if h.m.rw == nil || h.m.rw.step != stepMode || !strings.Contains(view(h), "unrestorable d.go") {
+		t.Fatalf("aperçu absent ; notices %q\n%s", notices(h), view(h))
+	}
+	for _, md := range h.m.rw.modes {
+		if md.ok {
+			t.Fatalf("mode sélectionnable %+v", md)
+		}
+	}
+	enter(h)
+	if h.m.rw == nil || h.m.rw.step != stepMode || len(f.rwCalls) != 0 {
+		t.Fatalf("Entrée sur un mode grisé : %+v, appels %d", h.m.rw, len(f.rwCalls))
+	}
+	esc(h)
+	if h.m.rw == nil || h.m.rw.step != stepPoints {
+		t.Fatal("Échap ne revient pas à la liste")
+	}
+}
+
+// Une autre touche entre deux Échap annule le double Échap.
+func TestRewindEscOtherKeyResets(t *testing.T) {
+	h := rwHarness(t, rwFake())
+	esc(h)
+	typeText(h, "x")
+	esc(h)
+	if h.m.rw != nil {
+		t.Fatal("ouvert malgré une touche entre les deux Échap")
 	}
 }

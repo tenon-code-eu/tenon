@@ -167,7 +167,7 @@ func (m *Model) pickPoint() {
 		m.closeRewind(i18n.T(m.lang, "tui.rewind.error", m.clean(err.Error())))
 		return
 	}
-	acts := false
+	acts, unrestorable := false, false
 	rw.confl = nil
 	for _, f := range plan.Files {
 		switch f.Status {
@@ -176,10 +176,14 @@ func (m *Model) pickPoint() {
 		case checkpoint.StatusConflict:
 			acts = true
 			rw.confl = append(rw.confl, f.Path)
+		case checkpoint.StatusUnrestorable:
+			unrestorable = true
 		}
 	}
 	conv := plan.ConversationAvailable
-	if !acts && !conv {
+	// Rien à faire : avis, sauf s'il faut montrer les fichiers non
+	// restaurables (aperçu, tous les modes grisés).
+	if !acts && !conv && !unrestorable {
 		m.closeRewind(i18n.T(m.lang, "tui.rewind.nothing"))
 		return
 	}
@@ -202,6 +206,9 @@ func (m *Model) pickPoint() {
 // pickMode valide le mode : conflits à interroger, sinon exécution.
 func (m Model) pickMode() (tea.Model, tea.Cmd) {
 	rw := m.rw
+	if !rw.modes[rw.mcur].ok {
+		return m, nil
+	}
 	rw.mode = rw.modes[rw.mcur].mode
 	rw.forced, rw.ci = nil, 0
 	if rw.mode != engine.RewindConversation && len(rw.confl) > 0 {
@@ -242,7 +249,7 @@ func (m *Model) finishRewind(d rewindDone) {
 		m.tr.notice(i18n.T(m.lang, "tui.rewind.error", m.clean(d.err.Error())))
 		return
 	}
-	var restored, deleted, kept, failed int
+	var restored, deleted, kept, skipped, failed int
 	for _, f := range d.res.Files {
 		switch f.Status {
 		case "restored":
@@ -251,11 +258,13 @@ func (m *Model) finishRewind(d rewindDone) {
 			deleted++
 		case "kept":
 			kept++
+		case "skipped":
+			skipped++
 		case "failed":
 			failed++
 		}
 	}
-	m.tr.notice(i18n.T(m.lang, "tui.rewind.result", restored, deleted, kept, failed))
+	m.tr.notice(i18n.T(m.lang, "tui.rewind.result", restored, deleted, kept, skipped, failed))
 	for _, f := range d.res.Files {
 		if f.Status == "failed" {
 			m.tr.notice(i18n.T(m.lang, "tui.rewind.failed_line", m.relPath(f.Path), m.clean(f.Error)))
@@ -278,7 +287,8 @@ func (m Model) rewindLines() []string {
 		lo := max(0, min(rw.cursor-rewindRows/2, len(rw.points)-rewindRows))
 		for i := lo; i < len(rw.points) && i < lo+rewindRows; i++ {
 			p := rw.points[i]
-			line := "#" + strconv.FormatUint(p.Seq, 10) + "  " + m.clean(p.Excerpt)
+			// Numéro depuis le plus ancien (#1), comme tenon rewind --list.
+			line := "#" + strconv.Itoa(len(rw.points)-i) + "  " + m.clean(p.Excerpt)
 			if !p.Conversation {
 				line += " " + i18n.T(m.lang, "rewind.code_only")
 			}

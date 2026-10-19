@@ -203,7 +203,7 @@ func wrapAtSeparators(text string, indent, width int) []string {
 	var out []string
 	cur := segs[0]
 	for _, seg := range segs[1:] {
-		if ansi.StringWidth(cur)+len(sep)+ansi.StringWidth(seg) <= width {
+		if ansi.StringWidth(cur)+ansi.StringWidth(sep)+ansi.StringWidth(seg) <= width {
 			cur += sep + seg
 			continue
 		}
