@@ -256,6 +256,7 @@ The compared text depends on the tool:
 | `read_file`, `write_file`, `edit_file`, `grep`, `glob` | the path, relative to the project root |
 | `shell` | the command, as is |
 | `mcp__<server>__<tool>` | `mcp <server>.<tool> <compact JSON arguments>`, for example `mcp gh.create_issue {"title":"x"}` |
+| `agent` | the agent name (`general-purpose` when `agent` is omitted) |
 
 So a path pattern does not apply to commands: `tool = "*"`, `match = "secrets/*"` blocks `read_file secrets/k`, but not the command `cat secrets/k`.
 To protect a directory, combine a path rule and a shell rule:
@@ -480,8 +481,8 @@ The model launches a sub-agent with the `agent` tool:
 | Argument | Rule |
 |---|---|
 | `agent` | Optional. Name of the agent. Default: `general-purpose`. |
-| `description` | Required. Short description of the task (3 to 5 words). |
-| `prompt` | Required. Complete instructions: the sub-agent does not see the conversation. |
+| `description` | Short label of the task (3 to 5 words), shown in the interface. Required by the tool schema, but not checked. |
+| `prompt` | Required and checked. Complete instructions: the sub-agent does not see the conversation. |
 
 The result is the last answer of the sub-agent, cut by `output_limit` and masked like any tool result.
 An unknown agent (`unknown agent: <name>`), an empty `prompt` or invalid arguments are returned to the model as an error result, and the turn continues.

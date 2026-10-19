@@ -256,6 +256,7 @@ Le texte comparé dépend de l'outil :
 | `read_file`, `write_file`, `edit_file`, `grep`, `glob` | le chemin, relatif à la racine du projet |
 | `shell` | la commande, telle quelle |
 | `mcp__<serveur>__<outil>` | `mcp <serveur>.<outil> <arguments JSON compacts>`, par exemple `mcp gh.create_issue {"title":"x"}` |
+| `agent` | le nom de l'agent (`general-purpose` quand `agent` est omis) |
 
 Un motif de chemin ne s'applique donc pas aux commandes : `tool = "*"`, `match = "secrets/*"` bloque `read_file secrets/k`, mais pas la commande `cat secrets/k`.
 Pour protéger un dossier, combinez une règle de chemin et une règle shell :
@@ -482,8 +483,8 @@ Le modèle lance un sous-agent avec l'outil `agent` :
 | Argument | Règle |
 |---|---|
 | `agent` | Facultatif. Nom de l'agent. Défaut : `general-purpose`. |
-| `description` | Obligatoire. Description courte de la tâche (3 à 5 mots). |
-| `prompt` | Obligatoire. Instructions complètes : le sous-agent ne voit pas la conversation. |
+| `description` | Étiquette courte de la tâche (3 à 5 mots), affichée dans l'interface. Exigée par le schéma de l'outil, mais non vérifiée. |
+| `prompt` | Obligatoire et vérifié. Instructions complètes : le sous-agent ne voit pas la conversation. |
 
 Le résultat est la dernière réponse du sous-agent, coupée par `output_limit` et masquée comme tout résultat d'outil.
 Un agent inconnu (`unknown agent: <nom>`), un `prompt` vide ou des arguments invalides sont renvoyés au modèle comme résultat en erreur, et le tour continue.
