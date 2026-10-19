@@ -43,9 +43,9 @@ func TestAgentsListCommand(t *testing.T) {
 func TestAgentsListSanitised(t *testing.T) {
 	e := newEnv(t, nil, "eu")
 	e.writeFile(filepath.Join(e.wd, ".claude", "agents", "evil.md"),
-		"---\nname: evil\ndescription: joli \x1b[31mrouge ‮fin\n---\ncorps\n")
+		"---\nname: evil\ndescription: joli \x1b[31mrouge \u202efin\n---\ncorps\n")
 	code, out, _ := e.run("agents")
-	if code != 0 || !strings.Contains(out, "evil  project") || strings.ContainsAny(out, "\x1b‮") {
+	if code != 0 || !strings.Contains(out, "evil  project") || strings.ContainsAny(out, "\x1b\u202e") {
 		t.Fatalf("code=%d out=%q", code, out)
 	}
 }

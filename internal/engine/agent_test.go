@@ -32,8 +32,7 @@ func newAgentEngine(t *testing.T, script [][]llm.Chunk, files map[string]string,
 		}
 	}
 	cat, _ := agents.Discover(i18n.EN, []agents.Dir{{Path: dir, Source: agents.Project}})
-	var h *harness
-	h = newHarness(t, euInfo, script, append([]func(*Deps){func(d *Deps) {
+	h := newHarness(t, euInfo, script, append([]func(*Deps){func(d *Deps) {
 		d.Agents = cat
 		d.Lang = i18n.EN
 		d.Tools = tools.NewRegistry(append(tools.FS(d.ProjectRoot, 30000), tools.Shell(d.ProjectRoot, time.Second, 30000))...)
