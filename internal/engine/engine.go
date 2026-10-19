@@ -110,6 +110,10 @@ type session struct {
 	warned     bool
 	remembered map[string]bool
 	history    []llm.Message // non masqué ; le masquage a lieu à chaque envoi
+	// startCtx : contexte des hooks SessionStart (startup, resume) en attente,
+	// joint au prochain message utilisateur accepté (un prompt bloqué ne le
+	// consomme pas).
+	startCtx string
 }
 
 // New construit un Engine.
@@ -195,6 +199,9 @@ func (e *Engine) SubmitInput(ctx context.Context, sessionID string, in Input) er
 // EndSession exécute les hooks SessionEnd (reason) d'une session démarrée dans
 // ce processus ; sans effet sinon. Le délai de chaque hook est plafonné à 5 s
 // (hooks.Run). Un continue:false est sans effet. Aucun TurnCompleted n'est émis.
+// À appeler après la fin du tour en cours (annulé ou terminé) : si un tour
+// tient encore la session, EndSession l'attend au plus jusqu'à la fin de ctx,
+// puis renvoie ctx.Err() sans exécuter de hook.
 func (e *Engine) EndSession(ctx context.Context, sessionID, reason string) error {
 	e.mu.Lock()
 	s, ok := e.sessions[sessionID]
@@ -202,7 +209,9 @@ func (e *Engine) EndSession(ctx context.Context, sessionID, reason string) error
 	if !ok {
 		return nil
 	}
-	s.turn.Lock()
+	if err := lockCtx(ctx, &s.turn); err != nil {
+		return err
+	}
 	defer s.turn.Unlock()
 	if !s.started {
 		return nil
@@ -214,6 +223,21 @@ func (e *Engine) EndSession(ctx context.Context, sessionID, reason string) error
 	t := &turn{e: e, s: s, ctx: ctx, h: &s.history, tools: e.tools}
 	_, err := t.runHooks(hooks.SessionEnd, "", map[string]any{"reason": reason})
 	return err
+}
+
+// lockPoll est l'intervalle entre deux tentatives de lockCtx.
+const lockPoll = 10 * time.Millisecond
+
+// lockCtx prend mu, ou renvoie ctx.Err() si ctx se termine avant.
+func lockCtx(ctx context.Context, mu *sync.Mutex) error {
+	for !mu.TryLock() {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(lockPoll):
+		}
+	}
+	return nil
 }
 
 func (e *Engine) isFailed() bool {

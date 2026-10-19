@@ -46,6 +46,8 @@ func (e *Engine) Restore(sessionID string, events []event.Event) error {
 	seq := s.seq
 	permN := s.permN
 	var pending []llm.ToolCall // appels du dernier message assistant sans résultat
+	// startCtx : contexte SessionStart encore en attente (dernier prompt bloqué).
+	var startCtx string
 	closePending := func() {
 		for _, c := range pending {
 			history = append(history, llm.Message{Role: llm.Tool, Content: interruptedMsg, ToolCallID: c.ID})
@@ -77,10 +79,13 @@ func (e *Engine) Restore(sessionID string, events []event.Event) error {
 			if err := unmarshalPayload(ev, &p); err != nil {
 				return err
 			}
-			// Prompt bloqué par un hook : jamais entré dans l'historique.
+			// Prompt bloqué par un hook : jamais entré dans l'historique ; son
+			// hook_context est le contexte SessionStart encore en attente.
 			if p.Blocked {
+				startCtx = p.HookContext
 				continue
 			}
+			startCtx = ""
 			closePending()
 			history = append(history, llm.Message{Role: llm.User, Content: withHookContext(p.Text, p.HookContext)})
 		case event.AssistantMessage:
@@ -138,6 +143,7 @@ func (e *Engine) Restore(sessionID string, events []event.Event) error {
 	closePending()
 
 	s.history = history
+	s.startCtx = startCtx
 	s.seq = seq
 	s.permN = permN
 	s.started = false

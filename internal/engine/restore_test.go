@@ -345,3 +345,30 @@ func TestRestoreHookContext(t *testing.T) {
 		t.Fatalf("historique restauré\n%s\nattendu\n%s", got, js)
 	}
 }
+
+func TestRestoreSkipsSubagentStopFeedback(t *testing.T) {
+	tc := llm.ToolCall{ID: "m1", Name: "agent", Args: json.RawMessage(agentCall)}
+	l := &evLog{t: t, sid: "s_1"}
+	l.add(event.SessionStarted, event.SessionStartedPayload{Provider: euInfo}).
+		add(event.UserMessage, event.UserMessagePayload{Text: "go"}).
+		add(event.AssistantMessage, event.AssistantMessagePayload{ToolCalls: []llm.ToolCall{tc}}).
+		add(event.AssistantMessage, event.AssistantMessagePayload{Text: "sub first", ParentCallID: "m1"}).
+		add(event.UserMessage, event.UserMessagePayload{Text: "Stop hook feedback: once", Hook: "SubagentStop", ParentCallID: "m1"}).
+		add(event.AssistantMessage, event.AssistantMessagePayload{Text: "sub second", ParentCallID: "m1"}).
+		add(event.ToolResult, event.ToolResultPayload{CallID: "m1", Tool: "agent", Content: "sub second"}).
+		add(event.AssistantMessage, event.AssistantMessagePayload{Text: "main done"})
+	h := newHarness(t, euInfo, [][]llm.Chunk{text("ok")})
+	if err := h.eng.Restore("s_1", l.evs); err != nil {
+		t.Fatal(err)
+	}
+	want := []llm.Message{
+		{Role: llm.System, Content: "Tu es un agent de test."},
+		{Role: llm.User, Content: "go"},
+		{Role: llm.Assistant, ToolCalls: []llm.ToolCall{tc}},
+		{Role: llm.Tool, Content: "sub second", ToolCallID: "m1"},
+		{Role: llm.Assistant, Content: "main done"},
+	}
+	if got := h.eng.sessions["s_1"].history; mustJSON(got) != mustJSON(want) {
+		t.Fatalf("historique\n%s\nattendu\n%s", mustJSON(got), mustJSON(want))
+	}
+}

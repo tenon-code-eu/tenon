@@ -1084,18 +1084,43 @@ func TestStopNotOnCancelOrError(t *testing.T) {
 			}
 		})
 	}
-	t.Run("cancelled", func(t *testing.T) {
+	// Annulation reçue avec la fin du flux (réponse complète, sans appel
+	// d'outil) : la boucle verrait une fin done, mais aucun Stop ne part.
+	t.Run("cancelled at end of stream", func(t *testing.T) {
 		rec := filepath.Join(t.TempDir(), "rec")
-		h := newHarness(t, euInfo, [][]llm.Chunk{text("x")}, withHooks(t, hk{"Stop", "", recHook(t, rec, "")}))
 		ctx, cancel := context.WithCancel(context.Background())
-		cancel()
+		defer cancel()
+		h := newHarness(t, euInfo, nil, withHooks(t, hk{"Stop", "", recHook(t, rec, "")}), func(d *Deps) {
+			d.Provider = &cancelProvider{info: euInfo, cancel: cancel}
+		})
 		if err := h.eng.Submit(ctx, "s_1", "go"); !errors.Is(err, context.Canceled) {
 			t.Fatalf("err %v", err)
 		}
 		if n := len(ofType(h.sink.events, event.HookStarted)); n != 0 || exists(rec) {
 			t.Fatalf("%d HookStarted", n)
 		}
+		if tc := lastTurn(t, h.sink.events); tc.Reason != "cancelled" {
+			t.Fatalf("TurnCompleted %+v", tc)
+		}
 	})
+}
+
+// cancelProvider renvoie une réponse complète et annule le contexte du tour
+// juste avant le dernier fragment (Done).
+type cancelProvider struct {
+	info   llm.ProviderInfo
+	cancel context.CancelFunc
+}
+
+func (p *cancelProvider) Info() llm.ProviderInfo { return p.info }
+
+func (p *cancelProvider) Stream(ctx context.Context, req llm.Request) (<-chan llm.Chunk, error) {
+	ch := make(chan llm.Chunk, 2)
+	ch <- llm.Chunk{Text: "x"}
+	p.cancel()
+	ch <- llm.Chunk{Done: true}
+	close(ch)
+	return ch, nil
 }
 
 func TestSubagentStop(t *testing.T) {
@@ -1307,6 +1332,89 @@ func TestEndSessionIgnoresContinueFalse(t *testing.T) {
 		t.Fatal(err)
 	}
 	if tc := lastTurn(t, evs); tc.Reason != "done" {
+		t.Fatalf("TurnCompleted %+v", tc)
+	}
+}
+
+func TestSessionStartContextBlockedFirstPrompt(t *testing.T) {
+	hs := withHooks(t,
+		hk{"SessionStart", "", jsonHook(t, ctxOut("SessionStart", "START"))},
+		hk{"UserPromptSubmit", "", cmd(hookScript(t, `in=$(cat); if [[ "$in" == *secret* ]]; then echo no >&2; exit 2; fi; echo CTX`))})
+	h := newHarness(t, euInfo, [][]llm.Chunk{text("ok")}, hs)
+	evs, err := h.submit(t, "s_1", "secret", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if um := userMessages(t, evs); len(um) != 1 || !um[0].Blocked || um[0].HookContext != "START" {
+		t.Fatalf("UserMessage %+v", um)
+	}
+	blocked := append([]event.Event(nil), h.sink.events...)
+	if _, err := h.submit(t, "s_1", "hi", nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := lastContent(h.prov.reqs()[0]); got != withHookContext("hi", "START\n\nCTX") {
+		t.Fatalf("message %q", got)
+	}
+	live := mustJSON(h.eng.sessions["s_1"].history)
+	h2 := newHarness(t, euInfo, [][]llm.Chunk{text("ok")})
+	if err := h2.eng.Restore("s_1", h.sink.events); err != nil {
+		t.Fatal(err)
+	}
+	if got := mustJSON(h2.eng.sessions["s_1"].history); got != live {
+		t.Fatalf("historique restauré\n%s\nattendu\n%s", got, live)
+	}
+
+	// Reprise juste après le prompt bloqué : le contexte reste en attente.
+	h3 := newHarness(t, euInfo, [][]llm.Chunk{text("ok")})
+	if err := h3.eng.Restore("s_1", blocked); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h3.submit(t, "s_1", "hi", nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := lastContent(h3.prov.reqs()[0]); got != withHookContext("hi", "START") {
+		t.Fatalf("message après reprise %q", got)
+	}
+}
+
+func TestEndSessionBoundedWait(t *testing.T) {
+	rec := filepath.Join(t.TempDir(), "rec")
+	h := newHarness(t, euInfo, [][]llm.Chunk{text("ok")}, withHooks(t, hk{"SessionEnd", "", recHook(t, rec, "")}))
+	if _, err := h.submit(t, "s_1", "hi", nil); err != nil {
+		t.Fatal(err)
+	}
+	s := h.eng.sessions["s_1"]
+	s.turn.Lock() // un tour encore en cours
+	defer s.turn.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	if err := h.eng.EndSession(ctx, "s_1", "other"); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err %v", err)
+	}
+	if d := time.Since(start); d > time.Second {
+		t.Fatalf("durée %v", d)
+	}
+	if exists(rec) {
+		t.Fatal("hook exécuté")
+	}
+}
+
+func TestPreCompactContinueFalse(t *testing.T) {
+	h := newHarness(t, euInfo, [][]llm.Chunk{text("LE RÉSUMÉ"), text("ok")}, window(1000),
+		withHooks(t, hk{"PreCompact", "", jsonHook(t, `{"continue":false,"stopReason":"no"}`)}))
+	seed(t, h, "s_1", longHistory()...)
+	evs, err := h.submit(t, "s_1", "suite", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := len(h.prov.reqs()); n != 0 {
+		t.Fatalf("%d requêtes", n)
+	}
+	if n := len(ofType(evs, event.ContextCompacted)); n != 0 {
+		t.Fatalf("%d ContextCompacted", n)
+	}
+	if tc := lastTurn(t, evs); tc.Reason != "stopped_by_hook" || tc.Iterations != 0 {
 		t.Fatalf("TurnCompleted %+v", tc)
 	}
 }

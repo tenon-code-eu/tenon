@@ -185,6 +185,10 @@ func (t *turn) compact(info llm.ProviderInfo, defs []llm.ToolDef, force bool) (r
 		if _, err := t.runHooks(hooks.PreCompact, "", map[string]any{"trigger": "auto"}, "auto"); err != nil {
 			return t.compactHookErr(err)
 		}
+		// continue:false : pas de requête de résumé ; la boucle arrête le tour.
+		if t.stopReason != "" {
+			return "", nil
+		}
 	}
 
 	// Premier passage par le contrôle sortant : les arguments d'appels

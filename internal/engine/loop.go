@@ -61,7 +61,6 @@ func (t *turn) done(iter int, reason string) error {
 func (t *turn) run(in Input) error {
 	d := t.e.d
 	info := d.Provider.Info()
-	var startCtx string // contexte des hooks SessionStart (premier tour)
 	if !t.s.started {
 		if err := t.emit(event.SessionStarted, event.SessionStartedPayload{
 			Provider: info, ProjectRoot: d.ProjectRoot, Resumed: t.s.resumed, Instructions: d.Instructions,
@@ -83,7 +82,8 @@ func (t *turn) run(in Input) error {
 		if err != nil {
 			return t.hookFailed(err)
 		}
-		startCtx = out.Context
+		// Un contexte restauré (prompt bloqué avant la reprise) reste en tête.
+		t.s.startCtx = joinContext(t.s.startCtx, out.Context)
 	}
 	prompt := in.Typed
 	if prompt == "" {
@@ -95,15 +95,18 @@ func (t *turn) run(in Input) error {
 	}
 	um := event.UserMessagePayload{Text: in.Text, Typed: in.Typed, Skill: in.Skill, SkillSHA256: in.SkillSHA256}
 	// Prompt bloqué : ni historique, ni requête ; le message est journalisé
-	// comme bloqué.
+	// comme bloqué, avec le contexte SessionStart encore en attente (pour la
+	// reprise).
 	if out.Block {
 		um.Blocked = true
+		um.HookContext = t.s.startCtx
 		if err := t.emit(event.UserMessage, um); err != nil {
 			return err
 		}
 		return t.done(0, "blocked_by_hook")
 	}
-	um.HookContext = joinContext(startCtx, out.Context)
+	um.HookContext = joinContext(t.s.startCtx, out.Context)
+	t.s.startCtx = ""
 	*t.h = append(*t.h, llm.Message{Role: llm.User, Content: withHookContext(in.Text, um.HookContext)})
 	if err := t.emit(event.UserMessage, um); err != nil {
 		return err
@@ -229,6 +232,10 @@ func (t *turn) loop() (loopResult, error) {
 		}
 		if len(calls) == 0 {
 			final = text
+			// Annulation arrivée avec la fin du flux : pas de hook Stop.
+			if cerr := t.ctx.Err(); cerr != nil {
+				return res(iter, "cancelled"), cerr
+			}
 			// Stop / SubagentStop : seulement pour une fin done. Un blocage
 			// relance la boucle (l'itération compte pour MaxIterations).
 			again, err := t.stopHook(stopActive)
