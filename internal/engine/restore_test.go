@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"path/filepath"
@@ -403,7 +402,7 @@ func TestRestoreAfterRewound(t *testing.T) {
 				t.Fatal(err)
 			}
 			pts := h.eng.RewindPoints("s_1")
-			if _, err := h.eng.Rewind(context.Background(), "s_1", pts[0].Seq, mode, nil); err != nil {
+			if _, err := h.rewind("s_1", pts[0].Seq, mode, nil); err != nil {
 				t.Fatal(err)
 			}
 			if got := readFile(t, a); mode != RewindConversation && got != "v2" {

@@ -22,7 +22,7 @@ type Engine interface {
 	// plan sans effet, exécution).
 	RewindPoints(sessionID string) []checkpoint.Point
 	RewindPlan(sessionID string, toSeq uint64) (checkpoint.Plan, error)
-	Rewind(ctx context.Context, sessionID string, toSeq uint64, mode engine.RewindMode, overwrite []string) (engine.RewindResult, error)
+	Rewind(ctx context.Context, sessionID string, toSeq uint64, mode engine.RewindMode, preview checkpoint.Plan, overwrite []string) (engine.RewindResult, error)
 }
 
 var _ Engine = (*engine.Engine)(nil)

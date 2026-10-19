@@ -287,3 +287,64 @@ func TestNoSnapshotOption(t *testing.T) {
 		t.Fatalf("edit got %+v", res)
 	}
 }
+
+// Un fichier existant illisible n'est jamais écrasé : sans copie possible
+// ni hash_before, l'écriture serait irréversible.
+func TestUnreadableExistingRefused(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root lit les fichiers en mode 0200")
+	}
+	cases := []struct {
+		tool, args string
+	}{
+		{"write_file", `{"path":"u.txt","content":"perdu"}`},
+		{"edit_file", `{"path":"u.txt","old_string":"secret","new_string":"perdu"}`},
+	}
+	for _, snap := range []bool{false, true} {
+		for _, c := range cases {
+			root := t.TempDir()
+			p := filepath.Join(root, "u.txt")
+			write(t, p, "secret")
+			if err := os.Chmod(p, 0o200); err != nil {
+				t.Fatal(err)
+			}
+			rec := &snapRecorder{}
+			var opts []Option
+			if snap {
+				opts = append(opts, WithSnapshot(rec.save))
+			}
+			res := run(t, findWith(t, root, c.tool, opts...), c.args)
+			if !res.IsError || !strings.HasPrefix(res.Content, "cannot read existing file: ") {
+				t.Fatalf("%s (copie %v) : %+v", c.tool, snap, res)
+			}
+			if err := os.Chmod(p, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if data, _ := os.ReadFile(p); string(data) != "secret" {
+				t.Fatalf("%s (copie %v) : fichier écrasé : %q", c.tool, snap, data)
+			}
+			if rec.calls != 0 {
+				t.Fatalf("%s : save appelé %d fois", c.tool, rec.calls)
+			}
+		}
+	}
+}
+
+func TestWithoutCheckpoints(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "o.txt"), "avant")
+	w := findWith(t, root, "write_file", WithoutCheckpoints())
+	res := run(t, w, `{"path":"o.txt","content":"après"}`)
+	if res.IsError || !res.NoCheckpoint || res.Content != "file written: o.txt" {
+		t.Fatalf("write existant : %+v", res)
+	}
+	res = run(t, findWith(t, root, "edit_file", WithoutCheckpoints()), `{"path":"o.txt","old_string":"après","new_string":"fin"}`)
+	if res.IsError || !res.NoCheckpoint {
+		t.Fatalf("edit : %+v", res)
+	}
+	// Un fichier créé se supprime sans copie : pas de no_checkpoint.
+	res = run(t, w, `{"path":"neuf.txt","content":"x"}`)
+	if res.IsError || res.NoCheckpoint {
+		t.Fatalf("write nouveau : %+v", res)
+	}
+}

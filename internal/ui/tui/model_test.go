@@ -699,6 +699,7 @@ func TestViewNestedTool(t *testing.T) {
 type rewindCall struct {
 	seq       uint64
 	mode      engine.RewindMode
+	preview   checkpoint.Plan
 	overwrite []string
 }
 
@@ -708,10 +709,10 @@ func (f *fakeEngine) RewindPlan(_ string, seq uint64) (checkpoint.Plan, error) {
 	return f.rwPlan, f.rwPlanErr
 }
 
-func (f *fakeEngine) Rewind(_ context.Context, _ string, seq uint64, mode engine.RewindMode, over []string) (engine.RewindResult, error) {
+func (f *fakeEngine) Rewind(_ context.Context, _ string, seq uint64, mode engine.RewindMode, preview checkpoint.Plan, over []string) (engine.RewindResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.rwCalls = append(f.rwCalls, rewindCall{seq, mode, over})
+	f.rwCalls = append(f.rwCalls, rewindCall{seq, mode, preview, over})
 	return f.rwRes, f.rwErr
 }
 

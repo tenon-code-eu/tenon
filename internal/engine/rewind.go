@@ -27,6 +27,9 @@ const (
 	RewindBoth         RewindMode = "both"
 )
 
+// errChangedDuringRewind : le fichier a changé depuis l'aperçu ou le plan.
+var errChangedDuringRewind = errors.New("file changed during rewind")
+
 var (
 	// ErrTurnInProgress : un tour tient la session ; le rewind n'attend pas.
 	ErrTurnInProgress = errors.New("a turn is in progress")
@@ -49,10 +52,6 @@ const excerptRunes = 80
 
 // hashPrefix préfixe les empreintes des ToolResult (tools.hashOf).
 const hashPrefix = "sha256:"
-
-// unreadable : empreinte d'un chemin illisible, qui ne correspond à aucune
-// empreinte réelle (conflit assuré).
-const unreadable = "unreadable"
 
 // RewindResult : bilan d'un rewind.
 type RewindResult struct {
@@ -264,17 +263,17 @@ func fileState(path string) checkpoint.FileState {
 		return checkpoint.FileState{}
 	}
 	if err != nil {
-		return checkpoint.FileState{Exists: true, Hash: unreadable}
+		return checkpoint.FileState{Exists: true, Hash: checkpoint.Unreadable}
 	}
 	if fi.Mode()&fs.ModeSymlink != 0 {
 		return checkpoint.FileState{Exists: true, Symlink: true}
 	}
 	if !fi.Mode().IsRegular() {
-		return checkpoint.FileState{Exists: true, Hash: unreadable}
+		return checkpoint.FileState{Exists: true, Hash: checkpoint.Unreadable}
 	}
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return checkpoint.FileState{Exists: true, Hash: unreadable}
+		return checkpoint.FileState{Exists: true, Hash: checkpoint.Unreadable}
 	}
 	sum := sha256.Sum256(b)
 	return checkpoint.FileState{Exists: true, Hash: hashPrefix + hex.EncodeToString(sum[:])}
@@ -282,9 +281,11 @@ func fileState(path string) checkpoint.FileState {
 
 // Rewind remet la session au point toSeq selon mode. Seuls les fichiers du
 // plan sont touchés : les fichiers ok, et les conflits dont le chemin figure
-// dans overwrite. Un échec sur un fichier n'arrête pas les autres. Le
-// Rewound est émis en dernier.
-func (e *Engine) Rewind(ctx context.Context, sessionID string, toSeq uint64, mode RewindMode, overwrite []string) (RewindResult, error) {
+// dans overwrite. preview est le plan montré à l'utilisateur : un fichier
+// dont l'état diffère de preview (ou qui n'y figure pas) n'est pas touché
+// (failed). Un échec sur un fichier n'arrête pas les autres. Le Rewound est
+// émis en dernier.
+func (e *Engine) Rewind(ctx context.Context, sessionID string, toSeq uint64, mode RewindMode, preview checkpoint.Plan, overwrite []string) (RewindResult, error) {
 	switch mode {
 	case RewindCode, RewindConversation, RewindBoth:
 	default:
@@ -322,8 +323,13 @@ func (e *Engine) Rewind(ctx context.Context, sessionID string, toSeq uint64, mod
 		for _, p := range overwrite {
 			chosen[p] = true
 		}
+		shown := map[string]checkpoint.FilePlan{}
+		for _, fp := range preview.Files {
+			shown[fp.Path] = fp
+		}
 		for _, fp := range plan.Files {
-			res.Files = append(res.Files, e.rewindFile(fp, seen[fp.Path], chosen[fp.Path]))
+			was, ok := shown[fp.Path]
+			res.Files = append(res.Files, e.rewindFile(fp, seen[fp.Path], was, ok, chosen[fp.Path]))
 		}
 	}
 	if conversation {
@@ -356,10 +362,19 @@ func (s *session) applyRewound(seq uint64, p event.RewoundPayload) {
 }
 
 // rewindFile exécute l'action du plan pour un fichier. was est l'état
-// observé au calcul du plan ; overwrite : l'utilisateur a choisi d'écraser
-// un conflit.
-func (e *Engine) rewindFile(fp checkpoint.FilePlan, was checkpoint.FileState, overwrite bool) event.RewoundFile {
+// observé au calcul du plan ; shown la ligne de l'aperçu montré à
+// l'utilisateur (inPreview faux : absente) ; overwrite : l'utilisateur a
+// choisi d'écraser un conflit.
+func (e *Engine) rewindFile(fp checkpoint.FilePlan, was checkpoint.FileState, shown checkpoint.FilePlan, inPreview, overwrite bool) event.RewoundFile {
 	out := event.RewoundFile{Path: fp.Path, Action: fp.Action}
+	fail := func(err error) event.RewoundFile {
+		out.Status = rewoundFailed
+		out.Error = err.Error()
+		return out
+	}
+	// L'aperçu montrait ce fichier à restaurer ou supprimer : s'il a changé
+	// depuis, on le signale plutôt que de le garder en silence.
+	changed := !inPreview || shown.Current != was.Key()
 	switch fp.Status {
 	case checkpoint.StatusNoop:
 		out.Status = rewoundUnchanged
@@ -369,14 +384,16 @@ func (e *Engine) rewindFile(fp checkpoint.FilePlan, was checkpoint.FileState, ov
 		return out
 	case checkpoint.StatusConflict:
 		if !overwrite {
+			if inPreview && shown.Status == checkpoint.StatusOK && changed {
+				return fail(errChangedDuringRewind)
+			}
 			out.Status = rewoundKept
 			return out
 		}
 	}
-	fail := func(err error) event.RewoundFile {
-		out.Status = rewoundFailed
-		out.Error = err.Error()
-		return out
+	// N'agir que sur l'état que l'utilisateur a vu dans l'aperçu.
+	if changed {
+		return fail(errChangedDuringRewind)
 	}
 	// Le fichier a pu changer depuis le calcul du plan : on ne touche qu'à
 	// l'état que l'utilisateur a vu (ou accepté d'écraser).
@@ -385,7 +402,7 @@ func (e *Engine) rewindFile(fp checkpoint.FilePlan, was checkpoint.FileState, ov
 		return fail(errors.New("path became a symbolic link"))
 	}
 	if now != was {
-		return fail(errors.New("file changed during rewind"))
+		return fail(errChangedDuringRewind)
 	}
 	if fp.Action == checkpoint.ActionDelete {
 		if err := removeFile(fp.Path); err != nil {

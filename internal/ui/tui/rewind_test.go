@@ -181,6 +181,10 @@ func TestRewindConflictAnswers(t *testing.T) {
 	if c.seq != 5 || c.mode != engine.RewindBoth || len(c.overwrite) != 1 || c.overwrite[0] != "/p/c.go" {
 		t.Fatalf("appel %+v", c)
 	}
+	// Le moteur reçoit le plan affiché, pour refuser un fichier changé depuis.
+	if len(c.preview.Files) != len(f.rwPlan.Files) || c.preview.Files[0].Path != "/p/a.go" {
+		t.Fatalf("aperçu transmis %+v", c.preview)
+	}
 }
 
 func TestRewindConflictN(t *testing.T) {

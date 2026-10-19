@@ -225,8 +225,11 @@ func (m Model) execRewind() (tea.Model, tea.Cmd) {
 	rw.step = stepRunning
 	eng, sid, ctx := m.eng, m.opts.SessionID, m.ctx
 	seq, mode, over := rw.points[rw.cursor].Seq, rw.mode, slices.Clone(rw.forced)
+	// Le plan affiché : le moteur ne touche qu'aux fichiers restés tels que
+	// l'utilisateur les a vus.
+	preview := rw.plan
 	return m, func() tea.Msg {
-		res, err := eng.Rewind(ctx, sid, seq, mode, over)
+		res, err := eng.Rewind(ctx, sid, seq, mode, preview, over)
 		return rewindDone{res: res, err: err, mode: mode}
 	}
 }

@@ -57,6 +57,25 @@ type FileState struct {
 	Hash    string
 }
 
+// Unreadable : empreinte d'un chemin illisible ou non ordinaire, qui ne
+// correspond à aucune empreinte réelle (conflit assuré).
+const Unreadable = "unreadable"
+
+// symlinkKey : clé d'état d'un lien symbolique.
+const symlinkKey = "symlink"
+
+// Key résume l'état : "" absent, "symlink" pour un lien symbolique,
+// "unreadable" pour un chemin illisible, sinon l'empreinte "sha256:<hex>".
+func (s FileState) Key() string {
+	switch {
+	case s.Symlink:
+		return symlinkKey
+	case !s.Exists:
+		return ""
+	}
+	return s.Hash
+}
+
 // FilePlan : ce que /rewind ferait pour un fichier.
 type FilePlan struct {
 	Path     string
@@ -64,6 +83,9 @@ type FilePlan struct {
 	Status   string
 	Target   string
 	Expected string
+	// Current : état observé au calcul du plan (FileState.Key) ; Rewind
+	// refuse d'agir si le fichier a changé depuis l'aperçu.
+	Current string
 }
 
 // Plan : résultat de BuildPlan.
@@ -129,6 +151,7 @@ func BuildPlan(st State, toSeq uint64, current func(path string) FileState, has 
 			fp.Action = ActionDelete
 		}
 		cur := current(path)
+		fp.Current = cur.Key()
 		switch {
 		case matches(cur, a.target):
 			fp.Status = StatusNoop

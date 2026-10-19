@@ -115,3 +115,25 @@ func TestBuildPlanMisc(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestBuildPlanCurrent(t *testing.T) {
+	tests := []struct {
+		name string
+		cur  FileState
+		want string
+	}{
+		{"absent", FileState{}, ""},
+		{"symlink", FileState{Exists: true, Symlink: true}, "symlink"},
+		{"unreadable", FileState{Exists: true, Hash: Unreadable}, "unreadable"},
+		{"hash", file("sha256:ab"), "sha256:ab"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			st := State{Points: basePoints(), Writes: []Write{{Seq: 5, Path: "/f", Before: "h0", After: "h1"}}}
+			fp := one(t, st, 4, fsFake{"/f": tc.cur}, hasAll)
+			if fp.Current != tc.want {
+				t.Fatalf("Current = %q, attendu %q", fp.Current, tc.want)
+			}
+		})
+	}
+}

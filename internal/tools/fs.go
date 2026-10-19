@@ -19,7 +19,7 @@ func FS(root string, limit int, opts ...Option) []Tool {
 	for _, opt := range opts {
 		opt(&o)
 	}
-	b := base{root: root, limit: limit, filter: o.readFilter, save: o.save}
+	b := base{root: root, limit: limit, filter: o.readFilter, save: o.save, noCheckpoints: o.noCheckpoints}
 	return []Tool{
 		&readFile{b}, &writeFile{b}, &editFile{b},
 		&globTool{b}, &grepTool{b},
@@ -27,8 +27,9 @@ func FS(root string, limit int, opts ...Option) []Tool {
 }
 
 type options struct {
-	readFilter func(tool, absPath string) bool
-	save       func(path string, old []byte) error
+	readFilter    func(tool, absPath string) bool
+	save          func(path string, old []byte) error
+	noCheckpoints bool
 }
 
 // SnapshotMaxBytes est la taille au-delà de laquelle un fichier n'est pas copié
@@ -45,6 +46,12 @@ func WithSnapshot(save func(path string, old []byte) error) Option {
 	return func(o *options) { o.save = save }
 }
 
+// WithoutCheckpoints marque no_checkpoint chaque écriture d'un fichier
+// existant (copies désactivées ou magasin indisponible).
+func WithoutCheckpoints() Option {
+	return func(o *options) { o.noCheckpoints = true }
+}
+
 // WithReadFilter fait ignorer à grep et glob les fichiers pour lesquels f
 // renvoie false.
 func WithReadFilter(f func(tool, absPath string) bool) Option {
@@ -56,14 +63,18 @@ type base struct {
 	limit  int
 	filter func(tool, absPath string) bool
 	save   func(path string, old []byte) error
+	// noCheckpoints : aucune copie possible, chaque écriture d'un fichier
+	// existant porte no_checkpoint.
+	noCheckpoints bool
 }
 
 func (b base) allowed(tool, abs string) bool { return b.filter == nil || b.filter(tool, abs) }
 
 // snapshot sauvegarde old avant écriture. skipped vaut true quand le fichier
-// dépasse SnapshotMaxBytes (pas de copie). Sans save, ne fait rien.
+// dépasse SnapshotMaxBytes (pas de copie). Sans save, ou avec
+// noCheckpoints, ne fait rien.
 func (b base) snapshot(p string, old []byte) (skipped bool, err error) {
-	if b.save == nil {
+	if b.save == nil || b.noCheckpoints {
 		return false, nil
 	}
 	if len(old) > SnapshotMaxBytes {
@@ -223,7 +234,9 @@ func (t *writeFile) Run(ctx context.Context, args json.RawMessage) (Result, erro
 	res := Result{Path: p}
 	mode := os.FileMode(0o644)
 	skipped := false
-	if old, err := os.ReadFile(p); err == nil {
+	old, err := os.ReadFile(p)
+	switch {
+	case err == nil:
 		res.HashBefore = hashOf(old)
 		if st, err := os.Stat(p); err == nil {
 			mode = st.Mode().Perm()
@@ -233,6 +246,10 @@ func (t *writeFile) Run(ctx context.Context, args json.RawMessage) (Result, erro
 			return fail("cannot save checkpoint: %v", err), nil
 		}
 		skipped = sk
+		res.NoCheckpoint = t.noCheckpoints
+	case !errors.Is(err, os.ErrNotExist):
+		// Ni copie ni hash_before possibles : l'écriture serait irréversible.
+		return fail("cannot read existing file: %v", err), nil
 	}
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return fail("cannot create directory: %v", err), nil
@@ -284,8 +301,11 @@ func (t *editFile) Run(ctx context.Context, args json.RawMessage) (Result, error
 	}
 	p := t.resolve(a.Path)
 	data, err := os.ReadFile(p)
-	if err != nil {
+	if errors.Is(err, os.ErrNotExist) {
 		return fail("cannot read: %v", err), nil
+	}
+	if err != nil {
+		return fail("cannot read existing file: %v", err), nil
 	}
 	s := string(data)
 	n := strings.Count(s, a.OldString)
@@ -312,7 +332,7 @@ func (t *editFile) Run(ctx context.Context, args json.RawMessage) (Result, error
 		Path:         p,
 		HashBefore:   hashOf(data),
 		HashAfter:    hashOf([]byte(out)),
-		NoCheckpoint: skipped,
+		NoCheckpoint: skipped || t.noCheckpoints,
 	}
 	if skipped {
 		res.Content += skipNote

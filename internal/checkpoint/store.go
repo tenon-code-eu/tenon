@@ -56,7 +56,8 @@ func validHash(h string) bool {
 
 func (s *Store) path(h string) string { return filepath.Join(s.dir, h[:2], h) }
 
-// Save écrit data (s'il n'existe pas déjà intact) et renvoie son sha256 hex.
+// Save écrit data (s'il n'existe pas déjà intact, sinon rafraîchit son
+// mtime) et renvoie son sha256 hex.
 func (s *Store) Save(data []byte) (string, error) {
 	if len(data) > MaxBytes {
 		return "", errors.New("file too large")
@@ -64,6 +65,12 @@ func (s *Store) Save(data []byte) (string, error) {
 	sum := sha256.Sum256(data)
 	h := hex.EncodeToString(sum[:])
 	if s.Has(h) {
+		// Copie de nouveau référencée : mtime rafraîchi pour que Prune ne la
+		// supprime pas avant que la session qui la cite soit écrite.
+		now := time.Now()
+		if err := os.Chtimes(s.path(h), now, now); err != nil {
+			return "", err
+		}
 		return h, nil
 	}
 	d := filepath.Join(s.dir, h[:2])

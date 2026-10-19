@@ -43,6 +43,13 @@ func newRewindHarness(t *testing.T, script [][]llm.Chunk, opts ...func(*Deps)) (
 	return h, store
 }
 
+// rewind : aperçu puis Rewind avec cet aperçu, comme la TUI. Un aperçu en
+// échec donne un plan vide.
+func (h *harness) rewind(sid string, seq uint64, mode RewindMode, over []string) (RewindResult, error) {
+	plan, _ := h.eng.RewindPlan(sid, seq)
+	return h.eng.Rewind(context.Background(), sid, seq, mode, plan, over)
+}
+
 func allowAll(event.PermissionRequestedPayload) Reply { return Reply{Allow: true} }
 
 func writeFile(t *testing.T, path, content string) {
@@ -130,7 +137,7 @@ func TestRewindCodeRestoresAndDeletes(t *testing.T) {
 	}
 	hist := historyOf(h, "s_1")
 
-	res, err := h.eng.Rewind(context.Background(), "s_1", pts[0].Seq, RewindCode, nil)
+	res, err := h.rewind("s_1", pts[0].Seq, RewindCode, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +211,7 @@ func TestRewindConflictKeptOrOverwritten(t *testing.T) {
 	if got := planStatuses(plan); got["a.txt"] != "restore/conflict" {
 		t.Fatalf("plan %v", got)
 	}
-	res, err := h.eng.Rewind(context.Background(), "s_1", seq, RewindCode, nil)
+	res, err := h.rewind("s_1", seq, RewindCode, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,7 +221,7 @@ func TestRewindConflictKeptOrOverwritten(t *testing.T) {
 	if got := readFile(t, a); got != "user edit" {
 		t.Fatalf("fichier modifié sans accord : %q", got)
 	}
-	res, err = h.eng.Rewind(context.Background(), "s_1", seq, RewindCode, []string{a})
+	res, err = h.rewind("s_1", seq, RewindCode, []string{a})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +249,7 @@ func TestRewindConflictSymlinkNeverFollowed(t *testing.T) {
 		t.Fatal(err)
 	}
 	seq := h.eng.RewindPoints("s_1")[0].Seq
-	res, err := h.eng.Rewind(context.Background(), "s_1", seq, RewindCode, []string{a})
+	res, err := h.rewind("s_1", seq, RewindCode, []string{a})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -278,7 +285,7 @@ func TestRewindConversation(t *testing.T) {
 	if len(pts) != 2 || pts[0].Excerpt != "two" || pts[1].Excerpt != "one" {
 		t.Fatalf("points %+v", pts)
 	}
-	res, err := h.eng.Rewind(context.Background(), "s_1", pts[0].Seq, RewindConversation, nil)
+	res, err := h.rewind("s_1", pts[0].Seq, RewindConversation, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -321,7 +328,7 @@ func TestRewindBoth(t *testing.T) {
 		t.Fatal(err)
 	}
 	seq := h.eng.RewindPoints("s_1")[0].Seq
-	res, err := h.eng.Rewind(context.Background(), "s_1", seq, RewindBoth, nil)
+	res, err := h.rewind("s_1", seq, RewindBoth, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -352,7 +359,7 @@ func TestRewindConversationAfterCompaction(t *testing.T) {
 		}
 	}
 	for _, mode := range []RewindMode{RewindConversation, RewindBoth} {
-		if _, err := h.eng.Rewind(context.Background(), "s_1", pts[0].Seq, mode, nil); !errors.Is(err, ErrConversationUnavailable) {
+		if _, err := h.rewind("s_1", pts[0].Seq, mode, nil); !errors.Is(err, ErrConversationUnavailable) {
 			t.Fatalf("%s : %v", mode, err)
 		}
 	}
@@ -360,7 +367,7 @@ func TestRewindConversationAfterCompaction(t *testing.T) {
 		t.Fatalf("%d Rewound après un refus", n)
 	}
 	// Le code reste rembobinable.
-	if _, err := h.eng.Rewind(context.Background(), "s_1", pts[0].Seq, RewindCode, nil); err != nil {
+	if _, err := h.rewind("s_1", pts[0].Seq, RewindCode, nil); err != nil {
 		t.Fatal(err)
 	}
 	// Un point postérieur à la compaction est rembobinable.
@@ -388,7 +395,7 @@ func TestRewindTurnInProgress(t *testing.T) {
 	var pts []checkpoint.Point
 	if _, err := h.submit(t, "s_1", "two", func(event.PermissionRequestedPayload) Reply {
 		// Le tour attend la réponse : il tient la session.
-		_, rewindErr = h.eng.Rewind(context.Background(), "s_1", seq, RewindCode, nil)
+		_, rewindErr = h.rewind("s_1", seq, RewindCode, nil)
 		_, planErr = h.eng.RewindPlan("s_1", seq)
 		pts = h.eng.RewindPoints("s_1")
 		return Reply{Allow: true}
@@ -426,7 +433,7 @@ func TestRewindPartialFailure(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chmod(sub, 0o755) })
 	seq := h.eng.RewindPoints("s_1")[0].Seq
-	res, err := h.eng.Rewind(context.Background(), "s_1", seq, RewindCode, nil)
+	res, err := h.rewind("s_1", seq, RewindCode, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -529,11 +536,9 @@ func TestUntrackedCounted(t *testing.T) {
 	if err != nil || plan.UntrackedCalls != 2 {
 		t.Fatalf("plan %+v, %v", plan, err)
 	}
-	res, err := h.eng.Rewind(context.Background(), "s_1", pts[0].Seq, RewindCode, nil)
-	if err != nil {
+	if _, err := h.rewind("s_1", pts[0].Seq, RewindCode, nil); err != nil {
 		t.Fatal(err)
 	}
-	_ = res
 	if rp := lastRewound(t, h); rp.UntrackedCalls != 2 {
 		t.Fatalf("Rewound %+v", rp)
 	}
@@ -577,7 +582,7 @@ func TestSubagentWritesRewound(t *testing.T) {
 		t.Fatalf("a.txt = %q", got)
 	}
 	seq := h.eng.RewindPoints("s_1")[0].Seq
-	res, err := h.eng.Rewind(context.Background(), "s_1", seq, RewindCode, nil)
+	res, err := h.rewind("s_1", seq, RewindCode, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -600,7 +605,7 @@ func TestRewindNoStoreUnrestorable(t *testing.T) {
 		t.Fatal(err)
 	}
 	seq := h.eng.RewindPoints("s_1")[0].Seq
-	res, err := h.eng.Rewind(context.Background(), "s_1", seq, RewindCode, nil)
+	res, err := h.rewind("s_1", seq, RewindCode, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -621,11 +626,11 @@ func TestRewindUnknownPointAndMode(t *testing.T) {
 	if _, err := h.eng.RewindPlan("s_1", 999); !errors.Is(err, checkpoint.ErrUnknownPoint) {
 		t.Fatalf("RewindPlan : %v", err)
 	}
-	if _, err := h.eng.Rewind(context.Background(), "s_1", 999, RewindCode, nil); !errors.Is(err, checkpoint.ErrUnknownPoint) {
+	if _, err := h.rewind("s_1", 999, RewindCode, nil); !errors.Is(err, checkpoint.ErrUnknownPoint) {
 		t.Fatalf("Rewind : %v", err)
 	}
 	seq := h.eng.RewindPoints("s_1")[0].Seq
-	if _, err := h.eng.Rewind(context.Background(), "s_1", seq, RewindMode("all"), nil); err == nil {
+	if _, err := h.rewind("s_1", seq, RewindMode("all"), nil); err == nil {
 		t.Fatal("mode inconnu accepté")
 	}
 	if pts := h.eng.RewindPoints("inconnue"); pts != nil {
@@ -633,5 +638,85 @@ func TestRewindUnknownPointAndMode(t *testing.T) {
 	}
 	if _, err := h.eng.RewindPlan("inconnue", 1); !errors.Is(err, checkpoint.ErrUnknownPoint) {
 		t.Fatalf("RewindPlan session inconnue : %v", err)
+	}
+}
+
+// Un fichier ok modifié entre l'aperçu et Rewind n'est pas touché.
+func TestRewindOkFileChangedAfterPreview(t *testing.T) {
+	h, _ := newRewindHarness(t, [][]llm.Chunk{writeCall("c1", "a.txt", "v2"), text("done")})
+	a := filepath.Join(h.root, "a.txt")
+	writeFile(t, a, "v1")
+	if _, err := h.submit(t, "s_1", "go", allowAll); err != nil {
+		t.Fatal(err)
+	}
+	seq := h.eng.RewindPoints("s_1")[0].Seq
+	plan, err := h.eng.RewindPlan("s_1", seq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := planStatuses(plan)["a.txt"]; got != "restore/ok" {
+		t.Fatalf("plan %v", got)
+	}
+	writeFile(t, a, "user edit")
+	res, err := h.eng.Rewind(context.Background(), "s_1", seq, RewindCode, plan, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f := res.Files[0]; f.Status != "failed" || f.Error != "file changed during rewind" {
+		t.Fatalf("fichier %+v", f)
+	}
+	if got := readFile(t, a); got != "user edit" {
+		t.Fatalf("a.txt = %q", got)
+	}
+}
+
+// Un conflit accepté puis de nouveau modifié n'est pas écrasé.
+func TestRewindConsentedConflictChangedAgain(t *testing.T) {
+	h, _ := newRewindHarness(t, [][]llm.Chunk{writeCall("c1", "a.txt", "v2"), text("done")})
+	a := filepath.Join(h.root, "a.txt")
+	writeFile(t, a, "v1")
+	if _, err := h.submit(t, "s_1", "go", allowAll); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, a, "user edit")
+	seq := h.eng.RewindPoints("s_1")[0].Seq
+	plan, err := h.eng.RewindPlan("s_1", seq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := planStatuses(plan)["a.txt"]; got != "restore/conflict" {
+		t.Fatalf("plan %v", got)
+	}
+	writeFile(t, a, "second edit")
+	res, err := h.eng.Rewind(context.Background(), "s_1", seq, RewindCode, plan, []string{a})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f := res.Files[0]; f.Status != "failed" || f.Error != "file changed during rewind" {
+		t.Fatalf("fichier %+v", f)
+	}
+	if got := readFile(t, a); got != "second edit" {
+		t.Fatalf("écrasé : %q", got)
+	}
+}
+
+// Un fichier absent de l'aperçu n'est jamais touché.
+func TestRewindFileNotInPreview(t *testing.T) {
+	h, _ := newRewindHarness(t, [][]llm.Chunk{writeCall("c1", "a.txt", "v2"), text("done")})
+	a := filepath.Join(h.root, "a.txt")
+	writeFile(t, a, "v1")
+	if _, err := h.submit(t, "s_1", "go", allowAll); err != nil {
+		t.Fatal(err)
+	}
+	seq := h.eng.RewindPoints("s_1")[0].Seq
+	res, err := h.eng.Rewind(context.Background(), "s_1", seq, RewindCode, checkpoint.Plan{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f := res.Files[0]; f.Status != "failed" || f.Error != "file changed during rewind" {
+		t.Fatalf("fichier %+v", f)
+	}
+	if got := readFile(t, a); got != "v2" {
+		t.Fatalf("a.txt = %q", got)
 	}
 }

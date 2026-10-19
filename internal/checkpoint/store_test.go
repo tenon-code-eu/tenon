@@ -79,9 +79,11 @@ func TestSaveDedup(t *testing.T) {
 	if _, err := s.Save([]byte("a")); err != nil {
 		t.Fatal(err)
 	}
+	// Une copie de nouveau référencée est rafraîchie : Prune ne la supprime
+	// pas entre sa déduplication et l'écriture du ToolResult.
 	fi, _ := os.Stat(p)
-	if !fi.ModTime().Equal(old) {
-		t.Fatalf("mtime changé : %v", fi.ModTime())
+	if time.Since(fi.ModTime()) > time.Hour {
+		t.Fatalf("mtime non rafraîchi : %v", fi.ModTime())
 	}
 }
 
