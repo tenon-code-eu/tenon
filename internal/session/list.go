@@ -58,7 +58,9 @@ func List(dir, projectRoot string) ([]Summary, error) {
 			case event.UserMessage:
 				if s.FirstPrompt == "" {
 					var p event.UserMessagePayload
-					if json.Unmarshal(e.Payload, &p) == nil {
+					// Un message bloqué ou produit par un hook n'est pas ce que
+					// l'utilisateur a demandé : il ne résume pas la session.
+					if json.Unmarshal(e.Payload, &p) == nil && !p.Blocked && p.Hook == "" {
 						// Caractères de contrôle et de format (U+202E,
 						// U+200B…) : ils pourraient tromper le terminal.
 						// Ce que l'utilisateur a tapé prime sur le texte

@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/tenon-code-eu/tenon/internal/agents"
 	"github.com/tenon-code-eu/tenon/internal/audit"
@@ -24,6 +25,7 @@ import (
 	"github.com/tenon-code-eu/tenon/internal/engine"
 	"github.com/tenon-code-eu/tenon/internal/event"
 	"github.com/tenon-code-eu/tenon/internal/gitmark"
+	"github.com/tenon-code-eu/tenon/internal/hooks"
 	"github.com/tenon-code-eu/tenon/internal/i18n"
 	"github.com/tenon-code-eu/tenon/internal/instructions"
 	"github.com/tenon-code-eu/tenon/internal/llm"
@@ -83,7 +85,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 
 	rest := fs.Args()
 	// « tenon sessions --lang en » : --lang est aussi accepté après la sous-commande.
-	if len(rest) > 0 && (rest[0] == "sessions" || rest[0] == "skills" || rest[0] == "agents") {
+	if len(rest) > 0 && (rest[0] == "sessions" || rest[0] == "skills" || rest[0] == "agents" || rest[0] == "hooks") {
 		sub := flag.NewFlagSet("tenon "+rest[0], flag.ContinueOnError)
 		sub.SetOutput(stderr)
 		sub.StringVar(langFlag, "lang", *langFlag, i18n.T(hl, "flag.lang"))
@@ -103,7 +105,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	}
 
 	// --resume ne vaut que pour une conversation (interface interactive ou -p).
-	if *resume != "" && len(rest) > 0 && rest[0] != "sessions" && rest[0] != "skills" && rest[0] != "agents" {
+	if *resume != "" && len(rest) > 0 && rest[0] != "sessions" && rest[0] != "skills" && rest[0] != "agents" && rest[0] != "hooks" {
 		fmt.Fprintln(stderr, i18n.T(lang, "err.no_prompt"))
 		return 1
 	}
@@ -112,7 +114,11 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	case len(rest) == 2 && rest[0] == "audit" && rest[1] == "verify":
 		return auditVerify(lang, stdout, stderr, getenv)
 	case len(rest) == 2 && rest[0] == "config" && rest[1] == "check":
-		if _, err := loadSetup(getenv, wd); err != nil {
+		cs, err := loadSetup(getenv, wd)
+		if err == nil {
+			_, _, err = loadHooks(lang, getenv, wd, cs.cfg.Hooks)
+		}
+		if err != nil {
 			fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", err))
 			return 1
 		}
@@ -147,6 +153,12 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 			return 1
 		}
 		return listAgents(lang, stdout, getenv, wd)
+	case len(rest) >= 1 && rest[0] == "hooks":
+		if len(rest) > 1 {
+			fmt.Fprintln(stderr, i18n.T(lang, "err.unexpected_args", rest[1]))
+			return 1
+		}
+		return listHooks(lang, stdout, stderr, getenv, wd)
 	case len(rest) >= 2 && rest[0] == "git" && rest[1] == "mark":
 		// Précédé d'options globales (le hook n'en passe aucune).
 		return gitMark(ctx, rest[2:], stderr, getenv, wd)
@@ -195,12 +207,29 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	for _, n := range st.notices {
 		fmt.Fprintln(stderr, redactText(red)(n))
 	}
-	return headless.Run(ctx, st.eng, st.sessionID, in, headless.Options{
+	code := headless.Run(ctx, st.eng, st.sessionID, in, headless.Options{
 		Output:     out,
 		Lang:       lang,
 		Redact:     func(s string) string { out, _ := red.RedactJSON(s); return out },
 		RedactText: redactText(red),
 	}, stdout, stderr)
+	// Les sinks sont encore ouverts : les événements du hook SessionEnd y
+	// sont écrits.
+	endSession(st, lang, "other", out == headless.Text, stderr)
+	return code
+}
+
+// endSessionTimeout borne l'attente des hooks SessionEnd.
+const endSessionTimeout = 10 * time.Second
+
+// endSession déclenche les hooks SessionEnd une fois le tour rendu, avant la
+// fermeture des sinks. Une erreur n'est affichée que si showErr (sortie texte).
+func endSession(st started, lang i18n.Lang, reason string, showErr bool, stderr io.Writer) {
+	ctx, cancel := context.WithTimeout(context.Background(), endSessionTimeout)
+	defer cancel()
+	if err := st.eng.EndSession(ctx, st.sessionID, reason); err != nil && showErr {
+		fmt.Fprint(stderr, redactText(st.redactor)(i18n.T(lang, "err.prefix", err)+"\n"))
+	}
 }
 
 // redactText masque un texte libre avec red : même fonction pour le mode non
@@ -245,6 +274,9 @@ func runInteractive(ctx context.Context, fs *flag.FlagSet, lang i18n.Lang, o eng
 		// l'événement McpServerDown émis au premier tour.
 		Notices: append(slices.Clone(st.notices), st.downNotices...),
 	}, stdin, stdout)
+	// Après le retour de la TUI (même en erreur), avant la fermeture des sinks.
+	// Un tour inachevé tient le verrou de session : EndSession expire alors.
+	endSession(st, lang, "prompt_input_exit", true, stderr)
 	switch {
 	case errors.Is(err, tui.ErrTurnNotFinished):
 		fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", i18n.T(lang, "err.turn_not_finished")))
@@ -462,6 +494,8 @@ type started struct {
 	skills *skills.Catalog
 	// agents est le catalogue des agents (jamais nil).
 	agents *agents.Catalog
+	// hooks est l'ensemble des hooks chargés (jamais nil).
+	hooks *hooks.Set
 	// provider et contextWindow décrivent le fournisseur choisi (barre d'état).
 	provider      llm.ProviderInfo
 	contextWindow int
@@ -476,6 +510,10 @@ func startEngine(o engineOptions) (started, error) {
 		return started{}, err
 	}
 	cfg := s.cfg
+	hookSet, hookNotices, err := loadHooks(lang, getenv, wd, cfg.Hooks)
+	if err != nil {
+		return started{}, err
+	}
 
 	providerID := o.providerID
 	if providerID == "" {
@@ -686,6 +724,9 @@ func startEngine(o engineOptions) (started, error) {
 		CompactionThreshold: cfg.CompactionThreshold,
 		UnavailableMCP:      unavailable,
 		MCP:                 active,
+		Hooks:               hookSet,
+		TranscriptPath:      filepath.Join(sdir, sid+".jsonl"),
+		Notify:              o.interactive,
 	})
 	if o.resume != "" {
 		if err := eng.Restore(sid, events); err != nil {
@@ -694,7 +735,7 @@ func startEngine(o engineOptions) (started, error) {
 		}
 	}
 	return started{
-		eng: eng, redactor: red, sessionID: sid, close: closeAll, notices: slices.Concat(detectNotices, skillNotices, ad.notices, notices), skills: cat, agents: ad.cat,
+		eng: eng, redactor: red, sessionID: sid, close: closeAll, notices: slices.Concat(detectNotices, skillNotices, ad.notices, hookNotices, notices), skills: cat, agents: ad.cat, hooks: hookSet,
 		downNotices: downNotices(o.lang, unavailable, red),
 		provider:    info, contextWindow: pc.Window(),
 	}, nil

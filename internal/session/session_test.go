@@ -464,3 +464,17 @@ func TestFirstPromptPrefersTyped(t *testing.T) {
 		t.Fatalf("FirstPrompt = %q", got[0].FirstPrompt)
 	}
 }
+
+func TestFirstPromptSkipsHookMessages(t *testing.T) {
+	dir := t.TempDir()
+	w := mustOpen(t, dir, sidA)
+	mustWrite(t, w, ev(t, sidA, 1, event.SessionStarted, event.SessionStartedPayload{ProjectRoot: "/p"}))
+	mustWrite(t, w, ev(t, sidA, 2, event.UserMessage, event.UserMessagePayload{Text: "bloqué", Blocked: true}))
+	mustWrite(t, w, ev(t, sidA, 3, event.UserMessage, event.UserMessagePayload{Text: "retour du hook", Hook: "Stop"}))
+	mustWrite(t, w, ev(t, sidA, 4, event.UserMessage, event.UserMessagePayload{Text: "vrai prompt"}))
+	w.Close()
+	got, err := List(dir, "/p")
+	if err != nil || len(got) != 1 || got[0].FirstPrompt != "vrai prompt" {
+		t.Fatalf("got=%+v err=%v", got, err)
+	}
+}

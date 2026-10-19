@@ -487,3 +487,60 @@ func TestTextIgnoresSubagentMessages(t *testing.T) {
 		t.Fatalf("stdout = %q", got)
 	}
 }
+
+// feed passe les événements au renderer et renvoie (refused, stderr).
+func feed(t *testing.T, lang i18n.Lang, evs ...any) (bool, string) {
+	t.Helper()
+	var errb bytes.Buffer
+	r := &renderer{hookLabels: map[string]string{}, out: Text, lang: lang,
+		redact:     func(s string) string { return s },
+		redactText: func(s string) string { return strings.ReplaceAll(s, "SECRET", "[X]") },
+		stdout:     &bytes.Buffer{}, stderr: &errb}
+	for i := 0; i < len(evs); i += 2 {
+		ev, err := event.New("s", uint64(i), time.Now(), evs[i].(event.Type), evs[i+1])
+		if err != nil {
+			t.Fatal(err)
+		}
+		r.handle(ev)
+	}
+	return r.refused, errb.String()
+}
+
+func TestHookEventsText(t *testing.T) {
+	_, got := feed(t, i18n.EN,
+		event.HookStarted, event.HookStartedPayload{RunID: "r1", HookID: "tenon:Stop:0.0", Type: "command", Command: "/usr/bin/lint --x"},
+		event.HookCompleted, event.HookCompletedPayload{RunID: "r1", HookID: "tenon:Stop:0.0", Status: "error", Error: "boom\x1b[31m\nSECRET"},
+		event.HookStarted, event.HookStartedPayload{RunID: "r2", HookID: "tenon:Stop:0.1", Type: "prompt"},
+		event.HookCompleted, event.HookCompletedPayload{RunID: "r2", HookID: "tenon:Stop:0.1", Status: "timeout", Error: "late"},
+		event.HookCompleted, event.HookCompletedPayload{RunID: "r3", HookID: "tenon:PreToolUse:0.0", Status: "blocked", Reason: "no\u202e way", SystemMessage: "heads up", StopReason: "enough"},
+	)
+	for _, want := range []string{
+		"hook lint (error): boom [31m [X]",
+		"hook prompt (timeout): late",
+		"hook tenon:PreToolUse:0.0 blocked: no  way",
+		"hook: heads up",
+		"hook stopped the turn: enough",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("%q absent : %q", want, got)
+		}
+	}
+	if strings.ContainsAny(got, "\x1b\u202e") || strings.Contains(got, "SECRET") {
+		t.Fatalf("texte non nettoyé : %q", got)
+	}
+}
+
+func TestHookTurnReasons(t *testing.T) {
+	refused, got := feed(t, i18n.EN, event.TurnCompleted, event.TurnCompletedPayload{Reason: "blocked_by_hook"})
+	if !refused || !strings.Contains(got, "prompt blocked by a hook") {
+		t.Fatalf("refused=%v %q", refused, got)
+	}
+	refused, got = feed(t, i18n.EN, event.TurnCompleted, event.TurnCompletedPayload{Reason: "stopped_by_hook"})
+	if refused || !strings.Contains(got, "turn ended: stopped_by_hook") {
+		t.Fatalf("refused=%v %q", refused, got)
+	}
+	refused, _ = feed(t, i18n.EN, event.ToolResult, event.ToolResultPayload{Denied: "hook"})
+	if !refused {
+		t.Fatal("denied hook non refusé")
+	}
+}

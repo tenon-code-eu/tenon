@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"path/filepath"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -69,7 +70,7 @@ func Run(ctx context.Context, eng *engine.Engine, sessionID string, in engine.In
 	errc := make(chan error, 1)
 	go func() { errc <- eng.SubmitInput(ctx, sessionID, in) }()
 
-	r := &renderer{eng: eng, out: out, lang: lang, redact: redact, redactText: redactText, stdout: stdout, stderr: stderr}
+	r := &renderer{hookLabels: map[string]string{}, eng: eng, out: out, lang: lang, redact: redact, redactText: redactText, stdout: stdout, stderr: stderr}
 	var err error
 loop:
 	for {
@@ -116,6 +117,10 @@ type renderer struct {
 	final   string // dernier texte complet de l'assistant
 	refused bool
 	failed  bool // le tour n'a pas pu tourner (context_too_large)
+
+	// hookLabels associe le run_id d'un hook à son libellé (nom de la
+	// commande, ou type) : HookCompleted ne porte pas la commande.
+	hookLabels map[string]string
 }
 
 func (r *renderer) handle(ev event.Event) {
@@ -162,6 +167,16 @@ func (r *renderer) handle(ev event.Event) {
 				r.text("%s\n", i18n.T(r.lang, "refused.policy", r.redactText(p.Tool)))
 			}
 		}
+	case event.HookStarted:
+		var p event.HookStartedPayload
+		if r.decode(ev, &p) {
+			r.hookLabels[p.RunID] = hookLabel(p)
+		}
+	case event.HookCompleted:
+		var p event.HookCompletedPayload
+		if r.decode(ev, &p) {
+			r.hookCompleted(p)
+		}
 	case event.AssistantMessage:
 		var p event.AssistantMessagePayload
 		if r.decode(ev, &p) && p.Text != "" && p.ParentCallID == "" {
@@ -178,7 +193,10 @@ func (r *renderer) handle(ev event.Event) {
 				// Une erreur, pas un refus de la politique : l'Error qui
 				// précède l'a déjà expliquée.
 				r.failed = true
-			case "max_iterations", "incomplete", "cancelled":
+			case "blocked_by_hook":
+				r.refused = true
+				r.text("%s\n", i18n.T(r.lang, "turn.blocked_by_hook"))
+			case "max_iterations", "incomplete", "cancelled", "stopped_by_hook":
 				r.text("%s\n", i18n.T(r.lang, "turn.ended", p.Reason))
 			}
 		}
@@ -197,6 +215,50 @@ func (r *renderer) handle(ev event.Event) {
 			r.text("%s\n", i18n.T(r.lang, "compaction.done", p.Replaced))
 		}
 	}
+}
+
+// hookCompleted affiche sur stderr (sortie texte) ce qu'un hook a signalé :
+// erreur ou dépassement de délai, blocage, message système, arrêt du tour.
+// Les textes viennent d'un hook, non fiable : contrôles remplacés par des
+// espaces ; le masquage est appliqué par text.
+func (r *renderer) hookCompleted(p event.HookCompletedPayload) {
+	label := r.hookLabels[p.RunID]
+	delete(r.hookLabels, p.RunID)
+	if label == "" {
+		label = p.HookID
+	}
+	switch p.Status {
+	case "error", "timeout":
+		r.text("%s\n", i18n.T(r.lang, "headless.hook_error", spaceControls(label), p.Status, spaceControls(p.Error)))
+	case "blocked":
+		r.text("%s\n", i18n.T(r.lang, "headless.hook_blocked", spaceControls(p.HookID), spaceControls(p.Reason)))
+	}
+	if p.SystemMessage != "" {
+		r.text("%s\n", i18n.T(r.lang, "headless.hook_message", spaceControls(p.SystemMessage)))
+	}
+	if p.StopReason != "" {
+		r.text("%s\n", i18n.T(r.lang, "headless.hook_stopped", spaceControls(p.StopReason)))
+	}
+}
+
+// hookLabel renvoie le nom de base du premier mot de la commande d'un hook,
+// à défaut son type (prompt, agent).
+func hookLabel(p event.HookStartedPayload) string {
+	if f := strings.Fields(p.Command); len(f) > 0 {
+		return filepath.Base(f[0])
+	}
+	return p.Type
+}
+
+// spaceControls remplace par une espace les caractères de contrôle et de
+// format (ESC, U+202E, sauts de ligne…) : le texte d'un hook n'est pas fiable.
+func spaceControls(s string) string {
+	return strings.Map(func(c rune) rune {
+		if unicode.IsControl(c) || unicode.Is(unicode.Cf, c) {
+			return ' '
+		}
+		return c
+	}, s)
 }
 
 // printJSON écrit ev sur une ligne, charge utile masquée. Si le masquage rend
