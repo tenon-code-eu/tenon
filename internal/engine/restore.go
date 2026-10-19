@@ -27,7 +27,9 @@ const interruptedMsg = "cancelled: session interrupted"
 // l'utilisateur ou de l'assistant, et après le dernier événement. Le compteur
 // de séquence et celui des demandes de permission reprennent aux plus grandes
 // valeurs lues ; les autorisations « pour la session » et l'avertissement de
-// juridiction ne sont pas restaurés. Les autres types sont ignorés.
+// juridiction ne sont pas restaurés. Les événements portant parent_call_id
+// (sous-agents) sont ignorés, sauf PermissionRequested pour le compteur. Les
+// autres types sont ignorés.
 func (e *Engine) Restore(sessionID string, events []event.Event) error {
 	s := e.session(sessionID)
 	s.turn.Lock()
@@ -53,6 +55,17 @@ func (e *Engine) Restore(sessionID string, events []event.Event) error {
 		}
 		if ev.Seq > seq {
 			seq = ev.Seq
+		}
+		// Les événements d'un sous-agent (parent_call_id) n'entrent pas dans
+		// l'historique de l'agent principal ; seul leur compteur de permissions
+		// et leur seq comptent.
+		var meta struct {
+			ParentCallID string `json:"parent_call_id"`
+		}
+		// Payload illisible : on laisse chaque cas décider (types ignorés tolérés).
+		_ = json.Unmarshal(ev.Payload, &meta)
+		if meta.ParentCallID != "" && ev.Type != event.PermissionRequested {
+			continue
 		}
 		switch ev.Type {
 		case event.UserMessage:

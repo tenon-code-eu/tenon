@@ -224,3 +224,93 @@ func TestRestoreSkillMessage(t *testing.T) {
 		t.Fatalf("messages %s", mustJSON(got))
 	}
 }
+
+// subagentLog rejoue la délégation de TestSubagentDelegation et renvoie les
+// événements réellement émis.
+func subagentLog(t *testing.T) []event.Event {
+	t.Helper()
+	h := newAgentEngine(t, [][]llm.Chunk{
+		call("m1", "agent", agentCall),
+		call("s1", "read_file", `{"path":"a.txt"}`),
+		text("a.txt says hi"),
+		text("done"),
+	}, nil)
+	evs, err := h.submit(t, "s_1", "go", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return evs
+}
+
+func TestRestoreWithSubagent(t *testing.T) {
+	evs := subagentLog(t)
+	h := newAgentEngine(t, [][]llm.Chunk{text("ok")}, nil)
+	if err := h.eng.Restore("s_1", evs); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.submit(t, "s_1", "next", nil); err != nil {
+		t.Fatal(err)
+	}
+	got := h.prov.reqs()[0].Messages
+	if len(got) == 0 || got[0].Role != llm.System {
+		t.Fatalf("messages %s", mustJSON(got))
+	}
+	agentTC := llm.ToolCall{ID: "m1", Name: "agent", Args: json.RawMessage(agentCall)}
+	want := []llm.Message{
+		got[0],
+		{Role: llm.User, Content: "go"},
+		{Role: llm.Assistant, ToolCalls: []llm.ToolCall{agentTC}},
+		{Role: llm.Tool, Content: "a.txt says hi", ToolCallID: "m1"},
+		{Role: llm.Assistant, Content: "done"},
+		{Role: llm.User, Content: "next"},
+	}
+	if mustJSON(got) != mustJSON(want) {
+		t.Fatalf("messages\n%s\nattendu\n%s", mustJSON(got), mustJSON(want))
+	}
+}
+
+func TestRestoreInterruptedSubagent(t *testing.T) {
+	evs := subagentLog(t)
+	var cut []event.Event
+	for _, e := range evs {
+		cut = append(cut, e)
+		if e.Type == event.ToolCallRequested && parentOf(t, e) == "m1" {
+			break
+		}
+	}
+	h := newAgentEngine(t, [][]llm.Chunk{text("ok")}, nil)
+	if err := h.eng.Restore("s_1", cut); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.submit(t, "s_1", "next", nil); err != nil {
+		t.Fatal(err)
+	}
+	got := h.prov.reqs()[0].Messages
+	agentTC := llm.ToolCall{ID: "m1", Name: "agent", Args: json.RawMessage(agentCall)}
+	want := []llm.Message{
+		got[0],
+		{Role: llm.User, Content: "go"},
+		{Role: llm.Assistant, ToolCalls: []llm.ToolCall{agentTC}},
+		{Role: llm.Tool, Content: interruptedMsg, ToolCallID: "m1"},
+		{Role: llm.User, Content: "next"},
+	}
+	if mustJSON(got) != mustJSON(want) {
+		t.Fatalf("messages\n%s\nattendu\n%s", mustJSON(got), mustJSON(want))
+	}
+}
+
+func TestRestorePermCounterIncludesNested(t *testing.T) {
+	l := &evLog{t: t, sid: "s_1"}
+	l.add(event.UserMessage, event.UserMessagePayload{Text: "a"}).
+		add(event.PermissionRequested, event.PermissionRequestedPayload{PermissionID: "s_1-p3", ParentCallID: "m1"})
+	h := newHarness(t, euInfo, [][]llm.Chunk{text("ok")})
+	if err := h.eng.Restore("s_1", l.evs); err != nil {
+		t.Fatal(err)
+	}
+	h.eng.session("s_1").turn.Lock()
+	n := h.eng.session("s_1").permN
+	h.eng.session("s_1").turn.Unlock()
+	if n != 3 {
+		t.Fatalf("permN %d, attendu 3 (prochain ID s_1-p4)", n)
+	}
+}
