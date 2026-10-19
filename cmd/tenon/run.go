@@ -84,11 +84,16 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	}
 
 	rest := fs.Args()
+	var rewindList bool
 	// « tenon sessions --lang en » : --lang est aussi accepté après la sous-commande.
-	if len(rest) > 0 && (rest[0] == "sessions" || rest[0] == "skills" || rest[0] == "agents" || rest[0] == "hooks") {
+	if len(rest) > 0 && (rest[0] == "sessions" || rest[0] == "skills" || rest[0] == "agents" || rest[0] == "hooks" || rest[0] == "rewind") {
 		sub := flag.NewFlagSet("tenon "+rest[0], flag.ContinueOnError)
 		sub.SetOutput(stderr)
 		sub.StringVar(langFlag, "lang", *langFlag, i18n.T(hl, "flag.lang"))
+		if rest[0] == "rewind" {
+			sub.BoolVar(&rewindList, "list", false, i18n.T(hl, "flag.rewind_list"))
+			sub.StringVar(resume, "resume", *resume, i18n.T(hl, "flag.resume"))
+		}
 		if err := sub.Parse(rest[1:]); err != nil {
 			if errors.Is(err, flag.ErrHelp) {
 				return 0
@@ -105,7 +110,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	}
 
 	// --resume ne vaut que pour une conversation (interface interactive ou -p).
-	if *resume != "" && len(rest) > 0 && rest[0] != "sessions" && rest[0] != "skills" && rest[0] != "agents" && rest[0] != "hooks" {
+	if *resume != "" && len(rest) > 0 && rest[0] != "sessions" && rest[0] != "skills" && rest[0] != "agents" && rest[0] != "hooks" && rest[0] != "rewind" {
 		fmt.Fprintln(stderr, i18n.T(lang, "err.no_prompt"))
 		return 1
 	}
@@ -159,6 +164,17 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 			return 1
 		}
 		return listHooks(lang, stdout, stderr, getenv, wd)
+	case len(rest) >= 1 && rest[0] == "rewind":
+		// La restauration elle-même se fait dans l'interface interactive.
+		if len(rest) > 1 || !rewindList || *resume == "" {
+			arg := rest[0]
+			if len(rest) > 1 {
+				arg = rest[1]
+			}
+			fmt.Fprintln(stderr, i18n.T(lang, "err.unexpected_args", arg))
+			return 1
+		}
+		return listRewind(lang, *resume, stdout, stderr, getenv, wd)
 	case len(rest) >= 2 && rest[0] == "git" && rest[1] == "mark":
 		// Précédé d'options globales (le hook n'en passe aucune).
 		return gitMark(ctx, rest[2:], stderr, getenv, wd)
@@ -655,7 +671,16 @@ func startEngine(o engineOptions) (started, error) {
 		return perm.Check(policy.Call{Tool: tool, Risk: tools.Read, Target: target}) == policy.Allow &&
 			perm.Check(policy.Call{Tool: "read_file", Risk: tools.Read, Target: target}) == policy.Allow
 	}
-	ts := append(tools.FS(wd, cfg.OutputLimit, tools.WithReadFilter(readable)),
+	// Copies d'avant écriture (rewind) : ouvertes et nettoyées au démarrage.
+	store, ckNotices := openCheckpoints(lang, getenv, cfg.Checkpoints.RetentionDays)
+	fsOpts := []tools.Option{tools.WithReadFilter(readable)}
+	if store != nil {
+		fsOpts = append(fsOpts, tools.WithSnapshot(func(_ string, old []byte) error {
+			_, err := store.Save(old)
+			return err
+		}))
+	}
+	ts := append(tools.FS(wd, cfg.OutputLimit, fsOpts...),
 		tools.Shell(wd, cfg.ShellTimeout.Duration, cfg.OutputLimit))
 	// Skills : l'outil skill rejoint les outils internes, avant ceux de MCP.
 	disc := o.skills
@@ -726,6 +751,7 @@ func startEngine(o engineOptions) (started, error) {
 		UnavailableMCP:      unavailable,
 		MCP:                 active,
 		Hooks:               hookSet,
+		Checkpoints:         store,
 		TranscriptPath:      filepath.Join(sdir, sid+".jsonl"),
 		Notify:              o.interactive,
 	})
@@ -736,7 +762,7 @@ func startEngine(o engineOptions) (started, error) {
 		}
 	}
 	return started{
-		eng: eng, redactor: red, sessionID: sid, close: closeAll, notices: slices.Concat(detectNotices, skillNotices, ad.notices, hookNotices, notices), skills: cat, agents: ad.cat, hooks: hookSet,
+		eng: eng, redactor: red, sessionID: sid, close: closeAll, notices: slices.Concat(detectNotices, skillNotices, ad.notices, hookNotices, ckNotices, notices), skills: cat, agents: ad.cat, hooks: hookSet,
 		downNotices: downNotices(o.lang, unavailable, red),
 		provider:    info, contextWindow: pc.Window(),
 	}, nil
