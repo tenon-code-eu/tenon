@@ -155,7 +155,7 @@ func (e *Engine) SubmitInput(ctx context.Context, sessionID string, in Input) er
 	s := e.session(sessionID)
 	s.turn.Lock()
 	defer s.turn.Unlock()
-	t := &turn{e: e, s: s, ctx: ctx}
+	t := &turn{e: e, s: s, ctx: ctx, h: &s.history, tools: e.d.Tools, deltas: true}
 	return t.run(in)
 }
 

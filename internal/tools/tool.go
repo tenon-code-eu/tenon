@@ -69,12 +69,61 @@ func NewRegistry(ts ...Tool) *Registry {
 }
 
 func (r *Registry) Get(name string) (Tool, bool) {
+	if r == nil {
+		return nil, false
+	}
 	t, ok := r.tools[name]
 	return t, ok
 }
 
+// With renvoie une copie du registre complétée de ts (r nil : registre vide
+// plus ts). Le récepteur n'est pas modifié.
+func (r *Registry) With(ts ...Tool) *Registry {
+	out := NewRegistry()
+	if r != nil {
+		for n, t := range r.tools {
+			out.tools[n] = t
+		}
+	}
+	for _, t := range ts {
+		out.tools[t.Name()] = t
+	}
+	return out
+}
+
+// Only renvoie une copie restreinte aux outils de names (noms inconnus
+// ignorés ; r nil : registre vide). Le récepteur n'est pas modifié.
+func (r *Registry) Only(names []string) *Registry {
+	out := NewRegistry()
+	if r == nil {
+		return out
+	}
+	for _, n := range names {
+		if t, ok := r.tools[n]; ok {
+			out.tools[n] = t
+		}
+	}
+	return out
+}
+
+// Names renvoie les noms des outils, triés.
+func (r *Registry) Names() []string {
+	if r == nil {
+		return nil
+	}
+	names := make([]string, 0, len(r.tools))
+	for n := range r.tools {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	return names
+}
+
 // Defs renvoie les définitions triées par nom.
 func (r *Registry) Defs() []llm.ToolDef {
+	if r == nil {
+		return nil
+	}
 	defs := make([]llm.ToolDef, 0, len(r.tools))
 	for _, t := range r.tools {
 		defs = append(defs, llm.ToolDef{Name: t.Name(), Description: t.Description(), Schema: t.Schema()})

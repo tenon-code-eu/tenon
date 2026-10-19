@@ -19,13 +19,30 @@ import (
 var reMarker = regexp.MustCompile(`\[[A-Z_]+_\d+\]`)
 
 // turn porte l'état d'un tour ; s.turn est tenu pendant toute sa durée.
+// Un sous-agent utilise un second turn : historique local, outils restreints,
+// parent = identifiant de l'appel d'outil agent, sans deltas.
 type turn struct {
-	e   *Engine
-	s   *session
-	ctx context.Context
+	e      *Engine
+	s      *session
+	ctx    context.Context
+	h      *[]llm.Message  // historique du tour (session : &s.history)
+	tools  *tools.Registry // outils proposés et exécutables (peut être nil)
+	parent string          // call_id de l'appel agent parent ("" pour le tour principal)
+	deltas bool            // émettre AssistantDelta
 }
 
-func (t *turn) emit(typ event.Type, payload any) error { return t.e.emit(t.s, typ, payload) }
+// loopResult résume la fin de loop. Reason vaut l'une des raisons de
+// TurnCompleted, ou "error" quand ProvErr n'est pas nil.
+type loopResult struct {
+	Iterations int
+	Reason     string
+	Text       string // dernier texte d'assistant non vide (même incomplet)
+	ProvErr    error
+}
+
+func (t *turn) emit(typ event.Type, payload any) error {
+	return t.e.emit(t.s, typ, event.WithParent(payload, t.parent))
+}
 
 func (t *turn) done(iter int, reason string) error {
 	return t.emit(event.TurnCompleted, event.TurnCompletedPayload{Iterations: iter, Reason: reason})
@@ -48,20 +65,45 @@ func (t *turn) run(in Input) error {
 			}
 		}
 	}
-	t.s.history = append(t.s.history, llm.Message{Role: llm.User, Content: in.Text})
+	*t.h = append(*t.h, llm.Message{Role: llm.User, Content: in.Text})
 	if err := t.emit(event.UserMessage, event.UserMessagePayload{
 		Text: in.Text, Typed: in.Typed, Skill: in.Skill, SkillSHA256: in.SkillSHA256,
 	}); err != nil {
 		return err
 	}
 
+	res, err := t.loop()
+	if res.Reason == "cancelled" {
+		t.cancelled(res.Iterations) // au mieux
+		return err
+	}
+	if err != nil {
+		return err
+	}
+	if res.ProvErr != nil {
+		return res.ProvErr
+	}
+	return t.done(res.Iterations, res.Reason)
+}
+
+// loop exécute les itérations du tour sur *t.h. Il n'émet pas TurnCompleted :
+// l'appelant le fait à partir du résultat. Une erreur du fournisseur est
+// signalée par un événement Error puis par ProvErr ; l'error renvoyée est
+// fatale (audit, annulation du contexte).
+func (t *turn) loop() (loopResult, error) {
+	d := t.e.d
+	info := d.Provider.Info()
+	var last string
+	res := func(iter int, reason string) loopResult {
+		return loopResult{Iterations: iter, Reason: reason, Text: last}
+	}
 	for iter := 1; iter <= d.MaxIterations; iter++ {
 		var defs []llm.ToolDef
-		if d.Tools != nil {
-			defs = d.Tools.Defs()
+		if t.tools != nil {
+			defs = t.tools.Defs()
 		}
-		if stop, err := t.compactOrStop(info, defs, false, iter-1); stop || err != nil {
-			return err
+		if stop, reason, err := t.compactOrStop(info, defs, false, iter-1); stop || err != nil {
+			return res(iter-1, reason), err
 		}
 
 		var (
@@ -71,16 +113,16 @@ func (t *turn) run(in Input) error {
 			compacted bool
 		)
 		for {
-			msgs, ok, err := t.outbound(info, t.s.history)
+			msgs, ok, err := t.outbound(info, *t.h)
 			if err != nil {
-				return err
+				return res(iter, ""), err
 			}
 			if !ok {
-				return t.done(iter-1, "blocked")
+				return res(iter-1, "blocked"), nil
 			}
-			text, calls, provErr, err = t.stream(llm.Request{Model: info.Model, Messages: msgs, Tools: defs}, true)
+			text, calls, provErr, err = t.stream(llm.Request{Model: info.Model, Messages: msgs, Tools: defs}, t.deltas)
 			if err != nil {
-				return err
+				return res(iter, ""), err
 			}
 			// Contexte trop long pour le fournisseur : une compaction forcée,
 			// puis une seule nouvelle tentative.
@@ -88,51 +130,56 @@ func (t *turn) run(in Input) error {
 				break
 			}
 			compacted = true
-			if stop, err := t.compactOrStop(info, defs, true, iter); stop || err != nil {
-				return err
+			if stop, reason, err := t.compactOrStop(info, defs, true, iter); stop || err != nil {
+				return res(iter, reason), err
 			}
 		}
 		if provErr != nil {
 			if cerr := t.ctx.Err(); cerr != nil {
-				t.cancelled(iter)
-				return cerr
+				return res(iter, "cancelled"), cerr
 			}
 			if errors.Is(provErr, provider.ErrIncomplete) {
 				if text != "" {
-					t.s.history = append(t.s.history, llm.Message{Role: llm.Assistant, Content: text})
+					*t.h = append(*t.h, llm.Message{Role: llm.Assistant, Content: text})
+					last = text
 				}
 				if err := t.emit(event.AssistantMessage, event.AssistantMessagePayload{Text: text, Incomplete: true}); err != nil {
-					return err
+					return res(iter, ""), err
 				}
-				return t.done(iter, "incomplete")
+				return res(iter, "incomplete"), nil
 			}
 			if err := t.emit(event.Error, event.ErrorPayload{Code: "provider", Message: provErr.Error()}); err != nil {
-				return err
+				return res(iter, ""), err
 			}
-			return provErr
+			r := res(iter, "error")
+			r.ProvErr = provErr
+			return r, nil
 		}
 
-		t.s.history = append(t.s.history, llm.Message{Role: llm.Assistant, Content: text, ToolCalls: calls})
+		*t.h = append(*t.h, llm.Message{Role: llm.Assistant, Content: text, ToolCalls: calls})
+		if text != "" {
+			last = text
+		}
 		if err := t.emit(event.AssistantMessage, event.AssistantMessagePayload{Text: text, ToolCalls: safeCalls(calls)}); err != nil {
 			t.closeCalls(calls, err)
-			return err
+			return res(iter, ""), err
 		}
 		if len(calls) == 0 {
-			return t.done(iter, "done")
+			return res(iter, "done"), nil
 		}
 		for i, c := range calls {
-			res, err := t.runTool(c)
+			tr, err := t.runTool(c)
 			if err != nil {
 				t.closeCalls(calls[i:], err)
 				if t.ctx.Err() != nil {
-					t.cancelled(iter)
+					return res(iter, "cancelled"), err
 				}
-				return err
+				return res(iter, ""), err
 			}
-			t.s.history = append(t.s.history, llm.Message{Role: llm.Tool, Content: res.Content, ToolCallID: c.ID})
+			*t.h = append(*t.h, llm.Message{Role: llm.Tool, Content: tr.Content, ToolCallID: c.ID})
 		}
 	}
-	return t.done(d.MaxIterations, "max_iterations")
+	return res(d.MaxIterations, "max_iterations"), nil
 }
 
 // closeCalls ajoute à l'historique une réponse synthétique pour chaque appel
@@ -141,7 +188,7 @@ func (t *turn) run(in Input) error {
 // OpenAI (HTTP 400).
 func (t *turn) closeCalls(calls []llm.ToolCall, cause error) {
 	for _, c := range calls {
-		t.s.history = append(t.s.history, llm.Message{
+		*t.h = append(*t.h, llm.Message{
 			Role: llm.Tool, Content: "cancelled: " + cause.Error(), ToolCallID: c.ID,
 		})
 	}
@@ -153,21 +200,20 @@ func (t *turn) cancelled(iter int) {
 	_ = t.done(iter, "cancelled")
 }
 
-// compactOrStop appelle compact et, si la compaction termine le tour, émet
-// TurnCompleted avec iter itérations. stop indique la fin du tour ; err est
-// l'erreur à renvoyer par Submit.
-func (t *turn) compactOrStop(info llm.ProviderInfo, defs []llm.ToolDef, force bool, iter int) (stop bool, err error) {
-	reason, err := t.compact(info, defs, force)
+// compactOrStop appelle compact. stop indique que la compaction termine le
+// tour, avec reason ("cancelled", "blocked", "context_too_large"...) ; err est
+// l'erreur à renvoyer. Le tour est clos par l'appelant, avec iter itérations.
+func (t *turn) compactOrStop(info llm.ProviderInfo, defs []llm.ToolDef, force bool, iter int) (stop bool, reason string, err error) {
+	reason, err = t.compact(info, defs, force)
 	switch {
 	case reason == reasonCancelled:
-		t.cancelled(iter)
-		return true, err
+		return true, "cancelled", err
 	case err != nil:
-		return true, err
+		return true, "", err
 	case reason != "":
-		return true, t.done(iter, reason)
+		return true, reason, nil
 	}
-	return false, nil
+	return false, "", nil
 }
 
 // outbound applique le contrôle sortant à in (historique ou requête de
@@ -350,8 +396,8 @@ func (t *turn) decideAndRun(c llm.ToolCall) (tools.Result, string, error) {
 	d := t.e.d
 	var tool tools.Tool
 	ok := false
-	if d.Tools != nil {
-		tool, ok = d.Tools.Get(c.Name)
+	if t.tools != nil {
+		tool, ok = t.tools.Get(c.Name)
 	}
 	if !ok {
 		return toolError("unknown tool: %s", c.Name), "", nil

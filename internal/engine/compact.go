@@ -157,7 +157,7 @@ func summaryInput(old []llm.Message, limit int) string {
 func (t *turn) compact(info llm.ProviderInfo, defs []llm.ToolDef, force bool) (reason string, err error) {
 	d := t.e.d
 	limit := int(d.CompactionThreshold * float64(d.ContextWindow))
-	h := t.s.history
+	h := *t.h
 	before := estimate(h, defs)
 	if !force && before <= limit {
 		return "", nil
@@ -231,7 +231,7 @@ func (t *turn) compact(info llm.ProviderInfo, defs []llm.ToolDef, force bool) (r
 	}); err != nil {
 		return "", err
 	}
-	t.s.history = nh
+	*t.h = nh
 	return "", nil
 }
 
