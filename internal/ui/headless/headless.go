@@ -164,7 +164,7 @@ func (r *renderer) handle(ev event.Event) {
 		}
 	case event.AssistantMessage:
 		var p event.AssistantMessagePayload
-		if r.decode(ev, &p) && p.Text != "" {
+		if r.decode(ev, &p) && p.Text != "" && p.ParentCallID == "" {
 			r.final = p.Text
 		}
 	case event.TurnCompleted:

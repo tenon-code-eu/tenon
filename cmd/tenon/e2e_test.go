@@ -712,8 +712,8 @@ func TestLangFlagOverrides(t *testing.T) {
 func TestCompactionEndToEnd(t *testing.T) {
 	f := newFakeLLM(t, sseText("ok"))
 	// La fenêtre doit contenir le prompt système et les schémas des outils
-	// (environ 650 jetons estimés) : 1200 jetons, seuil 0,8.
-	e := newEnvExtra(t, f, "eu", "context_window = 1200\n")
+	// (environ 900 jetons estimés avec l'outil agent) : 1500 jetons, seuil 0,8.
+	e := newEnvExtra(t, f, "eu", "context_window = 1500\n")
 	long := strings.Repeat("mot ", 200) // 200 jetons estimés
 
 	for i := range 3 {

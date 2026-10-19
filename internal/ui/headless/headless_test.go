@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/tenon-code-eu/tenon/internal/engine"
 	"github.com/tenon-code-eu/tenon/internal/event"
@@ -452,5 +453,37 @@ func TestBannerListsMCP(t *testing.T) {
 	r.handle(emitted(t, event.SessionStarted, event.SessionStartedPayload{Provider: llm.ProviderInfo{ID: "t", Model: "m", Jurisdiction: llm.EU}}))
 	if strings.Contains(errb.String(), "MCP") {
 		t.Fatalf("stderr=%q", errb.String())
+	}
+}
+
+func TestTextIgnoresSubagentMessages(t *testing.T) {
+	render := func(msgs ...event.AssistantMessagePayload) string {
+		var out bytes.Buffer
+		r := &renderer{
+			out: Text, stdout: &out, stderr: &bytes.Buffer{},
+			redact: func(s string) string { return s }, redactText: func(s string) string { return s },
+		}
+		for i, m := range msgs {
+			ev, err := event.New("s_1", uint64(i+1), time.Now(), event.AssistantMessage, m)
+			if err != nil {
+				t.Fatal(err)
+			}
+			r.handle(ev)
+		}
+		if r.final != "" {
+			out.WriteString(r.final + "\n")
+		}
+		return out.String()
+	}
+	sub := event.AssistantMessagePayload{Text: "sub text", ParentCallID: "call_1"}
+	main := event.AssistantMessagePayload{Text: "main"}
+	if got := render(sub, main); got != "main\n" {
+		t.Fatalf("stdout = %q", got)
+	}
+	if got := render(main, sub); got != "main\n" {
+		t.Fatalf("sous-agent après le principal : %q", got)
+	}
+	if got := render(sub); strings.Contains(got, "sub text") {
+		t.Fatalf("stdout = %q", got)
 	}
 }

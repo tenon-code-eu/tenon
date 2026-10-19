@@ -628,3 +628,15 @@ func TestInstallRemovesLegacyHook(t *testing.T) {
 		t.Fatalf("hook tiers modifié : %q", b)
 	}
 }
+
+func TestAgentWritesIncludeSubagent(t *testing.T) {
+	repo := newRepo(t)
+	sdir := filepath.Join(t.TempDir(), "sessions")
+	writeSession(t, sdir, fakeSession{id: "s_000000000001", root: repo, provider: mistral, results: []event.ToolResultPayload{
+		{CallID: "c1", Tool: "write_file", Path: filepath.Join(repo, "sub.go"), HashAfter: "h1", ParentCallID: "p1"},
+	}})
+	ws, err := AgentWrites(sdir, repo)
+	if err != nil || len(ws) != 1 || filepath.Base(ws[0].Path) != "sub.go" {
+		t.Fatalf("écritures : %v %v", ws, err)
+	}
+}

@@ -116,10 +116,13 @@ func headlessInput(lang i18n.Lang, cat *skills.Catalog, prompt string) (engine.I
 	return in, nil
 }
 
-// systemPrompt ajoute la section des skills au prompt système.
-func systemPrompt(base, section string) string {
-	if section == "" {
-		return base
+// systemPrompt ajoute au prompt de base chaque section non vide (skills,
+// agents).
+func systemPrompt(base string, sections ...string) string {
+	for _, s := range sections {
+		if s != "" {
+			base += "\n\n" + s
+		}
 	}
-	return base + "\n\n" + section
+	return base
 }
