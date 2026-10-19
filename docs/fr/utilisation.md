@@ -655,7 +655,7 @@ Champs JSON :
 
 | Champ | Effet |
 |---|---|
-| `continue: false` | Arrête le tour après ce hook. `stopReason` vous est affiché. Raison du tour : `stopped_by_hook`. Pour `PreToolUse`, l'outil ne s'exécute pas. Pour `PreCompact` et `Notification`, voir le tableau. Depuis `SessionEnd`, sans effet. |
+| `continue: false` | Arrête le tour après ce hook. `stopReason` vous est affiché. Raison du tour : `stopped_by_hook`. Pour `PreToolUse`, l'outil ne s'exécute pas. Pour `PreCompact` et `Notification`, voir le tableau. Seul `SessionEnd` l'ignore. |
 | `systemMessage` | Affiché comme avertissement, et journalisé. |
 | `suppressOutput` | Accepté, sans effet visible. |
 | `decision`, `reason` | `block` + `reason` bloque, pour les événements qui peuvent bloquer. |
@@ -724,8 +724,9 @@ Testez vos hooks : un hook de sécurité qui échoue en silence ne vous protège
 
 ### En mode non interactif
 
-La sortie texte est inchangée. Avec `--output text`, les avertissements des hooks (erreurs, délais, `systemMessage`, blocages) vont sur stderr.
-Avec `--output json`, rien n'est ajouté sur stderr : tous les événements de hook, avertissements compris, sont dans les événements JSON.
+La sortie texte est inchangée. Avec `--output text`, les avertissements des hooks pendant le tour (erreurs, délais, `systemMessage`, blocages) vont sur stderr.
+Avec `--output json`, ces avertissements sont seulement dans les événements JSON.
+Les avis de hooks au démarrage (bannière `hooks : N (claude : M)`, hooks de projet ignorés) vont sur stderr dans les deux modes.
 
 ### Lister les hooks
 

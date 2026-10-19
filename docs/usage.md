@@ -653,7 +653,7 @@ JSON fields:
 
 | Field | Effect |
 |---|---|
-| `continue: false` | Stops the turn after this hook. `stopReason` is shown to you. Turn reason: `stopped_by_hook`. For `PreToolUse`, the tool does not run. For `PreCompact` and `Notification`, see the table. From `SessionEnd`, it has no effect. |
+| `continue: false` | Stops the turn after this hook. `stopReason` is shown to you. Turn reason: `stopped_by_hook`. For `PreToolUse`, the tool does not run. For `PreCompact` and `Notification`, see the table. Only `SessionEnd` ignores it. |
 | `systemMessage` | Shown to you as a warning, and logged. |
 | `suppressOutput` | Accepted, no visible effect. |
 | `decision`, `reason` | `block` + `reason` blocks, for the events that can block. |
@@ -722,8 +722,9 @@ Test your hooks: a security hook that fails silently does not protect you.
 
 ### In non-interactive mode
 
-The text output is unchanged. With `--output text`, warnings of hooks (errors, timeouts, `systemMessage`, blocks) go to stderr.
-With `--output json`, nothing is added on stderr: all the hook events, warnings included, are in the JSON events.
+The text output is unchanged. With `--output text`, warnings of hooks during the turn (errors, timeouts, `systemMessage`, blocks) go to stderr.
+With `--output json`, these warnings are only in the JSON events.
+Startup hook notices (the `hooks: N (claude: M)` banner, ignored project hooks) go to stderr in both modes.
 
 ### List the hooks
 
