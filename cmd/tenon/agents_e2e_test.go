@@ -120,3 +120,30 @@ func TestSubagentBanner(t *testing.T) {
 		t.Fatalf("code=%d stderr=%q", code, errb)
 	}
 }
+
+func TestAgentsListToolsNoneAndTruncated(t *testing.T) {
+	e := newEnv(t, nil, "eu")
+	e.writeFile(filepath.Join(e.wd, ".claude", "agents", "empty.md"),
+		"---\nname: empty\ndescription: Sans outils.\ntools:\n---\ncorps\n")
+	e.writeFile(filepath.Join(e.wd, ".claude", "agents", "big.md"),
+		"---\nname: big\ndescription: Gros.\n---\n"+strings.Repeat("a", 40000))
+	code, out, _ := e.run("agents")
+	if code != 0 {
+		t.Fatalf("code=%d", code)
+	}
+	var emptyLine, bigLine string
+	for _, l := range strings.Split(out, "\n") {
+		switch {
+		case strings.HasPrefix(l, "empty  "):
+			emptyLine = l
+		case strings.HasPrefix(l, "big  "):
+			bigLine = l
+		}
+	}
+	if !strings.Contains(emptyLine, "tools: none") || strings.Contains(emptyLine, "tools: all") {
+		t.Fatalf("empty : %q", emptyLine)
+	}
+	if !strings.Contains(bigLine, "big.md (truncated)  ") || !strings.Contains(out, "file truncated to 32768 bytes") {
+		t.Fatalf("big : %q\n%s", bigLine, out)
+	}
+}

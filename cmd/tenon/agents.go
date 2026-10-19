@@ -46,11 +46,17 @@ func listAgents(lang i18n.Lang, stdout io.Writer, getenv func(string) string, wd
 		line := clean(a.Name) + "  " + string(a.Source)
 		if a.Source != agents.Builtin {
 			line += "  " + clean(a.Path)
+			if a.Truncated {
+				line += " (truncated)"
+			}
 		}
 		line += "  " + desc
-		if a.Tools == nil {
+		switch {
+		case a.Tools == nil:
 			line += "  tools: all"
-		} else {
+		case len(a.Tools) == 0:
+			line += "  tools: none"
+		default:
 			line += "  tools: " + clean(strings.Join(a.Tools, ", "))
 		}
 		if a.Model != "" {
