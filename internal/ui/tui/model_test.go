@@ -17,6 +17,7 @@ import (
 	"github.com/tenon-code-eu/tenon/internal/event"
 	"github.com/tenon-code-eu/tenon/internal/i18n"
 	"github.com/tenon-code-eu/tenon/internal/llm"
+	"github.com/tenon-code-eu/tenon/internal/skills"
 )
 
 // fakeEngine est un Engine en mémoire : Submit enregistre l'appel, exécute
@@ -442,7 +443,7 @@ func TestHelpCommand(t *testing.T) {
 	typeText(h, "/help")
 	enter(h)
 	items := h.m.tr.Items()
-	if len(items) != 1 || items[0].Kind != ItemNotice || items[0].Text != i18n.T(i18n.EN, "tui.help") {
+	if len(items) != 1+len(skills.Builtins) || items[0].Kind != ItemNotice || items[0].Text != i18n.T(i18n.EN, "tui.help") {
 		t.Fatalf("items %+v", items)
 	}
 	if h.m.input.Value() != "" {
@@ -712,4 +713,19 @@ func (f *fakeEngine) Rewind(_ context.Context, _ string, seq uint64, mode engine
 	defer f.mu.Unlock()
 	f.rwCalls = append(f.rwCalls, rewindCall{seq, mode, over})
 	return f.rwRes, f.rwErr
+}
+
+func TestHelpListsBuiltins(t *testing.T) {
+	for _, l := range []i18n.Lang{i18n.EN, i18n.FR} {
+		h := newHarness(t, newFake(), Options{Lang: l})
+		typeText(h, "/help")
+		enter(h)
+		n := notices(h)
+		for _, b := range skills.Builtins {
+			desc := i18n.T(l, "tui.help.cmd."+b)
+			if desc == "" || strings.HasPrefix(desc, "tui.help.cmd.") || !strings.Contains(n, "/"+b+"  "+desc) {
+				t.Errorf("%s : /%s sans description dans %q", l, b, n)
+			}
+		}
+	}
 }

@@ -409,6 +409,9 @@ func (m Model) submit() (tea.Model, tea.Cmd) {
 	case helpCommand:
 		m.input.Reset()
 		m.tr.notice(i18n.T(m.lang, "tui.help"))
+		for _, n := range skills.Builtins {
+			m.tr.notice("/" + n + "  " + i18n.T(m.lang, "tui.help.cmd."+n))
+		}
 		if names := m.skillNames(); len(names) > 0 {
 			m.tr.notice(i18n.T(m.lang, "tui.help.skills", "/"+strings.Join(names, ", /")))
 		}

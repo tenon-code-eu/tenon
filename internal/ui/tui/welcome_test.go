@@ -2,13 +2,18 @@ package tui
 
 import (
 	"io"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/tenon-code-eu/tenon/internal/hooks"
 	"github.com/tenon-code-eu/tenon/internal/i18n"
+	"github.com/tenon-code-eu/tenon/internal/skills"
 )
 
 func welcomeOpts(l i18n.Lang) Options {
@@ -32,7 +37,7 @@ func TestWelcomeWide(t *testing.T) {
 		"██    ███████ ██   ████  ██████  ██   ████",
 		"╱▔▔▔▔▔▔▔╲", "Harness open-source · européen · français", "v1.2.3",
 		"mistral-large", "Mistral AI", "juridiction UE", "projet : /work/projet",
-		"/help pour l'aide · Entrée pour envoyer · Ctrl+C pour quitter", "╭", "╯",
+		"Entrée pour envoyer · Échap ×2 pour revenir en arrière", "Ctrl+C pour quitter", "╭", "╯",
 	} {
 		if !strings.Contains(v, want) {
 			t.Errorf("vue sans %q :\n%s", want, v)
@@ -72,7 +77,7 @@ func TestWelcomeEnglish(t *testing.T) {
 	v := welcomeView(t, welcomeOpts(i18n.EN), 100)
 	for _, want := range []string{
 		"Open-source harness · European · French",
-		"/help for help · Enter to send · Ctrl+C to quit", "project: /work/projet", "jurisdiction EU",
+		"Enter to send · Esc twice to rewind · Ctrl+C to quit", "project: /work/projet", "jurisdiction EU",
 	} {
 		if !strings.Contains(v, want) {
 			t.Errorf("vue sans %q :\n%s", want, v)
@@ -140,5 +145,70 @@ func TestWelcomeScrollsWithConversation(t *testing.T) {
 	h.send(tea.WindowSizeMsg{Width: 100, Height: 30})
 	if n := len(h.m.tr.Items()); n != 0 {
 		t.Fatalf("le cadre ne doit pas être un élément de transcription (%d)", n)
+	}
+}
+
+func TestWelcomeCounts(t *testing.T) {
+	o := welcomeOpts(i18n.EN)
+	o.Skills = skillCatalog(t, "review", "deploy")
+	home := t.TempDir()
+	file := filepath.Join(home, ".config", "tenon", "hooks.json")
+	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, []byte(`{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"echo a"}]}]}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	set, _, err := hooks.Load(hooks.Options{Getenv: func(k string) string {
+		if k == "HOME" {
+			return home
+		}
+		return ""
+	}, ProjectRoot: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	o.Hooks = set
+	v := welcomeView(t, o, 100)
+	if !strings.Contains(v, "skills: 2 · agents: 0 · hooks: 1") {
+		t.Errorf("compteurs absents :\n%s", v)
+	}
+	if v := welcomeView(t, welcomeOpts(i18n.FR), 100); !strings.Contains(v, "skills : 0 · agents : 0 · hooks : 0") {
+		t.Errorf("compteurs à 0 absents :\n%s", v)
+	}
+}
+
+func TestWelcomeCommands(t *testing.T) {
+	for _, l := range []i18n.Lang{i18n.EN, i18n.FR} {
+		line := commandsLine(l, skills.Builtins)
+		for _, n := range skills.Builtins {
+			if !strings.Contains(line, "/"+n) {
+				t.Errorf("%s : /%s absent de %q", l, n, line)
+			}
+		}
+		if !strings.Contains(commandsLine(l, append(slices.Clone(skills.Builtins), "fake")), "/fake") {
+			t.Errorf("%s : commande ajoutée absente", l)
+		}
+	}
+	if v := welcomeView(t, welcomeOpts(i18n.EN), 100); !strings.Contains(v, "commands: /help · /quit · /skills · /agents · /hooks · /rewind") {
+		t.Errorf("ligne des commandes absente :\n%s", v)
+	}
+}
+
+func TestWelcomeWraps(t *testing.T) {
+	v := welcomeView(t, welcomeOpts(i18n.FR), 50)
+	for _, l := range strings.Split(v, "\n") {
+		if strings.Contains(l, "…") && !strings.Contains(l, "juridiction") {
+			t.Errorf("troncature au lieu du retour à la ligne : %q", l)
+		}
+	}
+	for _, want := range []string{"/hooks", "/rewind", "revenir en arrière", "Ctrl+C pour quitter"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("vue sans %q :\n%s", want, v)
+		}
+	}
+	lines := wrapAtSeparators("commandes : /help · /quit · /skills · /agents", len("commandes : "), 30)
+	if len(lines) < 2 || !strings.HasPrefix(lines[1], "            /") {
+		t.Errorf("retrait des lignes de suite : %q", lines)
 	}
 }

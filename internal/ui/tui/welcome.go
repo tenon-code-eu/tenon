@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/tenon-code-eu/tenon/internal/i18n"
+	"github.com/tenon-code-eu/tenon/internal/skills"
 	"github.com/tenon-code-eu/tenon/internal/ui/headless"
 )
 
@@ -149,7 +150,12 @@ func (m Model) welcomeLines() []string {
 
 	label := i18n.T(m.lang, "tui.welcome.project", "")
 	root := truncMiddle(m.text(shortenHome(m.opts.ProjectRoot)), max(1, inner-ansi.StringWidth(label)))
-	body = append(body, label+root, i18n.T(m.lang, "tui.welcome.hints"))
+	body = append(body, label+root)
+	// Seules ces trois lignes passent à la ligne, aux séparateurs « · ».
+	body = append(body, wrapAtSeparators(m.countsLine(), 0, inner)...)
+	cmdLabel := i18n.T(m.lang, "tui.welcome.commands", "")
+	body = append(body, wrapAtSeparators(commandsLine(m.lang, skills.Builtins), ansi.StringWidth(cmdLabel), inner)...)
+	body = append(body, wrapAtSeparators(i18n.T(m.lang, "tui.welcome.hints"), 0, inner)...)
 
 	// Chaque ligne est tronquée à la largeur du cadre.
 	lines := make([]string, len(body))
@@ -165,4 +171,44 @@ func (m Model) welcomeLines() []string {
 		border = border.BorderForeground(lipgloss.Color(welcomeBorderColor))
 	}
 	return strings.Split(border.Render(strings.Join(lines, "\n")), "\n")
+}
+
+// countsLine renvoie « skills : N · agents : N · hooks : N » (0 si absent).
+func (m Model) countsLine() string {
+	var nSkills, nAgents int
+	if m.opts.Skills != nil {
+		nSkills = len(m.opts.Skills.List())
+	}
+	if m.opts.Agents != nil {
+		nAgents = len(m.opts.Agents.List())
+	}
+	return i18n.T(m.lang, "tui.welcome.counts", nSkills, nAgents, len(m.opts.Hooks.List()))
+}
+
+// commandsLine renvoie la ligne des commandes intégrées : « /nom » pour chaque
+// entrée de builtins.
+func commandsLine(lang i18n.Lang, builtins []string) string {
+	names := make([]string, len(builtins))
+	for i, n := range builtins {
+		names[i] = "/" + n
+	}
+	return i18n.T(lang, "tui.welcome.commands", strings.Join(names, " · "))
+}
+
+// wrapAtSeparators coupe text aux séparateurs « · » pour tenir en width
+// colonnes ; les lignes de suite sont décalées de indent espaces.
+func wrapAtSeparators(text string, indent, width int) []string {
+	const sep = " · "
+	segs := strings.Split(text, sep)
+	var out []string
+	cur := segs[0]
+	for _, seg := range segs[1:] {
+		if ansi.StringWidth(cur)+len(sep)+ansi.StringWidth(seg) <= width {
+			cur += sep + seg
+			continue
+		}
+		out = append(out, cur)
+		cur = strings.Repeat(" ", indent) + seg
+	}
+	return append(out, cur)
 }
