@@ -615,14 +615,14 @@ A hook has a stable ID `<source>:<event>:<i>.<j>` (group index, then index in th
 | `Stop` | When the main agent finishes with the reason `done` | `stop_hook_active` | `block` or exit `2`: the message `Stop hook feedback: <reason>` is added to the history and the loop goes on (the iterations count for `max_iterations`). |
 | `SubagentStop` | Same, for a sub-agent | `stop_hook_active`, `agent`, `tool_use_id` (of the `agent` call) | Same as `Stop`, in the sub-agent. |
 | `SessionStart` | At the first turn (`startup`, or `resume` with `--resume`) and after each compaction (`compact`) | `source` | Context (see below). |
-| `SessionEnd` | When tenon closes, if a session started | `reason`: `prompt_input_exit` (quit from the interface) or `other` | No effect. Tenon waits at most 10 s. |
-| `PreCompact` | Before a compaction | `trigger`: `auto` | No effect. tenon has no manual compaction: `manual` is reserved. |
-| `Notification` | When the approval panel opens (interface only) | `message`, `notification_type` = `permission_prompt` | No effect. |
+| `SessionEnd` | When tenon closes, if a session started | `reason`: `prompt_input_exit` (quit from the interface) or `other` | No effect, including `continue: false`. Each hook is capped at 5 s whatever its `timeout`. tenon waits at most 10 s in all: a hook still running then is cancelled. |
+| `PreCompact` | Before a compaction | `trigger`: `auto` | `continue: false` ends the turn, before the summary request. Nothing else. tenon has no manual compaction: `manual` is reserved. |
+| `Notification` | When the approval panel opens (interface only) | `message`, `notification_type` = `permission_prompt` | `continue: false` ends the turn, after your answer, at the next check point. Nothing else. |
 
 `Stop` and `SubagentStop` do not run after a cancel, an error, `incomplete`, `blocked` or `max_iterations`.
 `Stop` does not run at the end of a sub-agent: that is `SubagentStop`.
 `PreToolUse` and `PostToolUse` also run inside a sub-agent. Their events carry `parent_call_id`.
-`Notification` is never sent in non-interactive mode. It runs while the panel is open: a slow hook delays the handling of your answer, for at most its `timeout`. Its `message` is `tenon needs your permission to use <tool>` (`... to send data to <provider>` for a jurisdiction consent).
+`Notification` is never sent in non-interactive mode. It runs while the panel is open: a slow hook delays the handling of your answer, for at most its `timeout`. Its `message` is `tenon needs your permission to use <tool>` (`... to send data to <provider id>` for a jurisdiction consent).
 
 Common input fields: `session_id`, `transcript_path` (the tenon session file: its format is not the Claude Code one), `cwd`, `hook_event_name`.
 
@@ -653,7 +653,7 @@ JSON fields:
 
 | Field | Effect |
 |---|---|
-| `continue: false` | Stops the turn after this hook. `stopReason` is shown to you. Turn reason: `stopped_by_hook`. For `PreToolUse`, the tool does not run. From `SessionEnd`, it has no effect. |
+| `continue: false` | Stops the turn after this hook. `stopReason` is shown to you. Turn reason: `stopped_by_hook`. For `PreToolUse`, the tool does not run. For `PreCompact` and `Notification`, see the table. From `SessionEnd`, it has no effect. |
 | `systemMessage` | Shown to you as a warning, and logged. |
 | `suppressOutput` | Accepted, no visible effect. |
 | `decision`, `reason` | `block` + `reason` blocks, for the events that can block. |
@@ -722,8 +722,8 @@ Test your hooks: a security hook that fails silently does not protect you.
 
 ### In non-interactive mode
 
-The text output is unchanged. Warnings of hooks (errors, timeouts, `systemMessage`, blocks) go to stderr.
-With `--output json`, all the hook events are included.
+The text output is unchanged. With `--output text`, warnings of hooks (errors, timeouts, `systemMessage`, blocks) go to stderr.
+With `--output json`, nothing is added on stderr: all the hook events, warnings included, are in the JSON events.
 
 ### List the hooks
 

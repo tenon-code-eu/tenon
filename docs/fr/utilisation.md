@@ -617,14 +617,14 @@ Un hook a un identifiant stable `<source>:<événement>:<i>.<j>` (indice du grou
 | `Stop` | Quand l'agent principal se termine avec la raison `done` | `stop_hook_active` | `block` ou code `2` : le message `Stop hook feedback: <raison>` est ajouté à l'historique et la boucle continue (les itérations comptent pour `max_iterations`). |
 | `SubagentStop` | Pareil, pour un sous-agent | `stop_hook_active`, `agent`, `tool_use_id` (de l'appel `agent`) | Comme `Stop`, dans le sous-agent. |
 | `SessionStart` | Au premier tour (`startup`, ou `resume` avec `--resume`) et après chaque compaction (`compact`) | `source` | Contexte (voir plus bas). |
-| `SessionEnd` | À la fermeture de tenon, si une session a démarré | `reason` : `prompt_input_exit` (sortie de l'interface) ou `other` | Aucun effet. tenon attend 10 s au plus. |
-| `PreCompact` | Avant une compaction | `trigger` : `auto` | Aucun effet. tenon n'a pas de compaction manuelle : `manual` est réservé. |
-| `Notification` | À l'ouverture du panneau de validation (interface seulement) | `message`, `notification_type` = `permission_prompt` | Aucun effet. |
+| `SessionEnd` | À la fermeture de tenon, si une session a démarré | `reason` : `prompt_input_exit` (sortie de l'interface) ou `other` | Aucun effet, `continue: false` compris. Chaque hook est plafonné à 5 s quel que soit son `timeout`. tenon attend 10 s au plus en tout : un hook encore en cours est alors annulé. |
+| `PreCompact` | Avant une compaction | `trigger` : `auto` | `continue: false` termine le tour, avant la requête de résumé. Rien d'autre. tenon n'a pas de compaction manuelle : `manual` est réservé. |
+| `Notification` | À l'ouverture du panneau de validation (interface seulement) | `message`, `notification_type` = `permission_prompt` | `continue: false` termine le tour, après votre réponse, au prochain point de contrôle. Rien d'autre. |
 
 `Stop` et `SubagentStop` ne s'exécutent pas après une annulation, une erreur, `incomplete`, `blocked` ou `max_iterations`.
 `Stop` ne s'exécute pas à la fin d'un sous-agent : c'est `SubagentStop`.
 `PreToolUse` et `PostToolUse` s'exécutent aussi dans un sous-agent. Leurs événements portent `parent_call_id`.
-`Notification` n'est jamais envoyée en mode non interactif. Elle s'exécute pendant que le panneau est ouvert : un hook lent retarde le traitement de votre réponse, au plus son `timeout`. Son `message` est `tenon needs your permission to use <outil>` (`... to send data to <fournisseur>` pour un consentement de juridiction).
+`Notification` n'est jamais envoyée en mode non interactif. Elle s'exécute pendant que le panneau est ouvert : un hook lent retarde le traitement de votre réponse, au plus son `timeout`. Son `message` est `tenon needs your permission to use <outil>` (`... to send data to <id du fournisseur>` pour un consentement de juridiction).
 
 Champs d'entrée communs : `session_id`, `transcript_path` (le fichier de session tenon : son format n'est pas celui de Claude Code), `cwd`, `hook_event_name`.
 
@@ -655,7 +655,7 @@ Champs JSON :
 
 | Champ | Effet |
 |---|---|
-| `continue: false` | Arrête le tour après ce hook. `stopReason` vous est affiché. Raison du tour : `stopped_by_hook`. Pour `PreToolUse`, l'outil ne s'exécute pas. Depuis `SessionEnd`, sans effet. |
+| `continue: false` | Arrête le tour après ce hook. `stopReason` vous est affiché. Raison du tour : `stopped_by_hook`. Pour `PreToolUse`, l'outil ne s'exécute pas. Pour `PreCompact` et `Notification`, voir le tableau. Depuis `SessionEnd`, sans effet. |
 | `systemMessage` | Affiché comme avertissement, et journalisé. |
 | `suppressOutput` | Accepté, sans effet visible. |
 | `decision`, `reason` | `block` + `reason` bloque, pour les événements qui peuvent bloquer. |
@@ -724,8 +724,8 @@ Testez vos hooks : un hook de sécurité qui échoue en silence ne vous protège
 
 ### En mode non interactif
 
-La sortie texte est inchangée. Les avertissements des hooks (erreurs, délais, `systemMessage`, blocages) vont sur stderr.
-Avec `--output json`, tous les événements de hook sont inclus.
+La sortie texte est inchangée. Avec `--output text`, les avertissements des hooks (erreurs, délais, `systemMessage`, blocages) vont sur stderr.
+Avec `--output json`, rien n'est ajouté sur stderr : tous les événements de hook, avertissements compris, sont dans les événements JSON.
 
 ### Lister les hooks
 
