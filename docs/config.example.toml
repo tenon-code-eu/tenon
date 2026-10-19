@@ -167,3 +167,11 @@ disabled = false
 # claude_settings = false
 # true: no hook is loaded or run.
 # disabled = false
+
+# Checkpoints: copies of files taken before write_file and edit_file change
+# them, for /rewind (see docs/usage.md#checkpoints-and-rewind). The copies
+# hold the raw file content, secrets included. This section is global only:
+# it is refused in .tenon/config.toml.
+# [checkpoints]
+# Days to keep the copies. 0: no copy is saved and /rewind cannot restore files.
+# retention_days = 30

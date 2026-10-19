@@ -112,6 +112,14 @@ Les hooks `prompt` et `agent`, et tout ce qu'un hook renvoie au modèle (`additi
 Un hook en échec ne bloque pas. Un plantage, un délai, une sortie illisible ou une erreur du fournisseur est une erreur non bloquante : l'action continue, avec un avertissement dans l'interface et dans le journal d'audit. Un hook de sécurité cassé ne vous protège donc pas. Testez vos hooks et surveillez les avertissements. Seul un fichier de hooks invalide empêche tenon de démarrer.
 Chaque exécution de hook est dans le journal d'audit (voir [utilisation.md](utilisation.md#hooks)). `tenon hooks` liste les hooks chargés par tenon.
 
+### Les points de restauration gardent le contenu brut de vos fichiers
+
+Avant que `write_file` et `edit_file` écrasent un fichier, tenon en garde une copie pour que `/rewind` puisse le restaurer. La copie est le **contenu brut**, secrets compris (`.env`, clés, jetons) : la restauration exige le fichier exact.
+Les copies sont dans `~/.local/share/tenon/checkpoints/`, hors du projet, donc elles ne peuvent pas être commitées par erreur. Les dossiers sont en `0700` et les fichiers en `0600`. Elles ne sont jamais envoyées au fournisseur et jamais écrites dans la session ni dans le journal d'audit, qui ne contiennent que les empreintes. Le masquage ne s'y applique pas.
+Quiconque peut lire votre dossier de données peut lire ces copies. Elles sont gardées `retention_days` jours (30 par défaut). Pour toutes les supprimer maintenant : `rm -rf ~/.local/share/tenon/checkpoints`. `retention_days = 0` arrête leur enregistrement.
+Un rewind n'écrit que des chemins que les outils ont écrits dans la session. Il ne suit jamais un lien symbolique : un chemin devenu lien est un conflit, et n'est pas écrit. Un fichier que vous avez modifié après l'agent n'est pas écrasé sans votre réponse explicite. Chaque copie est vérifiée avec son sha256 avant d'être restaurée.
+Un rewind est une action de l'utilisateur : aucun outil et aucun hook ne peut le déclencher. Il n'annule pas les commandes `shell` ni les outils MCP (voir [utilisation.md](utilisation.md#points-de-restauration)).
+
 ### La juridiction est déclarative
 
 tenon ne vérifie pas la juridiction d'un fournisseur ou d'un serveur.

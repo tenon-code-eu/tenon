@@ -15,6 +15,7 @@ For a commented configuration example, see [config.example.toml](config.example.
 - [Skills](#skills)
 - [Sub-agents](#sub-agents)
 - [Hooks](#hooks)
+- [Checkpoints and rewind](#checkpoints-and-rewind)
 - [Providers and jurisdictions](#providers-and-jurisdictions)
 - [API keys and keyring](#api-keys-and-keyring)
 - [MCP servers](#mcp-servers)
@@ -31,6 +32,7 @@ tenon sessions [--lang fr|en]
 tenon skills [--lang fr|en]
 tenon agents [--lang fr|en]
 tenon hooks [--lang fr|en]
+tenon rewind --list --resume <id|last> [--lang fr|en]
 tenon key set|delete <provider>
 tenon audit verify
 tenon config check
@@ -73,16 +75,32 @@ The token count is an estimate.
 |---|---|
 | Enter | Sends the message. |
 | Alt+Enter or Ctrl+J | Inserts a line break. |
-| Esc | Cancels the current turn. |
+| Esc | Cancels the current turn. Twice in less than 1 s outside a turn: opens `/rewind`. |
 | Ctrl+C | Cancels the current turn. Outside a turn, quits. Twice in less than 2 s during a turn: quits. |
 | PgUp / PgDn | Scrolls the conversation. |
-| `/help` | Shows the key help and the available skills. |
+| `/help` | Shows the key help, one line per built-in command, and the available skills. |
 | `/skills` | Lists the skills. |
 | `/agents` | Lists the sub-agents (see [Sub-agents](#sub-agents)). |
 | `/hooks` | Lists the hooks (see [Hooks](#hooks)). |
+| `/rewind` | Goes back to an earlier prompt (see [Checkpoints and rewind](#checkpoints-and-rewind)). |
 | `/<name> [arguments]` | Starts a skill (see [Skills](#skills)). |
 | Tab | Completes a command or a skill name after `/`. |
 | `/quit` | Quits. |
+
+### Welcome screen
+
+At startup, below the project line, the welcome screen shows:
+
+```
+skills: 5 · agents: 3 · hooks: 2
+commands: /help · /skills · /agents · /hooks · /rewind · /quit
+Enter to send · Esc twice to rewind · Ctrl+C to quit
+```
+
+- The counts are the number of entries listed by `/skills`, `/agents` (the built-in `general-purpose` included) and `/hooks`. They are shown even at 0.
+- The command list is the list of built-in commands (the one Tab completes). Skills are not in it.
+- Long lines wrap at the ` · ` separators instead of being cut.
+- `/help` shows the same commands, one per line, with a short description.
 
 When you quit, tenon waits at most 10 s for the current turn to end.
 After that, it exits with code 1.
@@ -212,6 +230,7 @@ Default values:
 | `output_limit` | `30000` characters |
 | `compaction_threshold` | `0.8` |
 | `audit.level` | `"full"` |
+| `checkpoints.retention_days` | `30` |
 
 ### What the project configuration can do
 
@@ -749,6 +768,98 @@ Each hook run is in the [audit log](#audit-log), in the same chain, with two eve
 `ToolResult.denied` can be `"hook"`. `TurnCompleted.reason` can be `blocked_by_hook` or `stopped_by_hook`.
 `--resume` ignores `HookStarted` and `HookCompleted`. It rebuilds the user messages and the compaction summary with their `hook_context`. The `Stop hook feedback` messages are restored as user messages.
 
+## Checkpoints and rewind
+
+Each prompt you send is a restore point. `/rewind` goes back to one of them: it restores the files, the conversation, or both.
+
+### What is saved
+
+- Before `write_file` and `edit_file` change an existing file, tenon saves its previous content. This covers the main agent, sub-agents and tool inputs rewritten by a hook.
+- A file that did not exist is not saved. Rewinding it deletes the file.
+- **Not undone:** `shell` commands and MCP tools that write or run something. `/rewind` shows how many such calls ran after the chosen point.
+- A file larger than 10 MiB (10 485 760 bytes) is written without a copy. The tool result adds the line `checkpoint skipped (file too large)`, and rewind cannot restore that file (`unrestorable`).
+- If the copy cannot be saved, the write is refused with `cannot save checkpoint: <error>`.
+- Non-interactive mode (`-p`) saves copies as usual, but has no rewind.
+
+### Open `/rewind`
+
+Type `/rewind`, or press Esc twice in less than 1 s when no turn is running. During a turn, Esc cancels the turn as before.
+
+| Step | What you see | Keys |
+|---|---|---|
+| 1. Point | The list of your prompts, newest first: `#<n>  <first line, 80 characters>`. The list scrolls. `(code only)` marks a point whose conversation can no longer be rewound. | Up/Down, Enter, Esc closes |
+| 2. Preview and mode | One line per file: `restore`, `delete`, `conflict: modified since`, `unrestorable`, `unchanged`. At most 8 files, then `… and N more`. The warning `N shell or MCP calls are not undone` when there are some. Then the mode. | Up/Down, Enter, Esc goes back |
+| 3. Conflicts | For each conflict: `overwrite <path>? y/N`. | `y` overwrites. `n` or Enter keeps. Esc goes back |
+
+If there is no file to restore and the conversation cannot be rewound, tenon shows `nothing to rewind`.
+Conflicts are only asked for the modes that restore code. They are asked one by one, and the default is to keep your version.
+At the end, tenon shows `rewind: N restored · N deleted · N kept · N failed`, then one line `failed: <path>: <error>` per failure.
+
+### Modes
+
+| Mode | Files | Conversation |
+|---|---|---|
+| `code and conversation` | restored | cut back to the chosen prompt |
+| `conversation only` | untouched | cut back to the chosen prompt |
+| `code only` | restored | unchanged |
+
+Modes that are not possible are greyed out.
+After a conversation rewind, the chosen prompt comes back in the input area, so you can edit and send it again.
+The conversation can only be rewound to a prompt sent after the last compaction. Before that, the point is marked `(code only)`.
+After a `conversation only` or `code and conversation` rewind, the later points can only rewind code.
+With `code only`, the next message you send carries the note `[tenon] The user restored files to their state before: "<prompt excerpt>"`, so the model knows the files changed. The note is added even if no file changed.
+
+### Conflicts
+
+For each file, tenon compares the current content with the content the agent left. A file is a **conflict** when:
+
+- you changed it after the agent wrote it, or you deleted it;
+- the path is now a symbolic link. A symbolic link is always a conflict, and tenon never follows it.
+
+A conflict is kept unless you answer `y`. A file can also change between the preview and the restore. tenon then does not overwrite it: the status is `failed` with `file changed during rewind`. A path that became a symbolic link fails with `path became a symbolic link`.
+A file with no copy (missing, corrupted, or written without a copy) is `unrestorable` and skipped.
+A failure on one file does not stop the others.
+
+### List the points
+
+```
+tenon rewind --list --resume <id|last> [--lang fr|en]
+```
+
+One line per point, newest first: `#<n>  <seq>  <excerpt>`, with `(code only)` when the conversation cannot be rewound. `<n>` counts from the oldest prompt. Nothing is restored. `--resume` is required.
+
+### Retention
+
+```toml
+[checkpoints]
+retention_days = 30
+```
+
+| Value | Effect |
+|---|---|
+| `30` (default) | Copies are kept 30 days. |
+| `0` | No copy is saved. Writes are not undoable, and a notice at startup says `checkpoints disabled (retention_days = 0): /rewind cannot restore files`. |
+
+A negative value is refused. This key is global only: it is refused in `.tenon/config.toml`.
+At startup, tenon deletes the copies older than `retention_days` days that no recent session uses. A session is recent when its file was modified within `retention_days` days, and it uses the copies named by the `hash_before` of its tool results. A cleanup error is a notice and never blocks startup (`checkpoint cleanup failed: <error>`).
+
+### Store
+
+Copies are in `~/.local/share/tenon/checkpoints/` (`$XDG_DATA_HOME/tenon/checkpoints`), outside the project. One file per content: `<first 2 characters of the sha256>/<full sha256>`. Directories are `0700`, files `0600`. A content already stored is not written again.
+Before a restore, tenon checks the copy against its sha256. A copy that does not match is refused (`corrupted checkpoint`).
+
+### Session and audit
+
+A rewind never rewrites the session or the [audit log](#audit-log). It adds one event, in the same chain:
+
+| Event | Fields |
+|---|---|
+| `Rewound` | `to_seq` (the `seq` of the chosen prompt), `mode` (`code`, `conversation`, `both`), `files` (`path`, `action`, `status`, `error`), `untracked_calls`, `note` (mode `code`) |
+
+`status` is `restored`, `deleted`, `kept`, `skipped`, `failed` or `unchanged`.
+`ToolResult` gains two optional fields: `no_checkpoint` (written without a copy) and `untracked` (a `shell` or MCP call that cannot be undone).
+`--resume` applies `Rewound`: the rebuilt conversation is cut as it was live, and a pending `code only` note is kept for the next message. `--output json` includes the `Rewound` events of a resumed session.
+
 ## Providers and jurisdictions
 
 You can use any OpenAI-compatible endpoint.
@@ -930,5 +1041,6 @@ If writing to the log fails, tenon runs no more actions.
 | `.tenon/config.toml` | project configuration | — |
 | `~/.local/share/tenon/audit/` | audit log | directory `0700`, files `0600` |
 | `~/.local/share/tenon/sessions/` | sessions | directory `0700`, files `0600` |
+| `~/.local/share/tenon/checkpoints/` | file copies for `/rewind` | directory `0700`, files `0600` |
 
 `$XDG_CONFIG_HOME` and `$XDG_DATA_HOME` replace `~/.config` and `~/.local/share` when they are set.

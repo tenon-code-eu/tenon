@@ -17,6 +17,7 @@ Pour un exemple de configuration commenté, voir [config.example.toml](../config
 - [Skills](#skills)
 - [Sous-agents](#sous-agents)
 - [Hooks](#hooks)
+- [Points de restauration](#points-de-restauration)
 - [Fournisseurs et juridictions](#fournisseurs-et-juridictions)
 - [Clés d'API et trousseau](#clés-dapi-et-trousseau)
 - [Serveurs MCP](#serveurs-mcp)
@@ -33,6 +34,7 @@ tenon sessions [--lang fr|en]
 tenon skills [--lang fr|en]
 tenon agents [--lang fr|en]
 tenon hooks [--lang fr|en]
+tenon rewind --list --resume <id|last> [--lang fr|en]
 tenon key set|delete <fournisseur>
 tenon audit verify
 tenon config check
@@ -73,16 +75,32 @@ Le nombre de jetons est une estimation.
 |---|---|
 | Entrée | Envoie le message. |
 | Alt+Entrée ou Ctrl+J | Insère un retour à la ligne. |
-| Échap | Annule le tour en cours. |
+| Échap | Annule le tour en cours. Deux fois en moins de 1 s hors tour : ouvre `/rewind`. |
 | Ctrl+C | Annule le tour en cours. Hors tour, quitte. Deux fois en moins de 2 s pendant un tour : quitte. |
 | PgPréc / PgSuiv | Fait défiler la conversation. |
-| `/help` | Affiche l'aide des touches et les skills disponibles. |
+| `/help` | Affiche l'aide des touches, une ligne par commande intégrée, et les skills disponibles. |
 | `/skills` | Liste les skills. |
 | `/agents` | Liste les sous-agents (voir [Sous-agents](#sous-agents)). |
 | `/hooks` | Liste les hooks (voir [Hooks](#hooks)). |
+| `/rewind` | Revient à un prompt précédent (voir [Points de restauration](#points-de-restauration)). |
 | `/<nom> [arguments]` | Déclenche un skill (voir [Skills](#skills)). |
 | Tab | Complète une commande ou un nom de skill après `/`. |
 | `/quit` | Quitte. |
+
+### Écran d'accueil
+
+Au démarrage, sous la ligne du projet, l'écran d'accueil affiche :
+
+```
+skills : 5 · agents : 3 · hooks : 2
+commandes : /help · /skills · /agents · /hooks · /rewind · /quit
+Entrée pour envoyer · Échap ×2 pour revenir en arrière · Ctrl+C pour quitter
+```
+
+- Les compteurs sont le nombre d'entrées listées par `/skills`, `/agents` (l'agent intégré `general-purpose` compris) et `/hooks`. Ils sont affichés même à 0.
+- La liste des commandes est celle des commandes intégrées (celle que Tab complète). Les skills n'y figurent pas.
+- Les lignes longues passent à la ligne aux séparateurs ` · ` au lieu d'être coupées.
+- `/help` affiche les mêmes commandes, une par ligne, avec une courte description.
 
 En quittant, tenon attend la fin du tour en cours au plus 10 s.
 Au-delà, il sort avec le code 1.
@@ -212,6 +230,7 @@ Valeurs par défaut :
 | `output_limit` | `30000` caractères |
 | `compaction_threshold` | `0.8` |
 | `audit.level` | `"full"` |
+| `checkpoints.retention_days` | `30` |
 
 ### Ce que la configuration projet peut faire
 
@@ -751,6 +770,98 @@ Chaque exécution de hook est dans le [journal d'audit](#journal-daudit), dans l
 `ToolResult.denied` peut valoir `"hook"`. `TurnCompleted.reason` peut valoir `blocked_by_hook` ou `stopped_by_hook`.
 `--resume` ignore `HookStarted` et `HookCompleted`. Il reconstruit les messages utilisateur et le résumé de compaction avec leur `hook_context`. Les messages `Stop hook feedback` sont restaurés comme messages utilisateur.
 
+## Points de restauration
+
+Chaque prompt que vous envoyez est un point de restauration. `/rewind` revient à l'un d'eux : il restaure les fichiers, la conversation, ou les deux.
+
+### Ce qui est enregistré
+
+- Avant que `write_file` et `edit_file` modifient un fichier existant, tenon enregistre son contenu précédent. Cela couvre l'agent principal, les sous-agents et les entrées d'outil réécrites par un hook.
+- Un fichier qui n'existait pas n'est pas enregistré. Le restaurer le supprime.
+- **Non annulés :** les commandes `shell` et les outils MCP qui écrivent ou exécutent. `/rewind` indique combien de tels appels ont eu lieu après le point choisi.
+- Un fichier de plus de 10 Mio (10 485 760 octets) est écrit sans copie. Le résultat de l'outil ajoute la ligne `checkpoint skipped (file too large)`, et le rewind ne peut pas restaurer ce fichier (`non restaurable`).
+- Si la copie ne peut pas être enregistrée, l'écriture est refusée avec `cannot save checkpoint: <erreur>`.
+- Le mode non interactif (`-p`) enregistre les copies comme d'habitude, mais n'a pas de rewind.
+
+### Ouvrir `/rewind`
+
+Tapez `/rewind`, ou appuyez deux fois sur Échap en moins de 1 s quand aucun tour ne tourne. Pendant un tour, Échap annule le tour comme avant.
+
+| Étape | Ce que vous voyez | Touches |
+|---|---|---|
+| 1. Point | La liste de vos prompts, du plus récent au plus ancien : `#<n>  <première ligne, 80 caractères>`. La liste défile. `(code seul)` marque un point dont la conversation ne peut plus être remontée. | Haut/Bas, Entrée, Échap ferme |
+| 2. Aperçu et mode | Une ligne par fichier : `restaurer`, `supprimer`, `conflit : modifié depuis`, `non restaurable`, `inchangé`. Huit fichiers au plus, puis `… et N autre(s)`. L'avertissement `N appel(s) shell ou MCP ne sont pas annulés` s'il y en a. Puis le mode. | Haut/Bas, Entrée, Échap revient |
+| 3. Conflits | Pour chaque conflit : `écraser <chemin> ? y/N`. | `y` écrase. `n` ou Entrée garde. Échap revient |
+
+S'il n'y a aucun fichier à restaurer et que la conversation ne peut pas être remontée, tenon affiche `rien à restaurer`.
+Les conflits ne sont demandés que pour les modes qui restaurent le code. Ils sont demandés un par un, et le défaut est de garder votre version.
+À la fin, tenon affiche `rewind : N restauré(s) · N supprimé(s) · N conservé(s) · N en échec`, puis une ligne `échec : <chemin> : <erreur>` par échec.
+
+### Modes
+
+| Mode | Fichiers | Conversation |
+|---|---|---|
+| `code et conversation` | restaurés | ramenée au prompt choisi |
+| `conversation seule` | intacts | ramenée au prompt choisi |
+| `code seul` | restaurés | inchangée |
+
+Les modes impossibles sont grisés.
+Après un rewind de la conversation, le prompt choisi revient dans la zone de saisie : vous pouvez le modifier et le renvoyer.
+La conversation ne peut être remontée qu'à un prompt envoyé après la dernière compaction. Avant, le point est marqué `(code seul)`.
+Après un rewind `conversation seule` ou `code et conversation`, les points suivants ne peuvent plus remonter que le code.
+Avec `code seul`, le prochain message que vous envoyez porte la note `[tenon] The user restored files to their state before: "<extrait du prompt>"`, pour que le modèle sache que les fichiers ont changé. La note est ajoutée même si aucun fichier n'a changé.
+
+### Conflits
+
+Pour chaque fichier, tenon compare le contenu actuel avec celui que l'agent a laissé. Un fichier est un **conflit** quand :
+
+- vous l'avez modifié après l'écriture de l'agent, ou vous l'avez supprimé ;
+- le chemin est maintenant un lien symbolique. Un lien symbolique est toujours un conflit, et tenon ne le suit jamais.
+
+Un conflit est gardé sauf si vous répondez `y`. Un fichier peut aussi changer entre l'aperçu et la restauration. tenon ne l'écrase alors pas : le statut est `failed` avec `file changed during rewind`. Un chemin devenu lien symbolique échoue avec `path became a symbolic link`.
+Un fichier sans copie (absente, corrompue, ou écrit sans copie) est `non restaurable` et sauté.
+Un échec sur un fichier n'arrête pas les autres.
+
+### Lister les points
+
+```
+tenon rewind --list --resume <id|last> [--lang fr|en]
+```
+
+Une ligne par point, du plus récent au plus ancien : `#<n>  <seq>  <extrait>`, avec `(code seul)` quand la conversation ne peut pas être remontée. `<n>` compte depuis le prompt le plus ancien. Rien n'est restauré. `--resume` est obligatoire.
+
+### Rétention
+
+```toml
+[checkpoints]
+retention_days = 30
+```
+
+| Valeur | Effet |
+|---|---|
+| `30` (défaut) | Les copies sont gardées 30 jours. |
+| `0` | Aucune copie n'est enregistrée. Les écritures ne sont pas annulables, et un avis au démarrage indique `points de restauration désactivés (retention_days = 0) : /rewind ne peut pas restaurer les fichiers`. |
+
+Une valeur négative est refusée. Cette clé est globale uniquement : elle est refusée dans `.tenon/config.toml`.
+Au démarrage, tenon supprime les copies de plus de `retention_days` jours qu'aucune session récente n'utilise. Une session est récente quand son fichier a été modifié dans les `retention_days` derniers jours, et elle utilise les copies nommées par le `hash_before` de ses résultats d'outil. Une erreur de nettoyage est un avis et ne bloque jamais le démarrage (`nettoyage des points de restauration en échec : <erreur>`).
+
+### Magasin
+
+Les copies sont dans `~/.local/share/tenon/checkpoints/` (`$XDG_DATA_HOME/tenon/checkpoints`), hors du projet. Un fichier par contenu : `<2 premiers caractères du sha256>/<sha256 complet>`. Les dossiers sont en `0700`, les fichiers en `0600`. Un contenu déjà présent n'est pas réécrit.
+Avant une restauration, tenon vérifie la copie avec son sha256. Une copie qui ne correspond pas est refusée (`corrupted checkpoint`).
+
+### Session et audit
+
+Un rewind ne réécrit jamais la session ni le [journal d'audit](#journal-daudit). Il ajoute un événement, dans la même chaîne :
+
+| Événement | Champs |
+|---|---|
+| `Rewound` | `to_seq` (le `seq` du prompt choisi), `mode` (`code`, `conversation`, `both`), `files` (`path`, `action`, `status`, `error`), `untracked_calls`, `note` (mode `code`) |
+
+`status` vaut `restored`, `deleted`, `kept`, `skipped`, `failed` ou `unchanged`.
+`ToolResult` gagne deux champs facultatifs : `no_checkpoint` (écrit sans copie) et `untracked` (un appel `shell` ou MCP non annulable).
+`--resume` applique `Rewound` : la conversation reconstruite est coupée comme en direct, et une note `code seul` en attente est gardée pour le message suivant. `--output json` inclut les événements `Rewound` d'une session reprise.
+
 ## Fournisseurs et juridictions
 
 Tout point d'accès compatible OpenAI est utilisable.
@@ -932,5 +1043,6 @@ Si l'écriture du journal échoue, tenon n'exécute plus aucune action.
 | `.tenon/config.toml` | configuration projet | — |
 | `~/.local/share/tenon/audit/` | journal d'audit | dossier `0700`, fichiers `0600` |
 | `~/.local/share/tenon/sessions/` | sessions | dossier `0700`, fichiers `0600` |
+| `~/.local/share/tenon/checkpoints/` | copies de fichiers pour `/rewind` | dossier `0700`, fichiers `0600` |
 
 `$XDG_CONFIG_HOME` et `$XDG_DATA_HOME` remplacent `~/.config` et `~/.local/share` quand ils sont définis.
