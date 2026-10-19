@@ -32,8 +32,12 @@ const interruptedMsg = "cancelled: session interrupted"
 // UserMessage bloqué par un hook est ignoré, un message de retour de hook Stop
 // est un message utilisateur comme un autre ; HookStarted et HookCompleted
 // sont ignorés. Les événements portant parent_call_id
-// (sous-agents) sont ignorés, sauf PermissionRequested pour le compteur. Les
-// autres types sont ignorés.
+// (sous-agents) sont ignorés, sauf PermissionRequested pour le compteur et
+// ToolResult pour l'état de rewind. L'état de rewind (points, écritures,
+// appels non annulables) est rejoué comme en direct ; un Rewound des modes
+// conversation et both tronque l'historique à la longueur du point, celui du
+// mode code met sa note en attente (jointe au prochain UserMessage accepté).
+// Les autres types sont ignorés.
 func (e *Engine) Restore(sessionID string, events []event.Event) error {
 	s := e.session(sessionID)
 	s.turn.Lock()
@@ -45,6 +49,7 @@ func (e *Engine) Restore(sessionID string, events []event.Event) error {
 	history := s.history
 	seq := s.seq
 	permN := s.permN
+	var rw rewindState         // points, écritures, appels non annulables
 	var pending []llm.ToolCall // appels du dernier message assistant sans résultat
 	// startCtx : contexte SessionStart encore en attente (dernier prompt bloqué).
 	var startCtx string
@@ -70,6 +75,14 @@ func (e *Engine) Restore(sessionID string, events []event.Event) error {
 		}
 		// Payload illisible : on laisse chaque cas décider (types ignorés tolérés).
 		_ = json.Unmarshal(ev.Payload, &meta)
+		// Écritures et appels non annulables : agent principal et sous-agents.
+		if ev.Type == event.ToolResult {
+			var p event.ToolResultPayload
+			if err := unmarshalPayload(ev, &p); err != nil {
+				return err
+			}
+			rw.addResult(ev.Seq, p)
+		}
 		if meta.ParentCallID != "" && ev.Type != event.PermissionRequested {
 			continue
 		}
@@ -87,6 +100,15 @@ func (e *Engine) Restore(sessionID string, events []event.Event) error {
 			}
 			startCtx = ""
 			closePending()
+			// Point de restauration : message principal accepté (un retour de
+			// hook Stop n'en est pas un).
+			if p.Hook == "" {
+				prompt := p.Typed
+				if prompt == "" {
+					prompt = p.Text
+				}
+				rw.addPoint(ev.Seq, prompt, len(history))
+			}
 			history = append(history, llm.Message{Role: llm.User, Content: withHookContext(p.Text, p.HookContext)})
 		case event.AssistantMessage:
 			var p event.AssistantMessagePayload
@@ -130,6 +152,25 @@ func (e *Engine) Restore(sessionID string, events []event.Event) error {
 			nh := make([]llm.Message, 0, 2+len(rest))
 			nh = append(nh, history[0], summaryMessage(p.Summary, p.HookContext))
 			history = append(nh, rest...)
+			rw.compacted()
+		case event.Rewound:
+			var p event.RewoundPayload
+			if err := unmarshalPayload(ev, &p); err != nil {
+				return err
+			}
+			// Comme en direct : conversation tronquée à la longueur du point,
+			// ou note en attente pour le prochain message accepté.
+			if RewindMode(p.Mode) == RewindCode {
+				startCtx = joinContext(startCtx, p.Note)
+			} else {
+				closePending()
+				pt, ok := rw.point(p.ToSeq)
+				if !ok || pt.HistoryLen < 1 || pt.HistoryLen > len(history) {
+					return fmt.Errorf("invalid event %s (%s): unknown checkpoint %d", ev.ID, ev.Type, p.ToSeq)
+				}
+				history = append(history[:0:0], history[:pt.HistoryLen]...)
+			}
+			rw.addRewound(ev.Seq, p)
 		case event.PermissionRequested:
 			var p event.PermissionRequestedPayload
 			if err := unmarshalPayload(ev, &p); err != nil {
@@ -144,6 +185,9 @@ func (e *Engine) Restore(sessionID string, events []event.Event) error {
 
 	s.history = history
 	s.startCtx = startCtx
+	s.rw.mu.Lock()
+	s.rw.st, s.rw.prompts = rw.st, rw.prompts
+	s.rw.mu.Unlock()
 	s.seq = seq
 	s.permN = permN
 	s.started = false

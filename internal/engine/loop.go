@@ -59,6 +59,11 @@ func (t *turn) emit(typ event.Type, payload any) error {
 	return t.e.emit(t.s, typ, event.WithParent(payload, t.parent))
 }
 
+// emitSeq est emit, et renvoie le seq de l'événement émis.
+func (t *turn) emitSeq(typ event.Type, payload any) (uint64, error) {
+	return t.e.emitSeq(t.s, typ, event.WithParent(payload, t.parent))
+}
+
 func (t *turn) done(iter int, reason string) error {
 	return t.emit(event.TurnCompleted, event.TurnCompletedPayload{Iterations: iter, Reason: reason})
 }
@@ -112,10 +117,15 @@ func (t *turn) run(in Input) error {
 	}
 	um.HookContext = joinContext(t.s.startCtx, out.Context)
 	t.s.startCtx = ""
+	histLen := len(*t.h)
 	*t.h = append(*t.h, llm.Message{Role: llm.User, Content: withHookContext(in.Text, um.HookContext)})
-	if err := t.emit(event.UserMessage, um); err != nil {
+	seq, err := t.emitSeq(event.UserMessage, um)
+	if err != nil {
 		return err
 	}
+	// Point de restauration : message principal accepté (run ne sert qu'au
+	// tour principal).
+	t.s.rw.addPoint(seq, prompt, histLen)
 	// continue:false de SessionStart ou UserPromptSubmit : fin avant toute requête.
 	if t.stopReason != "" {
 		return t.done(0, t.stopReason)
@@ -472,6 +482,12 @@ func (t *turn) runTool(c llm.ToolCall) (tools.Result, error) {
 	if err != nil {
 		return tools.Result{}, err
 	}
+	// Appel exécuté hors du suivi des copies (shell, MCP write/exec).
+	untracked := false
+	if ran && res.Denied == "" && t.tools != nil {
+		tool, _ := t.tools.Get(c.Name)
+		untracked = isUntracked(c.Name, tool)
+	}
 	if denied == "" {
 		denied = res.Denied // refus décidé par l'outil lui-même
 	}
@@ -493,13 +509,16 @@ func (t *turn) runTool(c llm.ToolCall) (tools.Result, error) {
 			res.Content += "\n\n" + out.Context
 		}
 	}
-	if err := t.emit(event.ToolResult, event.ToolResultPayload{
+	trp := event.ToolResultPayload{
 		CallID: c.ID, Tool: c.Name, Content: res.Content, IsError: res.IsError,
 		Path: res.Path, HashBefore: res.HashBefore, HashAfter: res.HashAfter,
-		Denied: denied,
-	}); err != nil {
+		Denied: denied, NoCheckpoint: res.NoCheckpoint, Untracked: untracked,
+	}
+	seq, err := t.emitSeq(event.ToolResult, trp)
+	if err != nil {
 		return tools.Result{}, err
 	}
+	t.s.rw.addResult(seq, trp)
 	if res.ServerDown != "" {
 		if err := t.emit(event.McpServerDown, event.McpServerDownPayload{
 			Server: res.ServerDown, Error: res.Content,

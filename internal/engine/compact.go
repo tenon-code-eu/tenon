@@ -256,6 +256,9 @@ func (t *turn) compact(info llm.ProviderInfo, defs []llm.ToolDef, force bool) (r
 	}); err != nil {
 		return "", err
 	}
+	if t.parent == "" {
+		t.s.rw.compacted()
+	}
 	*t.h = nh
 	return "", nil
 }

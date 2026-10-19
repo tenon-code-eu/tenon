@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/tenon-code-eu/tenon/internal/agents"
+	"github.com/tenon-code-eu/tenon/internal/checkpoint"
 	"github.com/tenon-code-eu/tenon/internal/event"
 	"github.com/tenon-code-eu/tenon/internal/hooks"
 	"github.com/tenon-code-eu/tenon/internal/i18n"
@@ -76,6 +77,9 @@ type Deps struct {
 	TranscriptPath string
 	// Notify active l'événement de hook Notification (vrai dans l'interface).
 	Notify bool
+	// Checkpoints est le magasin des copies d'avant écriture (nil : aucune
+	// restauration de contenu possible ; les suppressions restent possibles).
+	Checkpoints *checkpoint.Store
 }
 
 // Reply répond à un PermissionRequested.
@@ -112,8 +116,10 @@ type session struct {
 	history    []llm.Message // non masqué ; le masquage a lieu à chaque envoi
 	// startCtx : contexte des hooks SessionStart (startup, resume) en attente,
 	// joint au prochain message utilisateur accepté (un prompt bloqué ne le
-	// consomme pas).
+	// consomme pas). La note d'un rewind code seul y est jointe.
 	startCtx string
+	// rw : points, écritures et appels non annulables de la session (rewind).
+	rw rewindState
 }
 
 // New construit un Engine.
@@ -268,6 +274,17 @@ func (e *Engine) session(id string) *session {
 // L'appelant doit tenir s.turn.
 func (e *Engine) emit(s *session, typ event.Type, payload any) error {
 	return e.emitBuild(s, typ, func(string) any { return payload })
+}
+
+// emitSeq est emit, et renvoie le seq de l'événement émis (lu sous emitMu :
+// sûr même pour les tours de hooks agent concurrents).
+func (e *Engine) emitSeq(s *session, typ event.Type, payload any) (uint64, error) {
+	var seq uint64
+	err := e.emitBuild(s, typ, func(string) any {
+		seq = s.seq + 1
+		return payload
+	})
+	return seq, err
 }
 
 // emitBuild est emit, avec un payload construit sous emitMu à partir de

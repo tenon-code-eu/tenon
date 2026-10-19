@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"path/filepath"
@@ -8,7 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tenon-code-eu/tenon/internal/agents"
 	"github.com/tenon-code-eu/tenon/internal/event"
+	"github.com/tenon-code-eu/tenon/internal/i18n"
 	"github.com/tenon-code-eu/tenon/internal/llm"
 )
 
@@ -370,5 +373,98 @@ func TestRestoreSkipsSubagentStopFeedback(t *testing.T) {
 	}
 	if got := h.eng.sessions["s_1"].history; mustJSON(got) != mustJSON(want) {
 		t.Fatalf("historique\n%s\nattendu\n%s", mustJSON(got), mustJSON(want))
+	}
+}
+
+// TestRestoreAfterRewound : pour chaque mode, l'état restauré (historique,
+// note en attente, points, plan) est celui du direct, et la note d'un rewind
+// code seul est jointe une seule fois au prochain prompt après la reprise.
+func TestRestoreAfterRewound(t *testing.T) {
+	for _, mode := range []RewindMode{RewindCode, RewindConversation, RewindBoth} {
+		t.Run(string(mode), func(t *testing.T) {
+			h, store := newRewindHarness(t, [][]llm.Chunk{
+				writeCall("c1", "a.txt", "v2"),
+				text("done one"),
+				call("c2", "agent", agentCall),
+				writeCall("s1", "a.txt", "v3"),
+				text("sub done"),
+				text("done two"),
+			}, func(d *Deps) {
+				cat, _ := agents.Discover(i18n.EN, []agents.Dir{{Path: t.TempDir(), Source: agents.Project}})
+				d.Agents = cat
+				d.Lang = i18n.EN
+			})
+			a := filepath.Join(h.root, "a.txt")
+			writeFile(t, a, "v1")
+			if _, err := h.submit(t, "s_1", "one", allowAll); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := h.submit(t, "s_1", "two", allowAll); err != nil {
+				t.Fatal(err)
+			}
+			pts := h.eng.RewindPoints("s_1")
+			if _, err := h.eng.Rewind(context.Background(), "s_1", pts[0].Seq, mode, nil); err != nil {
+				t.Fatal(err)
+			}
+			if got := readFile(t, a); mode != RewindConversation && got != "v2" {
+				t.Fatalf("a.txt = %q", got)
+			}
+
+			h2 := newHarness(t, euInfo, [][]llm.Chunk{text("ok")}, func(d *Deps) { d.Checkpoints = store })
+			if err := h2.eng.Restore("s_1", h.sink.events); err != nil {
+				t.Fatal(err)
+			}
+			if historyOf(h2, "s_1") != historyOf(h, "s_1") {
+				t.Fatalf("historique restauré %s\nen direct %s", historyOf(h2, "s_1"), historyOf(h, "s_1"))
+			}
+			live, restored := h.eng.session("s_1"), h2.eng.session("s_1")
+			if live.startCtx != restored.startCtx {
+				t.Fatalf("note en attente %q, en direct %q", restored.startCtx, live.startCtx)
+			}
+			if mustJSON(h2.eng.RewindPoints("s_1")) != mustJSON(h.eng.RewindPoints("s_1")) {
+				t.Fatalf("points %+v\nen direct %+v", h2.eng.RewindPoints("s_1"), h.eng.RewindPoints("s_1"))
+			}
+			// Un second rewind calcule le même plan qu'en direct.
+			for _, p := range pts {
+				lp, lerr := h.eng.RewindPlan("s_1", p.Seq)
+				rp, rerr := h2.eng.RewindPlan("s_1", p.Seq)
+				if lerr != nil || rerr != nil || mustJSON(lp) != mustJSON(rp) {
+					t.Fatalf("plan restauré %+v (%v)\nen direct %+v (%v)", rp, rerr, lp, lerr)
+				}
+			}
+
+			if _, err := h2.submit(t, "s_1", "next", allowAll); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := h2.submit(t, "s_1", "after", allowAll); err != nil {
+				t.Fatal(err)
+			}
+			reqs := h2.prov.reqs()
+			n := 0
+			for _, m := range reqs[len(reqs)-1].Messages {
+				if strings.Contains(m.Content, "[tenon] The user restored files") {
+					n++
+				}
+			}
+			want := 0
+			if mode == RewindCode {
+				want = 1
+			}
+			if n != want {
+				t.Fatalf("note présente %d fois : %s", n, mustJSON(reqs[len(reqs)-1].Messages))
+			}
+		})
+	}
+}
+
+// TestRestoreRewoundUnknownPoint : un Rewound conversation vers un
+// point inconnu rend le journal invalide.
+func TestRestoreRewoundUnknownPoint(t *testing.T) {
+	l := &evLog{t: t, sid: "s_1"}
+	l.add(event.UserMessage, event.UserMessagePayload{Text: "one"}).
+		add(event.Rewound, event.RewoundPayload{ToSeq: 42, Mode: "conversation"})
+	h := newHarness(t, euInfo, [][]llm.Chunk{text("ok")})
+	if err := h.eng.Restore("s_1", l.evs); err == nil {
+		t.Fatal("journal invalide accepté")
 	}
 }
