@@ -99,6 +99,19 @@ Un fichier de projet nommé `general-purpose` remplace l'agent intégré, qui es
 Les approbations « oui pour la session » sont partagées entre l'agent principal et ses sous-agents : une approbation donnée pour une action d'un sous-agent vaut aussi pour l'agent principal, et inversement.
 `tenon agents` liste les agents trouvés par tenon, avec leur source. Une règle `deny` sur `tool = "agent"` en interdit un (voir [utilisation.md](utilisation.md#sous-agents)).
 
+### Les hooks exécutent votre code, avec vos droits
+
+Un hook est un programme que vous avez écrit ou installé. Il s'exécute sous votre identité, hors des règles de permission.
+Seuls vos propres fichiers sont lus (`~/.config/tenon/hooks.json`, et `~/.claude/settings.json` si vous mettez `hooks.claude_settings = true`). **Les hooks d'un projet ne s'exécutent jamais** : tenon affiche seulement un avis. Un dépôt ne peut pas vous faire exécuter de code par un hook.
+
+Un hook ne peut pas élargir les permissions de la session. `allow` lève seulement un `ask` issu des règles, comme le ferait une règle `allow` globale. Il ne lève jamais une règle `deny`, une action protégée, un chemin hors du projet, un fichier sensible ni une règle `ask` du projet. Un hook peut toujours restreindre : `deny`, `ask`, ou une modification de l'entrée de l'outil, qui est revalidée.
+
+Les hooks `command` reçoivent l'entrée de l'outil **non masquée** : ils s'exécutent sur votre machine, et tenon ne contrôle pas ce qu'ils en font. Un hook qui envoie cette entrée à un service (par exemple un hook de notification qui poste vers un service hors UE) relève de votre responsabilité, comme un serveur MCP stdio. Le contrôle de juridiction ne le couvre pas.
+Les hooks `prompt` et `agent`, et tout ce qu'un hook renvoie au modèle (`additionalContext`, raisons, stderr), passent par le même masquage et le même contrôle de juridiction que toute requête. Un hook `prompt` ou `agent` utilise le fournisseur et le modèle de la session (`model` est ignoré), donc il n'ajoute aucune nouvelle juridiction.
+
+Un hook en échec ne bloque pas. Un plantage, un délai, une sortie illisible ou une erreur du fournisseur est une erreur non bloquante : l'action continue, avec un avertissement dans l'interface et dans le journal d'audit. Un hook de sécurité cassé ne vous protège donc pas. Testez vos hooks et surveillez les avertissements. Seul un fichier de hooks invalide empêche tenon de démarrer.
+Chaque exécution de hook est dans le journal d'audit (voir [utilisation.md](utilisation.md#hooks)). `tenon hooks` liste les hooks chargés par tenon.
+
 ### La juridiction est déclarative
 
 tenon ne vérifie pas la juridiction d'un fournisseur ou d'un serveur.

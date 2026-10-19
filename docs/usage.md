@@ -14,6 +14,7 @@ For a commented configuration example, see [config.example.toml](config.example.
 - [Configuration](#configuration)
 - [Skills](#skills)
 - [Sub-agents](#sub-agents)
+- [Hooks](#hooks)
 - [Providers and jurisdictions](#providers-and-jurisdictions)
 - [API keys and keyring](#api-keys-and-keyring)
 - [MCP servers](#mcp-servers)
@@ -29,6 +30,7 @@ tenon -p "<prompt>" [--resume <id|last>] [--lang fr|en] [--output text|json] [--
 tenon sessions [--lang fr|en]
 tenon skills [--lang fr|en]
 tenon agents [--lang fr|en]
+tenon hooks [--lang fr|en]
 tenon key set|delete <provider>
 tenon audit verify
 tenon config check
@@ -77,6 +79,7 @@ The token count is an estimate.
 | `/help` | Shows the key help and the available skills. |
 | `/skills` | Lists the skills. |
 | `/agents` | Lists the sub-agents (see [Sub-agents](#sub-agents)). |
+| `/hooks` | Lists the hooks (see [Hooks](#hooks)). |
 | `/<name> [arguments]` | Starts a skill (see [Skills](#skills)). |
 | Tab | Completes a command or a skill name after `/`. |
 | `/quit` | Quits. |
@@ -544,6 +547,204 @@ Names, descriptions and notices are shown with control characters replaced by sp
 - The actions of a sub-agent are in the same [audit log](#audit-log), in the same chain. `tenon audit verify` is unchanged.
 - Files written by a sub-agent count as written by the agent for [git marking](#git-marking-of-generated-code).
 - `--resume` rebuilds the history of the main agent and ignores the events of sub-agents. A sub-agent interrupted by a crash is not restarted: its `agent` call gets `cancelled: session interrupted`.
+
+## Hooks
+
+A hook is a command (or a check by the model) that tenon runs at a precise moment: before and after a tool, when you send a prompt, at the end of a turn, at the start and end of a session.
+A hook can block, ask for your approval, change the input of a tool, send feedback to the model or add context.
+tenon reads the Claude Code format (the `hooks` key of `settings.json`). Hooks written for Claude Code work without change.
+
+### Sources
+
+Only your own files are read:
+
+| File | Condition |
+|---|---|
+| `$XDG_CONFIG_HOME/tenon/hooks.json` (else `~/.config/tenon/hooks.json`) | always, when it exists |
+| `~/.claude/settings.json` | only with `hooks.claude_settings = true` in the global configuration. Only the `hooks` key is read. `"disableAllHooks": true` in this file gives no hook |
+
+Hooks of both files are added together. A user folder is ignored when `HOME` (or `XDG_CONFIG_HOME`) is empty or is not an absolute path.
+
+```toml
+# global configuration only (refused in .tenon/config.toml)
+[hooks]
+claude_settings = false   # true: also reads ~/.claude/settings.json
+disabled = false          # true: no hook is loaded or run
+```
+
+**Project hooks never run.** `.tenon/hooks.json`, `.claude/settings.json` and `.claude/settings.local.json` are not executed. If they exist (and, for the two Claude Code files, contain a `hooks` key), tenon shows the notice `project hooks ignored: <file>`. An unreadable or invalid project file only gives a notice.
+
+### Format
+
+```json
+{"hooks": {
+  "PreToolUse": [
+    {"matcher": "Bash|shell", "hooks": [
+      {"type": "command", "command": "~/bin/check.sh", "timeout": 30},
+      {"type": "prompt", "prompt": "Is this safe? $ARGUMENTS", "timeout": 30},
+      {"type": "agent", "prompt": "Verify the change. $ARGUMENTS"}
+    ]}
+  ]
+}}
+```
+
+| Field | Rule |
+|---|---|
+| event key | One of the 9 events below. An unknown event gives a notice and its groups are ignored. |
+| `matcher` | RE2 regular expression, anchored (`^(?:...)$`). Absent, empty or `*`: matches everything. For tool events, tested against the Claude Code name **and** the tenon name (`Bash\|shell`). For `SessionStart`: `startup`, `resume`, `compact`. For `PreCompact`: `auto`, `manual`. For `Notification`: `permission_prompt`. Ignored for the other events. |
+| `type` | `command`, `prompt` or `agent`. An unknown type gives a notice and the hook is ignored. |
+| `command` | Required and not empty for `command`. |
+| `prompt` | Required and not empty for `prompt` and `agent`. |
+| `timeout` | Integer in seconds, from 1 to 86400. Default: 60 (`command`), 30 (`prompt`), 60 (`agent`). |
+| `model` | Read and ignored: a hook always uses the model of the session. |
+
+Other fields are ignored.
+
+A broken file stops tenon from starting (a security hook that is skipped without notice is dangerous). The error names the file and the JSON path, for example `hooks.json: hooks.PreToolUse[0].hooks[1]: timeout must be a positive integer`. Causes: invalid JSON, `hooks` that is not an object, invalid regex, empty `command` or `prompt`, `timeout` that is not an integer, is 0 or negative, or is above 86400. A file is limited to 1 MiB and tenon loads at most 200 hooks, all sources together: beyond that, tenon does not start.
+A user file that is a symbolic link is followed (dotfiles).
+
+A hook has a stable ID `<source>:<event>:<i>.<j>` (group index, then index in the group), for example `tenon:PreToolUse:0.1`. The source is `tenon` or `claude`.
+
+### Events
+
+| Event | When | Input fields (besides the common ones) | Effect |
+|---|---|---|---|
+| `PreToolUse` | Before a tool call, after argument checks and before the permission check | `tool_name`, `tool_input`, `tenon_tool`, `tenon_input`, `tool_use_id` | `deny`: the tool does not run. `ask`: approval required. `allow`: see [Limits of `allow`](#limits-of-allow). `updatedInput`: changes the arguments. |
+| `PostToolUse` | After each real execution of a tool (success or error), never after a refusal | Same as `PreToolUse`, plus `tool_response: {content, is_error}` | `block` or exit `2`: the line `hook feedback: <reason>` is added to the result sent to the model. `additionalContext` is added the same way. The action is not undone and `is_error` is unchanged. |
+| `UserPromptSubmit` | When you send a prompt, before it goes to the model | `prompt` (the text typed, `/skill args` included) | `block` or exit `2`: the prompt is not sent. You see the reason and the turn ends with `blocked_by_hook`. Context (see below) is joined to your message. |
+| `Stop` | When the main agent finishes with the reason `done` | `stop_hook_active` | `block` or exit `2`: the message `Stop hook feedback: <reason>` is added to the history and the loop goes on (the iterations count for `max_iterations`). |
+| `SubagentStop` | Same, for a sub-agent | `stop_hook_active`, `agent`, `tool_use_id` (of the `agent` call) | Same as `Stop`, in the sub-agent. |
+| `SessionStart` | At the first turn (`startup`, or `resume` with `--resume`) and after each compaction (`compact`) | `source` | Context (see below). |
+| `SessionEnd` | When tenon closes, if a session started | `reason`: `prompt_input_exit` (quit from the interface) or `other` | No effect. Tenon waits at most 10 s. |
+| `PreCompact` | Before a compaction | `trigger`: `auto` | No effect. tenon has no manual compaction: `manual` is reserved. |
+| `Notification` | When the approval panel opens (interface only) | `message`, `notification_type` = `permission_prompt` | No effect. |
+
+`Stop` and `SubagentStop` do not run after a cancel, an error, `incomplete`, `blocked` or `max_iterations`.
+`Stop` does not run at the end of a sub-agent: that is `SubagentStop`.
+`PreToolUse` and `PostToolUse` also run inside a sub-agent. Their events carry `parent_call_id`.
+`Notification` is never sent in non-interactive mode. It runs while the panel is open: a slow hook delays the handling of your answer, for at most its `timeout`. Its `message` is `tenon needs your permission to use <tool>` (`... to send data to <provider>` for a jurisdiction consent).
+
+Common input fields: `session_id`, `transcript_path` (the tenon session file: its format is not the Claude Code one), `cwd`, `hook_event_name`.
+
+**Context.** For `UserPromptSubmit` and `SessionStart`, `additionalContext` (or the text on stdout) is joined to your next message in a separate block, and saved with the session (`UserMessage.hook_context`) so that `--resume` restores it. After a compaction, the context of `SessionStart` is joined to the summary message. A prompt blocked by `UserPromptSubmit` is still written in the session and in the audit log (`UserMessage` with `blocked: true`) but is never sent to the model: the `SessionStart` context then waits for the next accepted prompt.
+
+### Types of hook
+
+| Type | What runs |
+|---|---|
+| `command` | `bash -c <command>` in the project root. Own process group, killed at the end, at the timeout or when you cancel the turn (same as the `shell` tool). The environment of tenon, plus `CLAUDE_PROJECT_DIR` and `TENON_PROJECT_DIR`. The input is JSON on stdin. stdout and stderr are limited to 64 KiB each (the rest is dropped without error). |
+| `prompt` | One request to the provider and the model of the session, without tools. `$ARGUMENTS` is replaced by the input JSON; without it, the JSON is added at the end after an empty line. The model must answer `{"ok": true}` or `{"ok": false, "reason": "..."}`. `ok: false` blocks with the reason. The request is not part of the session history. |
+| `agent` | A sub-agent with the tools `read_file`, `grep` and `glob` only. Same prompt as `prompt`. It is limited by `max_iterations` and by the timeout. Its tool calls follow the usual permissions and are in the audit log with `parent_call_id` set to the `run_id` of the hook. Its last message is read as for `prompt`. |
+
+`prompt` and `agent` hooks run one at a time. `command` hooks of the same event run in parallel, and identical commands run once.
+Requests of `prompt` and `agent` hooks, and tool calls of an `agent` hook, trigger no hook.
+
+### Exit codes and JSON output
+
+For a `command` hook:
+
+| Exit code | Meaning |
+|---|---|
+| `0` | Success. If stdout (without leading blanks) starts with `{`, it is read as JSON (an unreadable JSON is a non-blocking error). Otherwise, for `UserPromptSubmit` and `SessionStart`, non-empty stdout becomes added context. Elsewhere it is only logged. |
+| `2` | Blocking error. stderr is the reason. The effect depends on the event (table above). |
+| other, start failure, timeout | Non-blocking error: the action goes on, a warning is shown and logged. |
+
+JSON fields:
+
+| Field | Effect |
+|---|---|
+| `continue: false` | Stops the turn after this hook. `stopReason` is shown to you. Turn reason: `stopped_by_hook`. For `PreToolUse`, the tool does not run. From `SessionEnd`, it has no effect. |
+| `systemMessage` | Shown to you as a warning, and logged. |
+| `suppressOutput` | Accepted, no visible effect. |
+| `decision`, `reason` | `block` + `reason` blocks, for the events that can block. |
+| `hookSpecificOutput` | Must contain `hookEventName` equal to the event, otherwise it is ignored. For `PreToolUse`: `permissionDecision` (`allow`, `deny`, `ask`), `permissionDecisionReason`, `updatedInput`. The old format `decision: approve\|block` also works. `additionalContext` for `PostToolUse`, `UserPromptSubmit` and `SessionStart`. |
+
+When several hooks match, they all run, and the decisions combine as `deny`/`block` over `ask` over `allow`. The reasons are joined with line breaks, in the order of the configuration. Added contexts are joined in the same order. One `continue: false` is enough. Several different `updatedInput` refuse the call (`conflicting updatedInput from hooks`).
+
+### Effect on tool calls (`PreToolUse`)
+
+- `deny` (or exit `2`): the tool does not run. The result is the error `blocked by hook: <reason>`, with `denied: "hook"`.
+- `ask`: the approval is asked even if the rules allow the action. The panel shows `hook: <reason>` and does not offer "yes for the session". An approval given earlier for the session does not skip a request that comes from a hook. In non-interactive mode, the action is denied, as for any request.
+- `updatedInput`: translated back to tenon names, then checked again like any call. If it is invalid, the call is refused (`invalid updatedInput from hook: <error>`, `denied: "hook"`). Permissions are evaluated on the new input, which is the one that runs. `PostToolUse` receives these arguments as `tool_input` and `tenon_input`. The event `ToolCallRequested` keeps the original input, and `HookCompleted.updated_input` records the new one.
+- `continue: false`: the tool does not run and the turn ends (`stopped_by_hook`).
+
+#### Limits of `allow`
+
+`allow` is like a global `allow` rule. It lifts an `ask` that comes from the rules, and nothing else. It never lifts:
+
+- a `deny` rule;
+- a protected action (an approval that rules cannot waive);
+- a path outside the project, or a sensitive file;
+- an `ask` rule of the project.
+
+A hook can only restrict, or lift what a global `allow` rule could lift.
+
+### Tool names and arguments
+
+The hook receives both the Claude Code names and the tenon names. Fields that tenon does not know are kept as they are, in both directions.
+
+| tenon | Claude Code |
+|---|---|
+| `shell {command, timeout_seconds}` | `Bash {command, timeout}` (`timeout` in milliseconds) |
+| `read_file {path, offset, limit}` | `Read {file_path, offset, limit}` |
+| `write_file {path, content}` | `Write {file_path, content}` |
+| `edit_file {path, old_string, new_string, replace_all}` | `Edit {file_path, old_string, new_string, replace_all}` |
+| `grep {pattern, glob}` | `Grep {pattern, glob}` |
+| `glob {pattern}` | `Glob {pattern}` |
+| `skill {name, file}` | `Skill {skill, file}` |
+| `agent {agent, description, prompt}` | `Task {subagent_type, description, prompt}` |
+
+`mcp__<server>__<tool>` tools keep their name.
+
+### Differences from Claude Code
+
+- `tool_response` is simpler: `{content, is_error}`.
+- `transcript_path` points to a tenon session file, whose format is different.
+- Hooks never come from the project (see [Sources](#sources)). Those of `~/.claude/settings.json` are read only with `hooks.claude_settings = true`.
+- `PreCompact` runs with `auto` only.
+- `model` in a hook is ignored.
+- Hook types are `command`, `prompt` and `agent`. There is no HTTP hook.
+- Events that are not in the list above (such as `PostToolUseFailure`) do not exist.
+
+### Failures
+
+A failing hook never blocks: an error, a timeout, an unreadable JSON or a provider error for a `prompt` or `agent` hook is a non-blocking error. The action goes on, and a warning is shown and logged. Only a deliberate decision blocks (exit `2`, `deny`, `block`, `ok: false`).
+If you cancel the turn during a hook, the hook is killed (`status: cancelled`) and the turn stops as for any cancel.
+Test your hooks: a security hook that fails silently does not protect you.
+
+### In the interface
+
+- At startup, the banner adds `hooks: N (claude: M)` when at least one hook is loaded, then the notices (ignored project hooks).
+- A successful hook with no effect is invisible. A line `⏺ hook <event> · <command or type> [blocked|asked|error|timeout] <reason>` appears for a block, a request, an error or a timeout. `systemMessage` and `stopReason` are shown as warnings.
+- The approval panel adds the line `hook: <reason>` when the request comes from a hook.
+- `/hooks` lists the hooks. `/help` mentions it.
+- Text that comes from a hook (reasons, `systemMessage`, `stopReason`, stderr) is shown with control characters replaced by spaces and secrets masked.
+
+### In non-interactive mode
+
+The text output is unchanged. Warnings of hooks (errors, timeouts, `systemMessage`, blocks) go to stderr.
+With `--output json`, all the hook events are included.
+
+### List the hooks
+
+```
+tenon hooks [--lang fr|en]
+```
+
+One line per hook: ID, `matcher` (`*` when empty), type, command or prompt (cut at 80 characters, control characters replaced), then the notices.
+
+### Session and audit
+
+Each hook run is in the [audit log](#audit-log), in the same chain, with two events:
+
+| Event | Fields |
+|---|---|
+| `HookStarted` | `run_id` (the id of this event), `hook_id`, `event`, `type`, `command` or `prompt` (cut at 4 KiB), `call_id` for tool hooks, `parent_call_id` in a sub-agent |
+| `HookCompleted` | `run_id`, `hook_id`, `event`, `status` (`ok`, `blocked`, `error`, `timeout`, `cancelled`), `exit_code`, `decision`, `reason`, `updated_input`, `system_message`, `stop`, `stop_reason`, `error`, `duration_ms`, `stdout` and `stderr` (cut at 4 KiB), `call_id`, `parent_call_id` |
+
+`exit_code` is absent when the command did not exit normally (start failure, timeout, cancel). The tool calls of an `agent` hook carry its `run_id` as `parent_call_id`.
+`ToolResult.denied` can be `"hook"`. `TurnCompleted.reason` can be `blocked_by_hook` or `stopped_by_hook`.
+`--resume` ignores `HookStarted` and `HookCompleted`. It rebuilds the user messages and the compaction summary with their `hook_context`. The `Stop hook feedback` messages are restored as user messages.
 
 ## Providers and jurisdictions
 

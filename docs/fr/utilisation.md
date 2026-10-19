@@ -16,6 +16,7 @@ Pour un exemple de configuration commenté, voir [config.example.toml](../config
 - [Configuration](#configuration)
 - [Skills](#skills)
 - [Sous-agents](#sous-agents)
+- [Hooks](#hooks)
 - [Fournisseurs et juridictions](#fournisseurs-et-juridictions)
 - [Clés d'API et trousseau](#clés-dapi-et-trousseau)
 - [Serveurs MCP](#serveurs-mcp)
@@ -31,6 +32,7 @@ tenon -p "<prompt>" [--resume <id|last>] [--lang fr|en] [--output text|json] [--
 tenon sessions [--lang fr|en]
 tenon skills [--lang fr|en]
 tenon agents [--lang fr|en]
+tenon hooks [--lang fr|en]
 tenon key set|delete <fournisseur>
 tenon audit verify
 tenon config check
@@ -77,6 +79,7 @@ Le nombre de jetons est une estimation.
 | `/help` | Affiche l'aide des touches et les skills disponibles. |
 | `/skills` | Liste les skills. |
 | `/agents` | Liste les sous-agents (voir [Sous-agents](#sous-agents)). |
+| `/hooks` | Liste les hooks (voir [Hooks](#hooks)). |
 | `/<nom> [arguments]` | Déclenche un skill (voir [Skills](#skills)). |
 | Tab | Complète une commande ou un nom de skill après `/`. |
 | `/quit` | Quitte. |
@@ -546,6 +549,204 @@ Noms, descriptions et avis sont affichés avec les caractères de contrôle remp
 - Les actions d'un sous-agent figurent dans le même [journal d'audit](#journal-daudit), dans la même chaîne. `tenon audit verify` est inchangé.
 - Les fichiers écrits par un sous-agent comptent comme écrits par l'agent pour le [marquage git](#marquage-git-du-code-produit).
 - `--resume` reconstruit l'historique de l'agent principal et ignore les événements des sous-agents. Un sous-agent interrompu par un arrêt brutal n'est pas relancé : son appel `agent` reçoit `cancelled: session interrupted`.
+
+## Hooks
+
+Un hook est une commande (ou une vérification par le modèle) que tenon exécute à un moment précis : avant et après un outil, à l'envoi d'un prompt, à la fin d'un tour, au début et à la fin d'une session.
+Un hook peut bloquer, demander votre validation, modifier l'entrée d'un outil, renvoyer un retour au modèle ou ajouter du contexte.
+tenon lit le format de Claude Code (la clé `hooks` de `settings.json`). Un hook écrit pour Claude Code fonctionne sans modification.
+
+### Sources
+
+Seuls vos propres fichiers sont lus :
+
+| Fichier | Condition |
+|---|---|
+| `$XDG_CONFIG_HOME/tenon/hooks.json` (sinon `~/.config/tenon/hooks.json`) | toujours, s'il existe |
+| `~/.claude/settings.json` | seulement avec `hooks.claude_settings = true` dans la configuration globale. Seule la clé `hooks` est lue. `"disableAllHooks": true` dans ce fichier ne donne aucun hook |
+
+Les hooks des deux fichiers s'additionnent. Un dossier utilisateur est ignoré quand `HOME` (ou `XDG_CONFIG_HOME`) est vide ou n'est pas un chemin absolu.
+
+```toml
+# configuration globale seulement (refusé dans .tenon/config.toml)
+[hooks]
+claude_settings = false   # true : lit aussi ~/.claude/settings.json
+disabled = false          # true : aucun hook n'est chargé ni exécuté
+```
+
+**Les hooks du projet ne s'exécutent jamais.** `.tenon/hooks.json`, `.claude/settings.json` et `.claude/settings.local.json` ne sont pas exécutés. S'ils existent (et, pour les deux fichiers Claude Code, contiennent une clé `hooks`), tenon affiche l'avis `hooks du projet ignorés : <fichier>`. Un fichier de projet illisible ou invalide ne produit qu'un avis.
+
+### Format
+
+```json
+{"hooks": {
+  "PreToolUse": [
+    {"matcher": "Bash|shell", "hooks": [
+      {"type": "command", "command": "~/bin/check.sh", "timeout": 30},
+      {"type": "prompt", "prompt": "Is this safe? $ARGUMENTS", "timeout": 30},
+      {"type": "agent", "prompt": "Verify the change. $ARGUMENTS"}
+    ]}
+  ]
+}}
+```
+
+| Champ | Règle |
+|---|---|
+| clé d'événement | Un des 9 événements ci-dessous. Un événement inconnu donne un avis et ses groupes sont ignorés. |
+| `matcher` | Expression régulière RE2, ancrée (`^(?:...)$`). Absente, vide ou `*` : tout correspond. Pour les événements d'outil, testée contre le nom Claude Code **et** le nom tenon (`Bash\|shell`). Pour `SessionStart` : `startup`, `resume`, `compact`. Pour `PreCompact` : `auto`, `manual`. Pour `Notification` : `permission_prompt`. Ignorée pour les autres événements. |
+| `type` | `command`, `prompt` ou `agent`. Un type inconnu donne un avis et le hook est ignoré. |
+| `command` | Obligatoire et non vide pour `command`. |
+| `prompt` | Obligatoire et non vide pour `prompt` et `agent`. |
+| `timeout` | Entier en secondes, de 1 à 86400. Défaut : 60 (`command`), 30 (`prompt`), 60 (`agent`). |
+| `model` | Lu et ignoré : un hook utilise toujours le modèle de la session. |
+
+Les autres champs sont ignorés.
+
+Un fichier invalide empêche tenon de démarrer (un hook de sécurité ignoré sans avis serait dangereux). L'erreur donne le fichier et le chemin JSON, par exemple `hooks.json: hooks.PreToolUse[0].hooks[1]: timeout must be a positive integer`. Causes : JSON invalide, `hooks` qui n'est pas un objet, regex invalide, `command` ou `prompt` vide, `timeout` qui n'est pas un entier, vaut 0, est négatif ou dépasse 86400. Un fichier est limité à 1 Mio et tenon charge 200 hooks au plus, toutes sources confondues : au-delà, tenon ne démarre pas.
+Un fichier utilisateur qui est un lien symbolique est suivi (dotfiles).
+
+Un hook a un identifiant stable `<source>:<événement>:<i>.<j>` (indice du groupe, puis indice dans le groupe), par exemple `tenon:PreToolUse:0.1`. La source est `tenon` ou `claude`.
+
+### Événements
+
+| Événement | Moment | Champs d'entrée (en plus des champs communs) | Effet |
+|---|---|---|---|
+| `PreToolUse` | Avant un appel d'outil, après la vérification des arguments et avant le contrôle des permissions | `tool_name`, `tool_input`, `tenon_tool`, `tenon_input`, `tool_use_id` | `deny` : l'outil ne s'exécute pas. `ask` : validation demandée. `allow` : voir [Limites de `allow`](#limites-de-allow). `updatedInput` : modifie les arguments. |
+| `PostToolUse` | Après chaque exécution réelle d'un outil (succès ou erreur), jamais après un refus | Comme `PreToolUse`, plus `tool_response: {content, is_error}` | `block` ou code `2` : la ligne `hook feedback: <raison>` est ajoutée au résultat envoyé au modèle. `additionalContext` est ajouté de la même façon. L'action n'est pas annulée et `is_error` ne change pas. |
+| `UserPromptSubmit` | Quand vous envoyez un prompt, avant son envoi au modèle | `prompt` (texte tapé, `/skill args` compris) | `block` ou code `2` : le prompt n'est pas envoyé. Vous voyez la raison et le tour se termine avec `blocked_by_hook`. Le contexte (voir plus bas) est joint à votre message. |
+| `Stop` | Quand l'agent principal se termine avec la raison `done` | `stop_hook_active` | `block` ou code `2` : le message `Stop hook feedback: <raison>` est ajouté à l'historique et la boucle continue (les itérations comptent pour `max_iterations`). |
+| `SubagentStop` | Pareil, pour un sous-agent | `stop_hook_active`, `agent`, `tool_use_id` (de l'appel `agent`) | Comme `Stop`, dans le sous-agent. |
+| `SessionStart` | Au premier tour (`startup`, ou `resume` avec `--resume`) et après chaque compaction (`compact`) | `source` | Contexte (voir plus bas). |
+| `SessionEnd` | À la fermeture de tenon, si une session a démarré | `reason` : `prompt_input_exit` (sortie de l'interface) ou `other` | Aucun effet. tenon attend 10 s au plus. |
+| `PreCompact` | Avant une compaction | `trigger` : `auto` | Aucun effet. tenon n'a pas de compaction manuelle : `manual` est réservé. |
+| `Notification` | À l'ouverture du panneau de validation (interface seulement) | `message`, `notification_type` = `permission_prompt` | Aucun effet. |
+
+`Stop` et `SubagentStop` ne s'exécutent pas après une annulation, une erreur, `incomplete`, `blocked` ou `max_iterations`.
+`Stop` ne s'exécute pas à la fin d'un sous-agent : c'est `SubagentStop`.
+`PreToolUse` et `PostToolUse` s'exécutent aussi dans un sous-agent. Leurs événements portent `parent_call_id`.
+`Notification` n'est jamais envoyée en mode non interactif. Elle s'exécute pendant que le panneau est ouvert : un hook lent retarde le traitement de votre réponse, au plus son `timeout`. Son `message` est `tenon needs your permission to use <outil>` (`... to send data to <fournisseur>` pour un consentement de juridiction).
+
+Champs d'entrée communs : `session_id`, `transcript_path` (le fichier de session tenon : son format n'est pas celui de Claude Code), `cwd`, `hook_event_name`.
+
+**Contexte.** Pour `UserPromptSubmit` et `SessionStart`, `additionalContext` (ou le texte sur stdout) est joint à votre prochain message dans un bloc séparé, et enregistré avec la session (`UserMessage.hook_context`) pour que `--resume` le restaure. Après une compaction, le contexte de `SessionStart` est joint au message de résumé. Un prompt bloqué par `UserPromptSubmit` reste écrit dans la session et dans le journal d'audit (`UserMessage` avec `blocked: true`), mais n'est jamais envoyé au modèle : le contexte de `SessionStart` attend alors le prochain prompt accepté.
+
+### Types de hook
+
+| Type | Ce qui s'exécute |
+|---|---|
+| `command` | `bash -c <command>` à la racine du projet. Groupe de processus propre, tué à la fin, au délai ou quand vous annulez le tour (comme l'outil `shell`). L'environnement de tenon, plus `CLAUDE_PROJECT_DIR` et `TENON_PROJECT_DIR`. L'entrée est un JSON sur stdin. stdout et stderr sont limités à 64 Kio chacun (le reste est jeté sans erreur). |
+| `prompt` | Une requête au fournisseur et au modèle de la session, sans outils. `$ARGUMENTS` est remplacé par le JSON d'entrée ; sans lui, le JSON est ajouté à la fin après une ligne vide. Le modèle doit répondre `{"ok": true}` ou `{"ok": false, "reason": "..."}`. `ok: false` bloque avec la raison. La requête n'entre pas dans l'historique de la session. |
+| `agent` | Un sous-agent avec les seuls outils `read_file`, `grep` et `glob`. Même prompt que `prompt`. Il est borné par `max_iterations` et par le délai. Ses appels d'outils suivent les permissions habituelles et sont dans le journal d'audit avec `parent_call_id` égal au `run_id` du hook. Son dernier message est lu comme pour `prompt`. |
+
+Les hooks `prompt` et `agent` s'exécutent un par un. Les hooks `command` d'un même événement s'exécutent en parallèle, et des commandes identiques ne s'exécutent qu'une fois.
+Les requêtes des hooks `prompt` et `agent`, et les appels d'outils d'un hook `agent`, ne déclenchent aucun hook.
+
+### Codes de sortie et sortie JSON
+
+Pour un hook `command` :
+
+| Code de sortie | Sens |
+|---|---|
+| `0` | Succès. Si stdout (sans les blancs initiaux) commence par `{`, il est lu comme JSON (un JSON illisible est une erreur non bloquante). Sinon, pour `UserPromptSubmit` et `SessionStart`, un stdout non vide devient du contexte ajouté. Ailleurs, il est seulement journalisé. |
+| `2` | Erreur bloquante. stderr est la raison. L'effet dépend de l'événement (tableau ci-dessus). |
+| autre, échec de lancement, délai dépassé | Erreur non bloquante : l'action continue, un avertissement est affiché et journalisé. |
+
+Champs JSON :
+
+| Champ | Effet |
+|---|---|
+| `continue: false` | Arrête le tour après ce hook. `stopReason` vous est affiché. Raison du tour : `stopped_by_hook`. Pour `PreToolUse`, l'outil ne s'exécute pas. Depuis `SessionEnd`, sans effet. |
+| `systemMessage` | Affiché comme avertissement, et journalisé. |
+| `suppressOutput` | Accepté, sans effet visible. |
+| `decision`, `reason` | `block` + `reason` bloque, pour les événements qui peuvent bloquer. |
+| `hookSpecificOutput` | Doit contenir `hookEventName` égal à l'événement, sinon il est ignoré. Pour `PreToolUse` : `permissionDecision` (`allow`, `deny`, `ask`), `permissionDecisionReason`, `updatedInput`. L'ancien format `decision: approve\|block` fonctionne aussi. `additionalContext` pour `PostToolUse`, `UserPromptSubmit` et `SessionStart`. |
+
+Quand plusieurs hooks correspondent, ils s'exécutent tous, et les décisions se combinent : `deny`/`block` l'emporte sur `ask`, qui l'emporte sur `allow`. Les raisons sont jointes par des sauts de ligne, dans l'ordre de la configuration. Les contextes ajoutés sont joints dans le même ordre. Un seul `continue: false` suffit. Plusieurs `updatedInput` différents refusent l'appel (`conflicting updatedInput from hooks`).
+
+### Effet sur les appels d'outils (`PreToolUse`)
+
+- `deny` (ou code `2`) : l'outil ne s'exécute pas. Le résultat est l'erreur `blocked by hook: <raison>`, avec `denied: "hook"`.
+- `ask` : la validation est demandée même si les règles autorisent l'action. Le panneau affiche `hook: <raison>` et ne propose pas « oui pour la session ». Une approbation donnée plus tôt pour la session ne dispense pas d'une demande issue d'un hook. En mode non interactif, l'action est refusée, comme toute demande.
+- `updatedInput` : retraduit vers les noms tenon, puis revalidé comme tout appel. S'il est invalide, l'appel est refusé (`invalid updatedInput from hook: <erreur>`, `denied: "hook"`). Les permissions sont évaluées sur la nouvelle entrée, qui est celle exécutée. `PostToolUse` reçoit ces arguments comme `tool_input` et `tenon_input`. L'événement `ToolCallRequested` garde l'entrée d'origine, et `HookCompleted.updated_input` enregistre la nouvelle.
+- `continue: false` : l'outil ne s'exécute pas et le tour se termine (`stopped_by_hook`).
+
+#### Limites de `allow`
+
+`allow` vaut une règle `allow` globale. Il lève un `ask` issu des règles, et rien d'autre. Il ne lève jamais :
+
+- une règle `deny` ;
+- une action protégée (une validation que les règles ne peuvent pas lever) ;
+- un chemin hors du projet, ou un fichier sensible ;
+- une règle `ask` du projet.
+
+Un hook ne peut que restreindre, ou lever ce qu'une règle `allow` globale lèverait.
+
+### Noms d'outils et arguments
+
+Le hook reçoit à la fois les noms Claude Code et les noms tenon. Les champs que tenon ne connaît pas sont conservés tels quels, dans les deux sens.
+
+| tenon | Claude Code |
+|---|---|
+| `shell {command, timeout_seconds}` | `Bash {command, timeout}` (`timeout` en millisecondes) |
+| `read_file {path, offset, limit}` | `Read {file_path, offset, limit}` |
+| `write_file {path, content}` | `Write {file_path, content}` |
+| `edit_file {path, old_string, new_string, replace_all}` | `Edit {file_path, old_string, new_string, replace_all}` |
+| `grep {pattern, glob}` | `Grep {pattern, glob}` |
+| `glob {pattern}` | `Glob {pattern}` |
+| `skill {name, file}` | `Skill {skill, file}` |
+| `agent {agent, description, prompt}` | `Task {subagent_type, description, prompt}` |
+
+Les outils `mcp__<serveur>__<outil>` gardent leur nom.
+
+### Différences avec Claude Code
+
+- `tool_response` est plus simple : `{content, is_error}`.
+- `transcript_path` désigne un fichier de session tenon, au format différent.
+- Les hooks ne viennent jamais du projet (voir [Sources](#sources)). Ceux de `~/.claude/settings.json` ne sont lus qu'avec `hooks.claude_settings = true`.
+- `PreCompact` ne s'exécute qu'avec `auto`.
+- `model` dans un hook est ignoré.
+- Les types de hook sont `command`, `prompt` et `agent`. Il n'y a pas de hook HTTP.
+- Les événements absents de la liste ci-dessus (comme `PostToolUseFailure`) n'existent pas.
+
+### Échecs
+
+Un hook en échec ne bloque jamais : une erreur, un délai, un JSON illisible ou une erreur du fournisseur pour un hook `prompt` ou `agent` est une erreur non bloquante. L'action continue, et un avertissement est affiché et journalisé. Seule une décision volontaire bloque (code `2`, `deny`, `block`, `ok: false`).
+Si vous annulez le tour pendant un hook, le hook est tué (`status: cancelled`) et le tour s'arrête comme pour toute annulation.
+Testez vos hooks : un hook de sécurité qui échoue en silence ne vous protège pas.
+
+### Dans l'interface
+
+- Au démarrage, la bannière ajoute `hooks : N (claude : M)` quand au moins un hook est chargé, puis les avis (hooks de projet ignorés).
+- Un hook réussi sans effet est invisible. Une ligne `⏺ hook <événement> · <commande ou type> [bloqué|demandé|erreur|délai dépassé] <raison>` s'affiche pour un blocage, une demande, une erreur ou un délai. `systemMessage` et `stopReason` s'affichent comme avertissements.
+- Le panneau de validation ajoute la ligne `hook : <raison>` quand la demande vient d'un hook.
+- `/hooks` liste les hooks. `/help` le mentionne.
+- Le texte qui vient d'un hook (raisons, `systemMessage`, `stopReason`, stderr) est affiché avec les caractères de contrôle remplacés par des espaces et les secrets masqués.
+
+### En mode non interactif
+
+La sortie texte est inchangée. Les avertissements des hooks (erreurs, délais, `systemMessage`, blocages) vont sur stderr.
+Avec `--output json`, tous les événements de hook sont inclus.
+
+### Lister les hooks
+
+```
+tenon hooks [--lang fr|en]
+```
+
+Une ligne par hook : identifiant, `matcher` (`*` s'il est vide), type, commande ou prompt (coupé à 80 caractères, caractères de contrôle remplacés), puis les avis.
+
+### Session et audit
+
+Chaque exécution de hook est dans le [journal d'audit](#journal-daudit), dans la même chaîne, avec deux événements :
+
+| Événement | Champs |
+|---|---|
+| `HookStarted` | `run_id` (l'identifiant de cet événement), `hook_id`, `event`, `type`, `command` ou `prompt` (coupé à 4 Kio), `call_id` pour les hooks d'outil, `parent_call_id` dans un sous-agent |
+| `HookCompleted` | `run_id`, `hook_id`, `event`, `status` (`ok`, `blocked`, `error`, `timeout`, `cancelled`), `exit_code`, `decision`, `reason`, `updated_input`, `system_message`, `stop`, `stop_reason`, `error`, `duration_ms`, `stdout` et `stderr` (coupés à 4 Kio), `call_id`, `parent_call_id` |
+
+`exit_code` est absent quand la commande ne s'est pas terminée normalement (échec de lancement, délai, annulation). Les appels d'outils d'un hook `agent` portent son `run_id` comme `parent_call_id`.
+`ToolResult.denied` peut valoir `"hook"`. `TurnCompleted.reason` peut valoir `blocked_by_hook` ou `stopped_by_hook`.
+`--resume` ignore `HookStarted` et `HookCompleted`. Il reconstruit les messages utilisateur et le résumé de compaction avec leur `hook_context`. Les messages `Stop hook feedback` sont restaurés comme messages utilisateur.
 
 ## Fournisseurs et juridictions
 

@@ -158,3 +158,12 @@ country = "FR"
 risk = "network"
 # true: server declared but neither started nor contacted.
 disabled = false
+
+# Hooks: commands run at precise moments (see docs/usage.md#hooks).
+# The hooks themselves are in ~/.config/tenon/hooks.json. This section is
+# global only: it is refused in .tenon/config.toml.
+# [hooks]
+# true: also reads the "hooks" key of ~/.claude/settings.json.
+# claude_settings = false
+# true: no hook is loaded or run.
+# disabled = false

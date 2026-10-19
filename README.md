@@ -14,7 +14,8 @@ It is designed for Europe:
 - secrets and some personal data are masked before anything is sent;
 - commits that contain code written by the agent can be marked;
 - reusable skills in the open Agent Skills format (`SKILL.md`), loaded by the model or with `/<name>`, never able to widen permissions;
-- sub-agents (`.claude/agents/*.md` format) that the model launches for a self-contained task, with the same permissions, masking and audit as the main agent.
+- sub-agents (`.claude/agents/*.md` format) that the model launches for a self-contained task, with the same permissions, masking and audit as the main agent;
+- hooks (Claude Code format) that run your commands before and after tools, on prompts and at session start and end, to block, ask, add context or change a tool input, without widening permissions; project hooks never run.
 
 Any OpenAI-compatible endpoint works.
 tenon runs on Linux and macOS.
@@ -93,6 +94,7 @@ tenon                                  # interactive interface, in the project d
 tenon -p "explain the project layout"  # one turn without the interface, for scripts
 tenon skills                           # lists the skills found for this project
 tenon agents                           # lists the sub-agents found for this project
+tenon hooks                            # lists the hooks loaded from your own files
 ```
 
 The key can also come from the `MISTRAL_API_KEY` variable.
@@ -129,6 +131,7 @@ Tout envoi hors de l'UE demande votre accord explicite, et tout est tracé dans 
 Par défaut, les écritures, les commandes et les appels d'outils MCP attendent votre validation.
 Les skills au format ouvert Agent Skills (`SKILL.md`) sont chargés par le modèle ou avec `/<nom>`, sans jamais élargir les permissions.
 Les sous-agents (format `.claude/agents/*.md`) sont lancés par le modèle pour une tâche autonome, avec les mêmes permissions, le même masquage et le même audit que l'agent principal.
+Les hooks (format Claude Code) exécutent vos commandes avant et après les outils, à l'envoi d'un prompt et au début et à la fin d'une session, pour bloquer, demander, ajouter du contexte ou modifier l'entrée d'un outil, sans élargir les permissions ; les hooks d'un projet ne s'exécutent jamais.
 L'interface est en anglais par défaut : lancez `tenon --lang fr` ou mettez `lang = "fr"` dans la configuration.
 
 Documentation en français : [guide d'utilisation](docs/fr/utilisation.md), [sécurité et limites](docs/fr/securite.md).

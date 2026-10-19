@@ -97,6 +97,19 @@ A project file named `general-purpose` replaces the built-in agent, which is the
 The approvals "yes for the session" are shared between the main agent and its sub-agents: an approval given for a sub-agent action also covers the main agent, and the other way round.
 `tenon agents` lists the agents that tenon found, with their source. A `deny` rule on `tool = "agent"` forbids one (see [usage.md](usage.md#sub-agents)).
 
+### Hooks run your code, with your rights
+
+A hook is a program you wrote or installed. It runs as you, outside the permission rules.
+Only your own files are read (`~/.config/tenon/hooks.json`, and `~/.claude/settings.json` if you set `hooks.claude_settings = true`). **Hooks of a project never run**: tenon only shows a notice. A repository cannot make you run code through a hook.
+
+A hook cannot widen the permissions of the session. `allow` lifts only an `ask` that comes from the rules, as a global `allow` rule would. It never lifts a `deny` rule, a protected action, a path outside the project, a sensitive file or an `ask` rule of the project. A hook can always restrict: `deny`, `ask`, or a change of the tool input that is checked again.
+
+`command` hooks receive the input of the tool **unmasked**: they run on your machine, and tenon does not control what they do with it. A hook that sends this input to a service (a notification hook that posts to a service outside the EU, for example) is your responsibility, as for a stdio MCP server. The jurisdiction check does not cover it.
+`prompt` and `agent` hooks, and everything a hook sends back to the model (`additionalContext`, reasons, stderr), go through the same masking and jurisdiction check as any request. A `prompt` or `agent` hook uses the provider and the model of the session (`model` is ignored), so it adds no new jurisdiction.
+
+A hook failure does not block. A crash, a timeout, an unreadable output or a provider error is a non-blocking error: the action goes on, with a warning in the interface and in the audit log. A broken security hook therefore does not protect you. Test your hooks, and watch for warnings. Only an invalid hooks file stops tenon from starting.
+Every hook run is in the audit log (see [usage.md](usage.md#hooks)). `tenon hooks` lists the hooks that tenon loaded.
+
 ### Jurisdiction is declarative
 
 tenon does not verify the jurisdiction of a provider or of a server.
