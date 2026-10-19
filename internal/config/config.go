@@ -6,6 +6,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"path/filepath"
@@ -33,6 +34,14 @@ type Config struct {
 	// Hooks : réglages des hooks. Clé globale uniquement (un hook est une
 	// exécution de code arbitraire : un dépôt ne peut pas les activer).
 	Hooks Hooks `toml:"hooks"`
+	// Checkpoints : copies des fichiers avant écriture (/rewind). Clé globale
+	// uniquement.
+	Checkpoints Checkpoints `toml:"checkpoints"`
+}
+
+// Checkpoints règle la rétention des copies. 0 désactive les copies.
+type Checkpoints struct {
+	RetentionDays int `toml:"retention_days"`
 }
 
 // Hooks règle le chargement des hooks utilisateur.
@@ -217,6 +226,7 @@ func Defaults(getenv func(string) string) Config {
 		OutputLimit:         30000,
 		CompactionThreshold: 0.8,
 		Audit:               Audit{Level: "full"},
+		Checkpoints:         Checkpoints{RetentionDays: 30},
 		Providers:           presets(),
 	}
 }
@@ -277,6 +287,9 @@ func (c Config) validate() error {
 		if _, err := regexp.Compile(r.Pattern); err != nil {
 			return fmt.Errorf("config: invalid redaction pattern %q: %w", r.Name, err)
 		}
+	}
+	if c.Checkpoints.RetentionDays < 0 {
+		return errors.New("config: retention_days must be >= 0")
 	}
 	if err := c.MCP.validate(); err != nil {
 		return err

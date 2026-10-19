@@ -511,3 +511,31 @@ func TestHooksProjectKeyRefused(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestCheckpointsDefault(t *testing.T) {
+	if c := Defaults(env(nil)); c.Checkpoints.RetentionDays != 30 {
+		t.Fatalf("défaut = %d", c.Checkpoints.RetentionDays)
+	}
+	c, err := Load(write(t, "[checkpoints]\nretention_days = 7\n"), "", env(nil))
+	if err != nil || c.Checkpoints.RetentionDays != 7 {
+		t.Fatalf("c = %+v, err = %v", c.Checkpoints, err)
+	}
+	c, err = Load(write(t, "[checkpoints]\nretention_days = 0\n"), "", env(nil))
+	if err != nil || c.Checkpoints.RetentionDays != 0 {
+		t.Fatalf("0 doit rester 0 : %+v, err = %v", c.Checkpoints, err)
+	}
+}
+
+func TestCheckpointsNegative(t *testing.T) {
+	_, err := Load(write(t, "[checkpoints]\nretention_days = -1\n"), "", env(nil))
+	if err == nil || !strings.Contains(err.Error(), "retention_days must be >= 0") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestCheckpointsProjectRefused(t *testing.T) {
+	_, err := Load("", write(t, "[checkpoints]\nretention_days = 1\n"), env(nil))
+	if err == nil || !strings.Contains(err.Error(), "key not allowed") {
+		t.Fatalf("err = %v", err)
+	}
+}

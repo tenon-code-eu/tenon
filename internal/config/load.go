@@ -43,6 +43,7 @@ func Load(globalPath, projectPath string, getenv func(string) string) (Config, e
 		cfg.Permissions, cfg.Redaction = g.Permissions, g.Redaction
 		cfg.MCP = g.MCP
 		cfg.Hooks = g.Hooks
+		cfg.Checkpoints = g.Checkpoints
 		for i := range cfg.MCP.Servers {
 			if s := &cfg.MCP.Servers[i]; s.Transport == "stdio" && s.Jurisdiction == "" {
 				s.Jurisdiction = "local"
