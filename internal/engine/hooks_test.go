@@ -319,6 +319,32 @@ func TestPreToolUseUpdatedInput(t *testing.T) {
 			t.Fatalf("ToolCallRequested %s", tcr.Args)
 		}
 	})
+	t.Run("PostToolUse sees executed input", func(t *testing.T) {
+		dump := filepath.Join(t.TempDir(), "in.json")
+		h := newHarness(t, euInfo, [][]llm.Chunk{
+			call("c1", "write_file", `{"path":"orig.txt","content":"x"}`),
+			text("ok"),
+		}, withHooks(t,
+			hk{"PreToolUse", "Write", jsonHook(t, upd(`{"file_path":"out.txt","content":"y"}`))},
+			hk{"PostToolUse", "Write", cmd(hookScript(t, `cat > "`+dump+`"`))}))
+		if _, err := h.submit(t, "s_1", "go", nil); err != nil {
+			t.Fatal(err)
+		}
+		b, err := os.ReadFile(dump)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var in struct {
+			ToolInput  map[string]any `json:"tool_input"`
+			TenonInput map[string]any `json:"tenon_input"`
+		}
+		if err := json.Unmarshal(b, &in); err != nil {
+			t.Fatal(err)
+		}
+		if in.ToolInput["file_path"] != "out.txt" || in.TenonInput["path"] != "out.txt" {
+			t.Fatalf("entrée PostToolUse %s", b)
+		}
+	})
 	t.Run("outside project asks", func(t *testing.T) {
 		outside := filepath.Join(t.TempDir(), "out.txt")
 		in, _ := json.Marshal(map[string]string{"file_path": outside, "content": "y"})
@@ -479,7 +505,9 @@ func TestPostToolUseFeedback(t *testing.T) {
 			Content string `json:"content"`
 			IsError *bool  `json:"is_error"`
 		}
-		_ = json.Unmarshal(in.Response, &resp)
+		if err := json.Unmarshal(in.Response, &resp); err != nil {
+			t.Fatalf("tool_response %s : %v", in.Response, err)
+		}
 		if in.ToolName != "Read" || in.ToolInput["file_path"] != "a.txt" || in.TenonTool != "read_file" ||
 			in.TenonInput["path"] != "a.txt" || in.ToolUseID != "c1" || in.Event != "PostToolUse" ||
 			!strings.Contains(resp.Content, "hi") || resp.IsError == nil || *resp.IsError {

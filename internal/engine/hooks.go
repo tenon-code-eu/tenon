@@ -40,21 +40,20 @@ func (t *turn) runHooks(ev hooks.Event, callID string, fields map[string]any, su
 	}
 	runIDs := make(map[string]string, len(hs))
 	for _, h := range hs {
-		// RunID est l'identifiant de cet événement HookStarted : seul ce
-		// goroutine émet pour la session ici (s.turn tenu, hooks pas lancés).
-		runID := fmt.Sprintf("%s-%d", t.s.id, t.s.seq+1)
-		p := event.HookStartedPayload{
-			RunID: runID, HookID: h.ID, Event: string(ev), Type: string(h.Type), CallID: callID,
-		}
+		p := event.HookStartedPayload{HookID: h.ID, Event: string(ev), Type: string(h.Type), CallID: callID}
 		if h.Type == hooks.Command {
 			p.Command = cutBytes(h.Command, auditMax)
 		} else {
 			p.Prompt = cutBytes(h.Prompt, auditMax)
 		}
-		if err := t.emit(event.HookStarted, p); err != nil {
+		// RunID est l'identifiant de cet événement HookStarted, fixé à l'émission.
+		if err := t.e.emitBuild(t.s, event.HookStarted, func(id string) any {
+			p.RunID = id
+			return event.WithParent(p, t.parent)
+		}); err != nil {
 			return hooks.Outcome{}, err
 		}
-		runIDs[h.ID] = runID
+		runIDs[h.ID] = p.RunID
 	}
 	env := hooks.Env{SessionID: t.s.id, TranscriptPath: d.TranscriptPath, ProjectRoot: d.ProjectRoot}
 	out := hooks.Run(t.ctx, hs, ev, fields, env, hookEval{t: t, runIDs: runIDs, sem: make(chan struct{}, 1)})

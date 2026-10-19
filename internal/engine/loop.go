@@ -372,16 +372,19 @@ func (t *turn) runTool(c llm.ToolCall) (tools.Result, error) {
 	}); err != nil {
 		return tools.Result{}, err
 	}
-	res, denied, ran, err := t.decideAndRun(c)
+	res, denied, ran, args, err := t.decideAndRun(c)
 	if err != nil {
 		return tools.Result{}, err
 	}
 	if denied == "" {
 		denied = res.Denied // refus décidé par l'outil lui-même
 	}
-	// PostToolUse : seulement après une exécution réelle, jamais après un refus.
+	// PostToolUse : seulement après une exécution réelle, jamais après un
+	// refus ; son entrée porte les arguments exécutés (updatedInput compris).
 	if ran {
-		fields := toolFields(c)
+		executed := c
+		executed.Args = args
+		fields := toolFields(executed)
 		fields["tool_response"] = map[string]any{"content": res.Content, "is_error": res.IsError}
 		out, err := t.runHooks(hooks.PostToolUse, c.ID, fields, hooks.ClaudeName(c.Name), c.Name)
 		if err != nil {
@@ -447,9 +450,9 @@ func checkArgs(tool tools.Tool, name string, args json.RawMessage) (target tools
 }
 
 // decideAndRun renvoie aussi l'origine d'un refus (deniedPolicy, deniedUser,
-// deniedHook, "" si l'appel n'a pas été refusé) et ran, vrai si l'outil a été
-// réellement exécuté.
-func (t *turn) decideAndRun(c llm.ToolCall) (res tools.Result, denied string, ran bool, err error) {
+// deniedHook, "" si l'appel n'a pas été refusé), ran, vrai si l'outil a été
+// réellement exécuté, et args, les arguments exécutés (updatedInput compris).
+func (t *turn) decideAndRun(c llm.ToolCall) (res tools.Result, denied string, ran bool, args json.RawMessage, err error) {
 	d := t.e.d
 	var tool tools.Tool
 	ok := false
@@ -457,36 +460,36 @@ func (t *turn) decideAndRun(c llm.ToolCall) (res tools.Result, denied string, ra
 		tool, ok = t.tools.Get(c.Name)
 	}
 	if !ok {
-		return toolError("unknown tool: %s", c.Name), "", false, nil
+		return toolError("unknown tool: %s", c.Name), "", false, nil, nil
 	}
 	target, bad, denied, ok := checkArgs(tool, c.Name, c.Args)
 	if !ok {
-		return bad, denied, false, nil
+		return bad, denied, false, nil, nil
 	}
 
 	// PreToolUse : après la validation, avant les permissions.
 	out, err := t.runHooks(hooks.PreToolUse, c.ID, toolFields(c), hooks.ClaudeName(c.Name), c.Name)
 	if err != nil {
-		return tools.Result{}, "", false, err
+		return tools.Result{}, "", false, nil, err
 	}
 	switch {
 	case out.Stop:
-		return toolError("stopped by hook: %s", out.StopReason), deniedHook, false, nil
+		return toolError("stopped by hook: %s", out.StopReason), deniedHook, false, nil, nil
 	case out.Conflict:
-		return toolError("conflicting updatedInput from hooks"), deniedHook, false, nil
+		return toolError("conflicting updatedInput from hooks"), deniedHook, false, nil, nil
 	case out.Block:
-		return toolError("blocked by hook: %s", out.Reason), deniedHook, false, nil
+		return toolError("blocked by hook: %s", out.Reason), deniedHook, false, nil, nil
 	}
-	args := c.Args
+	args = c.Args
 	if out.UpdatedInput != nil {
 		// Nouvelle entrée : retraduite, revalidée ; c'est elle qui est
 		// vérifiée par les permissions puis exécutée.
 		args, err = hooks.FromClaude(c.Name, out.UpdatedInput)
 		if err != nil {
-			return toolError("invalid updatedInput from hook: %s", err), deniedHook, false, nil
+			return toolError("invalid updatedInput from hook: %s", err), deniedHook, false, nil, nil
 		}
 		if target, bad, _, ok = checkArgs(tool, c.Name, args); !ok {
-			return toolError("invalid updatedInput from hook: %s", bad.Content), deniedHook, false, nil
+			return toolError("invalid updatedInput from hook: %s", bad.Content), deniedHook, false, nil, nil
 		}
 	}
 
@@ -501,7 +504,7 @@ func (t *turn) decideAndRun(c llm.ToolCall) (res tools.Result, denied string, ra
 	case policy.Ask:
 		prompt = !(out.Allow && liftable && !out.Ask)
 	default:
-		return toolError("action denied by policy"), deniedPolicy, false, nil
+		return toolError("action denied by policy"), deniedPolicy, false, nil, nil
 	}
 	if prompt {
 		key := c.Name + "\x00" + target.Command + "\x00" + strings.Join(target.Paths, "\x00")
@@ -516,10 +519,10 @@ func (t *turn) decideAndRun(c llm.ToolCall) (res tools.Result, denied string, ra
 			}
 			r, err := t.ask(p)
 			if err != nil {
-				return tools.Result{}, "", false, err
+				return tools.Result{}, "", false, nil, err
 			}
 			if !r.Allow {
-				return toolError("action denied by the user"), deniedUser, false, nil
+				return toolError("action denied by the user"), deniedUser, false, nil, nil
 			}
 			if r.Remember && !out.Ask {
 				t.s.remembered[key] = true
@@ -534,9 +537,9 @@ func (t *turn) decideAndRun(c llm.ToolCall) (res tools.Result, denied string, ra
 		res, err = tool.Run(t.ctx, args)
 	}
 	if err != nil {
-		return tools.Result{}, "", false, err
+		return tools.Result{}, "", false, nil, err
 	}
-	return res, "", true, nil
+	return res, "", true, args, nil
 }
 
 // safeArgs garantit un JSON valide pour les payloads d'événements : des

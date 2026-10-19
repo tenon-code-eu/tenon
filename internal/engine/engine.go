@@ -219,11 +219,18 @@ func (e *Engine) session(id string) *session {
 // écrit dans les sinks) et toute émission ultérieure renvoie ErrAuditFailure.
 // L'appelant doit tenir s.turn.
 func (e *Engine) emit(s *session, typ event.Type, payload any) error {
+	return e.emitBuild(s, typ, func(string) any { return payload })
+}
+
+// emitBuild est emit, avec un payload construit sous emitMu à partir de
+// l'identifiant de l'événement émis (RunID d'un HookStarted).
+func (e *Engine) emitBuild(s *session, typ event.Type, build func(id string) any) error {
 	e.emitMu.Lock()
 	defer e.emitMu.Unlock()
 	if e.failed {
 		return ErrAuditFailure
 	}
+	payload := build(fmt.Sprintf("%s-%d", s.id, s.seq+1))
 	ev, err := event.New(s.id, s.seq+1, e.d.Now(), typ, payload)
 	if err != nil {
 		return err
