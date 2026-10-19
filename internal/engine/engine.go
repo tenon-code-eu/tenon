@@ -10,7 +10,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/tenon-code-eu/tenon/internal/agents"
 	"github.com/tenon-code-eu/tenon/internal/event"
+	"github.com/tenon-code-eu/tenon/internal/i18n"
 	"github.com/tenon-code-eu/tenon/internal/llm"
 	"github.com/tenon-code-eu/tenon/internal/policy"
 	"github.com/tenon-code-eu/tenon/internal/provider"
@@ -55,6 +57,18 @@ type Deps struct {
 	UnavailableMCP []event.McpServerDownPayload
 	// MCP liste les serveurs MCP actifs, recopiés dans SessionStarted.
 	MCP []event.MCPServerInfo
+	// Agents liste les sous-agents disponibles (nil : pas d'outil agent).
+	Agents *agents.Catalog
+	// BasePrompt est le prompt sans sections skills/agents, base du prompt des
+	// sous-agents (vide : SystemPrompt).
+	BasePrompt string
+	// SkillsSection est la section des skills ajoutée au prompt d'un sous-agent
+	// qui dispose de l'outil skill.
+	SkillsSection string
+	// Lang est la langue du préambule des sous-agents (zéro : FR).
+	Lang i18n.Lang
+	// OutputLimit tronque le résultat d'un sous-agent, en caractères (0 : non).
+	OutputLimit int
 }
 
 // Reply répond à un PermissionRequested.
@@ -64,6 +78,8 @@ type Reply struct{ Allow, Remember bool }
 // d'une même session sont sérialisés.
 type Engine struct {
 	d Deps
+	// tools est le jeu d'outils du tour principal : d.Tools plus agent.
+	tools *tools.Registry
 
 	// emitMu sérialise l'émission (sinks puis abonnés) et protège subs et failed.
 	emitMu sync.Mutex
@@ -106,7 +122,17 @@ func New(d Deps) *Engine {
 	if d.Now == nil {
 		d.Now = time.Now
 	}
-	return &Engine{d: d, sessions: map[string]*session{}, pending: map[string]chan Reply{}}
+	if d.BasePrompt == "" {
+		d.BasePrompt = d.SystemPrompt
+	}
+	if d.Lang == "" {
+		d.Lang = i18n.FR
+	}
+	reg := d.Tools
+	if d.Agents != nil {
+		reg = reg.With(agentTool{})
+	}
+	return &Engine{d: d, tools: reg, sessions: map[string]*session{}, pending: map[string]chan Reply{}}
 }
 
 // Subscribe renvoie un canal recevant chaque événement émis après l'appel
@@ -155,7 +181,7 @@ func (e *Engine) SubmitInput(ctx context.Context, sessionID string, in Input) er
 	s := e.session(sessionID)
 	s.turn.Lock()
 	defer s.turn.Unlock()
-	t := &turn{e: e, s: s, ctx: ctx, h: &s.history, tools: e.d.Tools, deltas: true}
+	t := &turn{e: e, s: s, ctx: ctx, h: &s.history, tools: e.tools, deltas: true}
 	return t.run(in)
 }
 

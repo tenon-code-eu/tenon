@@ -445,7 +445,12 @@ func (t *turn) decideAndRun(c llm.ToolCall) (tools.Result, string, error) {
 	default:
 		return toolError("action denied by policy"), deniedPolicy, nil
 	}
-	res, err := tool.Run(t.ctx, c.Args)
+	var res tools.Result
+	if _, isAgent := tool.(agentTool); isAgent {
+		res, err = t.runSubagent(c)
+	} else {
+		res, err = tool.Run(t.ctx, c.Args)
+	}
 	if err != nil {
 		return tools.Result{}, "", err
 	}
