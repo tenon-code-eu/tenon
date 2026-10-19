@@ -16,6 +16,7 @@ import (
 	"github.com/tenon-code-eu/tenon/internal/agents"
 	"github.com/tenon-code-eu/tenon/internal/engine"
 	"github.com/tenon-code-eu/tenon/internal/event"
+	"github.com/tenon-code-eu/tenon/internal/hooks"
 	"github.com/tenon-code-eu/tenon/internal/i18n"
 	"github.com/tenon-code-eu/tenon/internal/llm"
 	"github.com/tenon-code-eu/tenon/internal/skills"
@@ -45,6 +46,8 @@ type Options struct {
 	Skills *skills.Catalog
 	// Agents est le catalogue des agents (/agents) ; nil : aucun agent.
 	Agents *agents.Catalog
+	// Hooks est l'ensemble des hooks chargés (/hooks) ; nil : aucun hook.
+	Hooks *hooks.Set
 	// Now remplace l'horloge (délai d'armement des acceptations, double
 	// Ctrl+C). Réservé aux tests ; nil : time.Now.
 	Now func() time.Time
@@ -62,6 +65,7 @@ const (
 	helpCommand    = "/help"
 	skillsCommand  = "/skills"
 	agentsCommand  = "/agents"
+	hooksCommand   = "/hooks"
 	tokenRuneRatio = 4
 	// turnFinishTimeout borne l'attente de la fin du tour en cours à la
 	// sortie de Run.
@@ -396,6 +400,11 @@ func (m Model) submit() (tea.Model, tea.Cmd) {
 	case agentsCommand:
 		m.input.Reset()
 		m.agentsNotices()
+		m.scrollBack = 0
+		return m, nil
+	case hooksCommand:
+		m.input.Reset()
+		m.hooksNotices()
 		m.scrollBack = 0
 		return m, nil
 	}

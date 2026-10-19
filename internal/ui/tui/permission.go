@@ -305,7 +305,7 @@ func (m Model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.answer(engine.Reply{Allow: true})
 		}
 	case k.session:
-		if settled && m.approvable() && m.prompts[0].p.Kind == "tool" {
+		if settled && m.approvable() && m.prompts[0].p.Kind == "tool" && m.prompts[0].p.HookReason == "" {
 			m.answer(engine.Reply{Allow: true, Remember: true})
 		}
 	case noKey:
@@ -347,6 +347,9 @@ type panel struct {
 
 func (m Model) promptKeysKey() string {
 	if m.prompting() && m.prompts[0].p.Kind == "tool" {
+		if m.prompts[0].p.HookReason != "" {
+			return "tui.perm.keys_hook" // un hook a demandé : pas de « pour la session »
+		}
 		return "tui.perm.keys_tool"
 	}
 	return "tui.perm.keys_jurisdiction"
@@ -561,6 +564,11 @@ func (m Model) headLines(p *permPrompt, collapse bool) []string {
 	var out []string
 	if info, ok := m.subagents[p.p.ParentCallID]; ok && p.p.ParentCallID != "" {
 		text := i18n.T(m.lang, "tui.perm.subagent", m.redact(info.agent), m.redact(info.description))
+		line := strings.Join(strings.Fields(spaceClean(text)), " ")
+		out = append(out, m.st.notice.Render(m.truncate(line)))
+	}
+	if p.p.HookReason != "" {
+		text := i18n.T(m.lang, "tui.perm.hook", m.redact(p.p.HookReason))
 		line := strings.Join(strings.Fields(spaceClean(text)), " ")
 		out = append(out, m.st.notice.Render(m.truncate(line)))
 	}

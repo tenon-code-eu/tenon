@@ -5,6 +5,7 @@ package tui
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"strings"
 
 	"github.com/tenon-code-eu/tenon/internal/event"
@@ -57,7 +58,12 @@ type Transcript struct {
 	// holdback retient la ligne en cours d'un assistant en streaming (actif
 	// dès qu'un masquage est configuré).
 	holdback bool
+	// hookRuns retient les hooks démarrés (par run_id) jusqu'à leur fin.
+	hookRuns map[string]hookRun
 }
+
+// hookRun est le hook d'un HookStarted : événement et libellé court.
+type hookRun struct{ event, label string }
 
 // NewTranscript crée une transcription vide dans la langue l.
 func NewTranscript(l i18n.Lang) *Transcript {
@@ -157,7 +163,14 @@ func (t *Transcript) Apply(ev event.Event) {
 		if !t.decode(ev, &p) {
 			return
 		}
+		if p.ParentCallID != "" {
+			return // retour d'un hook SubagentStop : texte de sous-agent, non affiché
+		}
 		t.busy = true
+		if p.Hook != "" {
+			t.notice(t.oneLine(p.Text))
+			return
+		}
 		shown := p.Text
 		if p.Typed != "" {
 			shown = p.Typed // saisie brute, pas le corps du skill
@@ -227,6 +240,21 @@ func (t *Transcript) Apply(ev event.Event) {
 			}
 			it.Iterations = p.Iterations
 		}
+	case event.HookStarted:
+		var p event.HookStartedPayload
+		if !t.decode(ev, &p) {
+			return
+		}
+		if t.hookRuns == nil {
+			t.hookRuns = map[string]hookRun{}
+		}
+		t.hookRuns[p.RunID] = hookRun{event: p.Event, label: hookLabel(p)}
+	case event.HookCompleted:
+		var p event.HookCompletedPayload
+		if !t.decode(ev, &p) {
+			return
+		}
+		t.hookCompleted(p)
 	case event.McpServerDown:
 		var p event.McpServerDownPayload
 		if !t.decode(ev, &p) {
@@ -375,4 +403,46 @@ func firstLine(s string) string {
 		return l
 	}
 	return ""
+}
+
+// hookLabel est le nom court d'un hook : le programme de la commande, sinon
+// le type.
+func hookLabel(p event.HookStartedPayload) string {
+	if f := strings.Fields(p.Command); len(f) > 0 {
+		return filepath.Base(f[0])
+	}
+	return p.Type
+}
+
+// hookCompleted affiche la fin d'un hook : une ligne pour un blocage, une
+// erreur, un délai ou une demande ; des avis pour system_message et
+// stop_reason ; rien pour un succès sans effet. Tout texte vient du hook :
+// il est nettoyé et masqué.
+func (t *Transcript) hookCompleted(p event.HookCompletedPayload) {
+	run, ok := t.hookRuns[p.RunID]
+	delete(t.hookRuns, p.RunID)
+	if !ok {
+		run = hookRun{event: p.Event, label: p.HookID}
+	}
+	status := ""
+	switch {
+	case p.Status == "blocked", p.Status == "error", p.Status == "timeout":
+		status = p.Status
+	case p.Decision == "ask":
+		status = "asked"
+	}
+	if status != "" {
+		detail := p.Reason
+		if detail == "" {
+			detail = p.Error
+		}
+		t.notice(strings.TrimSpace(i18n.T(t.lang, "tui.hook.line", t.oneLine(run.event), t.oneLine(run.label),
+			i18n.T(t.lang, "tui.hook.status."+status), t.oneLine(detail))))
+	}
+	if m := t.oneLine(p.SystemMessage); m != "" {
+		t.notice(m)
+	}
+	if m := t.oneLine(p.StopReason); m != "" {
+		t.notice(m)
+	}
 }

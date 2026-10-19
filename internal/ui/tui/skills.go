@@ -7,6 +7,7 @@ import (
 	"unicode"
 
 	"github.com/tenon-code-eu/tenon/internal/agents"
+	"github.com/tenon-code-eu/tenon/internal/hooks"
 	"github.com/tenon-code-eu/tenon/internal/i18n"
 	"github.com/tenon-code-eu/tenon/internal/skills"
 )
@@ -113,3 +114,35 @@ func (m *Model) agentsNotices() {
 		m.tr.notice(cleanToken(a.Name) + "  " + cleanToken(string(a.Source)) + "  " + desc)
 	}
 }
+
+// hooksNotices affiche /hooks comme « tenon hooks » : un hook par ligne
+// « id  matcher  type  commande ou prompt » (80 caractères au plus), ou
+// « aucun hook ».
+func (m *Model) hooksNotices() {
+	var list []hooks.Hook
+	if m.opts.Hooks != nil {
+		list = m.opts.Hooks.List()
+	}
+	if len(list) == 0 {
+		m.tr.notice(i18n.T(m.lang, "hooks.none"))
+		return
+	}
+	for _, h := range list {
+		matcher := h.Matcher
+		if matcher == "" {
+			matcher = "*"
+		}
+		text := h.Command
+		if h.Type != hooks.Command {
+			text = h.Prompt
+		}
+		text = strings.Join(strings.Fields(spaceClean(text)), " ")
+		if r := []rune(text); len(r) > hookTextMax {
+			text = string(r[:hookTextMax])
+		}
+		m.tr.notice(cleanToken(h.ID) + "  " + cleanToken(matcher) + "  " + cleanToken(string(h.Type)) + "  " + text)
+	}
+}
+
+// hookTextMax borne l'aperçu d'une commande ou d'un prompt dans /hooks.
+const hookTextMax = 80
