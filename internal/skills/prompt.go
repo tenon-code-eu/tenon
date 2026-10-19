@@ -22,7 +22,7 @@ type Expansion struct {
 
 // Builtins liste les commandes intégrées (sans la barre oblique), source
 // unique pour IsBuiltin et la complétion de la TUI.
-var Builtins = []string{"help", "quit", "skills", "agents", "hooks"}
+var Builtins = []string{"help", "quit", "skills", "agents", "hooks", "rewind"}
 
 // IsBuiltin indique si name (sans la barre oblique) est une commande
 // intégrée, prioritaire sur les skills.

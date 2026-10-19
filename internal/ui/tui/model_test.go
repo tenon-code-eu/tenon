@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/tenon-code-eu/tenon/internal/checkpoint"
 	"github.com/tenon-code-eu/tenon/internal/engine"
 	"github.com/tenon-code-eu/tenon/internal/event"
 	"github.com/tenon-code-eu/tenon/internal/i18n"
@@ -36,6 +37,13 @@ type fakeEngine struct {
 	liveAtRespond []bool
 	respondErr    error
 	returned      chan struct{}
+
+	rwPoints  []checkpoint.Point
+	rwPlan    checkpoint.Plan
+	rwPlanErr error
+	rwRes     engine.RewindResult
+	rwErr     error
+	rwCalls   []rewindCall
 }
 
 func newFake() *fakeEngine {
@@ -684,4 +692,24 @@ func TestViewNestedTool(t *testing.T) {
 	if !strings.Contains(ansi.Strip(ag), "[ok] · 2 iterations") {
 		t.Fatalf("rendu %q", ag)
 	}
+}
+
+// Rewind : réponses programmables et appels enregistrés.
+type rewindCall struct {
+	seq       uint64
+	mode      engine.RewindMode
+	overwrite []string
+}
+
+func (f *fakeEngine) RewindPoints(string) []checkpoint.Point { return f.rwPoints }
+
+func (f *fakeEngine) RewindPlan(_ string, seq uint64) (checkpoint.Plan, error) {
+	return f.rwPlan, f.rwPlanErr
+}
+
+func (f *fakeEngine) Rewind(_ context.Context, _ string, seq uint64, mode engine.RewindMode, over []string) (engine.RewindResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rwCalls = append(f.rwCalls, rewindCall{seq, mode, over})
+	return f.rwRes, f.rwErr
 }

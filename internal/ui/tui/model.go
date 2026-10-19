@@ -160,6 +160,10 @@ type Model struct {
 	userSeen  bool
 	lastCtrlC time.Time
 	now       func() time.Time
+	// lastEsc est l'heure du dernier Échap hors tour (double Échap : /rewind).
+	lastEsc time.Time
+	// rw est le panneau /rewind ; nil quand il est fermé.
+	rw *rewindUI
 
 	// redact masque tout texte venu des événements avant affichage.
 	redact func(string) string
@@ -307,6 +311,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case subscriptionClosed:
 		return m, nil
+	case rewindDone:
+		m.finishRewind(msg)
+		return m, nil
 	case submitDone:
 		m.turn.finish()
 		m.endTurn()
@@ -335,6 +342,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.rw != nil {
+		return m.handleRewindKey(msg)
+	}
 	if m.prompting() {
 		return m.handlePromptKey(msg)
 	}
@@ -348,7 +358,19 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.turn.stop()
 		return m, nil
 	case key.Matches(msg, keys.Cancel):
-		m.turn.stop()
+		if m.busy() {
+			m.turn.stop()
+			m.lastEsc = time.Time{}
+			return m, nil
+		}
+		// Hors tour : un second Échap en moins d'une seconde ouvre /rewind.
+		now := m.now()
+		if !m.lastEsc.IsZero() && now.Sub(m.lastEsc) < escWindow {
+			m.lastEsc = time.Time{}
+			m.openRewind()
+			return m, nil
+		}
+		m.lastEsc = now
 		return m, nil
 	case key.Matches(msg, keys.PageUp):
 		m.scroll(m.convHeight())
@@ -406,6 +428,10 @@ func (m Model) submit() (tea.Model, tea.Cmd) {
 		m.input.Reset()
 		m.hooksNotices()
 		m.scrollBack = 0
+		return m, nil
+	case rewindCommand:
+		m.input.Reset()
+		m.openRewind()
 		return m, nil
 	}
 	in := engine.Input{Text: text}
@@ -475,6 +501,9 @@ func (m *Model) resize(w, h int) {
 // bottomLines rend la zone sous la conversation : le panneau de la demande de
 // permission affichée, sinon la saisie (conservée telle quelle).
 func (m Model) bottomLines() []string {
+	if m.rw != nil {
+		return m.rewindLines()
+	}
 	if m.prompting() {
 		return m.promptLines()
 	}
@@ -484,6 +513,9 @@ func (m Model) bottomLines() []string {
 // convHeight renvoie le nombre de lignes de la zone de conversation.
 func (m Model) convHeight() int {
 	bottom := inputHeight
+	if m.rw != nil {
+		bottom = len(m.rewindLines())
+	}
 	if m.prompting() {
 		bottom = len(m.promptLines())
 	}
