@@ -211,7 +211,12 @@ func (m Model) newPrompt(p event.PermissionRequestedPayload) (*permPrompt, tea.C
 	if p.Kind != "tool" || (p.Tool != "write_file" && p.Tool != "edit_file") {
 		return pr, nil
 	}
-	args := m.matchArgs(p)
+	// Arguments exécutés (updatedInput d'un hook) s'ils diffèrent de ceux
+	// du modèle, sinon ceux de l'appel en attente correspondant.
+	args := p.Args
+	if args == nil {
+		args = m.matchArgs(p)
+	}
 	if args == nil {
 		pr.unavailable = true
 		return pr, nil

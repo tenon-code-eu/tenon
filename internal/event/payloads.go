@@ -54,7 +54,8 @@ type ContextCompactedPayload struct {
 	Replaced     int    `json:"replaced"`
 	TokensBefore int    `json:"tokens_before"`
 	TokensAfter  int    `json:"tokens_after"`
-	// HookContext is the additional context a PreCompact hook returned, if any.
+	// HookContext is the additional context the SessionStart hooks (source
+	// "compact") returned after the compaction, if any.
 	HookContext string `json:"hook_context,omitempty"`
 	// ParentCallID is the call_id of the "agent" tool call that produced this
 	// event inside a sub-agent run; empty for the main agent.
@@ -97,6 +98,10 @@ type PermissionRequestedPayload struct {
 	Provider     *llm.ProviderInfo `json:"provider,omitempty"`
 	// HookReason is the reason a PreToolUse hook gave for asking, if any.
 	HookReason string `json:"hook_reason,omitempty"`
+	// Args holds the arguments that will run when a PreToolUse hook's
+	// updatedInput changed them (omitted otherwise): UIs preview these
+	// instead of the model's original arguments.
+	Args json.RawMessage `json:"args,omitempty"`
 	// ParentCallID is the call_id of the "agent" tool call that produced this
 	// event inside a sub-agent run; empty for the main agent.
 	ParentCallID string `json:"parent_call_id,omitempty"`

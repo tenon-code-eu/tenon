@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"regexp"
 	"strings"
 
@@ -38,6 +39,10 @@ type turn struct {
 	stopReason string
 	// agent : nom de l'agent d'un sous-agent (entrée de SubagentStop).
 	agent string
+	// outer : contexte du tour qui exécute le hook, pour la requête d'un hook
+	// prompt ou le tour d'un hook agent (ctx porte alors le délai du hook) ;
+	// nil sinon.
+	outer context.Context
 }
 
 // loopResult résume la fin de loop. Reason vaut l'une des raisons de
@@ -435,6 +440,12 @@ func (t *turn) ask(p event.PermissionRequestedPayload) (Reply, error) {
 	case r = <-ch:
 	case <-t.ctx.Done():
 		forget()
+		// Seul le délai du hook a expiré (le tour continue) : la demande est
+		// résolue en refus, sans quoi l'interface la garderait affichée.
+		// Au mieux : l'erreur de ctx est renvoyée de toute façon.
+		if t.outer != nil && t.outer.Err() == nil {
+			_ = t.emit(event.PermissionResolved, event.PermissionResolvedPayload{PermissionID: id})
+		}
 		return Reply{}, t.ctx.Err()
 	}
 	if err := t.emit(event.PermissionResolved, event.PermissionResolvedPayload{
@@ -466,7 +477,7 @@ func (t *turn) runTool(c llm.ToolCall) (tools.Result, error) {
 	}
 	// PostToolUse : seulement après une exécution réelle, jamais après un
 	// refus ; son entrée porte les arguments exécutés (updatedInput compris).
-	if ran {
+	if ran && res.Denied == "" {
 		executed := c
 		executed.Args = args
 		fields := toolFields(executed)
@@ -601,6 +612,12 @@ func (t *turn) decideAndRun(c llm.ToolCall) (res tools.Result, denied string, ra
 			}
 			if out.Ask {
 				p.HookReason = out.Reason
+				if p.HookReason == "" {
+					p.HookReason = noHookReason
+				}
+			}
+			if out.UpdatedInput != nil && !sameJSON(args, c.Args) {
+				p.Args = safeArgs(args)
 			}
 			r, err := t.ask(p)
 			if err != nil {
@@ -625,6 +642,19 @@ func (t *turn) decideAndRun(c llm.ToolCall) (res tools.Result, denied string, ra
 		return tools.Result{}, "", false, nil, err
 	}
 	return res, "", true, args, nil
+}
+
+// noHookReason remplace la raison absente d'un ask de hook : la demande reste
+// marquée comme venant d'un hook (pas de « oui pour la session »).
+const noHookReason = "(no reason given)"
+
+// sameJSON indique que a et b sont deux JSON valides de même valeur.
+func sameJSON(a, b json.RawMessage) bool {
+	var va, vb any
+	if json.Unmarshal(a, &va) != nil || json.Unmarshal(b, &vb) != nil {
+		return false
+	}
+	return reflect.DeepEqual(va, vb)
 }
 
 // safeArgs garantit un JSON valide pour les payloads d'événements : des

@@ -304,6 +304,10 @@ func (t *Transcript) Apply(ev event.Event) {
 		switch p.Reason {
 		case "max_iterations", "incomplete", "blocked", "cancelled", "context_too_large":
 			t.notice(i18n.T(t.lang, "tui.turn_reason."+p.Reason))
+		case "blocked_by_hook":
+			t.notice(i18n.T(t.lang, "turn.blocked_by_hook"))
+		case "stopped_by_hook":
+			t.notice(i18n.T(t.lang, "tui.turn.stopped_by_hook"))
 		}
 	}
 }

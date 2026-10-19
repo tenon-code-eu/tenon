@@ -119,6 +119,7 @@ func (t *turn) evalPrompt(ctx context.Context, prompt string) (string, error) {
 	tc := *t // copie superficielle : même session, contexte du hook
 	tc.ctx = ctx
 	tc.noHooks = true // la requête d'un hook prompt ne déclenche aucun hook
+	tc.outer = t.turnCtx()
 	info := d.Provider.Info()
 	msgs, ok, err := tc.outbound(info, []llm.Message{
 		{Role: llm.System, Content: i18n.T(d.Lang, "hooks.prompt_system")},
@@ -148,7 +149,7 @@ func (t *turn) evalAgent(ctx context.Context, runID, prompt string) (string, err
 		{Role: llm.System, Content: d.BasePrompt + "\n\n" + i18n.T(d.Lang, "hooks.agent_preamble")},
 		{Role: llm.User, Content: prompt},
 	}
-	child := &turn{e: t.e, s: t.s, ctx: ctx, h: &h, tools: d.Tools.Only(hookTools), parent: runID, noHooks: true}
+	child := &turn{e: t.e, s: t.s, ctx: ctx, h: &h, tools: d.Tools.Only(hookTools), parent: runID, noHooks: true, outer: t.turnCtx()}
 	res, err := child.loop()
 	if err != nil {
 		return "", err
@@ -160,6 +161,14 @@ func (t *turn) evalAgent(ctx context.Context, runID, prompt string) (string, err
 		return "", fmt.Errorf("agent hook stopped: %s", res.Reason)
 	}
 	return res.Final, nil
+}
+
+// turnCtx renvoie le contexte du tour, hors délai d'un hook.
+func (t *turn) turnCtx() context.Context {
+	if t.outer != nil {
+		return t.outer
+	}
+	return t.ctx
 }
 
 // toolFields construit l'entrée commune de PreToolUse et PostToolUse.

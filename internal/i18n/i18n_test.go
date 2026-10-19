@@ -89,3 +89,15 @@ func TestMCPMessages(t *testing.T) {
 		}
 	}
 }
+
+// TestUsageListsSubcommands : l'usage cite toutes les sous-commandes.
+func TestUsageListsSubcommands(t *testing.T) {
+	for _, l := range []Lang{FR, EN} {
+		u := T(l, "usage")
+		for _, c := range []string{"tenon sessions", "tenon skills", "tenon agents", "tenon hooks", "tenon key", "tenon audit verify", "tenon config check", "tenon git"} {
+			if !strings.Contains(u, c) {
+				t.Errorf("%s : %q absent de l'usage", l, c)
+			}
+		}
+	}
+}

@@ -1,10 +1,13 @@
 package tui
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/tenon-code-eu/tenon/internal/engine"
 	"github.com/tenon-code-eu/tenon/internal/event"
@@ -162,5 +165,42 @@ func TestHooksCompletion(t *testing.T) {
 	h.m.complete()
 	if v := h.m.input.Value(); v != "/hooks " {
 		t.Fatalf("complétion %q", v)
+	}
+}
+
+// TestPreviewUsesPermissionArgs : l'aperçu montre les arguments exécutés
+// (updatedInput d'un hook) portés par la demande, masqués comme les autres.
+func TestPreviewUsesPermissionArgs(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "f.txt"), []byte("old\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f := newFake()
+	h := newHarness(t, f, Options{Lang: i18n.EN, ProjectRoot: root, Redact: func(s string) string { return strings.ReplaceAll(s, "SECRET", "***") }})
+	h.send(tea.WindowSizeMsg{Width: 80, Height: 30})
+	model, _ := json.Marshal(map[string]string{"path": "f.txt", "content": "from model\n"})
+	hook, _ := json.Marshal(map[string]string{"path": "f.txt", "content": "from hook SECRET\n"})
+	f.emit(t, event.ToolCallRequested, event.ToolCallRequestedPayload{CallID: "c1", Tool: "write_file", Args: model})
+	h.until("appel suivi", func() bool { return len(h.m.calls) == 1 })
+	askPerm(t, h, f, event.PermissionRequestedPayload{
+		PermissionID: "p1", Kind: "tool", Tool: "write_file", Paths: []string{filepath.Join(root, "f.txt")}, Args: hook,
+	})
+	h.until("aperçu appliqué", func() bool { return strings.Contains(h.m.View(), "+ from hook ***") })
+	if v := h.m.View(); strings.Contains(v, "from model") || strings.Contains(v, "SECRET") {
+		t.Fatalf("aperçu :\n%s", v)
+	}
+}
+
+// TestTurnEndedByHookNotice : un tour bloqué ou arrêté par un hook l'indique.
+func TestTurnEndedByHookNotice(t *testing.T) {
+	for _, lang := range []i18n.Lang{i18n.EN, i18n.FR} {
+		for reason, key := range map[string]string{"blocked_by_hook": "turn.blocked_by_hook", "stopped_by_hook": "tui.turn.stopped_by_hook"} {
+			tr := NewTranscript(lang)
+			tr.Apply(ev(t, event.TurnCompleted, event.TurnCompletedPayload{Reason: reason}))
+			it := tr.Items()
+			if len(it) != 1 || it[0].Kind != ItemNotice || it[0].Text != i18n.T(lang, key) || strings.HasPrefix(it[0].Text, "!") {
+				t.Fatalf("%s %s : items = %+v", lang, reason, it)
+			}
+		}
 	}
 }

@@ -1418,3 +1418,194 @@ func TestPreCompactContinueFalse(t *testing.T) {
 		t.Fatalf("TurnCompleted %+v", tc)
 	}
 }
+
+// TestPermissionArgsOnlyWhenUpdated : la demande porte les arguments exécutés
+// seulement quand un updatedInput les a changés.
+func TestPermissionArgsOnlyWhenUpdated(t *testing.T) {
+	upd := func(input string) string {
+		return `{"hookSpecificOutput":{"hookEventName":"PreToolUse","updatedInput":` + input + `}}`
+	}
+	for _, c := range []struct {
+		name, out, want string
+	}{
+		{"changed", upd(`{"file_path":"a.txt","content":"changed"}`), "changed"},
+		{"same", upd(`{"content":"x","file_path":"a.txt"}`), ""},
+		{"no updatedInput", `{}`, ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			h := newHarness(t, euInfo, [][]llm.Chunk{
+				call("c1", "write_file", `{"path":"a.txt","content":"x"}`),
+				text("ok"),
+			}, withHooks(t, hk{"PreToolUse", "Write", jsonHook(t, c.out)}))
+			evs, err := h.submit(t, "s_1", "go", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			pr := ofType(evs, event.PermissionRequested)
+			if len(pr) != 1 {
+				t.Fatalf("events %v", types(evs))
+			}
+			p := decode[event.PermissionRequestedPayload](t, pr[0])
+			if c.want == "" {
+				if p.Args != nil || strings.Contains(string(pr[0].Payload), `"args"`) {
+					t.Fatalf("Args %s (payload %s)", p.Args, pr[0].Payload)
+				}
+				return
+			}
+			var a struct{ Path, Content string }
+			if err := json.Unmarshal(p.Args, &a); err != nil || a.Path != "a.txt" || a.Content != c.want {
+				t.Fatalf("Args %s : %v", p.Args, err)
+			}
+		})
+	}
+}
+
+// TestHookAskEmptyReason : un ask de hook sans raison porte une raison fixe.
+func TestHookAskEmptyReason(t *testing.T) {
+	h := newHarness(t, euInfo, [][]llm.Chunk{
+		call("c1", "read_file", `{"path":"a.txt"}`),
+		text("ok"),
+	}, withHooks(t, hk{"PreToolUse", "Read", jsonHook(t, `{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask"}}`)}))
+	if err := os.WriteFile(filepath.Join(h.root, "a.txt"), []byte("hi\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	evs, err := h.submit(t, "s_1", "go", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pr := ofType(evs, event.PermissionRequested)
+	if len(pr) != 1 {
+		t.Fatalf("events %v", types(evs))
+	}
+	if p := decode[event.PermissionRequestedPayload](t, pr[0]); p.HookReason != "(no reason given)" {
+		t.Fatalf("HookReason %q", p.HookReason)
+	}
+}
+
+// TestPostToolUseNotAfterToolRefusal : PostToolUse ne suit jamais un refus
+// décidé par l'outil lui-même.
+func TestPostToolUseNotAfterToolRefusal(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "post")
+	ft := &fakeTool{res: []tools.Result{{Content: "refusé", IsError: true, Denied: "policy"}}}
+	h := newHarness(t, euInfo, [][]llm.Chunk{call("c1", "fake_read", `{}`), text("fin")},
+		withFake(ft), withHooks(t, hk{"PostToolUse", "", cmd(hookScript(t, `touch "`+marker+`"`))}))
+	evs, err := h.submit(t, "s_1", "go", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hs := hookStarted(t, evs); len(hs) != 0 {
+		t.Fatalf("HookStarted %+v", hs)
+	}
+	if exists(marker) {
+		t.Fatal("hook PostToolUse exécuté")
+	}
+	if tr := toolResultOf(t, evs, "fake_read"); tr.Denied != "policy" {
+		t.Fatalf("ToolResult %+v", tr)
+	}
+}
+
+// driveHookAsk lance un tour où un hook agent demande une permission (lecture
+// hors du projet) : onHook reçoit cette demande (sans y répondre), les
+// demandes de l'agent principal sont acceptées. Renvoie les événements.
+func driveHookAsk(t *testing.T, timeout int, onHook func(cancel context.CancelFunc)) (*harness, []event.Event, string, error) {
+	t.Helper()
+	outside := filepath.Join(t.TempDir(), "o.txt")
+	if err := os.WriteFile(outside, []byte("o\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	hook := map[string]any{"type": "agent", "prompt": "verify"}
+	if timeout > 0 {
+		hook["timeout"] = timeout
+	}
+	h := newHarness(t, euInfo, [][]llm.Chunk{
+		call("c1", "write_file", `{"path":"a.txt","content":"x"}`),
+		call("h1", "read_file", mustJSON(map[string]string{"path": outside})),
+		text("ok"),
+	}, withHooks(t, hk{"PreToolUse", "Write", hook}))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- h.eng.Submit(ctx, "s_1", "go") }()
+	var (
+		evs      []event.Event
+		hookPerm string
+	)
+	handle := func(ev event.Event) {
+		evs = append(evs, ev)
+		if ev.Type != event.PermissionRequested {
+			return
+		}
+		p := decode[event.PermissionRequestedPayload](t, ev)
+		if p.ParentCallID != "" {
+			hookPerm = p.PermissionID
+			onHook(cancel)
+			return
+		}
+		if err := h.eng.Respond(p.PermissionID, Reply{Allow: true}); err != nil {
+			t.Errorf("Respond: %v", err)
+		}
+	}
+	for {
+		select {
+		case ev := <-h.sub:
+			handle(ev)
+		case err := <-done:
+			for {
+				select {
+				case ev := <-h.sub:
+					handle(ev)
+				default:
+					return h, evs, hookPerm, err
+				}
+			}
+		}
+	}
+}
+
+// resolvedFor renvoie les PermissionResolved de la demande id.
+func resolvedFor(t *testing.T, evs []event.Event, id string) []event.PermissionResolvedPayload {
+	t.Helper()
+	var out []event.PermissionResolvedPayload
+	for _, e := range ofType(evs, event.PermissionResolved) {
+		if p := decode[event.PermissionResolvedPayload](t, e); p.PermissionID == id {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// TestHookAskTimeoutResolves : une demande faite dans un hook dont le délai
+// expire est résolue (refus), et la demande suivante reste traitée.
+func TestHookAskTimeoutResolves(t *testing.T) {
+	h, evs, hookPerm, err := driveHookAsk(t, 1, func(context.CancelFunc) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hookPerm == "" {
+		t.Fatalf("aucune demande du hook : %v", types(evs))
+	}
+	if r := resolvedFor(t, evs, hookPerm); len(r) != 1 || r[0].Allowed || r[0].ParentCallID == "" {
+		t.Fatalf("PermissionResolved %+v", r)
+	}
+	if err := h.eng.Respond(hookPerm, Reply{Allow: true}); !errors.Is(err, ErrUnknownPermission) {
+		t.Fatalf("demande du hook encore en attente : %v", err)
+	}
+	if hc := hookCompleted(t, evs); len(hc) != 1 || hc[0].Status != "timeout" {
+		t.Fatalf("HookCompleted %+v", hc)
+	}
+	if b, _ := os.ReadFile(filepath.Join(h.root, "a.txt")); string(b) != "x" {
+		t.Fatalf("a.txt %q, events %v", b, types(evs))
+	}
+}
+
+// TestHookAskTurnCancelled : l'annulation du tour n'émet pas de
+// PermissionResolved pour la demande du hook.
+func TestHookAskTurnCancelled(t *testing.T) {
+	_, evs, hookPerm, _ := driveHookAsk(t, 0, func(cancel context.CancelFunc) { cancel() })
+	if hookPerm == "" {
+		t.Fatalf("aucune demande du hook : %v", types(evs))
+	}
+	if r := resolvedFor(t, evs, hookPerm); len(r) != 0 {
+		t.Fatalf("PermissionResolved %+v", r)
+	}
+}
