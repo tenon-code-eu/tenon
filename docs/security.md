@@ -115,7 +115,7 @@ Every hook run is in the audit log (see [usage.md](usage.md#hooks)). `tenon hook
 Before `write_file` and `edit_file` overwrite a file, tenon keeps a copy of it so that `/rewind` can restore it. The copy is the **raw content**, secrets included (`.env`, keys, tokens): restoring needs the exact file.
 The copies are in `~/.local/share/tenon/checkpoints/`, outside the project, so they cannot be committed by mistake. Directories are `0700` and files `0600`. They are never sent to the provider and never written to the session or the audit log, which hold only the hashes. Masking does not apply to them.
 Anyone who can read your data directory can read these copies. They are kept `retention_days` days (30 by default). To delete them all now: `rm -rf ~/.local/share/tenon/checkpoints`. `retention_days = 0` stops saving them.
-A rewind writes only paths that the tools wrote in the session. It never follows a symbolic link: a path that became a link is a conflict, and it is not written. A file you changed after the agent is not overwritten without your explicit answer. Each copy is checked against its sha256 before it is restored.
+A rewind writes only paths that the tools wrote in the session. It never follows a symbolic link in the last component of a path: a path that became a link is a conflict, and it is not written. A file you changed after the agent is not overwritten without your explicit answer. Each copy is checked against its sha256 before it is restored. `write_file` and `edit_file` never overwrite an existing file they cannot read.
 A rewind is an action of the user: no tool and no hook can trigger it. It does not undo `shell` commands or MCP tools (see [usage.md](usage.md#checkpoints-and-rewind)).
 
 ### Jurisdiction is declarative

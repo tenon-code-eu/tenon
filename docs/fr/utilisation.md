@@ -93,7 +93,7 @@ Au démarrage, sous la ligne du projet, l'écran d'accueil affiche :
 
 ```
 skills : 5 · agents : 3 · hooks : 2
-commandes : /help · /skills · /agents · /hooks · /rewind · /quit
+commandes : /help · /quit · /skills · /agents · /hooks · /rewind
 Entrée pour envoyer · Échap ×2 pour revenir en arrière · Ctrl+C pour quitter
 ```
 
@@ -781,6 +781,7 @@ Chaque prompt que vous envoyez est un point de restauration. `/rewind` revient �
 - **Non annulés :** les commandes `shell` et les outils MCP qui écrivent ou exécutent. `/rewind` indique combien de tels appels ont eu lieu après le point choisi.
 - Un fichier de plus de 10 Mio (10 485 760 octets) est écrit sans copie. Le résultat de l'outil ajoute la ligne `checkpoint skipped (file too large)`, et le rewind ne peut pas restaurer ce fichier (`non restaurable`).
 - Si la copie ne peut pas être enregistrée, l'écriture est refusée avec `cannot save checkpoint: <erreur>`.
+- Un fichier existant que tenon ne peut pas lire n'est jamais écrasé : l'écriture est refusée avec `cannot read existing file: <erreur>`, avec ou sans copies.
 - Le mode non interactif (`-p`) enregistre les copies comme d'habitude, mais n'a pas de rewind.
 
 ### Ouvrir `/rewind`
@@ -790,12 +791,12 @@ Tapez `/rewind`, ou appuyez deux fois sur Échap en moins de 1 s quand aucun tou
 | Étape | Ce que vous voyez | Touches |
 |---|---|---|
 | 1. Point | La liste de vos prompts, du plus récent au plus ancien : `#<n>  <première ligne, 80 caractères>`. La liste défile. `(code seul)` marque un point dont la conversation ne peut plus être remontée. | Haut/Bas, Entrée, Échap ferme |
-| 2. Aperçu et mode | Une ligne par fichier : `restaurer`, `supprimer`, `conflit : modifié depuis`, `non restaurable`, `inchangé`. Huit fichiers au plus, puis `… et N autre(s)`. L'avertissement `N appel(s) shell ou MCP ne sont pas annulés` s'il y en a. Puis le mode. | Haut/Bas, Entrée, Échap revient |
+| 2. Aperçu et mode | Une ligne par fichier : `restaurer`, `supprimer`, `conflit (modifié depuis)`, `non restaurable`, `inchangé`. Huit fichiers au plus, puis `… et N autre(s)`. L'avertissement `N appel(s) shell ou MCP ne sont pas annulés` s'il y en a. Puis le mode. | Haut/Bas, Entrée, Échap revient |
 | 3. Conflits | Pour chaque conflit : `écraser <chemin> ? y/N`. | `y` écrase. `n` ou Entrée garde. Échap revient |
 
-S'il n'y a aucun fichier à restaurer et que la conversation ne peut pas être remontée, tenon affiche `rien à restaurer`.
+S'il n'y a aucun fichier à restaurer et que la conversation ne peut pas être remontée, tenon affiche `rien à restaurer`. Quand des fichiers sont `non restaurable`, tenon affiche l'aperçu à la place, pour que vous les voyiez, avec tous les modes grisés.
 Les conflits ne sont demandés que pour les modes qui restaurent le code. Ils sont demandés un par un, et le défaut est de garder votre version.
-À la fin, tenon affiche `rewind : N restauré(s) · N supprimé(s) · N conservé(s) · N en échec`, puis une ligne `échec : <chemin> : <erreur>` par échec.
+À la fin, tenon affiche `rewind : N restauré(s) · N supprimé(s) · N conservé(s) · N ignoré(s) · N en échec`, puis une ligne `échec : <chemin> : <erreur>` par échec.
 
 ### Modes
 
@@ -816,7 +817,7 @@ Avec `code seul`, le prochain message que vous envoyez porte la note `[tenon] Th
 Pour chaque fichier, tenon compare le contenu actuel avec celui que l'agent a laissé. Un fichier est un **conflit** quand :
 
 - vous l'avez modifié après l'écriture de l'agent, ou vous l'avez supprimé ;
-- le chemin est maintenant un lien symbolique. Un lien symbolique est toujours un conflit, et tenon ne le suit jamais.
+- le chemin est maintenant un lien symbolique. Un lien symbolique est toujours un conflit, et tenon ne suit jamais un lien symbolique dans le dernier composant du chemin.
 
 Un conflit est gardé sauf si vous répondez `y`. Un fichier peut aussi changer entre l'aperçu et la restauration. tenon ne l'écrase alors pas : le statut est `failed` avec `file changed during rewind`. Un chemin devenu lien symbolique échoue avec `path became a symbolic link`.
 Un fichier sans copie (absente, corrompue, ou écrit sans copie) est `non restaurable` et sauté.
@@ -840,14 +841,15 @@ retention_days = 30
 | Valeur | Effet |
 |---|---|
 | `30` (défaut) | Les copies sont gardées 30 jours. |
-| `0` | Aucune copie n'est enregistrée. Les écritures ne sont pas annulables, et un avis au démarrage indique `points de restauration désactivés (retention_days = 0) : /rewind ne peut pas restaurer les fichiers`. |
+| `0` | Aucune copie n'est enregistrée. Le rewind ne peut pas restaurer les fichiers que l'agent a écrasés, mais il peut encore supprimer les fichiers que l'agent a créés. Un avis au démarrage indique `points de restauration désactivés (retention_days = 0) : /rewind ne peut pas restaurer les fichiers`. |
 
 Une valeur négative est refusée. Cette clé est globale uniquement : elle est refusée dans `.tenon/config.toml`.
 Au démarrage, tenon supprime les copies de plus de `retention_days` jours qu'aucune session récente n'utilise. Une session est récente quand son fichier a été modifié dans les `retention_days` derniers jours, et elle utilise les copies nommées par le `hash_before` de ses résultats d'outil. Une erreur de nettoyage est un avis et ne bloque jamais le démarrage (`nettoyage des points de restauration en échec : <erreur>`).
+Si le magasin ne peut pas être ouvert, tenon fonctionne comme avec `0` et affiche `points de restauration indisponibles : <erreur> : /rewind ne peut pas restaurer les fichiers`.
 
 ### Magasin
 
-Les copies sont dans `~/.local/share/tenon/checkpoints/` (`$XDG_DATA_HOME/tenon/checkpoints`), hors du projet. Un fichier par contenu : `<2 premiers caractères du sha256>/<sha256 complet>`. Les dossiers sont en `0700`, les fichiers en `0600`. Un contenu déjà présent n'est pas réécrit.
+Les copies sont dans `~/.local/share/tenon/checkpoints/` (`$XDG_DATA_HOME/tenon/checkpoints`), hors du projet. Un fichier par contenu : `<2 premiers caractères du sha256>/<sha256 complet>`. Les dossiers sont en `0700`, les fichiers en `0600`. Un contenu déjà présent n'est pas réécrit : sa date de modification est rafraîchie, pour que le nettoyage le garde.
 Avant une restauration, tenon vérifie la copie avec son sha256. Une copie qui ne correspond pas est refusée (`corrupted checkpoint`).
 
 ### Session et audit

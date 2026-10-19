@@ -93,7 +93,7 @@ At startup, below the project line, the welcome screen shows:
 
 ```
 skills: 5 · agents: 3 · hooks: 2
-commands: /help · /skills · /agents · /hooks · /rewind · /quit
+commands: /help · /quit · /skills · /agents · /hooks · /rewind
 Enter to send · Esc twice to rewind · Ctrl+C to quit
 ```
 
@@ -779,6 +779,7 @@ Each prompt you send is a restore point. `/rewind` goes back to one of them: it 
 - **Not undone:** `shell` commands and MCP tools that write or run something. `/rewind` shows how many such calls ran after the chosen point.
 - A file larger than 10 MiB (10 485 760 bytes) is written without a copy. The tool result adds the line `checkpoint skipped (file too large)`, and rewind cannot restore that file (`unrestorable`).
 - If the copy cannot be saved, the write is refused with `cannot save checkpoint: <error>`.
+- An existing file that tenon cannot read is never overwritten: the write is refused with `cannot read existing file: <error>`, with or without copies.
 - Non-interactive mode (`-p`) saves copies as usual, but has no rewind.
 
 ### Open `/rewind`
@@ -788,12 +789,12 @@ Type `/rewind`, or press Esc twice in less than 1 s when no turn is running. Dur
 | Step | What you see | Keys |
 |---|---|---|
 | 1. Point | The list of your prompts, newest first: `#<n>  <first line, 80 characters>`. The list scrolls. `(code only)` marks a point whose conversation can no longer be rewound. | Up/Down, Enter, Esc closes |
-| 2. Preview and mode | One line per file: `restore`, `delete`, `conflict: modified since`, `unrestorable`, `unchanged`. At most 8 files, then `… and N more`. The warning `N shell or MCP calls are not undone` when there are some. Then the mode. | Up/Down, Enter, Esc goes back |
+| 2. Preview and mode | One line per file: `restore`, `delete`, `conflict (modified since)`, `unrestorable`, `unchanged`. At most 8 files, then `… and N more`. The warning `N shell or MCP calls are not undone` when there are some. Then the mode. | Up/Down, Enter, Esc goes back |
 | 3. Conflicts | For each conflict: `overwrite <path>? y/N`. | `y` overwrites. `n` or Enter keeps. Esc goes back |
 
-If there is no file to restore and the conversation cannot be rewound, tenon shows `nothing to rewind`.
+If there is no file to restore and the conversation cannot be rewound, tenon shows `nothing to rewind`. When some files are `unrestorable`, tenon shows the preview instead, so you can see them, with every mode greyed out.
 Conflicts are only asked for the modes that restore code. They are asked one by one, and the default is to keep your version.
-At the end, tenon shows `rewind: N restored · N deleted · N kept · N failed`, then one line `failed: <path>: <error>` per failure.
+At the end, tenon shows `rewind: N restored · N deleted · N kept · N skipped · N failed`, then one line `failed: <path>: <error>` per failure.
 
 ### Modes
 
@@ -814,7 +815,7 @@ With `code only`, the next message you send carries the note `[tenon] The user r
 For each file, tenon compares the current content with the content the agent left. A file is a **conflict** when:
 
 - you changed it after the agent wrote it, or you deleted it;
-- the path is now a symbolic link. A symbolic link is always a conflict, and tenon never follows it.
+- the path is now a symbolic link. A symbolic link is always a conflict, and tenon never follows a symbolic link in the last component of the path.
 
 A conflict is kept unless you answer `y`. A file can also change between the preview and the restore. tenon then does not overwrite it: the status is `failed` with `file changed during rewind`. A path that became a symbolic link fails with `path became a symbolic link`.
 A file with no copy (missing, corrupted, or written without a copy) is `unrestorable` and skipped.
@@ -838,14 +839,15 @@ retention_days = 30
 | Value | Effect |
 |---|---|
 | `30` (default) | Copies are kept 30 days. |
-| `0` | No copy is saved. Writes are not undoable, and a notice at startup says `checkpoints disabled (retention_days = 0): /rewind cannot restore files`. |
+| `0` | No copy is saved. Rewind cannot restore the files the agent overwrote, but it can still delete the files the agent created. A notice at startup says `checkpoints disabled (retention_days = 0): /rewind cannot restore files`. |
 
 A negative value is refused. This key is global only: it is refused in `.tenon/config.toml`.
 At startup, tenon deletes the copies older than `retention_days` days that no recent session uses. A session is recent when its file was modified within `retention_days` days, and it uses the copies named by the `hash_before` of its tool results. A cleanup error is a notice and never blocks startup (`checkpoint cleanup failed: <error>`).
+If the store cannot be opened, tenon works as with `0` and shows `checkpoints unavailable: <error>: /rewind cannot restore files`.
 
 ### Store
 
-Copies are in `~/.local/share/tenon/checkpoints/` (`$XDG_DATA_HOME/tenon/checkpoints`), outside the project. One file per content: `<first 2 characters of the sha256>/<full sha256>`. Directories are `0700`, files `0600`. A content already stored is not written again.
+Copies are in `~/.local/share/tenon/checkpoints/` (`$XDG_DATA_HOME/tenon/checkpoints`), outside the project. One file per content: `<first 2 characters of the sha256>/<full sha256>`. Directories are `0700`, files `0600`. A content already stored is not written again: its modification date is refreshed, so the cleanup keeps it.
 Before a restore, tenon checks the copy against its sha256. A copy that does not match is refused (`corrupted checkpoint`).
 
 ### Session and audit
