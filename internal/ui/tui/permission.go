@@ -61,8 +61,12 @@ type previewMsg struct {
 // pendingCall est un appel d'outil demandé dont le résultat n'est pas arrivé.
 type pendingCall struct {
 	id, tool string
+	parent   string // call_id de l'appel « agent » d'origine ("" : agent principal)
 	args     json.RawMessage
 }
+
+// subagentInfo décrit un sous-agent lancé (contexte du panneau de validation).
+type subagentInfo struct{ agent, description string }
 
 // answerKeys associe aux réponses « oui une fois » et « oui pour la session »
 // leur touche dans chaque langue ; « non » est n dans les deux langues.
@@ -117,12 +121,20 @@ func (m *Model) trackEvent(ev event.Event) tea.Cmd {
 	case event.ToolCallRequested:
 		var p event.ToolCallRequestedPayload
 		if json.Unmarshal(ev.Payload, &p) == nil {
-			m.calls = append(m.calls, pendingCall{id: p.CallID, tool: p.Tool, args: p.Args})
+			m.calls = append(m.calls, pendingCall{id: p.CallID, tool: p.Tool, parent: p.ParentCallID, args: p.Args})
 		}
 	case event.ToolResult:
 		var p event.ToolResultPayload
 		if json.Unmarshal(ev.Payload, &p) == nil {
-			m.dropCall(p.CallID)
+			m.dropCall(p.ParentCallID, p.CallID)
+		}
+	case event.SubagentStarted:
+		var p event.SubagentStartedPayload
+		if json.Unmarshal(ev.Payload, &p) == nil {
+			if m.subagents == nil {
+				m.subagents = map[string]subagentInfo{}
+			}
+			m.subagents[p.CallID] = subagentInfo{agent: p.Agent, description: p.Description}
 		}
 	case event.PermissionRequested:
 		var p event.PermissionRequestedPayload
@@ -166,12 +178,13 @@ func (m *Model) applyPreview(msg previewMsg) {
 func (m *Model) endTurn() {
 	m.prompts = nil
 	m.calls = nil
+	m.subagents = nil
 	m.syncShown()
 }
 
-func (m *Model) dropCall(id string) {
+func (m *Model) dropCall(parent, id string) {
 	for i, c := range m.calls {
-		if c.id == id {
+		if c.id == id && c.parent == parent {
 			m.calls = append(m.calls[:i:i], m.calls[i+1:]...)
 			return
 		}
@@ -228,7 +241,7 @@ func (m Model) newPrompt(p event.PermissionRequestedPayload) (*permPrompt, tea.C
 func (m Model) matchArgs(p event.PermissionRequestedPayload) json.RawMessage {
 	for i := len(m.calls) - 1; i >= 0; i-- {
 		c := m.calls[i]
-		if c.tool == p.Tool && m.targetMatches(c.args, p) {
+		if c.parent == p.ParentCallID && c.tool == p.Tool && m.targetMatches(c.args, p) {
 			return c.args
 		}
 	}
@@ -546,6 +559,13 @@ func (m Model) headLines(p *permPrompt, collapse bool) []string {
 		return splitLines(m.wrap(text))
 	}
 	var out []string
+	if info, ok := m.subagents[p.p.ParentCallID]; ok && p.p.ParentCallID != "" {
+		text := i18n.T(m.lang, "tui.perm.subagent", m.redact(info.agent), m.redact(info.description))
+		line := strings.Join(strings.Fields(cleanToken(text)), " ")
+		for _, piece := range breakTokens(headTokens(line), m.width) {
+			out = append(out, m.st.notice.Render(piece))
+		}
+	}
 	cmd := p.command
 	if n := len(splitLines(cmd)); cmd != "" && n > 1 {
 		out = append(out, m.st.notice.Render(m.truncate(i18n.T(m.lang, "tui.perm.command_lines", n))))

@@ -34,8 +34,15 @@ type Item struct {
 	Detail    string // ItemTool : commande ou chemins ; résultat abrégé
 	Status    string // ItemTool : "pending", "ok", "error", "denied"
 	Streaming bool   // ItemAssistant en cours
-	callID    string
-	reqDetail string
+	// Parent est le call_id de l'appel « agent » dont un sous-agent a émis
+	// cet outil ("" pour l'agent principal) ; Iterations vaut le nombre
+	// d'itérations d'un sous-agent terminé.
+	Parent     string
+	Iterations int
+	callID     string
+	reqDetail  string
+	// sub : l'appel « agent » a ouvert un sous-agent (SubagentStarted).
+	sub bool
 	// raw est le texte brut accumulé d'un assistant en streaming.
 	raw string
 }
@@ -172,6 +179,9 @@ func (t *Transcript) Apply(ev event.Event) {
 		if !t.decode(ev, &p) {
 			return
 		}
+		if p.ParentCallID != "" {
+			return // texte d'un sous-agent : non affiché
+		}
 		if i := t.lastStreaming(); i >= 0 {
 			t.items[i].Text = t.redact(p.Text)
 			t.items[i].raw = ""
@@ -184,7 +194,7 @@ func (t *Transcript) Apply(ev event.Event) {
 		if !t.decode(ev, &p) {
 			return
 		}
-		t.add(Item{Kind: ItemTool, Tool: p.Tool, Detail: requestDetail(p.Args, t.redact), Status: "pending", callID: p.CallID})
+		t.add(Item{Kind: ItemTool, Tool: p.Tool, Detail: requestDetail(p.Args, t.redact), Status: "pending", callID: p.CallID, Parent: p.ParentCallID})
 		last := &t.items[len(t.items)-1]
 		last.reqDetail = last.Detail
 	case event.ToolResult:
@@ -193,6 +203,30 @@ func (t *Transcript) Apply(ev event.Event) {
 			return
 		}
 		t.toolResult(p)
+	case event.SubagentStarted:
+		var p event.SubagentStartedPayload
+		if !t.decode(ev, &p) {
+			return
+		}
+		if it := t.mainCall(p.CallID); it != nil {
+			it.sub = true
+			it.Detail = t.oneLine(p.Agent) + " · " + t.oneLine(p.Description)
+			it.reqDetail = it.Detail
+		}
+	case event.SubagentCompleted:
+		var p event.SubagentCompletedPayload
+		if !t.decode(ev, &p) {
+			return
+		}
+		if it := t.mainCall(p.CallID); it != nil {
+			switch p.Status {
+			case "ok", "error", "cancelled":
+				it.Status = p.Status
+			default:
+				it.Status = "error"
+			}
+			it.Iterations = p.Iterations
+		}
 	case event.McpServerDown:
 		var p event.McpServerDownPayload
 		if !t.decode(ev, &p) {
@@ -246,11 +280,38 @@ func (t *Transcript) Apply(ev event.Event) {
 	}
 }
 
+// mainCall renvoie l'appel d'outil de l'agent principal d'identifiant id.
+func (t *Transcript) mainCall(id string) *Item {
+	for i := len(t.items) - 1; i >= 0; i-- {
+		if it := &t.items[i]; it.Kind == ItemTool && it.Parent == "" && it.callID == id {
+			return it
+		}
+	}
+	return nil
+}
+
+// oneLine masque s, retire ses caractères de contrôle et de format et réduit
+// les blancs : le texte vient d'un fichier d'agent ou du modèle.
+func (t *Transcript) oneLine(s string) string {
+	return strings.Join(strings.Fields(cleanToken(t.redact(s))), " ")
+}
+
 func (t *Transcript) toolResult(p event.ToolResultPayload) {
 	for i := len(t.items) - 1; i >= 0; i-- {
 		it := &t.items[i]
-		if it.Kind != ItemTool || it.callID != p.CallID {
+		if it.Kind != ItemTool || it.callID != p.CallID || it.Parent != p.ParentCallID {
 			continue
+		}
+		if it.sub && p.Denied == "" {
+			// Le rapport du sous-agent revient à l'agent principal : la ligne
+			// garde son détail ; le statut vient de SubagentCompleted.
+			if it.Status == "pending" {
+				it.Status = "ok"
+				if p.IsError {
+					it.Status = "error"
+				}
+			}
+			return
 		}
 		switch {
 		case p.Denied != "":

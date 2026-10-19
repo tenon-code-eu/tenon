@@ -110,11 +110,17 @@ func (m Model) renderItem(it Item) string {
 		return m.st.user.Render(m.wrap("› " + it.Text))
 	case ItemTool:
 		text := "⏺ " + it.Tool
+		if it.Parent != "" {
+			text = "  ⎿ " + it.Tool
+		}
 		if it.Detail != "" {
 			text += " " + it.Detail
 		}
 		if it.Status != "" {
 			text += " [" + i18n.T(m.lang, "tui.tool."+it.Status) + "]"
+		}
+		if it.Iterations > 0 && it.Status != "pending" {
+			text += " · " + i18n.T(m.lang, "tui.agent.iterations", it.Iterations)
 		}
 		return m.st.tool.Render(m.wrap(text))
 	case ItemNotice:

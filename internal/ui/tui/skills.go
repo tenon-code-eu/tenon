@@ -6,6 +6,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/tenon-code-eu/tenon/internal/agents"
 	"github.com/tenon-code-eu/tenon/internal/i18n"
 	"github.com/tenon-code-eu/tenon/internal/skills"
 )
@@ -83,4 +84,21 @@ func (m *Model) complete() {
 		}
 	}
 	m.input.SetValue("/" + common)
+}
+
+// agentsNotices affiche /agents : un agent par ligne « nom  source  description »
+// (description sur une ligne), ou « aucun agent ».
+func (m *Model) agentsNotices() {
+	var list []agents.Agent
+	if m.opts.Agents != nil {
+		list = m.opts.Agents.List()
+	}
+	if len(list) == 0 {
+		m.tr.notice(i18n.T(m.lang, "agents.none"))
+		return
+	}
+	for _, a := range list {
+		desc := strings.Join(strings.Fields(cleanToken(a.Description)), " ")
+		m.tr.notice(cleanToken(a.Name) + "  " + cleanToken(string(a.Source)) + "  " + desc)
+	}
 }

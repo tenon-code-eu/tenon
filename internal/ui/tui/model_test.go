@@ -10,6 +10,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/tenon-code-eu/tenon/internal/engine"
 	"github.com/tenon-code-eu/tenon/internal/event"
@@ -671,4 +672,16 @@ func (f *fakeEngine) SubmitInput(ctx context.Context, sessionID string, in engin
 	f.full = append(f.full, in)
 	f.mu.Unlock()
 	return f.Submit(ctx, sessionID, in.Text)
+}
+
+func TestViewNestedTool(t *testing.T) {
+	h := newHarness(t, newFake(), Options{Lang: i18n.EN})
+	out := h.m.renderItem(Item{Kind: ItemTool, Tool: "read_file", Detail: "a.go", Status: "ok", Parent: "c1"})
+	if !strings.HasPrefix(ansi.Strip(out), "  ⎿ read_file") {
+		t.Fatalf("rendu %q", out)
+	}
+	ag := h.m.renderItem(Item{Kind: ItemTool, Tool: "agent", Detail: "g · l", Status: "ok", Iterations: 2})
+	if !strings.Contains(ansi.Strip(ag), "[ok] · 2 iterations") {
+		t.Fatalf("rendu %q", ag)
+	}
 }

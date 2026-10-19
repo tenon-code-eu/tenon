@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -188,6 +189,45 @@ func TestTranscriptShowsTyped(t *testing.T) {
 	tr.Apply(ev(t, event.UserMessage, event.UserMessagePayload{Text: "simple"}))
 	it := tr.Items()
 	if len(it) != 2 || it[0].Text != "/review main.go" || it[1].Text != "simple" {
+		t.Fatalf("items = %+v", it)
+	}
+}
+
+func TestTranscriptSubagent(t *testing.T) {
+	tr := NewTranscript(i18n.EN)
+	args := json.RawMessage(`{"agent":"general-purpose","description":"look","prompt":"p"}`)
+	tr.Apply(ev(t, event.UserMessage, event.UserMessagePayload{Text: "go"}))
+	tr.Apply(ev(t, event.ToolCallRequested, event.ToolCallRequestedPayload{CallID: "c1", Tool: "agent", Args: args}))
+	tr.Apply(ev(t, event.SubagentStarted, event.SubagentStartedPayload{CallID: "c1", Agent: "general-purpose", Description: "look"}))
+	tr.Apply(ev(t, event.AssistantMessage, event.AssistantMessagePayload{Text: "nested text", ParentCallID: "c1"}))
+	tr.Apply(ev(t, event.ToolCallRequested, event.ToolCallRequestedPayload{CallID: "n1", Tool: "read_file", Args: json.RawMessage(`{"path":"a.go"}`), ParentCallID: "c1"}))
+	tr.Apply(ev(t, event.ToolResult, event.ToolResultPayload{CallID: "n1", Content: "x", ParentCallID: "c1"}))
+	tr.Apply(ev(t, event.SubagentCompleted, event.SubagentCompletedPayload{CallID: "c1", Status: "ok", Iterations: 2}))
+	tr.Apply(ev(t, event.ToolResult, event.ToolResultPayload{CallID: "c1", Content: "report text"}))
+	tr.Apply(ev(t, event.AssistantMessage, event.AssistantMessagePayload{Text: "done"}))
+	it := tr.Items()
+	if len(it) != 4 {
+		t.Fatalf("items = %+v", it)
+	}
+	a := it[1]
+	if a.Tool != "agent" || a.Detail != "general-purpose · look" || a.Status != "ok" || a.Iterations != 2 || a.Parent != "" {
+		t.Fatalf("agent = %+v", a)
+	}
+	if n := it[2]; n.Tool != "read_file" || n.Parent != "c1" || n.Status != "ok" {
+		t.Fatalf("nested = %+v", n)
+	}
+	if it[3].Kind != ItemAssistant || it[3].Text != "done" {
+		t.Fatalf("final = %+v", it[3])
+	}
+}
+
+func TestTranscriptCallIDCollision(t *testing.T) {
+	tr := NewTranscript(i18n.EN)
+	tr.Apply(ev(t, event.ToolCallRequested, event.ToolCallRequestedPayload{CallID: "call_0", Tool: "shell", Args: json.RawMessage(`{"command":"ls"}`)}))
+	tr.Apply(ev(t, event.ToolCallRequested, event.ToolCallRequestedPayload{CallID: "call_0", Tool: "read_file", Args: json.RawMessage(`{"path":"a"}`), ParentCallID: "p"}))
+	tr.Apply(ev(t, event.ToolResult, event.ToolResultPayload{CallID: "call_0", Content: "x", ParentCallID: "p"}))
+	it := tr.Items()
+	if it[0].Status != "pending" || it[1].Status != "ok" {
 		t.Fatalf("items = %+v", it)
 	}
 }

@@ -13,6 +13,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/tenon-code-eu/tenon/internal/agents"
 	"github.com/tenon-code-eu/tenon/internal/engine"
 	"github.com/tenon-code-eu/tenon/internal/event"
 	"github.com/tenon-code-eu/tenon/internal/i18n"
@@ -42,6 +43,8 @@ type Options struct {
 	// Skills est le catalogue des skills (/<nom>, /skills, complétion) ;
 	// nil : aucun skill.
 	Skills *skills.Catalog
+	// Agents est le catalogue des agents (/agents) ; nil : aucun agent.
+	Agents *agents.Catalog
 	// Now remplace l'horloge (délai d'armement des acceptations, double
 	// Ctrl+C). Réservé aux tests ; nil : time.Now.
 	Now func() time.Time
@@ -58,6 +61,7 @@ const (
 	quitCommand    = "/quit"
 	helpCommand    = "/help"
 	skillsCommand  = "/skills"
+	agentsCommand  = "/agents"
 	tokenRuneRatio = 4
 	// turnFinishTimeout borne l'attente de la fin du tour en cours à la
 	// sortie de Run.
@@ -167,6 +171,9 @@ type Model struct {
 	armedAt time.Time
 	// calls garde les appels d'outil en attente de résultat, dans l'ordre.
 	calls []pendingCall
+	// subagents garde les sous-agents lancés pendant le tour, par call_id de
+	// l'appel « agent » ; vidé en fin de tour.
+	subagents map[string]subagentInfo
 }
 
 // New crée le modèle et s'abonne aux événements de eng.
@@ -384,6 +391,11 @@ func (m Model) submit() (tea.Model, tea.Cmd) {
 	case skillsCommand:
 		m.input.Reset()
 		m.skillsNotices()
+		m.scrollBack = 0
+		return m, nil
+	case agentsCommand:
+		m.input.Reset()
+		m.agentsNotices()
 		m.scrollBack = 0
 		return m, nil
 	}

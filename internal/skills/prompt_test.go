@@ -94,7 +94,7 @@ func TestExpandTruncated(t *testing.T) {
 }
 
 func TestIsBuiltin(t *testing.T) {
-	if !IsBuiltin("help") || !IsBuiltin("quit") || !IsBuiltin("skills") || IsBuiltin("review") {
+	if !IsBuiltin("help") || !IsBuiltin("quit") || !IsBuiltin("skills") || !IsBuiltin("agents") || IsBuiltin("review") {
 		t.Fatal("IsBuiltin")
 	}
 }
@@ -135,7 +135,7 @@ func TestBuiltinsSingleSource(t *testing.T) {
 			t.Fatalf("IsBuiltin(%q) faux", n)
 		}
 	}
-	if len(Builtins) != 3 {
+	if len(Builtins) != 4 {
 		t.Fatalf("Builtins %v", Builtins)
 	}
 }

@@ -9,6 +9,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/tenon-code-eu/tenon/internal/agents"
 	"github.com/tenon-code-eu/tenon/internal/engine"
 	"github.com/tenon-code-eu/tenon/internal/i18n"
 	"github.com/tenon-code-eu/tenon/internal/skills"
@@ -202,6 +203,16 @@ func TestSubmitUnknownNewline(t *testing.T) {
 	h.m.input.SetValue("/nope\nfoo")
 	enter(h)
 	if n := notices(h); n != "unknown skill or command: /nope" {
+		t.Fatalf("avis %q", n)
+	}
+}
+
+func TestAgentsCommand(t *testing.T) {
+	cat, _ := agents.Discover(i18n.EN, nil)
+	h := newHarness(t, newFake(), Options{Lang: i18n.EN, Agents: cat})
+	typeText(h, "/agents")
+	enter(h)
+	if n := notices(h); !strings.Contains(n, "general-purpose  builtin") {
 		t.Fatalf("avis %q", n)
 	}
 }

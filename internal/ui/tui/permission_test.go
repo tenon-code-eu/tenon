@@ -760,3 +760,24 @@ func TestShellPromptNotSandbox(t *testing.T) {
 		}
 	}
 }
+
+func TestPermissionSubagentContext(t *testing.T) {
+	f := newFake()
+	h := newHarness(t, f, Options{Lang: i18n.EN})
+	f.emit(t, event.ToolCallRequested, event.ToolCallRequestedPayload{CallID: "x", Tool: "write_file", Args: json.RawMessage(`{"path":"main.txt","content":"MAIN"}`)})
+	f.emit(t, event.SubagentStarted, event.SubagentStartedPayload{CallID: "a1", Agent: "general-purpose", Description: "look"})
+	f.emit(t, event.ToolCallRequested, event.ToolCallRequestedPayload{CallID: "x", Tool: "write_file", Args: json.RawMessage(`{"path":"sub.txt","content":"SUB"}`), ParentCallID: "a1"})
+	h.until("calls", func() bool { return len(h.m.calls) == 2 })
+	abs := filepath.Join(h.m.opts.ProjectRoot, "sub.txt")
+	askPermNow(t, h, f, event.PermissionRequestedPayload{PermissionID: "p1", Kind: "tool", Tool: "write_file", Paths: []string{abs}, ParentCallID: "a1"})
+	out := strings.Join(h.m.promptLines(), "\n")
+	if !strings.Contains(out, "sub-agent general-purpose · look") {
+		t.Fatalf("panneau sans contexte : %s", out)
+	}
+	if strings.Contains(out, "MAIN") || h.m.prompts[0].unavailable {
+		t.Fatalf("aperçu du mauvais appel : %s", out)
+	}
+	if got := h.m.matchArgs(event.PermissionRequestedPayload{Tool: "write_file", Paths: []string{abs}}); got != nil {
+		t.Fatalf("appel principal ne doit pas correspondre : %s", got)
+	}
+}
