@@ -88,3 +88,16 @@ func TestHas(t *testing.T) {
 		t.Error("Has(model) devrait être faux")
 	}
 }
+
+func TestParseLimits(t *testing.T) {
+	in := "---\nname: a\ndescription: d\nx: " + strings.Repeat("y", 10000) + "\n---\nbody"
+	if _, _, err := Parse([]byte(in)); err == nil {
+		t.Fatal("Parse doit refuser 10 Ko")
+	}
+	if _, body, err := ParseLimits([]byte(in), 16384, 400); err != nil || body != "body" {
+		t.Fatalf("%v %q", err, body)
+	}
+	if _, _, err := ParseLimits([]byte(in), 5000, 400); err == nil {
+		t.Fatal("limite d'octets ignorée")
+	}
+}

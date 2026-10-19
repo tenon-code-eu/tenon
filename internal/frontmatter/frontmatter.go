@@ -4,6 +4,7 @@ package frontmatter
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 )
 
@@ -59,9 +60,14 @@ func (f Fields) Name() string { return f.String("name") }
 func (f Fields) Description() string { return f.String("description") }
 
 // Parse lit l'en-tête YAML minimal et renvoie les champs et le corps
-// (contenu après la ligne `---` de fermeture).
-// Seule la présence de name et description est vérifiée ici.
+// (contenu après la ligne `---` de fermeture), avec les limites par défaut
+// (skills). Seule la présence de name et description est vérifiée ici.
 func Parse(data []byte) (f Fields, body string, err error) {
+	return ParseLimits(data, maxFrontmatterBytes, maxFrontmatterLines)
+}
+
+// ParseLimits est Parse avec des limites explicites d'octets et de lignes.
+func ParseLimits(data []byte, maxBytes, maxLines int) (f Fields, body string, err error) {
 	text := strings.TrimPrefix(string(data), "\xef\xbb\xbf")
 	text = strings.ReplaceAll(text, "\r\n", "\n")
 
@@ -81,8 +87,8 @@ func Parse(data []byte) (f Fields, body string, err error) {
 			break
 		}
 		lines = append(lines, line)
-		if len(lines) > maxFrontmatterLines {
-			return f, "", errors.New("frontmatter too long (more than 200 lines)")
+		if len(lines) > maxLines {
+			return f, "", fmt.Errorf("frontmatter too long (more than %d lines)", maxLines)
 		}
 		if !found {
 			break
@@ -91,8 +97,8 @@ func Parse(data []byte) (f Fields, body string, err error) {
 	if !closed {
 		return f, "", errors.New("frontmatter not closed: missing closing ---")
 	}
-	if len(strings.Join(lines, "\n")) > maxFrontmatterBytes {
-		return f, "", errors.New("frontmatter too large (more than 8 KiB)")
+	if len(strings.Join(lines, "\n")) > maxBytes {
+		return f, "", fmt.Errorf("frontmatter too large (more than %d KiB)", maxBytes/1024)
 	}
 
 	for i := 0; i < len(lines); {

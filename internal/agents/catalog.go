@@ -27,6 +27,10 @@ const (
 	MaxAgentBytes = 32768
 
 	maxDescriptionChars = 1024
+	// Limites d'en-tête des agents (plus larges que celles des skills, pour
+	// les descriptions à blocs <example> de Claude Code).
+	maxFrontmatterBytes = 16384
+	maxFrontmatterLines = 400
 	agentExt            = ".md"
 )
 
@@ -153,7 +157,7 @@ func Discover(lang i18n.Lang, dirs []Dir) (*Catalog, []Notice) {
 			if !ok {
 				continue // lien symbolique, FIFO, etc.
 			}
-			a, err := parse(data, strings.TrimSuffix(e.Name(), agentExt))
+			a, err := parse(data)
 			if err != nil {
 				notef("agent %q in %s ignored: %v", e.Name(), path, err)
 				continue
@@ -165,6 +169,12 @@ func Discover(lang i18n.Lang, dirs []Dir) (*Catalog, []Notice) {
 			if files >= MaxAgents {
 				notef("agent %q in %s ignored: limit of %d agents reached", a.Name, path, MaxAgents)
 				continue
+			}
+			if a.descTruncated {
+				notef("agent %q in %s: description truncated to %d characters", a.Name, path, maxDescriptionChars)
+			}
+			if trunc {
+				notef("agent %q in %s: file truncated to %d bytes", a.Name, path, MaxAgentBytes)
 			}
 			for _, u := range a.unknown {
 				notef("agent %q in %s: tool %q ignored", a.Name, path, u)
@@ -190,12 +200,14 @@ func Discover(lang i18n.Lang, dirs []Dir) (*Catalog, []Notice) {
 
 type parsed struct {
 	Agent
-	unknown []string
+	unknown       []string
+	descTruncated bool
 }
 
-// parse lit un fichier d'agent et valide ses champs (file = nom sans .md).
-func parse(data []byte, file string) (parsed, error) {
-	fm, body, err := frontmatter.Parse(data)
+// parse lit un fichier d'agent et valide ses champs. Le nom vient du champ
+// name, indépendamment du nom de fichier.
+func parse(data []byte) (parsed, error) {
+	fm, body, err := frontmatter.ParseLimits(data, maxFrontmatterBytes, maxFrontmatterLines)
 	if err != nil {
 		return parsed{}, err
 	}
@@ -203,13 +215,11 @@ func parse(data []byte, file string) (parsed, error) {
 	if !nameRe.MatchString(name) {
 		return parsed{}, fmt.Errorf("invalid name %q (expected [a-z0-9-], 1 to 64 chars)", name)
 	}
-	if name != file {
-		return parsed{}, fmt.Errorf("name %q does not match file name %q", name, file)
+	desc, cut := fm.Description(), false
+	if utf8.RuneCountInString(desc) > maxDescriptionChars {
+		desc, cut = string([]rune(desc)[:maxDescriptionChars]), true
 	}
-	if n := utf8.RuneCountInString(fm.Description()); n > maxDescriptionChars {
-		return parsed{}, fmt.Errorf("description too long (%d chars, max %d)", n, maxDescriptionChars)
-	}
-	p := parsed{Agent: Agent{Name: name, Description: fm.Description(), Model: fm.String("model"), Body: body}}
+	p := parsed{Agent: Agent{Name: name, Description: desc, Model: fm.String("model"), Body: body}, descTruncated: cut}
 	if fm.Has("tools") {
 		p.Tools, p.unknown = TranslateTools(fm.List("tools"))
 	}

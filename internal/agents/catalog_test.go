@@ -104,15 +104,13 @@ func TestTranslateTools(t *testing.T) {
 
 func TestDiscoverInvalid(t *testing.T) {
 	r := t.TempDir()
-	writeAgent(t, r, "one", valid("other"), "")
 	writeAgent(t, r, "Bad", valid("Bad"), "")
 	writeAgent(t, r, "nodesc", "name: nodesc", "")
-	writeAgent(t, r, "long", "name: long\ndescription: "+strings.Repeat("x", 1025), "")
 	if err := os.WriteFile(filepath.Join(r, "notes.txt"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	c, ns := Discover(i18n.EN, []Dir{{r, User}})
-	if len(ns) != 4 {
+	if len(ns) != 2 {
 		t.Fatalf("%v", ns)
 	}
 	if l := c.List(); len(l) != 1 || l[0].Name != GeneralPurpose {
@@ -217,5 +215,55 @@ func TestListOrder(t *testing.T) {
 	l := c.List()
 	if len(l) != 2 || l[0].Name != GeneralPurpose || l[1].Name != "zeta" {
 		t.Fatalf("%+v", l)
+	}
+}
+
+func TestDiscoverClaudeCodeRealistic(t *testing.T) {
+	r := t.TempDir()
+	desc := "Use this agent when reviewing. " + strings.Repeat("é", 2470) +
+		" <example>\\nuser: review\\nassistant: ok</example>"
+	fm := "name: code-reviewer\ndescription: \"" + desc + "\"\ntools: Read, Grep\nmodel: sonnet\ncolor: red"
+	for i := 0; i < 55; i++ {
+		fm += "\n# commentaire " + strings.Repeat("c", 100)
+	}
+	p := writeAgent(t, r, "code-reviewer", fm, "You review.\n")
+	c, ns := Discover(i18n.EN, []Dir{{r, User}})
+	a, ok := c.Get("code-reviewer")
+	if !ok || len([]rune(a.Description)) != 1024 || a.Body != "You review.\n" {
+		t.Fatalf("%v %d %v", ok, len([]rune(a.Description)), ns)
+	}
+	want := `agent "code-reviewer" in ` + p + `: description truncated to 1024 characters`
+	if hasNotice(ns, want) != 1 || len(ns) != 1 {
+		t.Fatalf("%v", ns)
+	}
+}
+
+func TestDiscoverNameIndependentOfFile(t *testing.T) {
+	r := t.TempDir()
+	writeAgent(t, r, "foo", valid("bar"), "")
+	c, ns := Discover(i18n.EN, []Dir{{r, User}})
+	if _, ok := c.Get("bar"); !ok || len(ns) != 0 {
+		t.Fatalf("%v", ns)
+	}
+	if _, ok := c.Get("foo"); ok {
+		t.Fatal("foo ne doit pas exister")
+	}
+}
+
+func TestDiscoverFrontmatterTooLarge(t *testing.T) {
+	r := t.TempDir()
+	writeAgent(t, r, "big", valid("big")+"\nnotes: "+strings.Repeat("x", 20000), "")
+	c, ns := Discover(i18n.EN, []Dir{{r, User}})
+	if _, ok := c.Get("big"); ok || hasNotice(ns, "frontmatter too large") != 1 {
+		t.Fatalf("%v", ns)
+	}
+}
+
+func TestDiscoverTruncatedNotice(t *testing.T) {
+	r := t.TempDir()
+	p := writeAgent(t, r, "big", valid("big"), strings.Repeat("a", 40000))
+	_, ns := Discover(i18n.EN, []Dir{{r, User}})
+	if hasNotice(ns, `agent "big" in `+p+`: file truncated to 32768 bytes`) != 1 {
+		t.Fatalf("%v", ns)
 	}
 }
