@@ -167,3 +167,65 @@ func TestRoundTripKeepsRawValues(t *testing.T) {
 		}
 	}
 }
+
+// TestCollisionSourceWins vérifie que la clé source gagne quand la clé cible existe déjà,
+// dans les deux sens, et qu'il ne reste qu'une clé par notion.
+func TestCollisionSourceWins(t *testing.T) {
+	toClaude := []struct {
+		name, tenon, args, want string
+	}{
+		{"read_file path/file_path", "read_file", `{"path":"/etc/x","file_path":"/tmp/safe"}`, `{"file_path":"/etc/x"}`},
+		{"write_file path/file_path", "write_file", `{"path":"/etc/x","file_path":"/tmp/safe"}`, `{"file_path":"/etc/x"}`},
+		{"edit_file path/file_path", "edit_file", `{"path":"/etc/x","file_path":"/tmp/safe"}`, `{"file_path":"/etc/x"}`},
+		{"skill name/skill", "skill", `{"name":"a","skill":"b"}`, `{"skill":"a"}`},
+		{"agent agent/subagent_type", "agent", `{"agent":"a","subagent_type":"b"}`, `{"subagent_type":"a"}`},
+		{"shell timeout_seconds/timeout", "shell", `{"command":"ls","timeout_seconds":2,"timeout":5000}`, `{"command":"ls","timeout":2000}`},
+		{"shell timeout non entier", "shell", `{"timeout_seconds":2.5,"timeout":5000}`, `{"timeout":2.5}`},
+	}
+	for _, c := range toClaude {
+		t.Run("to/"+c.name, func(t *testing.T) {
+			got := string(ToClaude(c.tenon, json.RawMessage(c.args)))
+			sameJSON(t, got, c.want)
+		})
+	}
+
+	fromClaude := []struct {
+		name, tenon, in, want string
+	}{
+		{"read_file file_path/path", "read_file", `{"file_path":"/etc/x","path":"/tmp/safe"}`, `{"path":"/etc/x"}`},
+		{"write_file file_path/path", "write_file", `{"file_path":"/etc/x","path":"/tmp/safe"}`, `{"path":"/etc/x"}`},
+		{"edit_file file_path/path", "edit_file", `{"file_path":"/etc/x","path":"/tmp/safe"}`, `{"path":"/etc/x"}`},
+		{"skill skill/name", "skill", `{"skill":"a","name":"b"}`, `{"name":"a"}`},
+		{"agent subagent_type/agent", "agent", `{"subagent_type":"a","agent":"b"}`, `{"agent":"a"}`},
+		{"shell timeout/timeout_seconds", "shell", `{"command":"ls","timeout":2000,"timeout_seconds":9}`, `{"command":"ls","timeout_seconds":2}`},
+	}
+	for _, c := range fromClaude {
+		t.Run("from/"+c.name, func(t *testing.T) {
+			got, err := FromClaude(c.tenon, json.RawMessage(c.in))
+			if err != nil {
+				t.Fatalf("erreur inattendue: %v", err)
+			}
+			sameJSON(t, string(got), c.want)
+		})
+	}
+}
+
+// TestCollisionAbsentSourceKeepsTarget vérifie qu'une cible seule reste intacte.
+func TestCollisionAbsentSourceKeepsTarget(t *testing.T) {
+	got := ToClaude("read_file", json.RawMessage(`{"file_path":"a"}`))
+	sameJSON(t, string(got), `{"file_path":"a"}`)
+	back, err := FromClaude("read_file", json.RawMessage(`{"path":"a"}`))
+	if err != nil {
+		t.Fatalf("erreur inattendue: %v", err)
+	}
+	sameJSON(t, string(back), `{"path":"a"}`)
+}
+
+func TestFromClaudeNegativeTimeout(t *testing.T) {
+	for _, in := range []string{`{"timeout":-1}`, `{"timeout":-0}`, `{"timeout":-0.0}`, `{"timeout":-1500}`} {
+		_, err := FromClaude("shell", json.RawMessage(in))
+		if err == nil || err.Error() != "invalid timeout in updatedInput" {
+			t.Errorf("FromClaude(%s) erreur = %v, want invalid timeout", in, err)
+		}
+	}
+}

@@ -96,13 +96,11 @@ func decodeObject(data json.RawMessage) (map[string]json.RawMessage, bool) {
 	return m, true
 }
 
-// renameField déplace from vers to. Si to existe déjà, rien ne bouge : aucune valeur n'est écrasée.
+// renameField déplace from vers to. La clé source gagne : to est écrasée si elle existe,
+// et rien ne bouge si from est absente. Il ne reste ainsi qu'une clé par notion.
 func renameField(m map[string]json.RawMessage, from, to string) {
 	raw, ok := m[from]
 	if !ok {
-		return
-	}
-	if _, exists := m[to]; exists {
 		return
 	}
 	delete(m, from)
@@ -115,14 +113,11 @@ func isNumber(raw json.RawMessage) bool {
 	return len(trimmed) > 0 && (trimmed[0] == '-' || (trimmed[0] >= '0' && trimmed[0] <= '9'))
 }
 
-// shellTimeoutToClaude convertit timeout_seconds (s, entier) en timeout (ms).
+// shellTimeoutToClaude convertit timeout_seconds (s, entier) en timeout (ms), la source gagnant.
 // Une valeur non entière est recopiée telle quelle sous timeout.
 func shellTimeoutToClaude(m map[string]json.RawMessage) {
 	raw, ok := m["timeout_seconds"]
 	if !ok {
-		return
-	}
-	if _, exists := m["timeout"]; exists {
 		return
 	}
 	var s int64
@@ -134,18 +129,15 @@ func shellTimeoutToClaude(m map[string]json.RawMessage) {
 	m["timeout"] = json.RawMessage(strconv.FormatInt(s*1000, 10))
 }
 
-// shellTimeoutFromClaude convertit timeout (ms) en timeout_seconds (s, arrondi au supérieur).
-// Un timeout non numérique est une erreur.
+// shellTimeoutFromClaude convertit timeout (ms) en timeout_seconds (s, arrondi au supérieur),
+// la source gagnant. Un timeout non numérique ou négatif (-0 compris) est une erreur.
 func shellTimeoutFromClaude(m map[string]json.RawMessage) error {
 	raw, ok := m["timeout"]
 	if !ok {
 		return nil
 	}
-	if _, exists := m["timeout_seconds"]; exists {
-		return nil
-	}
 	var ms float64
-	if !isNumber(raw) || json.Unmarshal(raw, &ms) != nil {
+	if !isNumber(raw) || json.Unmarshal(raw, &ms) != nil || ms < 0 || math.Signbit(ms) {
 		return errInvalidTimeout
 	}
 	s := math.Ceil(ms / 1000)
