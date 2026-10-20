@@ -13,6 +13,7 @@ import (
 	"github.com/tenon-code-eu/tenon/internal/hooks"
 	"github.com/tenon-code-eu/tenon/internal/llm"
 	"github.com/tenon-code-eu/tenon/internal/policy"
+	"github.com/tenon-code-eu/tenon/internal/profile"
 	"github.com/tenon-code-eu/tenon/internal/provider"
 	"github.com/tenon-code-eu/tenon/internal/tools"
 )
@@ -74,7 +75,7 @@ func (t *turn) run(in Input) error {
 	if !t.s.started {
 		if err := t.emit(event.SessionStarted, event.SessionStartedPayload{
 			Provider: info, ProjectRoot: d.ProjectRoot, Resumed: t.s.resumed, Instructions: d.Instructions,
-			MCP: d.MCP,
+			MCP: d.MCP, Profile: string(d.Profile),
 		}); err != nil {
 			return err
 		}
@@ -324,7 +325,7 @@ func (t *turn) compactOrStop(info llm.ProviderInfo, defs []llm.ToolDef, force bo
 
 // outbound applique le contrôle sortant à in (historique ou requête de
 // résumé) et renvoie la copie masquée à envoyer. ok vaut false si
-// l'utilisateur refuse la juridiction.
+// l'utilisateur refuse la juridiction ou si le profil interdit le fournisseur.
 func (t *turn) outbound(info llm.ProviderInfo, in []llm.Message) (msgs []llm.Message, ok bool, err error) {
 	d := t.e.d
 	var counts map[string]int
@@ -332,6 +333,13 @@ func (t *turn) outbound(info llm.ProviderInfo, in []llm.Message) (msgs []llm.Mes
 		msgs, counts, err = d.Outbound.Check(info, in)
 		if err == nil {
 			break
+		}
+		if errors.Is(err, profile.ErrProfile) {
+			// Violation de profil : aucun envoi, tour clos comme un refus.
+			if eerr := t.emit(event.Error, event.ErrorPayload{Code: "profile", Message: err.Error()}); eerr != nil {
+				return nil, false, eerr
+			}
+			return nil, false, nil
 		}
 		if !errors.Is(err, policy.ErrJurisdiction) {
 			if eerr := t.emit(event.Error, event.ErrorPayload{Code: "outbound", Message: err.Error()}); eerr != nil {

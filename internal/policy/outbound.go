@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/tenon-code-eu/tenon/internal/llm"
+	"github.com/tenon-code-eu/tenon/internal/profile"
 )
 
 // ErrJurisdiction is returned when a non-EU provider has no recorded consent.
@@ -18,6 +19,7 @@ type Outbound struct {
 
 	mu      sync.Mutex
 	consent map[string]bool
+	profile profile.Name
 }
 
 // NewOutbound returns an Outbound using r for masking.
@@ -32,11 +34,26 @@ func (o *Outbound) Consent(providerID string) {
 	o.mu.Unlock()
 }
 
-// Check enforces the jurisdiction rule, then returns a redacted deep copy of
+// SetProfile sets the compliance profile re-checked before every send
+// (defense in depth: the CLI already refuses a non-compliant provider).
+func (o *Outbound) SetProfile(n profile.Name) {
+	o.mu.Lock()
+	o.profile = n
+	o.mu.Unlock()
+}
+
+// Check enforces the compliance profile first (a recorded consent never
+// bypasses it; its error wraps profile.ErrProfile), then the jurisdiction rule, then returns a redacted deep copy of
 // msgs with the number of masks per type. The input is never modified.
 // Only EU and local providers pass freely; any other jurisdiction (including
 // an empty one) requires consent.
 func (o *Outbound) Check(p llm.ProviderInfo, msgs []llm.Message) ([]llm.Message, map[string]int, error) {
+	o.mu.Lock()
+	n := o.profile
+	o.mu.Unlock()
+	if err := profile.CheckProvider(n, p); err != nil {
+		return nil, nil, err
+	}
 	if p.Jurisdiction != llm.EU && p.Jurisdiction != llm.Local {
 		o.mu.Lock()
 		ok := o.consent[p.ID]

@@ -210,3 +210,22 @@ func TestToolResultCheckpointFieldsPresentWhenTrue(t *testing.T) {
 		t.Fatalf("got %s", got)
 	}
 }
+
+func TestSessionStartedProfileJSON(t *testing.T) {
+	old := SessionStartedPayload{ProjectRoot: "/p"}
+	got, err := json.Marshal(old)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"provider":{"id":"","name":"","base_url":"","model":"","country":"","jurisdiction":""},"project_root":"/p"}`
+	if string(got) != want {
+		t.Fatalf("old payload changed:\n got %s\nwant %s", got, want)
+	}
+	got, err = json.Marshal(SessionStartedPayload{ProjectRoot: "/p", Profile: "eu-only"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(got), `"profile":"eu-only"`) {
+		t.Fatalf("got %s", got)
+	}
+}

@@ -16,6 +16,8 @@ type SessionStartedPayload struct {
 	Instructions []string `json:"instructions,omitempty"`
 	// MCP lists the MCP servers active for the session (omitted when none).
 	MCP []MCPServerInfo `json:"mcp,omitempty"`
+	// Profile est le profil de conformité actif (omis sans profil).
+	Profile string `json:"profile,omitempty"`
 }
 
 // MCPServerInfo describes an active MCP server (values from the configuration).

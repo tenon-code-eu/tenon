@@ -17,6 +17,7 @@ import (
 	"github.com/tenon-code-eu/tenon/internal/i18n"
 	"github.com/tenon-code-eu/tenon/internal/llm"
 	"github.com/tenon-code-eu/tenon/internal/policy"
+	"github.com/tenon-code-eu/tenon/internal/profile"
 	"github.com/tenon-code-eu/tenon/internal/provider"
 	"github.com/tenon-code-eu/tenon/internal/tools"
 )
@@ -80,6 +81,9 @@ type Deps struct {
 	// Checkpoints est le magasin des copies d'avant écriture (nil : aucune
 	// restauration de contenu possible ; les suppressions restent possibles).
 	Checkpoints *checkpoint.Store
+	// Profile est le profil de conformité actif, recopié dans SessionStarted
+	// (le contrôle avant envoi est porté par Outbound).
+	Profile profile.Name
 }
 
 // Reply répond à un PermissionRequested.

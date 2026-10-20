@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/tenon-code-eu/tenon/internal/llm"
+	"github.com/tenon-code-eu/tenon/internal/profile"
 )
 
 func newOut(t *testing.T) *Outbound {
@@ -161,5 +162,33 @@ func TestOutboundMasksEscapedNewlineLines(t *testing.T) {
 		if strings.Contains(got, "Zx8kq") || !json.Valid([]byte(got)) || counts["SECRET"] != 1 {
 			t.Fatalf("%s -> %s %v", raw, got, counts)
 		}
+	}
+}
+
+func TestOutboundProfileRefusesConsented(t *testing.T) {
+	o := newOut(t)
+	o.SetProfile(profile.EUOnly)
+	o.Consent("x")
+	_, _, err := o.Check(llm.ProviderInfo{ID: "x", Jurisdiction: llm.NonEU}, []llm.Message{{Role: llm.User, Content: "hi"}})
+	if !errors.Is(err, profile.ErrProfile) {
+		t.Fatalf("err = %v", err)
+	}
+	if errors.Is(err, ErrJurisdiction) {
+		t.Fatal("a profile violation must not be a jurisdiction error (no consent prompt)")
+	}
+	if _, _, err := o.Check(llm.ProviderInfo{ID: "p", Jurisdiction: llm.EU}, nil); err != nil {
+		t.Fatalf("EU provider under eu-only: %v", err)
+	}
+}
+
+func TestOutboundNoProfileUnchanged(t *testing.T) {
+	o := newOut(t)
+	o.SetProfile(profile.None)
+	if _, _, err := o.Check(llm.ProviderInfo{ID: "x", Jurisdiction: llm.NonEU}, nil); !errors.Is(err, ErrJurisdiction) {
+		t.Fatalf("without consent: err = %v", err)
+	}
+	o.Consent("x")
+	if _, _, err := o.Check(llm.ProviderInfo{ID: "x", Jurisdiction: llm.NonEU}, nil); err != nil {
+		t.Fatalf("with consent: err = %v", err)
 	}
 }
