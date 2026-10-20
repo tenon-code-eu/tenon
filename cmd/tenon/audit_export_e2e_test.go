@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,7 +27,20 @@ const (
 	exportResponse = "MARQUEURREPONSE c'est corrigé"
 )
 
-// exportEnv joue une session headless qui lit puis modifie notes.txt.
+// fixedExportNow est la date du jour figée des exports sans session.
+var fixedExportNow = time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
+
+// pinExportNow fige la date du jour de l'export pour la durée du test.
+func pinExportNow(t *testing.T, d time.Time) {
+	t.Helper()
+	old := exportNow
+	exportNow = func() time.Time { return d }
+	t.Cleanup(func() { exportNow = old })
+}
+
+// exportEnv joue une session headless qui lit puis modifie notes.txt, puis
+// fige la date de l'export sur la date de la première ligne du journal :
+// aucun passage de minuit ne peut séparer la session de la période par défaut.
 func exportEnv(t *testing.T) *env {
 	t.Helper()
 	f := newFakeLLM(t,
@@ -41,12 +55,31 @@ func exportEnv(t *testing.T) *env {
 	if b, err := os.ReadFile(filepath.Join(e.wd, "notes.txt")); err != nil || string(b) != "salut\n" {
 		t.Fatalf("notes.txt : %q %v", b, err)
 	}
+	var first time.Time
+	err := audit.ReadLines(filepath.Join(e.dataDir, "audit"), func(_ string, _ int, l audit.Line, err error) error {
+		if err != nil {
+			return err
+		}
+		first, err = time.Parse(time.RFC3339Nano, l.TS)
+		if err != nil {
+			return err
+		}
+		return errStopRead
+	})
+	if (err != nil && !errors.Is(err, errStopRead)) || first.IsZero() {
+		t.Fatalf("première ligne du journal : %v", err)
+	}
+	pinExportNow(t, first)
 	return e
 }
 
-// exportPaths renvoie les chemins attendus pour la période par défaut.
+// errStopRead arrête la lecture du journal après la première ligne.
+var errStopRead = errors.New("stop")
+
+// exportPaths renvoie les chemins attendus pour la période par défaut,
+// dérivés de la date figée exportNow.
 func exportPaths(out string) (string, string) {
-	until := time.Now().UTC()
+	until := exportNow().UTC()
 	base := "tenon-audit-" + until.AddDate(0, 0, -29).Format("2006-01-02") + "_" + until.Format("2006-01-02")
 	return filepath.Join(out, base+".html"), filepath.Join(out, base+".json")
 }
@@ -241,7 +274,31 @@ func TestAuditExportExistingFileE2E(t *testing.T) {
 	}
 }
 
+// Un lien symbolique pendant à la place du HTML compte comme fichier
+// existant : rien n'est écrit, la cible n'est pas créée.
+func TestAuditExportSymlinkAtOutputE2E(t *testing.T) {
+	pinExportNow(t, fixedExportNow)
+	e := newEnv(t, nil, "eu")
+	out := t.TempDir()
+	hp, jp := exportPaths(out)
+	target := filepath.Join(t.TempDir(), "cible.html")
+	if err := os.Symlink(target, hp); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, errb := e.run("audit", "export", "--lang", "en", "--out", out)
+	if code != 1 || !strings.Contains(errb, hp+" already exists") || stdout != "" {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout, errb)
+	}
+	if _, err := os.Lstat(target); !os.IsNotExist(err) {
+		t.Fatalf("cible du lien créée : %v", err)
+	}
+	if _, err := os.Lstat(jp); !os.IsNotExist(err) {
+		t.Fatalf("JSON créé : %v", err)
+	}
+}
+
 func TestAuditExportUsageE2E(t *testing.T) {
+	pinExportNow(t, fixedExportNow)
 	e := newEnv(t, nil, "eu")
 	out := t.TempDir()
 	for _, c := range []struct {
@@ -277,6 +334,7 @@ func TestAuditExportUsageE2E(t *testing.T) {
 }
 
 func TestAuditExportNoAuditDirE2E(t *testing.T) {
+	pinExportNow(t, fixedExportNow)
 	e := newEnv(t, nil, "eu")
 	code, stdout, errb := e.run("audit", "export", "--lang", "en")
 	if code != 0 || errb != "" {
@@ -304,7 +362,7 @@ func TestAuditExportRedactsE2E(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ev, err := event.New(sid, 999, time.Now().UTC(), event.Error, event.ErrorPayload{Code: "x", Message: "échec MISTRAL_API_KEY=Zx8kq2LmNp4Rt6Vw9YbC1dEf"})
+	ev, err := event.New(sid, 999, exportNow().UTC(), event.Error, event.ErrorPayload{Code: "x", Message: "échec MISTRAL_API_KEY=Zx8kq2LmNp4Rt6Vw9YbC1dEf"})
 	if err != nil {
 		t.Fatal(err)
 	}
