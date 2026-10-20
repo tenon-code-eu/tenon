@@ -210,3 +210,34 @@ func TestIsMetadataPayload(t *testing.T) {
 		}
 	}
 }
+
+// Une ligne ajoutée entre la vérification et la lecture n'est pas rapportée :
+// le rapport décrit exactement les lignes vérifiées.
+func TestLoadStopsAtVerifiedLines(t *testing.T) {
+	d := since.Add(time.Hour)
+	dir := writeLog(t, audit.Full,
+		started(t, "s", d, "/proj"),
+		ev(t, "s", 2, d.Add(time.Second), event.TurnCompleted, event.TurnCompletedPayload{Reason: "done"}),
+	)
+	old := afterVerify
+	t.Cleanup(func() { afterVerify = old })
+	afterVerify = func() {
+		w, err := audit.Open(dir, audit.Full, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := w.Write(ev(t, "s", 3, d.Add(2*time.Second), event.TurnCompleted, event.TurnCompletedPayload{Reason: "done"})); err != nil {
+			t.Fatal(err)
+		}
+		if err := w.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ds, err := Load(dir, Filter{Since: since, Until: until, AllProjects: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ds.Chain.Intact || ds.Chain.Lines != 2 || len(ds.Lines) != 2 {
+		t.Fatalf("chain %+v lines %d", ds.Chain, len(ds.Lines))
+	}
+}

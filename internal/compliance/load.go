@@ -3,6 +3,7 @@ package compliance
 
 import (
 	"encoding/json"
+	"errors"
 	"regexp"
 	"time"
 
@@ -60,6 +61,13 @@ type Dataset struct {
 	ExcludedMetadataSessions int
 }
 
+// errVerifiedEnd arrête la lecture après la dernière ligne vérifiée.
+var errVerifiedEnd = errors.New("end of verified lines")
+
+// afterVerify est appelée entre la vérification et la lecture ; remplacée
+// dans les tests pour simuler un ajout concurrent au journal.
+var afterVerify = func() {}
+
 var sha256Hex = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 // IsMetadataPayload indique si p est une charge réduite du niveau metadata :
@@ -93,13 +101,22 @@ func Load(dir string, f Filter) (Dataset, error) {
 		ds.Chain.Error = verr.Error()
 		ds.Chain.FinalHash = ""
 	}
+	afterVerify()
 
 	end := f.Until.AddDate(0, 0, 1)
 	metaStart := map[string]bool{} // session dont le premier SessionStarted est réduit
 	seen := map[string]bool{}      // session dont le premier SessionStarted est vu
 	var cands []audit.Line
 
+	// Chaîne intacte : la lecture s'arrête après les ds.Chain.Lines lignes
+	// vérifiées (ReadLines et Verify parcourent les fichiers dans le même
+	// ordre) ; une ligne ajoutée entre-temps n'est pas rapportée.
+	delivered := 0
 	err := audit.ReadLines(dir, func(file string, lineNo int, l audit.Line, err error) error {
+		if ds.Chain.Intact && delivered >= ds.Chain.Lines {
+			return errVerifiedEnd
+		}
+		delivered++
 		if err != nil {
 			ds.Unreadable = append(ds.Unreadable, Unreadable{File: file, Line: lineNo, Error: err.Error()})
 			return nil
@@ -133,7 +150,7 @@ func Load(dir string, f Filter) (Dataset, error) {
 		cands = append(cands, l)
 		return nil
 	})
-	if err != nil {
+	if err != nil && !errors.Is(err, errVerifiedEnd) {
 		return Dataset{}, err
 	}
 
