@@ -41,7 +41,7 @@ func loadHooks(lang i18n.Lang, getenv func(string) string, wd string, cfg config
 
 // listHooks affiche « tenon hooks » : un hook par ligne, puis les avis.
 func listHooks(lang i18n.Lang, stdout, stderr io.Writer, getenv func(string) string, wd string) int {
-	s, err := loadSetup(getenv, wd)
+	s, err := loadSetup(lang, getenv, wd)
 	if err != nil {
 		fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", err))
 		return 1

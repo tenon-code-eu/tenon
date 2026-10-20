@@ -107,7 +107,7 @@ func auditExport(args []string, langFlag string, stdout, stderr io.Writer, geten
 		outDir = resolveFrom(wd, *out)
 	}
 
-	st, err := loadSetup(getenv, wd)
+	st, err := loadSetup(lang, getenv, wd)
 	if err != nil {
 		fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", err))
 		return 1

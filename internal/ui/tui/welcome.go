@@ -155,6 +155,10 @@ func (m Model) welcomeLines() []string {
 	if prof := m.text(m.opts.Profile); prof != "" {
 		body = append(body, i18n.T(m.lang, "tui.welcome.profile", prof))
 	}
+	// Politique d'organisation, sous la ligne du profil, seulement si active.
+	if pol := m.text(m.opts.Policy); pol != "" {
+		body = append(body, pol)
+	}
 	// Seules ces trois lignes passent à la ligne, aux séparateurs « · ».
 	body = append(body, wrapAtSeparators(m.countsLine(), 0, inner)...)
 	cmdLabel := i18n.T(m.lang, "tui.welcome.commands", "")

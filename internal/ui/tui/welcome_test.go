@@ -247,3 +247,24 @@ func TestWelcomeProfile(t *testing.T) {
 		t.Errorf("ligne du profil sans profil :\n%s", v)
 	}
 }
+
+func TestWelcomePolicy(t *testing.T) {
+	o := welcomeOpts(i18n.FR)
+	o.Profile = "eu-only"
+	o.Policy = "politique : acme-dev v3 (clé 0123456789ABCDEF)"
+	v := welcomeView(t, o, 100)
+	// Juste sous la ligne du profil.
+	lines := strings.Split(v, "\n")
+	found := false
+	for i, l := range lines {
+		if strings.Contains(l, "profil : eu-only") {
+			found = i+1 < len(lines) && strings.Contains(lines[i+1], "politique : acme-dev v3 (clé 0123456789ABCDEF)")
+		}
+	}
+	if !found {
+		t.Errorf("politique hors de la ligne suivant le profil :\n%s", v)
+	}
+	if v := welcomeView(t, welcomeOpts(i18n.FR), 100); strings.Contains(v, "politique :") {
+		t.Errorf("ligne de politique sans politique :\n%s", v)
+	}
+}

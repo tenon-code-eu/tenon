@@ -31,6 +31,7 @@ import (
 	"github.com/tenon-code-eu/tenon/internal/instructions"
 	"github.com/tenon-code-eu/tenon/internal/llm"
 	"github.com/tenon-code-eu/tenon/internal/mcp"
+	"github.com/tenon-code-eu/tenon/internal/orgpolicy"
 	"github.com/tenon-code-eu/tenon/internal/policy"
 	"github.com/tenon-code-eu/tenon/internal/profile"
 	"github.com/tenon-code-eu/tenon/internal/provider"
@@ -123,7 +124,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	case len(rest) >= 2 && rest[0] == "audit" && rest[1] == "export":
 		return auditExport(rest[2:], *langFlag, stdout, stderr, getenv, wd)
 	case len(rest) == 2 && rest[0] == "config" && rest[1] == "check":
-		cs, err := loadSetup(getenv, wd)
+		cs, err := loadSetup(lang, getenv, wd)
 		if err == nil {
 			_, _, err = loadHooks(lang, getenv, wd, cs.cfg.Hooks)
 		}
@@ -131,18 +132,26 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 			fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", err))
 			return 1
 		}
-		// Profil effectif, puis conformité du fournisseur sélectionné.
+		// Politique et profil effectifs, puis conformité du fournisseur
+		// sélectionné (profil, puis liste blanche d'hôtes).
+		if l := policyLine(lang, "config.policy", cs.cfg.Policy); l != "" {
+			fmt.Fprintln(stdout, l)
+		}
 		if n := cs.cfg.Profile; n != profile.None {
 			fmt.Fprintln(stdout, i18n.T(lang, "config.profile", n))
-			id := *providerID
-			if id == "" {
-				id = cs.cfg.DefaultProvider
+		}
+		id := *providerID
+		if id == "" {
+			id = cs.cfg.DefaultProvider
+		}
+		if pc, ok := cs.cfg.Provider(id); ok {
+			err := profileProviderErr(lang, cs.cfg.Profile, providerInfo(pc))
+			if err == nil {
+				err = policyProviderErr(lang, cs.cfg.Policy, providerInfo(pc))
 			}
-			if pc, ok := cs.cfg.Provider(id); ok {
-				if err := profileProviderErr(lang, n, providerInfo(pc)); err != nil {
-					fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", err))
-					return 1
-				}
+			if err != nil {
+				fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", err))
+				return 1
 			}
 		}
 		fmt.Fprintln(stdout, i18n.T(lang, "config.ok"))
@@ -302,6 +311,7 @@ func runInteractive(ctx context.Context, fs *flag.FlagSet, lang i18n.Lang, o eng
 		ProjectRoot:   o.wd,
 		Version:       version,
 		Profile:       string(st.profile),
+		Policy:        st.policy,
 		Redact:        redactText(st.redactor),
 		Skills:        st.skills,
 		Agents:        st.agents,
@@ -390,7 +400,7 @@ func listSessions(lang i18n.Lang, stdout, stderr io.Writer, getenv func(string) 
 // keyCommand enregistre (set) ou supprime (delete) la clé d'un fournisseur
 // configuré dans le trousseau système.
 func keyCommand(lang i18n.Lang, action, providerID string, stdin io.Reader, stdout, stderr io.Writer, getenv func(string) string, wd string) int {
-	s, err := loadSetup(getenv, wd)
+	s, err := loadSetup(lang, getenv, wd)
 	if err != nil {
 		fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", err))
 		return 1
@@ -453,11 +463,22 @@ type setup struct {
 	redactor *policy.Redactor
 }
 
-// loadSetup charge la configuration globale et projet, puis la convertit en
-// règles de permissions et en Redactor.
-func loadSetup(getenv func(string) string, wd string) (setup, error) {
+// loadSetup charge la configuration globale et projet, y applique la
+// politique d'organisation (plancher), puis la convertit en règles de
+// permissions et en Redactor.
+func loadSetup(lang i18n.Lang, getenv func(string) string, wd string) (setup, error) {
 	cfg, err := config.Load(config.GlobalPath(getenv), filepath.Join(wd, ".tenon", "config.toml"), getenv)
 	if err != nil {
+		return setup{}, err
+	}
+	// Seul le répertoire système est contrôlé (propriétaire root, droits) ;
+	// une politique illisible ou mal signée bloque le démarrage.
+	dir, system := orgpolicy.Resolve(getenv)
+	pol, err := orgpolicy.Load(dir, system)
+	if err != nil {
+		return setup{}, errors.New(i18n.T(lang, "err.policy_load", err))
+	}
+	if cfg, err = config.ApplyPolicy(cfg, pol); err != nil {
 		return setup{}, err
 	}
 	rules := make([]policy.Rule, 0, len(cfg.Permissions.Rules))
@@ -466,7 +487,9 @@ func loadSetup(getenv func(string) string, wd string) (setup, error) {
 		if err != nil {
 			return setup{}, fmt.Errorf("permission rule (%s %q): %w", r.Tool, r.Match, err)
 		}
-		rules = append(rules, policy.Rule{Tool: r.Tool, Match: r.Match, Decision: d, Project: r.Project})
+		// Une règle de la politique se comporte comme une règle projet : ses
+		// ask priment les allow de la configuration.
+		rules = append(rules, policy.Rule{Tool: r.Tool, Match: r.Match, Decision: d, Project: r.Project || r.Policy})
 	}
 	custom := make([]policy.RedactionRule, 0, len(cfg.Redaction.Rules))
 	for _, r := range cfg.Redaction.Rules {
@@ -537,6 +560,9 @@ type started struct {
 	contextWindow int
 	// profile est le profil de conformité effectif (écran de bienvenue).
 	profile profile.Name
+	// policy est la ligne de la politique d'organisation, déjà traduite
+	// (écran de bienvenue ; "" sans politique).
+	policy string
 }
 
 // providerInfo décrit le fournisseur configuré pc.
@@ -588,6 +614,45 @@ func profileProviderErr(lang i18n.Lang, n profile.Name, info llm.ProviderInfo) e
 	return errors.New(msg)
 }
 
+// policyProviderErr contrôle l'hôte du fournisseur info contre la liste
+// blanche de la politique pol et renvoie l'erreur traduite (nil s'il est admis
+// ou sans politique).
+func policyProviderErr(lang i18n.Lang, pol *orgpolicy.Policy, info llm.ProviderInfo) error {
+	h := orgpolicy.HostOf(info.BaseURL)
+	if pol.AllowsHost(h) {
+		return nil
+	}
+	return errors.New(i18n.T(lang, "err.policy_provider", info.ID, h, pol.ID))
+}
+
+// policyLine renvoie la ligne d'identification de la politique pol sous la
+// clé de traduction key ("" sans politique).
+func policyLine(lang i18n.Lang, key string, pol *orgpolicy.Policy) string {
+	if pol == nil {
+		return ""
+	}
+	return i18n.T(lang, key, pol.ID, pol.Version, pol.KeyID)
+}
+
+// policyNotices renvoie les avis du durcissement de cfg par sa politique.
+func policyNotices(lang i18n.Lang, cfg config.Config) []string {
+	pol := cfg.Policy
+	if pol == nil {
+		return nil
+	}
+	var out []string
+	if cfg.PolicyRaisedProfile != profile.None {
+		out = append(out, i18n.T(lang, "policy.profile_raised", cfg.PolicyRaisedProfile, cfg.Profile, pol.ID))
+	}
+	for _, id := range cfg.PolicyOverriddenProviders {
+		out = append(out, i18n.T(lang, "policy.provider_overridden", pol.ID, id))
+	}
+	if cfg.PolicyAuditFrom != "" {
+		out = append(out, i18n.T(lang, "policy.audit_imposed", pol.ID, cfg.Audit.Level, cfg.PolicyAuditFrom))
+	}
+	return out
+}
+
 // profileMCPSkip contrôle le serveur MCP s contre le profil n et renvoie
 // l'avis traduit de son exclusion ("" s'il est conforme). Comme pour le
 // fournisseur, seul un serveur local non stdio peut échouer par son hôte.
@@ -607,7 +672,7 @@ func profileMCPSkip(lang i18n.Lang, n profile.Name, s config.MCPServer) string {
 // session ; une session reprise est restaurée dans l'Engine.
 func startEngine(o engineOptions) (started, error) {
 	getenv, wd, lang := o.getenv, o.wd, o.lang
-	s, err := loadSetup(getenv, wd)
+	s, err := loadSetup(lang, getenv, wd)
 	if err != nil {
 		return started{}, err
 	}
@@ -621,6 +686,7 @@ func startEngine(o engineOptions) (started, error) {
 		// La valeur projet, plus faible, a été ignorée : cfg.Profile est le profil global.
 		profileNotices = append(profileNotices, i18n.T(lang, "profile.weaker_project", cfg.WeakerProjectProfile, cfg.Profile))
 	}
+	profileNotices = append(profileNotices, policyNotices(lang, cfg)...)
 	hookSet, hookNotices, err := loadHooks(lang, getenv, wd, cfg.Hooks)
 	if err != nil {
 		return started{}, err
@@ -637,6 +703,10 @@ func startEngine(o engineOptions) (started, error) {
 	// Profil avant toute connexion : la détection d'un modèle local
 	// contacterait l'hôte configuré.
 	if err := profileProviderErr(lang, cfg.Profile, providerInfo(pc)); err != nil {
+		return started{}, err
+	}
+	// Liste blanche de la politique, elle aussi avant la détection.
+	if err := policyProviderErr(lang, cfg.Policy, providerInfo(pc)); err != nil {
 		return started{}, err
 	}
 	pc, detectNotices, err := detectLocal(o.ctx, lang, pc, cfg.Profile == profile.StrictLocal)
@@ -862,6 +932,7 @@ func startEngine(o engineOptions) (started, error) {
 		TranscriptPath:      filepath.Join(sdir, sid+".jsonl"),
 		Notify:              o.interactive,
 		Profile:             cfg.Profile,
+		Policy:              cfg.Policy,
 	})
 	if o.resume != "" {
 		if err := eng.Restore(sid, events); err != nil {
@@ -873,6 +944,7 @@ func startEngine(o engineOptions) (started, error) {
 		eng: eng, redactor: red, sessionID: sid, close: closeAll, notices: slices.Concat(profileNotices, detectNotices, skillNotices, ad.notices, hookNotices, ckNotices, notices), skills: cat, agents: ad.cat, hooks: hookSet,
 		downNotices: downNotices(o.lang, unavailable, red),
 		provider:    info, contextWindow: pc.Window(), profile: cfg.Profile,
+		policy: policyLine(lang, "tui.welcome.policy", cfg.Policy),
 	}, nil
 }
 
@@ -908,7 +980,7 @@ func startMCP(o engineOptions, cfg config.Config, red *policy.Redactor) (*mcp.Ma
 		ctx = context.Background()
 	}
 	jurisdiction := map[string]llm.Jurisdiction{}
-	// Serveurs exclus par le profil : ni lancés ni contactés, signalés
+	// Serveurs exclus par le profil ou la politique : ni lancés ni contactés, signalés
 	// indisponibles. Un serveur désactivé n'est pas lancé : pas d'avis.
 	servers := make([]config.MCPServer, 0, len(cfg.MCP.Servers))
 	skipped := map[string]string{}
@@ -918,6 +990,16 @@ func startMCP(o engineOptions, cfg config.Config, red *policy.Redactor) (*mcp.Ma
 		if !s.Disabled {
 			if msg := profileMCPSkip(o.lang, cfg.Profile, s); msg != "" {
 				skipped[s.ID] = msg
+				skippedOrder = append(skippedOrder, s.ID)
+				continue
+			}
+			// Politique d'organisation : même chemin que le profil.
+			var command0 string
+			if len(s.Command) > 0 {
+				command0 = s.Command[0]
+			}
+			if !cfg.Policy.AllowsMCP(s.Transport, s.URL, command0) {
+				skipped[s.ID] = i18n.T(o.lang, "policy.mcp_skipped", cfg.Policy.ID, s.ID)
 				skippedOrder = append(skippedOrder, s.ID)
 				continue
 			}
@@ -932,7 +1014,7 @@ func startMCP(o engineOptions, cfg config.Config, red *policy.Redactor) (*mcp.Ma
 	// --allow-non-eu sans interface, la validation (ForceAsk) suffit dans la
 	// TUI.
 	consent := func(id string) bool {
-		// Défense en profondeur : un serveur exclus par le profil n'est jamais admis.
+		// Défense en profondeur : un serveur exclus (profil, politique) n'est jamais admis.
 		if _, ok := skipped[id]; ok {
 			return false
 		}

@@ -33,6 +33,10 @@ type Options struct {
 	// Profile est le profil de conformité actif, affiché dans l'écran de
 	// bienvenue ("" : aucun profil, aucune ligne).
 	Profile string
+	// Policy est la ligne de la politique d'organisation, déjà traduite
+	// (« policy: acme-dev v3 (key …) »), affichée sous celle du profil
+	// ("" : aucune politique, aucune ligne).
+	Policy string
 	// Version est la version affichée dans l'écran de bienvenue ("dev" si vide).
 	Version string
 	// Redact masque tout texte venu des événements avant affichage (même

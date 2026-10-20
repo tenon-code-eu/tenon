@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/tenon-code-eu/tenon/internal/i18n"
 	"github.com/tenon-code-eu/tenon/internal/policy"
 	"github.com/tenon-code-eu/tenon/internal/tools"
 )
@@ -66,7 +67,7 @@ func TestLoadSetupProjectAskOverridesGlobalAllow(t *testing.T) {
 		}
 		return ""
 	}
-	s, err := loadSetup(getenv, wd)
+	s, err := loadSetup(i18n.FR, getenv, wd)
 	if err != nil {
 		t.Fatal(err)
 	}
