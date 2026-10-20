@@ -7,6 +7,8 @@ import (
 	"os"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/tenon-code-eu/tenon/internal/profile"
 )
 
 // projectFile ne contient que les clés autorisées dans .tenon/config.toml.
@@ -15,6 +17,7 @@ type projectFile struct {
 	Lang        string      `toml:"lang"`
 	Permissions Permissions `toml:"permissions"`
 	Redaction   Redaction   `toml:"redaction"`
+	Profile     string      `toml:"profile"`
 }
 
 // Load fusionne défauts, configuration globale puis configuration projet.
@@ -44,6 +47,11 @@ func Load(globalPath, projectPath string, getenv func(string) string) (Config, e
 		cfg.MCP = g.MCP
 		cfg.Hooks = g.Hooks
 		cfg.Checkpoints = g.Checkpoints
+		gp, err := profile.Parse(string(g.Profile))
+		if err != nil {
+			return Config{}, fmt.Errorf("config: %w", err)
+		}
+		cfg.Profile = gp
 		for i := range cfg.MCP.Servers {
 			if s := &cfg.MCP.Servers[i]; s.Transport == "stdio" && s.Jurisdiction == "" {
 				s.Jurisdiction = "local"
@@ -79,6 +87,15 @@ func Load(globalPath, projectPath string, getenv func(string) string) (Config, e
 		if p.Lang != "" {
 			cfg.Lang = p.Lang
 		}
+		pp, err := profile.Parse(p.Profile)
+		if err != nil {
+			return Config{}, fmt.Errorf("project config: %w", err)
+		}
+		// Le projet ne peut que durcir le profil global.
+		if pp != profile.None && profile.Stricter(cfg.Profile, pp) != pp {
+			cfg.WeakerProjectProfile = pp
+		}
+		cfg.Profile = profile.Stricter(cfg.Profile, pp)
 		cfg.Permissions.Rules = append(cfg.Permissions.Rules, p.Permissions.Rules...)
 		cfg.Redaction.Rules = append(cfg.Redaction.Rules, p.Redaction.Rules...)
 	}

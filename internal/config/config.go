@@ -13,6 +13,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/tenon-code-eu/tenon/internal/profile"
 )
 
 type Config struct {
@@ -37,6 +39,12 @@ type Config struct {
 	// Checkpoints : copies des fichiers avant écriture (/rewind). Clé globale
 	// uniquement.
 	Checkpoints Checkpoints `toml:"checkpoints"`
+	// Profile : profil de conformité effectif après Load (le plus strict du
+	// global et du projet). Le projet peut seulement le durcir.
+	Profile profile.Name `toml:"profile"`
+	// WeakerProjectProfile : valeur projet ignorée car plus faible que le
+	// profil global. Jamais lue depuis le TOML ; le CLI en tire un avis.
+	WeakerProjectProfile profile.Name `toml:"-"`
 }
 
 // Checkpoints règle la rétention des copies. 0 désactive les copies.

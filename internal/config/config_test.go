@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/tenon-code-eu/tenon/internal/profile"
 )
 
 func env(m map[string]string) func(string) string {
@@ -537,6 +539,54 @@ func TestCheckpointsNegative(t *testing.T) {
 
 func TestCheckpointsProjectRefused(t *testing.T) {
 	_, err := Load("", write(t, "[checkpoints]\nretention_days = 1\n"), env(nil))
+	if err == nil || !strings.Contains(err.Error(), "key not allowed") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestProfileDefault(t *testing.T) {
+	c, err := Load("", "", env(nil))
+	if err != nil || c.Profile != profile.None || c.WeakerProjectProfile != profile.None {
+		t.Fatalf("c = %+v err = %v", c, err)
+	}
+}
+
+func TestProfileGlobal(t *testing.T) {
+	c, err := Load(write(t, "profile = \"eu-only\"\n"), "", env(nil))
+	if err != nil || c.Profile != profile.EUOnly {
+		t.Fatalf("profile = %q err = %v", c.Profile, err)
+	}
+}
+
+func TestProfileProjectTightens(t *testing.T) {
+	c, err := Load("", write(t, "profile = \"strict-local\"\n"), env(nil))
+	if err != nil || c.Profile != profile.StrictLocal || c.WeakerProjectProfile != profile.None {
+		t.Fatalf("c = %q/%q err = %v", c.Profile, c.WeakerProjectProfile, err)
+	}
+}
+
+func TestProfileProjectWeakerIgnored(t *testing.T) {
+	g := write(t, "profile = \"strict-local\"\n")
+	p := write(t, "profile = \"eu-only\"\n")
+	c, err := Load(g, p, env(nil))
+	if err != nil || c.Profile != profile.StrictLocal || c.WeakerProjectProfile != profile.EUOnly {
+		t.Fatalf("c = %q/%q err = %v", c.Profile, c.WeakerProjectProfile, err)
+	}
+}
+
+func TestProfileUnknown(t *testing.T) {
+	_, err := Load(write(t, "profile = \"x\"\n"), "", env(nil))
+	if err == nil || !strings.HasPrefix(err.Error(), "config: ") || !strings.Contains(err.Error(), `unknown profile "x"`) {
+		t.Fatalf("global err = %v", err)
+	}
+	_, err = Load("", write(t, "profile = \"x\"\n"), env(nil))
+	if err == nil || !strings.HasPrefix(err.Error(), "project config:") || !strings.Contains(err.Error(), `unknown profile "x"`) {
+		t.Fatalf("project err = %v", err)
+	}
+}
+
+func TestProfileWeakerNotSettableFromTOML(t *testing.T) {
+	_, err := Load(write(t, "weaker_project_profile = \"eu-only\"\n"), "", env(nil))
 	if err == nil || !strings.Contains(err.Error(), "key not allowed") {
 		t.Fatalf("err = %v", err)
 	}
