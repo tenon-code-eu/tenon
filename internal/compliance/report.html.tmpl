@@ -1,4 +1,10 @@
 {{define "none"}}<p class="muted">{{t "report.none"}}</p>{{end -}}
+{{define "unreadable"}}<h3>{{t "report.sec.unreadable"}}</h3>
+{{with .}}<table>
+<thead><tr><th>{{t "report.col.location"}}</th><th>{{t "report.col.error"}}</th></tr></thead>
+{{range .}}<tr><td class="mono">{{.File}}:{{.Line}}</td><td>{{.Error}}</td></tr>
+{{end}}</table>{{else}}{{template "none"}}{{end}}{{end -}}
+{{define "nacell"}}<td class="muted">{{t "report.unavailable"}}</td>{{end -}}
 {{define "na"}}<p class="muted">{{t "report.unavailable"}}</p>{{end -}}
 <!DOCTYPE html>
 <html lang="{{.Lang}}">
@@ -44,7 +50,7 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
 <dt>{{t "report.label.generator"}}</dt><dd>{{.Generator}}</dd>
 <dt>{{t "report.label.level"}}</dt><dd>{{tk "report.level." .Integrity.Level}}</dd>
 <dt>{{t "report.label.report_id"}}</dt><dd class="mono">{{$.ID}}</dd>
-<dt>{{t "report.label.integrity"}}</dt><dd>{{if .Integrity.Intact}}{{t "report.chain.ok" .Integrity.TotalLines .Integrity.FinalHash}}{{else}}{{t "report.chain.broken" .Integrity.Error}}{{end}}</dd>
+<dt>{{t "report.label.integrity"}}</dt><dd>{{if .Integrity.Intact}}{{if .Integrity.FinalHash}}{{t "report.chain.ok" .Integrity.TotalLines .Integrity.FinalHash}}{{else}}{{t "report.chain.ok_nohash" .Integrity.TotalLines}}{{end}}{{else}}{{t "report.chain.broken" .Integrity.Error}}{{end}}</dd>
 <dt>{{t "report.label.range"}}</dt><dd>{{t "report.range" .Integrity.RangeLines}}{{if .Integrity.FirstHash}} · {{t "report.range.hashes" .Integrity.FirstHash .Integrity.LastHash}}{{end}}</dd>
 </dl>
 <p class="disclaimer">{{t "report.disclaimer"}}</p>
@@ -55,12 +61,16 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
 {{end}}{{if gt .ExcludedMetadataSessions 0}}<div class="banner warn">{{t "report.banner.excluded" .ExcludedMetadataSessions}}</div>
 {{end}}
 {{if eq .Integrity.RangeLines 0}}<p class="banner info">{{t "report.empty"}}</p>
-{{else}}
+{{with .Incidents.Unreadable}}<section id="incidents">
+<h2>{{t "report.sec.incidents"}}</h2>
+{{template "unreadable" .}}
+</section>
+{{end}}{{else}}
 <section id="summary">
 <h2>{{t "report.sec.summary"}}</h2>
 <table>
 <tr><th>{{t "report.col.sessions"}}</th><th>{{t "report.col.turns"}}</th><th>{{t "report.col.tool_calls"}}</th><th>{{t "report.col.files_modified"}}</th><th>{{t "report.col.denials"}}</th><th>{{t "report.col.jurisdictions"}}</th></tr>
-<tr><td>{{.Summary.Sessions}}</td><td>{{.Summary.Turns}}</td><td>{{.Summary.ToolCalls}}</td><td>{{.Summary.FilesModified}}</td><td>{{.Summary.Denials}}</td><td>{{range $i, $j := .Summary.Jurisdictions}}{{if $i}}, {{end}}{{tk "report.juris." $j}}{{else}}{{t "report.none"}}{{end}}</td></tr>
+<tr><td>{{.Summary.Sessions}}</td>{{if .ContentAvailable}}<td>{{.Summary.Turns}}</td><td>{{.Summary.ToolCalls}}</td><td>{{.Summary.FilesModified}}</td><td>{{.Summary.Denials}}</td><td>{{range $i, $j := .Summary.Jurisdictions}}{{if $i}}, {{end}}{{tk "report.juris." $j}}{{else}}{{t "report.none"}}{{end}}</td>{{else}}{{template "nacell"}}{{template "nacell"}}{{template "nacell"}}{{template "nacell"}}{{template "nacell"}}{{end}}</tr>
 </table>
 </section>
 
@@ -151,12 +161,8 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
 <thead><tr><th>{{t "report.col.date"}}</th><th>{{t "report.col.session"}}</th><th>{{t "report.col.reason"}}</th></tr></thead>
 {{range .}}<tr><td>{{date .TS}}</td><td class="mono">{{.Session}}</td><td>{{.Reason}}</td></tr>
 {{end}}</table>{{else}}{{template "none"}}{{end}}
-<h3>{{t "report.sec.unreadable"}}</h3>
-{{with .Incidents.Unreadable}}<table>
-<thead><tr><th>{{t "report.col.location"}}</th><th>{{t "report.col.error"}}</th></tr></thead>
-{{range .}}<tr><td class="mono">{{.File}}:{{.Line}}</td><td>{{.Error}}</td></tr>
-{{end}}</table>{{else}}{{template "none"}}{{end}}
 {{else}}{{template "na"}}{{end}}
+{{template "unreadable" .Incidents.Unreadable}}
 </section>
 
 <section id="mapping">

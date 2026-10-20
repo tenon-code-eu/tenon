@@ -184,6 +184,42 @@ func TestRenderHTMLMetadata(t *testing.T) {
 	if strings.Contains(out, "mcp1") {
 		t.Error("contenu rendu au niveau metadata")
 	}
+	// Les lignes illisibles restent listées à tous les niveaux.
+	if !strings.Contains(out, "2026-10-01.jsonl:7") || !strings.Contains(out, "bad json") {
+		t.Error("lignes illisibles absentes au niveau metadata")
+	}
+	// Synthèse : sessions comptées, le reste non disponible.
+	if !strings.Contains(out, `<tr><td>1</td><td class="muted">non disponible au niveau metadata</td>`) {
+		t.Error("synthèse metadata sans marqueur non disponible")
+	}
+}
+
+func TestRenderHTMLEmptyKeepsUnreadable(t *testing.T) {
+	r := Report{
+		Generator: "tenon test", Period: Period{Since: "2026-10-01", Until: "2026-10-20"},
+		Scope: Scope{Kind: "all"}, Disclaimer: Disclaimer, ContentAvailable: true,
+		Integrity: Integrity{Intact: false, Error: "line 2: bad hash", Level: LevelNone},
+		Incidents: Incidents{Unreadable: []Unreadable{{File: "2026-10-02.jsonl", Line: 9, Error: "truncated"}}},
+		Mapping:   mapping(), GitHint: GitHint,
+	}
+	out := render(t, r, i18n.FR)
+	for _, want := range []string{
+		"aucune activité sur la période", "2026-10-02.jsonl:9", "truncated",
+		`class="banner broken"`, "journal altéré : line 2: bad hash",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("sortie sans %q", want)
+		}
+	}
+}
+
+func TestRenderHTMLChainWithoutHash(t *testing.T) {
+	r := richReport(false)
+	r.Integrity.TotalLines, r.Integrity.FinalHash = 0, ""
+	out := render(t, r, i18n.FR)
+	if !strings.Contains(out, "<dd>chaîne intacte : 0 lignes</dd>") {
+		t.Error("ligne d'intégrité sans hash incorrecte")
+	}
 }
 
 func TestRenderHTMLEmptyAndNone(t *testing.T) {
@@ -206,7 +242,7 @@ func TestRenderHTMLEmptyAndNone(t *testing.T) {
 	r.Integrity.RangeLines = 1
 	r.Scope = Scope{Kind: "session", Session: "sess-42"}
 	out = render(t, r, i18n.FR)
-	if !strings.Contains(out, "aucun") || !strings.Contains(out, "sess-42") {
+	if !strings.Contains(out, `<p class="muted">aucun</p>`) || !strings.Contains(out, "sess-42") {
 		t.Error("section vide sans aucun, ou périmètre session absent")
 	}
 }
