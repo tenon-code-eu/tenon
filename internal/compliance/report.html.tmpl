@@ -49,7 +49,7 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
 <dt>{{t "report.label.generated"}}</dt><dd>{{date .GeneratedAt}}</dd>
 <dt>{{t "report.label.generator"}}</dt><dd>{{.Generator}}</dd>
 <dt>{{t "report.label.level"}}</dt><dd>{{tk "report.level." .Integrity.Level}}</dd>
-<dt>{{t "report.label.profiles"}}</dt><dd>{{if .Profiles}}{{range $i, $p := .Profiles}}{{if $i}}, {{end}}{{$p}}{{end}}{{else}}{{t "report.none"}}{{end}}</dd>
+<dt>{{t "report.label.profiles"}}</dt><dd>{{if not .ContentAvailable}}{{t "report.unavailable"}}{{else if .Profiles}}{{range $i, $p := .Profiles}}{{if $i}}, {{end}}{{$p}}{{end}}{{else}}{{t "report.none"}}{{end}}</dd>
 <dt>{{t "report.label.report_id"}}</dt><dd class="mono">{{$.ID}}</dd>
 <dt>{{t "report.label.integrity"}}</dt><dd>{{if .Integrity.Intact}}{{if .Integrity.FinalHash}}{{t "report.chain.ok" .Integrity.TotalLines .Integrity.FinalHash}}{{else}}{{t "report.chain.ok_nohash" .Integrity.TotalLines}}{{end}}{{else}}{{t "report.chain.broken" .Integrity.Error}}{{end}}</dd>
 <dt>{{t "report.label.range"}}</dt><dd>{{t "report.range" .Integrity.RangeLines}}{{if .Integrity.FirstHash}} · {{t "report.range.hashes" .Integrity.FirstHash .Integrity.LastHash}}{{end}}</dd>

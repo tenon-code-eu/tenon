@@ -26,6 +26,11 @@ type Option func(*OpenAICompat)
 // WithHTTPClient sets the HTTP client.
 func WithHTTPClient(c *http.Client) Option { return func(o *OpenAICompat) { o.client = c } }
 
+// WithoutProxy makes the client ignore HTTP_PROXY/HTTPS_PROXY (strict-local
+// profile): a private address accepted by the profile must not leave the
+// machine through an environment proxy.
+func WithoutProxy() Option { return func(o *OpenAICompat) { o.noProxy = true } }
+
 // WithSleep overrides the wait function used between retries. It must return
 // ctx.Err() as soon as ctx is cancelled.
 func WithSleep(f func(context.Context, time.Duration) error) Option {
@@ -46,10 +51,11 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 
 // OpenAICompat implements Provider for OpenAI-compatible chat completions.
 type OpenAICompat struct {
-	info   llm.ProviderInfo
-	apiKey string
-	client *http.Client
-	sleep  func(context.Context, time.Duration) error
+	info    llm.ProviderInfo
+	apiKey  string
+	client  *http.Client
+	sleep   func(context.Context, time.Duration) error
+	noProxy bool
 }
 
 // NewOpenAICompat builds a provider for info.BaseURL.
@@ -62,6 +68,14 @@ func NewOpenAICompat(info llm.ProviderInfo, apiKey string, opts ...Option) *Open
 	o := &OpenAICompat{info: info, apiKey: apiKey, client: client, sleep: sleepCtx}
 	for _, opt := range opts {
 		opt(o)
+	}
+	if o.noProxy {
+		// Copie : un client fourni par WithHTTPClient n'est pas modifié.
+		tr := http.DefaultTransport.(*http.Transport).Clone()
+		tr.Proxy = nil
+		c := *o.client
+		c.Transport = tr
+		o.client = &c
 	}
 	return o
 }

@@ -812,3 +812,38 @@ func processGone(pid int) bool {
 	i := strings.LastIndexByte(string(b), ')')
 	return i >= 0 && i+2 < len(b) && b[i+2] == 'Z'
 }
+
+// baseTransport déroule bearer et capBody jusqu'au *http.Transport.
+func baseTransport(t *testing.T, rt http.RoundTripper) *http.Transport {
+	t.Helper()
+	for {
+		switch v := rt.(type) {
+		case *bearer:
+			rt = v.base
+		case *capBody:
+			rt = v.base
+		case *http.Transport:
+			return v
+		default:
+			t.Fatalf("transport inattendu %T", rt)
+		}
+	}
+}
+
+// NoProxy (strict-local) : les clients HTTP MCP ignorent les variables de
+// proxy ; sans lui, le proxy d'environnement reste suivi.
+func TestHTTPClientNoProxy(t *testing.T) {
+	opts := Options{ConnectTimeout: time.Second, CallTimeout: time.Second}
+	if baseTransport(t, httpClient("tok", opts).Transport).Proxy == nil {
+		t.Error("Proxy nil sans NoProxy")
+	}
+	opts.NoProxy = true
+	c := httpClient("tok", opts)
+	tr := baseTransport(t, c.Transport)
+	if tr.Proxy != nil {
+		t.Error("Proxy non nil sous NoProxy")
+	}
+	if tr.TLSHandshakeTimeout != time.Second || c.CheckRedirect == nil {
+		t.Error("délais ou refus des redirections perdus")
+	}
+}

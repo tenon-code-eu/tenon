@@ -68,6 +68,10 @@ type Options struct {
 	// outils d'un serveur hors UE exigent une validation humaine (ForceAsk).
 	AllowNonEU bool
 
+	// NoProxy (profil strict-local) : les clients HTTP ignorent
+	// HTTP_PROXY/HTTPS_PROXY ; une adresse privée ne sort pas par un proxy.
+	NoProxy bool
+
 	// dial remplace le transport réel (tests).
 	dial func(config.MCPServer) (sdk.Transport, error)
 }
@@ -496,6 +500,9 @@ func httpClient(token string, opts Options) *http.Client {
 	base.DialContext = (&net.Dialer{Timeout: opts.ConnectTimeout}).DialContext
 	base.TLSHandshakeTimeout = opts.ConnectTimeout
 	base.ResponseHeaderTimeout = opts.CallTimeout + opts.ConnectTimeout
+	if opts.NoProxy {
+		base.Proxy = nil
+	}
 	var rt http.RoundTripper = &capBody{base: base, max: maxBody}
 	if token != "" {
 		rt = &bearer{base: rt, token: token}

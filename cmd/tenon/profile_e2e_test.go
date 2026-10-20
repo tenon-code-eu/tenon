@@ -139,14 +139,14 @@ jurisdiction = "local"
 `)
 	e.editGlobal("profile = \"strict-local\"\n")
 	code, _, errb := e.run("--lang", "en", "--provider", "ollama", "-p", "salut")
-	if code != 1 || !strings.Contains(errb, `profile strict-local: provider "ollama" url host "gpu.invalid" is not a local address`) {
+	if code != 1 || !strings.Contains(errb, `profile strict-local: provider "ollama" url host "gpu.invalid" is not a local address (set a local base_url (localhost or a private IP address))`) {
 		t.Fatalf("code=%d stderr=%q", code, errb)
 	}
 	if strings.Contains(errb, "unreachable") || strings.Contains(errb, "serves no model") {
 		t.Fatalf("détection lancée : %q", errb)
 	}
 	code, _, errb = e.run("--provider", "ollama", "-p", "salut")
-	if code != 1 || !strings.Contains(errb, "profil strict-local : l'hôte « gpu.invalid » de l'URL du fournisseur « ollama » n'est pas une adresse locale") {
+	if code != 1 || !strings.Contains(errb, "profil strict-local : l'hôte « gpu.invalid » de l'URL du fournisseur « ollama » n'est pas une adresse locale (fixez une base_url locale (localhost ou une adresse IP privée))") {
 		t.Fatalf("fr : code=%d stderr=%q", code, errb)
 	}
 }

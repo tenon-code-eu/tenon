@@ -579,7 +579,11 @@ func profileProviderErr(lang i18n.Lang, n profile.Name, info llm.ProviderInfo) e
 		msg = i18n.T(lang, "err.profile_provider", n, info.ID, profileJurisdiction(lang, string(info.Jurisdiction)))
 	}
 	if n == profile.StrictLocal {
-		msg += " (" + i18n.T(lang, "profile.hint_local") + ")"
+		hint := "profile.hint_local"
+		if info.Jurisdiction == llm.Local {
+			hint = "profile.hint_local_url"
+		}
+		msg += " (" + i18n.T(lang, hint) + ")"
 	}
 	return errors.New(msg)
 }
@@ -827,8 +831,15 @@ func startEngine(o engineOptions) (started, error) {
 	// masquer aucun outil interne.
 	ts = append(ts, mgr.Tools()...)
 
+	// strict-local : le fournisseur ignore les variables de proxy, sinon une
+	// adresse privée acceptée par le profil sortirait par un proxy.
+	var provOpts []provider.Option
+	if cfg.Profile == profile.StrictLocal {
+		provOpts = append(provOpts, provider.WithoutProxy())
+	}
+
 	eng := engine.New(engine.Deps{
-		Provider:            provider.NewOpenAICompat(info, apiKey),
+		Provider:            provider.NewOpenAICompat(info, apiKey, provOpts...),
 		Tools:               tools.NewRegistry(ts...),
 		Permissions:         perm,
 		Outbound:            out,
@@ -938,6 +949,7 @@ func startMCP(o engineOptions, cfg config.Config, red *policy.Redactor) (*mcp.Ma
 		Consent:     consent,
 		Root:        o.wd,
 		AllowNonEU:  allowNonEU,
+		NoProxy:     cfg.Profile == profile.StrictLocal,
 	})
 	liveMCP.Store(mgr)
 	// Comme les clés d'API : une valeur trop courte (ex. DEBUG=1) masquerait

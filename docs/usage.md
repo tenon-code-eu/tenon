@@ -967,12 +967,13 @@ The profile in force is recorded in the `profile` field of `SessionStarted` (omi
 The welcome screen shows a `profile: <name>` line.
 `tenon config check` prints a `profile: <name>` line only when a profile is active, then checks the selected provider (`--provider` is honored) and exits with code 1 if it is refused.
 The [compliance export](#compliance-export) lists the profiles of the sessions in the `profiles` key.
+At metadata level the profile is unknown (not available) and `profiles` is `[]`. In a range with mixed levels, sessions logged at metadata level add nothing to `profiles`.
 
 **What profiles do not cover.**
 
 - Shell commands: an approved command, or a program started by a stdio MCP server, can still reach the network. A profile bounds the data sent to the model and the MCP servers, not what a command does.
 - Permissions: approval rules are unchanged.
-- The audit level (`audit.level`) and hooks: a hook is a command you wrote and is not filtered by the profile.
+- The audit level (`audit.level`) and command hooks (prompt and agent hooks go through the model and are checked): a command hook is a command you wrote and is not filtered by the profile.
 
 ## API keys and keyring
 
@@ -1129,7 +1130,7 @@ It does not modify the log and does not lock it.
 
 ### What the report contains
 
-- **Applied profiles**: the compliance profiles of the sessions in the range, in the report header.
+- **Applied profiles**: the compliance profiles of the sessions in the range, in the report header. At metadata level the profile is unknown: the row shows "not available at metadata level".
 - **Summary**: sessions, turns, tool calls, modified files, denials, jurisdictions of the providers.
 - **Providers and transfers**: provider, model, country and jurisdiction, number of sessions, first and last activity; jurisdiction consents granted and denied; sessions with a jurisdiction warning; MCP servers and their failures.
 - **Redactions**: number of masked items per category.
@@ -1235,7 +1236,7 @@ Envelope:
 | `content_available` | boolean | `false` at metadata level |
 | `excluded_metadata_sessions` | number | sessions left out of the project scope (project unknown at metadata level) |
 | `summary` | object | `sessions`, `turns`, `tool_calls`, `files_modified`, `denials` (numbers), `jurisdictions` (list of strings), `unknown_provider_sessions` (number: sessions in the range whose provider is unknown, 0 at metadata level) |
-| `profiles` | list | strings: distinct compliance profiles of the sessions in the range (`[]` without profile and at metadata level) |
+| `profiles` | list | strings: distinct compliance profiles of the sessions in the range (`[]` without profile; also `[]` at metadata level, where the profile is unknown, not absent; in a mixed-level range, sessions at metadata level add nothing) |
 | `providers` | list | `id`, `name`, `model`, `country`, `jurisdiction` (strings), `sessions` (number), `first`, `last` (dates) |
 | `jurisdiction_consents` | object | `granted`, `denied` (numbers) |
 | `jurisdiction_warning_sessions` | list | session ids |

@@ -345,3 +345,21 @@ func TestRenderHTMLProfiles(t *testing.T) {
 		}
 	}
 }
+
+// Au niveau metadata le profil est inconnu : la ligne dit « non disponible »,
+// jamais « aucun ».
+func TestRenderHTMLProfilesMetadata(t *testing.T) {
+	for _, c := range []struct {
+		l           i18n.Lang
+		label, unav string
+	}{{i18n.FR, "Profils appliqués", "non disponible au niveau metadata"}, {i18n.EN, "Applied profiles", "not available at metadata level"}} {
+		r := richReport(false)
+		r.Integrity.Level = LevelMetadata
+		r.ContentAvailable = false
+		r.Profiles = []string{}
+		out := render(t, r, c.l)
+		if !strings.Contains(out, "<dt>"+c.label+"</dt><dd>"+c.unav+"</dd>") {
+			t.Errorf("%s: metadata profiles row not marked unavailable", c.l)
+		}
+	}
+}

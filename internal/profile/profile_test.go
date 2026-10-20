@@ -60,6 +60,9 @@ func TestCheckProvider(t *testing.T) {
 		{"strict private", StrictLocal, p("v", llm.Local, "http://192.168.0.5:8000/v1"), ""},
 		{"strict lan", StrictLocal, p("vllm", llm.Local, "http://gpu.lan:8000/v1"), `profile strict-local: provider "vllm" url host "gpu.lan" is not a local address`},
 		{"strict eu", StrictLocal, p("mistral", llm.EU, "http://localhost"), `profile strict-local: provider "mistral" (eu) not allowed`},
+		{"strict empty url", StrictLocal, p("v", llm.Local, ""), `profile strict-local: provider "v" url host "" is not a local address`},
+		{"strict bad url", StrictLocal, p("v", llm.Local, "::bad"), `profile strict-local: provider "v" url host "" is not a local address`},
+		{"strict no scheme", StrictLocal, p("v", llm.Local, "localhost:11434"), `profile strict-local: provider "v" url host "" is not a local address`},
 	}
 	for _, tt := range tests {
 		err := CheckProvider(tt.n, tt.p)
@@ -110,7 +113,8 @@ func TestIsLocalHost(t *testing.T) {
 			t.Errorf("IsLocalHost(%q) = false", h)
 		}
 	}
-	for _, h := range []string{"fe80::1", "172.32.0.1", "8.8.8.8", "example.com", "gpu.lan", "localhost.", "127.1", ""} {
+	for _, h := range []string{"fe80::1", "172.32.0.1", "8.8.8.8", "example.com", "gpu.lan", "localhost.", "127.1", "",
+		"::ffff:127.0.0.1", "::ffff:8.8.8.8", "0.0.0.0", "::"} {
 		if IsLocalHost(h) {
 			t.Errorf("IsLocalHost(%q) = true", h)
 		}

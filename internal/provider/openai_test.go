@@ -346,3 +346,23 @@ func TestUnavailableKeepsProviderMessage(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+// Sous strict-local (WithoutProxy), le client ignore HTTP_PROXY/HTTPS_PROXY :
+// une adresse privée acceptée par le profil ne doit pas sortir par un proxy.
+func TestWithoutProxy(t *testing.T) {
+	o := NewOpenAICompat(llm.ProviderInfo{BaseURL: "http://10.1.2.3:8000/v1"}, "k", WithoutProxy())
+	tr, ok := o.client.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("transport = %T, want *http.Transport", o.client.Transport)
+	}
+	if tr.Proxy != nil {
+		t.Error("Proxy non nil sous WithoutProxy")
+	}
+	if o.client.CheckRedirect == nil {
+		t.Error("refus des redirections perdu")
+	}
+	// Sans l'option : transport par défaut, comportement inchangé.
+	if d := NewOpenAICompat(llm.ProviderInfo{}, "k"); d.client.Transport != nil {
+		t.Errorf("transport par défaut modifié : %T", d.client.Transport)
+	}
+}

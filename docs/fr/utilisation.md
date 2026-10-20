@@ -969,12 +969,13 @@ Le profil en vigueur est enregistré dans le champ `profile` de `SessionStarted`
 L'écran d'accueil affiche une ligne `profil : <nom>`.
 `tenon config check` affiche une ligne `profil : <nom>` seulement quand un profil est actif, puis contrôle le fournisseur sélectionné (`--provider` est pris en compte) et sort avec le code 1 s'il est refusé.
 L'[export de conformité](#export-de-conformité) liste les profils des sessions dans la clé `profiles`.
+Au niveau metadata, le profil est inconnu (non disponible) et `profiles` vaut `[]`. Dans une plage aux niveaux mêlés, les sessions journalisées au niveau metadata n'ajoutent rien à `profiles`.
 
 **Ce que les profils ne couvrent pas.**
 
 - Les commandes shell : une commande approuvée, ou un programme lancé par un serveur MCP stdio, peut toujours accéder au réseau. Un profil borne les données envoyées au modèle et aux serveurs MCP, pas ce que fait une commande.
 - Les permissions : les règles de validation ne changent pas.
-- Le niveau d'audit (`audit.level`) et les hooks : un hook est une commande que vous avez écrite, le profil ne la filtre pas.
+- Le niveau d'audit (`audit.level`) et les hooks de commande (les hooks prompt et agent passent par le modèle et sont contrôlés) : un hook de commande est une commande que vous avez écrite, le profil ne la filtre pas.
 
 ## Clés d'API et trousseau
 
@@ -1131,7 +1132,7 @@ Elle ne modifie pas le journal et ne le verrouille pas.
 
 ### Contenu du rapport
 
-- **Profils appliqués** : les profils de conformité des sessions de la plage, dans l'en-tête du rapport.
+- **Profils appliqués** : les profils de conformité des sessions de la plage, dans l'en-tête du rapport. Au niveau metadata, le profil est inconnu : la ligne affiche « non disponible au niveau metadata ».
 - **Synthèse** : sessions, tours, appels d'outils, fichiers modifiés, refus, juridictions des fournisseurs.
 - **Fournisseurs et transferts** : fournisseur, modèle, pays et juridiction, nombre de sessions, première et dernière activité ; consentements de juridiction accordés et refusés ; sessions avec avertissement de juridiction ; serveurs MCP et leurs pannes.
 - **Masquages** : nombre d'éléments masqués par catégorie.
@@ -1237,7 +1238,7 @@ Enveloppe :
 | `content_available` | booléen | `false` au niveau metadata |
 | `excluded_metadata_sessions` | nombre | sessions écartées du périmètre projet (projet inconnu au niveau metadata) |
 | `summary` | objet | `sessions`, `turns`, `tool_calls`, `files_modified`, `denials` (nombres), `jurisdictions` (liste de chaînes), `unknown_provider_sessions` (nombre : sessions de la plage au fournisseur inconnu, 0 au niveau metadata) |
-| `profiles` | liste | chaînes : profils de conformité distincts des sessions de la plage (`[]` sans profil et au niveau metadata) |
+| `profiles` | liste | chaînes : profils de conformité distincts des sessions de la plage (`[]` sans profil ; `[]` aussi au niveau metadata, où le profil est inconnu et non absent ; dans une plage aux niveaux mêlés, les sessions au niveau metadata n'ajoutent rien) |
 | `providers` | liste | `id`, `name`, `model`, `country`, `jurisdiction` (chaînes), `sessions` (nombre), `first`, `last` (dates) |
 | `jurisdiction_consents` | objet | `granted`, `denied` (nombres) |
 | `jurisdiction_warning_sessions` | liste | identifiants de sessions |
