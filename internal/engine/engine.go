@@ -149,6 +149,11 @@ func New(d Deps) *Engine {
 	if d.Lang == "" {
 		d.Lang = i18n.FR
 	}
+	// Deps.Profile est la seule source du profil : Outbound le revérifie
+	// avant chaque envoi.
+	if d.Outbound != nil {
+		d.Outbound.SetProfile(d.Profile)
+	}
 	reg := d.Tools
 	if d.Agents != nil {
 		reg = reg.With(agentTool{})

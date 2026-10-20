@@ -30,6 +30,9 @@ type Options struct {
 	Provider      llm.ProviderInfo
 	ContextWindow int
 	ProjectRoot   string
+	// Profile est le profil de conformité actif, affiché dans l'écran de
+	// bienvenue ("" : aucun profil, aucune ligne).
+	Profile string
 	// Version est la version affichée dans l'écran de bienvenue ("dev" si vide).
 	Version string
 	// Redact masque tout texte venu des événements avant affichage (même

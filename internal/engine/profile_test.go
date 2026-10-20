@@ -63,3 +63,21 @@ func TestSessionStartedProfile(t *testing.T) {
 		t.Fatalf("payload %s", evs[0].Payload)
 	}
 }
+
+// New transmet Deps.Profile à Outbound : la CLI ne fixe que Deps.Profile.
+func TestNewAppliesProfileToOutbound(t *testing.T) {
+	h := newHarness(t, nonEUInfo, [][]llm.Chunk{text("ok")}, func(d *Deps) {
+		d.Profile = profile.EUOnly
+		d.Outbound.Consent(nonEUInfo.ID)
+	})
+	evs, err := h.submit(t, "s_1", "salut", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := len(h.prov.reqs()); n != 0 {
+		t.Fatalf("provider called %d times", n)
+	}
+	if errs := ofType(evs, event.Error); len(errs) != 1 || decode[event.ErrorPayload](t, errs[0]).Code != "profile" {
+		t.Fatalf("events %v", types(evs))
+	}
+}

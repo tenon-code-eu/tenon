@@ -10,6 +10,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -31,6 +32,7 @@ import (
 	"github.com/tenon-code-eu/tenon/internal/llm"
 	"github.com/tenon-code-eu/tenon/internal/mcp"
 	"github.com/tenon-code-eu/tenon/internal/policy"
+	"github.com/tenon-code-eu/tenon/internal/profile"
 	"github.com/tenon-code-eu/tenon/internal/provider"
 	"github.com/tenon-code-eu/tenon/internal/secrets"
 	"github.com/tenon-code-eu/tenon/internal/session"
@@ -128,6 +130,20 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		if err != nil {
 			fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", err))
 			return 1
+		}
+		// Profil effectif, puis conformité du fournisseur sélectionné.
+		if n := cs.cfg.Profile; n != profile.None {
+			fmt.Fprintln(stdout, i18n.T(lang, "config.profile", n))
+			id := *providerID
+			if id == "" {
+				id = cs.cfg.DefaultProvider
+			}
+			if pc, ok := cs.cfg.Provider(id); ok {
+				if err := profileProviderErr(lang, n, providerInfo(pc)); err != nil {
+					fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", err))
+					return 1
+				}
+			}
 		}
 		fmt.Fprintln(stdout, i18n.T(lang, "config.ok"))
 		return 0
@@ -285,6 +301,7 @@ func runInteractive(ctx context.Context, fs *flag.FlagSet, lang i18n.Lang, o eng
 		ContextWindow: st.contextWindow,
 		ProjectRoot:   o.wd,
 		Version:       version,
+		Profile:       string(st.profile),
 		Redact:        redactText(st.redactor),
 		Skills:        st.skills,
 		Agents:        st.agents,
@@ -518,6 +535,68 @@ type started struct {
 	// provider et contextWindow décrivent le fournisseur choisi (barre d'état).
 	provider      llm.ProviderInfo
 	contextWindow int
+	// profile est le profil de conformité effectif (écran de bienvenue).
+	profile profile.Name
+}
+
+// providerInfo décrit le fournisseur configuré pc.
+func providerInfo(pc config.Provider) llm.ProviderInfo {
+	return llm.ProviderInfo{
+		ID: pc.ID, Name: pc.Name, BaseURL: pc.BaseURL, Model: pc.Model,
+		Country: pc.Country, Jurisdiction: llm.Jurisdiction(pc.Jurisdiction),
+	}
+}
+
+// profileJurisdiction rend une juridiction lisible (« inconnue » si vide).
+func profileJurisdiction(lang i18n.Lang, j string) string {
+	if j == "" {
+		return i18n.T(lang, "profile.jurisdiction_unknown")
+	}
+	return j
+}
+
+// urlHost renvoie l'hôte d'une URL (vide si illisible).
+func urlHost(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return u.Hostname()
+}
+
+// profileProviderErr contrôle le fournisseur info contre le profil n et
+// renvoie l'erreur traduite (nil s'il est conforme). profile.CheckProvider
+// décide ; le message est reconstruit ici depuis les valeurs connues :
+// sous strict-local, un fournisseur local ne peut échouer que par son hôte.
+func profileProviderErr(lang i18n.Lang, n profile.Name, info llm.ProviderInfo) error {
+	if profile.CheckProvider(n, info) == nil {
+		return nil
+	}
+	var msg string
+	if n == profile.StrictLocal && info.Jurisdiction == llm.Local {
+		msg = i18n.T(lang, "err.profile_host", info.ID, urlHost(info.BaseURL))
+	} else {
+		msg = i18n.T(lang, "err.profile_provider", n, info.ID, profileJurisdiction(lang, string(info.Jurisdiction)))
+	}
+	if n == profile.StrictLocal {
+		msg += " (" + i18n.T(lang, "profile.hint_local") + ")"
+	}
+	return errors.New(msg)
+}
+
+// profileMCPSkip contrôle le serveur MCP s contre le profil n et renvoie
+// l'avis traduit de son exclusion ("" s'il est conforme). Comme pour le
+// fournisseur, seul un serveur local non stdio peut échouer par son hôte.
+func profileMCPSkip(lang i18n.Lang, n profile.Name, s config.MCPServer) string {
+	t := profile.MCPTarget{ID: s.ID, Transport: s.Transport, URL: s.URL, Jurisdiction: s.Jurisdiction}
+	if profile.CheckMCP(n, t) == nil {
+		return ""
+	}
+	reason := profileJurisdiction(lang, s.Jurisdiction)
+	if n == profile.StrictLocal && s.Jurisdiction == string(llm.Local) {
+		reason = i18n.T(lang, "profile.reason_host", urlHost(s.URL))
+	}
+	return i18n.T(lang, "profile.mcp_skipped", n, s.ID, reason)
 }
 
 // startEngine assemble configuration, fournisseur, politique, outils, audit et
@@ -529,6 +608,15 @@ func startEngine(o engineOptions) (started, error) {
 		return started{}, err
 	}
 	cfg := s.cfg
+	// Sous un profil, --allow-non-eu est refusé avant toute autre étape.
+	if o.allowNonEU && cfg.Profile != profile.None {
+		return started{}, errors.New(i18n.T(lang, "err.profile_allow_non_eu", cfg.Profile))
+	}
+	var profileNotices []string
+	if cfg.WeakerProjectProfile != profile.None {
+		// La valeur projet, plus faible, a été ignorée : cfg.Profile est le profil global.
+		profileNotices = append(profileNotices, i18n.T(lang, "profile.weaker_project", cfg.WeakerProjectProfile, cfg.Profile))
+	}
 	hookSet, hookNotices, err := loadHooks(lang, getenv, wd, cfg.Hooks)
 	if err != nil {
 		return started{}, err
@@ -542,14 +630,16 @@ func startEngine(o engineOptions) (started, error) {
 	if !ok {
 		return started{}, errors.New(i18n.T(lang, "err.unknown_provider", providerID))
 	}
+	// Profil avant toute connexion : la détection d'un modèle local
+	// contacterait l'hôte configuré.
+	if err := profileProviderErr(lang, cfg.Profile, providerInfo(pc)); err != nil {
+		return started{}, err
+	}
 	pc, detectNotices, err := detectLocal(o.ctx, lang, pc)
 	if err != nil {
 		return started{}, err
 	}
-	info := llm.ProviderInfo{
-		ID: pc.ID, Name: pc.Name, BaseURL: pc.BaseURL, Model: pc.Model,
-		Country: pc.Country, Jurisdiction: llm.Jurisdiction(pc.Jurisdiction),
-	}
+	info := providerInfo(pc)
 	// Environnement d'abord, puis trousseau. Un trousseau illisible ne bloque
 	// pas : la clé est considérée absente. Les clés de TOUS les fournisseurs
 	// configurés sont masquées (un outil peut afficher celle d'un autre) :
@@ -760,6 +850,7 @@ func startEngine(o engineOptions) (started, error) {
 		Checkpoints:         store,
 		TranscriptPath:      filepath.Join(sdir, sid+".jsonl"),
 		Notify:              o.interactive,
+		Profile:             cfg.Profile,
 	})
 	if o.resume != "" {
 		if err := eng.Restore(sid, events); err != nil {
@@ -768,9 +859,9 @@ func startEngine(o engineOptions) (started, error) {
 		}
 	}
 	return started{
-		eng: eng, redactor: red, sessionID: sid, close: closeAll, notices: slices.Concat(detectNotices, skillNotices, ad.notices, hookNotices, ckNotices, notices), skills: cat, agents: ad.cat, hooks: hookSet,
+		eng: eng, redactor: red, sessionID: sid, close: closeAll, notices: slices.Concat(profileNotices, detectNotices, skillNotices, ad.notices, hookNotices, ckNotices, notices), skills: cat, agents: ad.cat, hooks: hookSet,
 		downNotices: downNotices(o.lang, unavailable, red),
-		provider:    info, contextWindow: pc.Window(),
+		provider:    info, contextWindow: pc.Window(), profile: cfg.Profile,
 	}, nil
 }
 
@@ -806,8 +897,21 @@ func startMCP(o engineOptions, cfg config.Config, red *policy.Redactor) (*mcp.Ma
 		ctx = context.Background()
 	}
 	jurisdiction := map[string]llm.Jurisdiction{}
+	// Serveurs exclus par le profil : ni lancés ni contactés, signalés
+	// indisponibles. Un serveur désactivé n'est pas lancé : pas d'avis.
+	servers := make([]config.MCPServer, 0, len(cfg.MCP.Servers))
+	skipped := map[string]string{}
+	var skippedOrder []string
 	for _, s := range cfg.MCP.Servers {
 		jurisdiction[s.ID] = llm.Jurisdiction(s.Jurisdiction)
+		if !s.Disabled {
+			if msg := profileMCPSkip(o.lang, cfg.Profile, s); msg != "" {
+				skipped[s.ID] = msg
+				skippedOrder = append(skippedOrder, s.ID)
+				continue
+			}
+		}
+		servers = append(servers, s)
 	}
 	allowNonEU, interactive := o.allowNonEU, o.interactive
 	// Sans --allow-non-eu, mcp.Start ne lance ni ne contacte aucun serveur
@@ -817,13 +921,17 @@ func startMCP(o engineOptions, cfg config.Config, red *policy.Redactor) (*mcp.Ma
 	// --allow-non-eu sans interface, la validation (ForceAsk) suffit dans la
 	// TUI.
 	consent := func(id string) bool {
+		// Défense en profondeur : un serveur exclus par le profil n'est jamais admis.
+		if _, ok := skipped[id]; ok {
+			return false
+		}
 		switch jurisdiction[id] {
 		case llm.EU, llm.Local:
 			return true
 		}
 		return allowNonEU || interactive
 	}
-	mgr, down := mcp.Start(ctx, cfg.MCP.Servers, mcp.Options{
+	mgr, down := mcp.Start(ctx, servers, mcp.Options{
 		Getenv:      o.getenv,
 		CallTimeout: cfg.ShellTimeout.Duration,
 		OutputLimit: cfg.OutputLimit,
@@ -840,7 +948,13 @@ func startMCP(o engineOptions, cfg config.Config, red *policy.Redactor) (*mcp.Ma
 		}
 	}
 	isDown := map[string]bool{}
-	unavailable := make([]event.McpServerDownPayload, 0, len(down))
+	unavailable := make([]event.McpServerDownPayload, 0, len(down)+len(skippedOrder))
+	var notices []string
+	for _, id := range skippedOrder {
+		isDown[id] = true
+		unavailable = append(unavailable, event.McpServerDownPayload{Server: id, Error: skipped[id]})
+		notices = append(notices, skipped[id])
+	}
 	for _, d := range down {
 		isDown[d.Server] = true
 		msg := d.Error
@@ -856,7 +970,6 @@ func startMCP(o engineOptions, cfg config.Config, red *policy.Redactor) (*mcp.Ma
 		}
 		active = append(active, event.MCPServerInfo{ID: s.ID, Jurisdiction: llm.Jurisdiction(s.Jurisdiction), Country: s.Country})
 	}
-	var notices []string
 	for _, w := range mgr.Warnings() {
 		notices = append(notices, i18n.T(o.lang, "mcp.warning", headless.OneLine(w)))
 	}

@@ -151,6 +151,10 @@ func (m Model) welcomeLines() []string {
 	label := i18n.T(m.lang, "tui.welcome.project", "")
 	root := truncMiddle(m.text(shortenHome(m.opts.ProjectRoot)), max(1, inner-ansi.StringWidth(label)))
 	body = append(body, label+root)
+	// Profil de conformité, sous la ligne du projet, seulement s'il est actif.
+	if prof := m.text(m.opts.Profile); prof != "" {
+		body = append(body, i18n.T(m.lang, "tui.welcome.profile", prof))
+	}
 	// Seules ces trois lignes passent à la ligne, aux séparateurs « · ».
 	body = append(body, wrapAtSeparators(m.countsLine(), 0, inner)...)
 	cmdLabel := i18n.T(m.lang, "tui.welcome.commands", "")

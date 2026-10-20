@@ -223,3 +223,27 @@ func TestWrapAtSeparatorsDisplayWidth(t *testing.T) {
 		t.Fatalf("lignes %q", got)
 	}
 }
+
+func TestWelcomeProfile(t *testing.T) {
+	o := welcomeOpts(i18n.FR)
+	o.Profile = "eu-only"
+	v := welcomeView(t, o, 100)
+	if !strings.Contains(v, "profil : eu-only") {
+		t.Errorf("ligne du profil absente :\n%s", v)
+	}
+	// Juste sous la ligne du projet.
+	lines := strings.Split(v, "\n")
+	for i, l := range lines {
+		if strings.Contains(l, "projet : /work/projet") && (i+1 >= len(lines) || !strings.Contains(lines[i+1], "profil : eu-only")) {
+			t.Errorf("profil hors de la ligne suivant le projet :\n%s", v)
+		}
+	}
+	o = welcomeOpts(i18n.EN)
+	o.Profile = "strict-local"
+	if v := welcomeView(t, o, 100); !strings.Contains(v, "profile: strict-local") {
+		t.Errorf("en : ligne absente :\n%s", v)
+	}
+	if v := welcomeView(t, welcomeOpts(i18n.FR), 100); strings.Contains(v, "profil :") {
+		t.Errorf("ligne du profil sans profil :\n%s", v)
+	}
+}
