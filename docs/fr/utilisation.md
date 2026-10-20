@@ -880,8 +880,13 @@ Préréglages :
 | `mistral` (défaut) | Mistral AI, FR | `eu` | `MISTRAL_API_KEY` |
 | `scaleway` | Scaleway, FR | `eu` | `SCW_SECRET_KEY` |
 | `ovhcloud` | OVHcloud AI Endpoints, FR | `eu` | `OVH_AI_ENDPOINTS_ACCESS_TOKEN` |
+| `albert` | Albert API (DINUM), FR | `eu` | `ALBERT_API_KEY` |
+| `codestral` | Codestral (Mistral AI), FR | `eu` | `CODESTRAL_API_KEY` |
 | `ollama` | Ollama, `http://localhost:11434/v1` | `local` | aucune |
 | `vllm` | vLLM, `http://localhost:8000/v1` | `local` | aucune |
+
+- `albert` : les clés Albert API sont réservées aux agents publics. Les identifiants de modèle changent : listez-les avec `GET /v1/models` et fixez `model` dans un bloc `[[providers]]` si le modèle du préréglage a disparu.
+- `codestral` : le domaine `codestral.mistral.ai` demande sa propre clé, distincte d'une clé La Plateforme. Avec une clé La Plateforme, utilisez le préréglage `mistral` ou fixez `base_url = "https://api.mistral.ai/v1"`. Codestral est conçu pour la complétion de code ; pour le travail d'agent avec outils, Mistral recommande Mistral Medium 3.5 (préréglage `mistral`).
 
 La juridiction désigne le **droit applicable à l'opérateur**, pas l'emplacement de ses serveurs.
 Un fournisseur ajouté sans `jurisdiction` est traité comme `non-eu`.

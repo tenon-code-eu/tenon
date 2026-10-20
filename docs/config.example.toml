@@ -38,7 +38,7 @@ level = "full"
 
 # --- Providers ------------------------------------------------------------
 #
-# Built-in presets: mistral, scaleway, ovhcloud (jurisdiction "eu"),
+# Built-in presets: mistral, scaleway, ovhcloud, albert, codestral (jurisdiction "eu"),
 # ollama and vllm (jurisdiction "local").
 #
 # A [[providers]] block whose id is the id of a preset REPLACES the whole

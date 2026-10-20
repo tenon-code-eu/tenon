@@ -28,7 +28,7 @@ func TestDefaults(t *testing.T) {
 		c.OutputLimit != 30000 || c.Audit.Level != "full" || c.DefaultProvider != "mistral" {
 		t.Fatalf("défauts inattendus : %+v", c)
 	}
-	for _, id := range []string{"mistral", "scaleway", "ovhcloud"} {
+	for _, id := range []string{"mistral", "scaleway", "ovhcloud", "albert", "codestral"} {
 		p, ok := c.Provider(id)
 		if !ok || p.Jurisdiction != "eu" || p.Model == "" {
 			t.Fatalf("préréglage %s : %+v ok=%v", id, p, ok)
@@ -267,6 +267,8 @@ func TestPresetValues(t *testing.T) {
 		{"mistral", "https://api.mistral.ai/v1", "mistral-medium-3-5", 256000},
 		{"scaleway", "https://api.scaleway.ai/v1", "mistral-medium-3.5-128b", 180000},
 		{"ovhcloud", "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1", "Qwen3.8-27B", 262000},
+		{"albert", "https://albert.api.etalab.gouv.fr/v1", "deepseek-v4-flash-0731", 131072},
+		{"codestral", "https://codestral.mistral.ai/v1", "codestral-2508", 128000},
 		{"ollama", "http://localhost:11434/v1", "", 32000}, // détectés au démarrage
 		{"vllm", "http://localhost:8000/v1", "", 32000},
 	}

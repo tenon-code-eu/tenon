@@ -18,6 +18,19 @@ func presets() []Provider {
 			Model:   "Qwen3.8-27B",
 			Country: "FR", Jurisdiction: "eu",
 			ContextWindow: 262000},
+		// Réservé aux agents publics ; identifiant du guide « Coder avec
+		// Albert API » (les identifiants changent : GET /v1/models).
+		{ID: "albert", Name: "Albert API (DINUM)", BaseURL: "https://albert.api.etalab.gouv.fr/v1", APIKeyEnv: "ALBERT_API_KEY",
+			Model:   "deepseek-v4-flash-0731",
+			Country: "FR", Jurisdiction: "eu",
+			ContextWindow: 131072},
+		// Domaine dédié, clé distincte de celle de La Plateforme. Codestral
+		// vise la complétion de code ; pour l'agent, Mistral recommande
+		// Mistral Medium 3.5 (préréglage mistral).
+		{ID: "codestral", Name: "Codestral (Mistral AI)", BaseURL: "https://codestral.mistral.ai/v1", APIKeyEnv: "CODESTRAL_API_KEY",
+			Model:   "codestral-2508",
+			Country: "FR", Jurisdiction: "eu",
+			ContextWindow: 128000},
 		// Locaux : le modèle servi et la fenêtre appliquée sont fixés par le
 		// serveur (Ollama : OLLAMA_CONTEXT_LENGTH ; vLLM : --served-model-name,
 		// --max-model-len). Ils sont lus au démarrage (Detect), sauf si la
