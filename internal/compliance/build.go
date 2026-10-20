@@ -1,6 +1,7 @@
 package compliance
 
 import (
+	"bytes"
 	"encoding/json"
 	"sort"
 	"strings"
@@ -52,7 +53,41 @@ type builder struct {
 	agents    map[sessKey]string // appel "agent" → nom du sous-agent
 	warned    map[string]bool
 	commands  map[string]*SessionCommands
-	filePaths []string // session et chemin bruts de chaque r.Files, pour les rewinds
+	filePaths []string        // session et chemin bruts de chaque r.Files, pour les rewinds
+	subagents map[sessKey]int // appel "agent" → indice dans r.Subagents
+}
+
+// mapping est la table de correspondance réglementaire, fixe et sans numéro d'article.
+func mapping() []MappingRow {
+	return []MappingRow{
+		{Element: "providers_jurisdictions_consents", Frameworks: []string{"GDPR"}},
+		{Element: "redactions_permissions", Frameworks: []string{"GDPR", "NIS2"}},
+		{Element: "audit_chain_incidents", Frameworks: []string{"NIS2", "DORA"}},
+		{Element: "ai_usage_transparency", Frameworks: []string{"AI Act"}},
+	}
+}
+
+// incidentReasons sont les raisons de fin de tour signalées comme incidents.
+var incidentReasons = map[string]bool{
+	"blocked": true, "blocked_by_hook": true, "stopped_by_hook": true,
+	"context_too_large": true, "max_iterations": true, "incomplete": true, "cancelled": true,
+}
+
+// hookIssueStatus sont les états de hook signalés (en plus de la décision "ask").
+var hookIssueStatus = map[string]bool{"blocked": true, "error": true, "timeout": true}
+
+// maxDetailRunes est la longueur gardée des réponses, arguments et résultats.
+const maxDetailRunes = 500
+
+// cut nettoie s puis le coupe à maxDetailRunes runes, « … » ajouté si coupé.
+// La coupe suit le masquage : aucun préfixe de secret ne peut subsister.
+func (o Options) cut(s string) string {
+	s = o.clean(s)
+	r := []rune(s)
+	if len(r) <= maxDetailRunes {
+		return s
+	}
+	return string(r[:maxDetailRunes]) + "…"
 }
 
 // Build construit le rapport à partir du journal chargé. Pure : ne lit rien
@@ -88,8 +123,12 @@ func Build(ds Dataset, o Options) Report {
 			Turns:      []TurnIncident{},
 			Unreadable: []Unreadable{},
 		},
-		Mapping: []MappingRow{},
+		Mapping: mapping(),
 		GitHint: GitHint,
+	}
+	// Les lignes illisibles sont signalées à tout niveau d'audit.
+	for _, u := range ds.Unreadable {
+		r.Incidents.Unreadable = append(r.Incidents.Unreadable, Unreadable{File: o.clean(u.File), Line: u.Line, Error: o.clean(u.Error)})
 	}
 
 	sessions := map[string]bool{}
@@ -103,12 +142,13 @@ func Build(ds Dataset, o Options) Report {
 
 	b := &builder{
 		o: o, ds: ds, r: &r,
-		perms:    map[string]*ToolPermissions{},
-		permTool: map[sessKey]string{},
-		jurisReq: map[sessKey]bool{},
-		agents:   map[sessKey]string{},
-		warned:   map[string]bool{},
-		commands: map[string]*SessionCommands{},
+		perms:     map[string]*ToolPermissions{},
+		permTool:  map[sessKey]string{},
+		jurisReq:  map[sessKey]bool{},
+		agents:    map[sessKey]string{},
+		warned:    map[string]bool{},
+		commands:  map[string]*SessionCommands{},
+		subagents: map[sessKey]int{},
 	}
 	for _, l := range ds.Lines {
 		if IsMetadataPayload(l.Payload) {
@@ -118,6 +158,9 @@ func Build(ds Dataset, o Options) Report {
 	}
 	b.finish()
 	b.providers()
+	if o.Details {
+		r.Timeline = timeline(ds, o)
+	}
 	return r
 }
 
@@ -170,6 +213,25 @@ func (b *builder) line(l audit.Line) {
 	switch l.Type {
 	case event.TurnCompleted:
 		r.Summary.Turns++
+		var p event.TurnCompletedPayload
+		if decode(l, &p) && incidentReasons[p.Reason] {
+			r.Incidents.Turns = append(r.Incidents.Turns, TurnIncident{TS: lineTS(l), Session: o.clean(l.Session), Reason: o.clean(p.Reason)})
+		}
+	case event.Error:
+		var p event.ErrorPayload
+		if decode(l, &p) {
+			r.Incidents.Errors = append(r.Incidents.Errors, ErrorIncident{
+				TS: lineTS(l), Session: o.clean(l.Session), Code: o.clean(p.Code), Message: o.clean(p.Message),
+			})
+		}
+	case event.HookCompleted:
+		var p event.HookCompletedPayload
+		if decode(l, &p) && (hookIssueStatus[p.Status] || p.Decision == "ask") {
+			r.Hooks = append(r.Hooks, HookIssue{
+				TS: lineTS(l), Session: o.clean(l.Session), HookID: o.clean(p.HookID), Event: o.clean(p.Event),
+				Status: o.clean(p.Status), Decision: o.clean(p.Decision), Reason: o.clean(p.Reason),
+			})
+		}
 	case event.ToolCallRequested:
 		r.Summary.ToolCalls++
 		var p event.ToolCallRequestedPayload
@@ -217,12 +279,26 @@ func (b *builder) line(l audit.Line) {
 	case event.SubagentStarted:
 		var p event.SubagentStartedPayload
 		if decode(l, &p) {
-			b.agents[sessKey{l.Session, p.CallID}] = p.Agent
+			k := sessKey{l.Session, p.CallID}
+			b.agents[k] = p.Agent
+			b.subagents[k] = len(r.Subagents)
+			r.Subagents = append(r.Subagents, SubagentRun{
+				TS: lineTS(l), Session: o.clean(l.Session), CallID: o.clean(p.CallID), Agent: o.clean(p.Agent),
+			})
+		}
+	case event.SubagentCompleted:
+		var p event.SubagentCompletedPayload
+		if !decode(l, &p) {
+			return
+		}
+		if i, ok := b.subagents[sessKey{l.Session, p.CallID}]; ok {
+			r.Subagents[i].Status = o.clean(p.Status)
 		}
 	case event.Rewound:
 		var p event.RewoundPayload
 		if decode(l, &p) {
 			b.rewound(l.Session, p)
+			r.Rewinds = append(r.Rewinds, rewindUse(l, p, o))
 		}
 	case event.JurisdictionWarning:
 		b.warned[l.Session] = true
@@ -306,6 +382,28 @@ func (b *builder) rewound(session string, p event.RewoundPayload) {
 			b.r.Files[i].RewindStatus = b.o.clean(s)
 		}
 	}
+}
+
+// rewindUse compte les fichiers d'un rewind par état.
+func rewindUse(l audit.Line, p event.RewoundPayload, o Options) RewindUse {
+	u := RewindUse{TS: lineTS(l), Session: o.clean(l.Session), ToSeq: p.ToSeq, Mode: o.clean(p.Mode), UntrackedCalls: p.UntrackedCalls}
+	for _, f := range p.Files {
+		switch f.Status {
+		case "restored":
+			u.Restored++
+		case "deleted":
+			u.Deleted++
+		case "kept":
+			u.Kept++
+		case "skipped":
+			u.Skipped++
+		case "failed":
+			u.Failed++
+		case "unchanged":
+			u.Unchanged++
+		}
+	}
+	return u
 }
 
 // finish trie et recopie les sections accumulées dans des cartes.
@@ -421,4 +519,93 @@ func (b *builder) providers() {
 		}
 		return a.Country < c.Country
 	})
+}
+
+// timeline construit la chronologie détaillée : sessions dans l'ordre de leur
+// première ligne, entrées dans l'ordre du journal. Les lignes réduites et les
+// charges illisibles sont ignorées.
+func timeline(ds Dataset, o Options) []SessionTimeline {
+	resolved := map[sessKey]bool{}
+	for _, l := range ds.Lines {
+		var p event.PermissionResolvedPayload
+		if l.Type == event.PermissionResolved && !IsMetadataPayload(l.Payload) && decode(l, &p) {
+			resolved[sessKey{l.Session, p.PermissionID}] = p.Allowed
+		}
+	}
+
+	out := []SessionTimeline{}
+	index := map[string]int{}
+	for _, l := range ds.Lines {
+		i, ok := index[l.Session]
+		if !ok {
+			i = len(out)
+			index[l.Session] = i
+			out = append(out, SessionTimeline{Session: o.clean(l.Session), Entries: []TimelineEntry{}})
+		}
+		if IsMetadataPayload(l.Payload) {
+			continue
+		}
+		if e, ok := timelineEntry(l, o, resolved); ok {
+			e.TS = lineTS(l)
+			out[i].Entries = append(out[i].Entries, e)
+		}
+	}
+	return out
+}
+
+// timelineEntry traduit une ligne en entrée de chronologie ; false si la ligne
+// n'en produit pas.
+func timelineEntry(l audit.Line, o Options, resolved map[sessKey]bool) (TimelineEntry, bool) {
+	switch l.Type {
+	case event.UserMessage:
+		var p event.UserMessagePayload
+		if decode(l, &p) {
+			return TimelineEntry{Kind: "prompt", Text: o.clean(p.Text)}, true
+		}
+	case event.AssistantMessage:
+		var p event.AssistantMessagePayload
+		if decode(l, &p) {
+			return TimelineEntry{Kind: "response", Text: o.cut(p.Text)}, true
+		}
+	case event.ToolCallRequested:
+		var p event.ToolCallRequestedPayload
+		if decode(l, &p) {
+			args := string(p.Args)
+			var buf bytes.Buffer
+			if json.Compact(&buf, p.Args) == nil {
+				args = buf.String()
+			}
+			return TimelineEntry{Kind: "tool_call", Tool: o.clean(p.Tool), Text: o.cut(args)}, true
+		}
+	case event.ToolResult:
+		var p event.ToolResultPayload
+		if decode(l, &p) {
+			return TimelineEntry{Kind: "tool_result", Tool: o.clean(p.Tool), Text: o.cut(p.Content)}, true
+		}
+	case event.PermissionRequested:
+		var p event.PermissionRequestedPayload
+		if !decode(l, &p) {
+			break
+		}
+		parts := []string{}
+		for _, s := range []string{p.Tool, p.Command} {
+			if s != "" {
+				parts = append(parts, s)
+			}
+		}
+		if allowed, ok := resolved[sessKey{l.Session, p.PermissionID}]; ok {
+			if allowed {
+				parts = append(parts, "allowed")
+			} else {
+				parts = append(parts, "denied")
+			}
+		}
+		return TimelineEntry{Kind: "permission", Tool: o.clean(p.Tool), Text: o.clean(strings.Join(parts, " "))}, true
+	case event.HookCompleted:
+		var p event.HookCompletedPayload
+		if decode(l, &p) {
+			return TimelineEntry{Kind: "hook", Text: o.clean(p.HookID + " " + p.Status)}, true
+		}
+	}
+	return TimelineEntry{}, false
 }

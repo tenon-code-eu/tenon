@@ -354,7 +354,6 @@ func TestBuildMetadataLevel(t *testing.T) {
 		`"files":[]`, `"providers":[]`, `"commands":[]`, `"permissions":[]`, `"redactions":{}`,
 		`"jurisdiction_warning_sessions":[]`, `"mcp_servers":[]`, `"mcp_failures":[]`, `"jurisdictions":[]`,
 		`"subagents":[]`, `"hooks":[]`, `"rewinds":[]`, `"errors":[]`, `"turns":[]`, `"unreadable":[]`,
-		`"regulatory_mapping":[]`,
 	} {
 		if !strings.Contains(string(out), s) {
 			t.Fatalf("JSON lacks %s: %s", s, out)
@@ -392,5 +391,205 @@ func TestBuildMixedLevelSkipsMetadataPayloads(t *testing.T) {
 	// premier TurnCompleted compte et le ToolResult réduit n'est pas décodé.
 	if r.Summary.Sessions != 1 || r.Summary.Turns != 1 || len(r.Files) != 0 || len(r.Providers) != 1 {
 		t.Fatalf("summary %+v files %+v providers %+v", r.Summary, r.Files, r.Providers)
+	}
+}
+
+func TestBuildSubagents(t *testing.T) {
+	b := newLog(t)
+	b.start("s", provEU)
+	t1 := b.add("s", event.SubagentStarted, event.SubagentStartedPayload{CallID: "c1", Agent: "reviewer", Description: "x"})
+	t2 := b.add("s", event.SubagentStarted, event.SubagentStartedPayload{CallID: "c2", Agent: "explorer"})
+	b.add("s", event.SubagentCompleted, event.SubagentCompletedPayload{CallID: "c1", Status: "completed", Iterations: 3})
+	r := Build(b.dataset(), opts())
+	want := []SubagentRun{
+		{TS: t1, Session: "s", CallID: "c1", Agent: "reviewer", Status: "completed"},
+		{TS: t2, Session: "s", CallID: "c2", Agent: "explorer", Status: ""},
+	}
+	if !reflect.DeepEqual(r.Subagents, want) {
+		t.Fatalf("subagents %+v", r.Subagents)
+	}
+}
+
+func TestBuildHookIssues(t *testing.T) {
+	b := newLog(t)
+	b.start("s", provEU)
+	b.add("s", event.HookCompleted, event.HookCompletedPayload{RunID: "r0", HookID: "fmt", Event: "PostToolUse", Status: "ok"})
+	t1 := b.add("s", event.HookCompleted, event.HookCompletedPayload{RunID: "r1", HookID: "guard", Event: "PreToolUse", Status: "blocked", Decision: "deny", Reason: "no rm"})
+	t2 := b.add("s", event.HookCompleted, event.HookCompletedPayload{RunID: "r2", HookID: "lint", Event: "Stop", Status: "error"})
+	t3 := b.add("s", event.HookCompleted, event.HookCompletedPayload{RunID: "r3", HookID: "slow", Event: "Stop", Status: "timeout"})
+	t4 := b.add("s", event.HookCompleted, event.HookCompletedPayload{RunID: "r4", HookID: "confirm", Event: "PreToolUse", Status: "ok", Decision: "ask", Reason: "sure?"})
+	b.add("s", event.HookCompleted, event.HookCompletedPayload{RunID: "r5", HookID: "c", Event: "Stop", Status: "cancelled"})
+	r := Build(b.dataset(), opts())
+	want := []HookIssue{
+		{TS: t1, Session: "s", HookID: "guard", Event: "PreToolUse", Status: "blocked", Decision: "deny", Reason: "no rm"},
+		{TS: t2, Session: "s", HookID: "lint", Event: "Stop", Status: "error"},
+		{TS: t3, Session: "s", HookID: "slow", Event: "Stop", Status: "timeout"},
+		{TS: t4, Session: "s", HookID: "confirm", Event: "PreToolUse", Status: "ok", Decision: "ask", Reason: "sure?"},
+	}
+	if !reflect.DeepEqual(r.Hooks, want) {
+		t.Fatalf("hooks %+v", r.Hooks)
+	}
+}
+
+func TestBuildRewinds(t *testing.T) {
+	b := newLog(t)
+	b.start("s", provEU)
+	ts := b.add("s", event.Rewound, event.RewoundPayload{ToSeq: 4, Mode: "both", UntrackedCalls: 2, Files: []event.RewoundFile{
+		{Path: "a", Status: "restored"}, {Path: "b", Status: "restored"}, {Path: "c", Status: "deleted"},
+		{Path: "d", Status: "kept"}, {Path: "e", Status: "skipped"}, {Path: "f", Status: "failed"},
+		{Path: "g", Status: "unchanged"}, {Path: "h", Status: "unchanged"}, {Path: "i", Status: "unchanged"},
+	}})
+	r := Build(b.dataset(), opts())
+	want := []RewindUse{{TS: ts, Session: "s", ToSeq: 4, Mode: "both", Restored: 2, Deleted: 1, Kept: 1, Skipped: 1, Failed: 1, Unchanged: 3, UntrackedCalls: 2}}
+	if !reflect.DeepEqual(r.Rewinds, want) {
+		t.Fatalf("rewinds %+v", r.Rewinds)
+	}
+}
+
+func TestBuildIncidents(t *testing.T) {
+	b := newLog(t)
+	b.start("s", provEU)
+	te := b.add("s", event.Error, event.ErrorPayload{Code: "provider", Message: "503"})
+	b.add("s", event.TurnCompleted, event.TurnCompletedPayload{Reason: "completed"})
+	b.add("s", event.TurnCompleted, event.TurnCompletedPayload{})
+	reasons := []string{"blocked", "blocked_by_hook", "stopped_by_hook", "context_too_large", "max_iterations", "incomplete", "cancelled"}
+	var want []TurnIncident
+	for _, reason := range reasons {
+		want = append(want, TurnIncident{TS: b.add("s", event.TurnCompleted, event.TurnCompletedPayload{Reason: reason}), Session: "s", Reason: reason})
+	}
+	r := Build(b.dataset(), opts())
+	if !reflect.DeepEqual(r.Incidents.Errors, []ErrorIncident{{TS: te, Session: "s", Code: "provider", Message: "503"}}) {
+		t.Fatalf("errors %+v", r.Incidents.Errors)
+	}
+	if !reflect.DeepEqual(r.Incidents.Turns, want) {
+		t.Fatalf("turns %+v", r.Incidents.Turns)
+	}
+}
+
+func TestBuildUnreadableCopied(t *testing.T) {
+	const key = "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	red, err := policy.NewRedactor(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o := opts()
+	o.Redact = func(s string) string { out, _ := red.Redact(s); return out }
+	for _, level := range []string{LevelMetadata, LevelFull} {
+		ds := Dataset{Level: level, Unreadable: []Unreadable{
+			{File: "audit-1.jsonl", Line: 2, Error: "invalid character 'x'"},
+			{File: "a\x1b.jsonl", Line: 5, Error: "near " + key + "\x1b[2J"},
+		}}
+		u := Build(ds, o).Incidents.Unreadable
+		if len(u) != 2 || u[0] != ds.Unreadable[0] || u[1].Line != 5 || u[1].File != "a .jsonl" {
+			t.Fatalf("%s: unreadable %+v", level, u)
+		}
+		if strings.Contains(u[1].Error, key) || !strings.Contains(u[1].Error, "[SECRET_") || strings.ContainsRune(u[1].Error, 0x1b) {
+			t.Fatalf("%s: error not cleaned: %q", level, u[1].Error)
+		}
+	}
+}
+
+func TestBuildMapping(t *testing.T) {
+	want := []MappingRow{
+		{Element: "providers_jurisdictions_consents", Frameworks: []string{"GDPR"}},
+		{Element: "redactions_permissions", Frameworks: []string{"GDPR", "NIS2"}},
+		{Element: "audit_chain_incidents", Frameworks: []string{"NIS2", "DORA"}},
+		{Element: "ai_usage_transparency", Frameworks: []string{"AI Act"}},
+	}
+	for _, level := range []string{LevelMetadata, LevelFull} {
+		if got := Build(Dataset{Level: level}, opts()).Mapping; !reflect.DeepEqual(got, want) {
+			t.Fatalf("%s: mapping %+v", level, got)
+		}
+	}
+}
+
+// timelineLog construit une session qui produit chaque type d'entrée.
+func timelineLog(t *testing.T) *logb {
+	b := newLog(t)
+	b.start("s1", provEU)
+	b.start("s2", provEU)
+	b.add("s1", event.UserMessage, event.UserMessagePayload{Text: strings.Repeat("p", 600)})
+	b.add("s1", event.AssistantMessage, event.AssistantMessagePayload{Text: strings.Repeat("é", 600)})
+	b.add("s1", event.ToolCallRequested, event.ToolCallRequestedPayload{CallID: "c", Tool: "shell", Args: json.RawMessage(`{ "command" : "ls" }`)})
+	b.add("s1", event.PermissionRequested, event.PermissionRequestedPayload{PermissionID: "p1", Kind: "tool", Tool: "shell", Command: "ls"})
+	b.add("s2", event.UserMessage, event.UserMessagePayload{Text: "hi"})
+	b.add("s1", event.PermissionResolved, event.PermissionResolvedPayload{PermissionID: "p1", Allowed: true})
+	b.add("s1", event.PermissionRequested, event.PermissionRequestedPayload{PermissionID: "p2", Kind: "tool", Tool: "shell", Command: "rm x"})
+	b.add("s1", event.PermissionResolved, event.PermissionResolvedPayload{PermissionID: "p2", Allowed: false})
+	b.add("s1", event.ToolResult, event.ToolResultPayload{CallID: "c", Tool: "shell", Content: "a.go"})
+	b.add("s1", event.HookCompleted, event.HookCompletedPayload{RunID: "r", HookID: "fmt", Event: "PostToolUse", Status: "ok"})
+	return b
+}
+
+func TestBuildTimelineAbsentWithoutDetails(t *testing.T) {
+	r := Build(timelineLog(t).dataset(), opts())
+	if r.Timeline != nil {
+		t.Fatalf("timeline without details: %+v", r.Timeline)
+	}
+	out, err := json.Marshal(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(out), `"timeline"`) || strings.Contains(string(out), "ppp") {
+		t.Fatalf("JSON has timeline or prompt: %s", out)
+	}
+}
+
+func TestBuildTimeline(t *testing.T) {
+	b := timelineLog(t)
+	o := opts()
+	o.Details = true
+	r := Build(b.dataset(), o)
+	if len(r.Timeline) != 2 || r.Timeline[0].Session != "s1" || r.Timeline[1].Session != "s2" {
+		t.Fatalf("timeline sessions %+v", r.Timeline)
+	}
+	type kt struct{ kind, tool, text string }
+	var got []kt
+	for _, e := range r.Timeline[0].Entries {
+		if e.TS.IsZero() {
+			t.Fatalf("entry without date: %+v", e)
+		}
+		got = append(got, kt{e.Kind, e.Tool, e.Text})
+	}
+	want := []kt{
+		{"prompt", "", strings.Repeat("p", 600)},
+		{"response", "", strings.Repeat("é", 500) + "…"},
+		{"tool_call", "shell", `{"command":"ls"}`},
+		{"permission", "shell", "shell ls allowed"},
+		{"permission", "shell", "shell rm x denied"},
+		{"tool_result", "shell", "a.go"},
+		{"hook", "", "fmt ok"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("entries\n got %q\nwant %q", got, want)
+	}
+	if e := r.Timeline[1].Entries; len(e) != 1 || e[0].Kind != "prompt" || e[0].Text != "hi" {
+		t.Fatalf("s2 entries %+v", e)
+	}
+}
+
+func TestBuildTimelineSecretAtCut(t *testing.T) {
+	const key = "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	content := strings.Repeat("a", 494) + " " + key + " tail"
+	if strings.Index(content, key) != 495 {
+		t.Fatal("secret must start at rune 495")
+	}
+	b := newLog(t)
+	b.start("s", provEU)
+	b.add("s", event.ToolResult, event.ToolResultPayload{CallID: "c", Tool: "read", Content: content})
+	red, err := policy.NewRedactor(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o := opts()
+	o.Details = true
+	o.Redact = func(s string) string { out, _ := red.Redact(s); return out }
+	r := Build(b.dataset(), o)
+	text := r.Timeline[0].Entries[0].Text
+	if strings.Contains(text, "sk-") || !strings.HasPrefix(text, strings.Repeat("a", 494)+" [") {
+		t.Fatalf("secret prefix survived the cut: %q", text)
+	}
+	if n := len([]rune(text)); n > 501 {
+		t.Fatalf("text has %d runes", n)
 	}
 }
