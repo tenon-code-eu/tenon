@@ -34,6 +34,7 @@ func richReport(details bool) Report {
 			Sessions: 1, First: t0, Last: t0.Add(time.Hour),
 		}},
 		Profiles:        []string{"eu-only", "strict-local"},
+		Policies:        []PolicyUse{{ID: "acme-dev", Version: 3, KeyID: "0123456789ABCDEF", Sessions: 2}},
 		Consents:        Consents{Granted: 1, Denied: 2},
 		WarningSessions: []string{"s-warn"},
 		MCPServers:      []MCPUse{{ID: "mcp1", Jurisdiction: "non-eu", Country: "US", Sessions: 1}},
@@ -360,6 +361,34 @@ func TestRenderHTMLProfilesMetadata(t *testing.T) {
 		out := render(t, r, c.l)
 		if !strings.Contains(out, "<dt>"+c.label+"</dt><dd>"+c.unav+"</dd>") {
 			t.Errorf("%s: metadata profiles row not marked unavailable", c.l)
+		}
+	}
+}
+
+func TestRenderHTMLPolicies(t *testing.T) {
+	for _, c := range []struct {
+		l                   i18n.Lang
+		label, row, nil, un string
+	}{
+		{i18n.FR, "Politique d'organisation", "acme-dev v3 (clé 0123456789ABCDEF) : 2 sessions", "aucun", "non disponible au niveau metadata"},
+		{i18n.EN, "Organisation policy", "acme-dev v3 (key 0123456789ABCDEF): 2 sessions", "none", "not available at metadata level"},
+	} {
+		out := render(t, richReport(false), c.l)
+		if !strings.Contains(out, "<dt>"+template.HTMLEscapeString(c.label)+"</dt><dd>"+c.row+"</dd>") {
+			t.Errorf("%s: policies row missing", c.l)
+		}
+		r := richReport(false)
+		r.Policies = []PolicyUse{}
+		out = render(t, r, c.l)
+		if !strings.Contains(out, "<dt>"+template.HTMLEscapeString(c.label)+"</dt><dd>"+c.nil+"</dd>") {
+			t.Errorf("%s: empty policies row missing", c.l)
+		}
+		r = richReport(false)
+		r.Integrity.Level = LevelMetadata
+		r.ContentAvailable = false
+		out = render(t, r, c.l)
+		if !strings.Contains(out, "<dt>"+template.HTMLEscapeString(c.label)+"</dt><dd>"+c.un+"</dd>") {
+			t.Errorf("%s: metadata policies row not marked unavailable", c.l)
 		}
 	}
 }

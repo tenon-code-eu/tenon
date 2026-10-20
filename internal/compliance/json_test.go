@@ -32,6 +32,7 @@ func fixedReport() Report {
 			Sessions: 1, First: t0, Last: t0.Add(time.Hour),
 		}},
 		Profiles:    []string{"eu-only"},
+		Policies:    []PolicyUse{},
 		Permissions: []ToolPermissions{{Tool: "bash", Requested: 2, AllowedOnce: 2}},
 		Files: []FileChange{{
 			TS: t0, Session: "s1", Path: "a.go", Tool: "edit",

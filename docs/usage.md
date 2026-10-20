@@ -1130,6 +1130,7 @@ It does not modify the log and does not lock it.
 
 ### What the report contains
 
+- **Organisation policy**: the policies (id, version, key id) of the sessions in the range, with the number of sessions under each; sessions without a policy are not listed. At metadata level the policy is unknown: the row shows "not available at metadata level". See [policy.md](policy.md).
 - **Applied profiles**: the compliance profiles of the sessions in the range, in the report header. At metadata level the profile is unknown: the row shows "not available at metadata level".
 - **Summary**: sessions, turns, tool calls, modified files, denials, jurisdictions of the providers.
 - **Providers and transfers**: provider, model, country and jurisdiction, number of sessions, first and last activity; jurisdiction consents granted and denied; sessions with a jurisdiction warning; MCP servers and their failures.
@@ -1237,6 +1238,7 @@ Envelope:
 | `excluded_metadata_sessions` | number | sessions left out of the project scope (project unknown at metadata level) |
 | `summary` | object | `sessions`, `turns`, `tool_calls`, `files_modified`, `denials` (numbers), `jurisdictions` (list of strings), `unknown_provider_sessions` (number: sessions in the range whose provider is unknown, 0 at metadata level) |
 | `profiles` | list | strings: distinct compliance profiles of the sessions in the range (`[]` without profile; also `[]` at metadata level, where the profile is unknown, not absent; in a mixed-level range, sessions at metadata level add nothing) |
+| `policies` | list | `id`, `key_id` (strings), `version`, `sessions` (numbers): one entry per distinct (id, version, key) among the sessions in the range, sorted by id then version; sessions without a policy are not listed (`[]` without policy; also `[]` at metadata level, where the policy is unknown, not absent) |
 | `providers` | list | `id`, `name`, `model`, `country`, `jurisdiction` (strings), `sessions` (number), `first`, `last` (dates) |
 | `jurisdiction_consents` | object | `granted`, `denied` (numbers) |
 | `jurisdiction_warning_sessions` | list | session ids |

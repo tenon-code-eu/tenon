@@ -24,6 +24,15 @@ type Options struct {
 	Now time.Time
 }
 
+// PolicyUse compte les sessions placées sous une politique d'organisation
+// (identifiant, version, clé de signature).
+type PolicyUse struct {
+	ID       string `json:"id"`
+	Version  int    `json:"version"`
+	KeyID    string `json:"key_id"`
+	Sessions int    `json:"sessions"`
+}
+
 // Report est le modèle pur du rapport ; ses balises JSON forment le schéma stable.
 type Report struct {
 	Generator                string            `json:"generator"`
@@ -38,6 +47,7 @@ type Report struct {
 	Summary                  Summary           `json:"summary"`
 	Providers                []ProviderUse     `json:"providers"`
 	Profiles                 []string          `json:"profiles"`
+	Policies                 []PolicyUse       `json:"policies"`
 	Consents                 Consents          `json:"jurisdiction_consents"`
 	WarningSessions          []string          `json:"jurisdiction_warning_sessions"`
 	MCPServers               []MCPUse          `json:"mcp_servers"`

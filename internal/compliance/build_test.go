@@ -354,7 +354,7 @@ func TestBuildMetadataLevel(t *testing.T) {
 	for _, s := range []string{
 		`"files":[]`, `"providers":[]`, `"commands":[]`, `"permissions":[]`, `"redactions":{}`,
 		`"jurisdiction_warning_sessions":[]`, `"mcp_servers":[]`, `"mcp_failures":[]`, `"jurisdictions":[]`,
-		`"profiles":[]`, `"subagents":[]`, `"hooks":[]`, `"rewinds":[]`, `"errors":[]`, `"turns":[]`, `"unreadable":[]`,
+		`"profiles":[]`, `"policies":[]`, `"subagents":[]`, `"hooks":[]`, `"rewinds":[]`, `"errors":[]`, `"turns":[]`, `"unreadable":[]`,
 	} {
 		if !strings.Contains(string(out), s) {
 			t.Fatalf("JSON lacks %s: %s", s, out)
@@ -738,5 +738,41 @@ func TestBuildProfilesCleaned(t *testing.T) {
 	r := Build(b.dataset(), o)
 	if len(r.Profiles) != 1 || r.Profiles[0] != "EU ONLY" {
 		t.Fatalf("profiles %q", r.Profiles)
+	}
+}
+
+func TestBuildPolicies(t *testing.T) {
+	b := newLog(t)
+	pol := func(v int) *event.PolicyRef { return &event.PolicyRef{ID: "acme-dev", Version: v, KeyID: "AABB"} }
+	b.add("s1", event.SessionStarted, event.SessionStartedPayload{Provider: provEU, ProjectRoot: "/p", Policy: pol(3)})
+	b.add("s2", event.SessionStarted, event.SessionStartedPayload{Provider: provEU, ProjectRoot: "/p", Policy: pol(3)})
+	b.add("s3", event.SessionStarted, event.SessionStartedPayload{Provider: provEU, ProjectRoot: "/p", Policy: pol(4)})
+	b.add("s4", event.SessionStarted, event.SessionStartedPayload{Provider: provEU, ProjectRoot: "/p"})
+	r := Build(b.dataset(), opts())
+	want := []PolicyUse{
+		{ID: "acme-dev", Version: 3, KeyID: "AABB", Sessions: 2},
+		{ID: "acme-dev", Version: 4, KeyID: "AABB", Sessions: 1},
+	}
+	if !reflect.DeepEqual(r.Policies, want) {
+		t.Fatalf("policies %+v", r.Policies)
+	}
+
+	// Aucune politique : tranche vide, jamais nil.
+	b = newLog(t)
+	b.start("s", provEU)
+	r = Build(b.dataset(), opts())
+	if r.Policies == nil || len(r.Policies) != 0 {
+		t.Fatalf("policies %#v", r.Policies)
+	}
+}
+
+func TestBuildPoliciesMetadata(t *testing.T) {
+	b := newLog(t)
+	b.add("s", event.SessionStarted, event.SessionStartedPayload{Provider: provEU, ProjectRoot: "/p", Policy: &event.PolicyRef{ID: "x", Version: 1, KeyID: "K"}})
+	ds := b.dataset()
+	ds.Level = LevelMetadata
+	r := Build(ds, opts())
+	if r.ContentAvailable || len(r.Policies) != 0 || r.Policies == nil {
+		t.Fatalf("metadata : %+v", r.Policies)
 	}
 }

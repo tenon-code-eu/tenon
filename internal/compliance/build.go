@@ -172,6 +172,7 @@ func Build(ds Dataset, o Options) Report {
 		Summary:                  Summary{Jurisdictions: []string{}},
 		Providers:                []ProviderUse{},
 		Profiles:                 []string{},
+		Policies:                 []PolicyUse{},
 		WarningSessions:          []string{},
 		MCPServers:               []MCPUse{},
 		MCPFailures:              []MCPFailure{},
@@ -223,6 +224,7 @@ func Build(ds Dataset, o Options) Report {
 	b.finish()
 	b.providers()
 	r.Profiles = profilesOf(ds, o)
+	r.Policies = policiesOf(ds, o)
 	if o.Details {
 		r.Timeline = timeline(ds, o)
 	}
@@ -260,6 +262,62 @@ func profilesOf(ds Dataset, o Options) []string {
 		out = append(out, p)
 	}
 	sort.Strings(out)
+	return out
+}
+
+// policiesOf liste les politiques d'organisation distinctes (id, version, clé)
+// des sessions de la plage, avec le nombre de sessions de chacune. Même
+// attribution que profilesOf : SessionStarted de la plage et premier
+// SessionStarted des sessions concernées. Triée par id puis version, jamais nil.
+func policiesOf(ds Dataset, o Options) []PolicyUse {
+	type key struct {
+		id, keyID string
+		version   int
+	}
+	// Une session compte une fois par politique, même reprise plusieurs fois.
+	seen := map[key]map[string]bool{}
+	add := func(sid string, p *event.PolicyRef) {
+		if p == nil {
+			return
+		}
+		k := key{o.clean(p.ID), o.clean(p.KeyID), p.Version}
+		if k.id == "" {
+			return
+		}
+		if seen[k] == nil {
+			seen[k] = map[string]bool{}
+		}
+		seen[k][sid] = true
+	}
+	inRange := map[string]bool{}
+	for _, l := range ds.Lines {
+		inRange[l.Session] = true
+		if l.Type != event.SessionStarted || IsMetadataPayload(l.Payload) {
+			continue
+		}
+		var p event.SessionStartedPayload
+		if decode(l, &p) {
+			add(l.Session, p.Policy)
+		}
+	}
+	for sid := range inRange {
+		if st := ds.Sessions[sid].Started; st != nil {
+			add(sid, st.Policy)
+		}
+	}
+	out := make([]PolicyUse, 0, len(seen))
+	for k, ss := range seen {
+		out = append(out, PolicyUse{ID: k.id, Version: k.version, KeyID: k.keyID, Sessions: len(ss)})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].ID != out[j].ID {
+			return out[i].ID < out[j].ID
+		}
+		if out[i].Version != out[j].Version {
+			return out[i].Version < out[j].Version
+		}
+		return out[i].KeyID < out[j].KeyID
+	})
 	return out
 }
 

@@ -73,6 +73,15 @@ Consequences in tenon:
 - Under `strict-local`, the requests to the provider (local model detection included) and to the MCP `http` servers ignore the proxy environment variables (`HTTP_PROXY`, `HTTPS_PROXY`): a private address accepted by the profile never goes through a proxy.
 - A profile bounds the data sent to the model and to MCP servers. It does **not** restrict shell commands or stdio MCP programs, which can still reach the network, and it does not change permissions, audit level or hooks. See [usage.md](usage.md#compliance-profiles).
 
+### Organisation policy
+
+- An administrator can deploy a signed policy (minisign) in a directory owned by root. tenon verifies it at every startup and refuses to start if it is missing a file, badly signed, invalid, or if the directory or its files are not owned by root or are writable by the group or others (fail closed).
+- The policy is a floor: it raises the profile, restricts providers by host, adds `deny`/`ask` permission rules and redaction rules, imposes the audit level and filters MCP servers. User and project configuration, and `--allow-non-eu`, cannot loosen it.
+- Provider hosts are checked at startup and again before each send (`Error` event, `code: "policy"`).
+- The policy (id, version, key id) is recorded in `SessionStarted` and listed in the compliance export.
+- `TENON_POLICY_DIR` is read only when no system policy exists: it cannot remove or replace one. A user who can write there can only add a policy signed by a key they provide, which restricts them further.
+- A policy does not restrict shell commands or stdio MCP programs, and an administrator of the machine can remove it. See [policy.md](policy.md).
+
 ## Known limits
 
 ### Permissions are not a sandbox

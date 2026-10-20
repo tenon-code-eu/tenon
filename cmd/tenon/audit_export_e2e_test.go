@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -41,7 +42,10 @@ func pinExportNow(t *testing.T, d time.Time) {
 // exportEnv joue une session headless qui lit puis modifie notes.txt, puis
 // fige la date de l'export sur la date de la première ligne du journal :
 // aucun passage de minuit ne peut séparer la session de la période par défaut.
-func exportEnv(t *testing.T) *env {
+func exportEnv(t *testing.T) *env { return exportEnvSetup(t, nil) }
+
+// exportEnvSetup est exportEnv avec un réglage de l'environnement avant la session.
+func exportEnvSetup(t *testing.T, setup func(*env)) *env {
 	t.Helper()
 	f := newFakeLLM(t,
 		sseCall("read_file", `{"path":"notes.txt"}`),
@@ -49,6 +53,9 @@ func exportEnv(t *testing.T) *env {
 		sseText(exportResponse))
 	e := newEnvExtra(t, f, "eu", allowEdit)
 	e.writeFile(filepath.Join(e.wd, "notes.txt"), "bonjour\n")
+	if setup != nil {
+		setup(e)
+	}
 	if code, _, errb := e.run("-p", exportPrompt); code != 0 {
 		t.Fatalf("session : code=%d stderr=%q", code, errb)
 	}
@@ -384,5 +391,30 @@ func TestAuditExportRedactsE2E(t *testing.T) {
 		if strings.Contains(s, "Zx8kq") || !strings.Contains(s, "MISTRAL_API_KEY=[SECRET_1]") {
 			t.Fatalf("secret non masqué : %s", s)
 		}
+	}
+}
+
+func TestAuditExportPoliciesE2E(t *testing.T) {
+	var key string
+	e := exportEnvSetup(t, func(e *env) {
+		_, key = e.withPolicy(policyHead + "[providers]\nallow_local = true\n")
+	})
+	out := t.TempDir()
+	if code, stdout, errb := e.run("audit", "export", "--out", out); code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout, errb)
+	}
+	html, js := readExport(t, out)
+	var env struct {
+		Report compliance.Report `json:"report"`
+	}
+	if err := json.Unmarshal([]byte(js), &env); err != nil {
+		t.Fatal(err)
+	}
+	want := []compliance.PolicyUse{{ID: "acme-dev", Version: 3, KeyID: key, Sessions: 1}}
+	if !reflect.DeepEqual(env.Report.Policies, want) {
+		t.Fatalf("policies : %+v", env.Report.Policies)
+	}
+	if !strings.Contains(js, `"policies": [`) || !strings.Contains(html, "acme-dev v3") {
+		t.Fatalf("export sans la politique : %s", html)
 	}
 }

@@ -75,6 +75,15 @@ Conséquences dans tenon :
 - Sous `strict-local`, les requêtes au fournisseur (détection du modèle local comprise) et aux serveurs MCP `http` ignorent les variables d'environnement de proxy (`HTTP_PROXY`, `HTTPS_PROXY`) : une adresse privée acceptée par le profil ne passe jamais par un proxy.
 - Un profil borne les données envoyées au modèle et aux serveurs MCP. Il ne restreint **pas** les commandes shell ni les programmes MCP stdio, qui peuvent toujours accéder au réseau, et il ne change ni les permissions, ni le niveau d'audit, ni les hooks. Voir [utilisation.md](utilisation.md#profils-de-conformité).
 
+### Politique d'organisation
+
+- Un administrateur peut déployer une politique signée (minisign) dans un dossier appartenant à root. tenon la vérifie à chaque démarrage et refuse de démarrer si un fichier manque, si la signature est mauvaise, si la politique est invalide, ou si le dossier ou ses fichiers n'appartiennent pas à root ou sont modifiables par le groupe ou les autres (échec fermé).
+- La politique est un plancher : elle relève le profil, restreint les fournisseurs par hôte, ajoute des règles de permissions `deny`/`ask` et de masquage, impose le niveau d'audit et filtre les serveurs MCP. La configuration de l'utilisateur et du projet, ainsi que `--allow-non-eu`, ne peuvent pas l'assouplir.
+- Les hôtes des fournisseurs sont contrôlés au démarrage puis avant chaque envoi (événement `Error`, `code: "policy"`).
+- La politique (id, version, identifiant de clé) est enregistrée dans `SessionStarted` et listée dans l'export de conformité.
+- `TENON_POLICY_DIR` n'est lue que sans politique système : elle ne peut ni en retirer ni en remplacer une. Un utilisateur qui peut y écrire ne peut qu'ajouter une politique signée par une clé qu'il fournit, ce qui le restreint davantage.
+- Une politique ne restreint ni les commandes shell ni les programmes MCP stdio, et un administrateur de la machine peut la retirer. Voir [politique.md](politique.md).
+
 ## Limites connues
 
 ### Les permissions ne sont pas un bac à sable

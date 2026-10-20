@@ -1132,6 +1132,7 @@ Elle ne modifie pas le journal et ne le verrouille pas.
 
 ### Contenu du rapport
 
+- **Politique d'organisation** : les politiques (id, version, identifiant de clé) des sessions de la plage, avec le nombre de sessions de chacune ; les sessions sans politique ne sont pas listées. Au niveau metadata, la politique est inconnue : la ligne affiche « non disponible au niveau metadata ». Voir [politique.md](politique.md).
 - **Profils appliqués** : les profils de conformité des sessions de la plage, dans l'en-tête du rapport. Au niveau metadata, le profil est inconnu : la ligne affiche « non disponible au niveau metadata ».
 - **Synthèse** : sessions, tours, appels d'outils, fichiers modifiés, refus, juridictions des fournisseurs.
 - **Fournisseurs et transferts** : fournisseur, modèle, pays et juridiction, nombre de sessions, première et dernière activité ; consentements de juridiction accordés et refusés ; sessions avec avertissement de juridiction ; serveurs MCP et leurs pannes.
@@ -1239,6 +1240,7 @@ Enveloppe :
 | `excluded_metadata_sessions` | nombre | sessions écartées du périmètre projet (projet inconnu au niveau metadata) |
 | `summary` | objet | `sessions`, `turns`, `tool_calls`, `files_modified`, `denials` (nombres), `jurisdictions` (liste de chaînes), `unknown_provider_sessions` (nombre : sessions de la plage au fournisseur inconnu, 0 au niveau metadata) |
 | `profiles` | liste | chaînes : profils de conformité distincts des sessions de la plage (`[]` sans profil ; `[]` aussi au niveau metadata, où le profil est inconnu et non absent ; dans une plage aux niveaux mêlés, les sessions au niveau metadata n'ajoutent rien) |
+| `policies` | liste | `id`, `key_id` (chaînes), `version`, `sessions` (nombres) : une entrée par (id, version, clé) distincts parmi les sessions de la plage, triées par id puis version ; les sessions sans politique ne sont pas listées (`[]` sans politique ; `[]` aussi au niveau metadata, où la politique est inconnue et non absente) |
 | `providers` | liste | `id`, `name`, `model`, `country`, `jurisdiction` (chaînes), `sessions` (nombre), `first`, `last` (dates) |
 | `jurisdiction_consents` | objet | `granted`, `denied` (nombres) |
 | `jurisdiction_warning_sessions` | liste | identifiants de sessions |

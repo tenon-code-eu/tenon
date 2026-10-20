@@ -17,6 +17,7 @@ It is designed for Europe:
 - sub-agents (`.claude/agents/*.md` format) that the model launches for a self-contained task, with the same permissions, masking and audit as the main agent;
 - hooks (Claude Code format) that run your commands before and after tools, on prompts and at session start and end, to block, ask, add context or change a tool input, without widening permissions; project hooks never run;
 - compliance profiles (`eu-only`, `strict-local`): the provider and MCP servers are checked against the profile at startup and before each send, and the profile is recorded in the audit log;
+- signed organisation policy (minisign): an administrator imposes a floor (profile, allowed provider hosts, permission and redaction rules, audit level, MCP servers) that users cannot loosen; it is verified at every startup and recorded in the audit log ([docs/policy.md](docs/policy.md));
 - `tenon audit export`: an HTML and JSON compliance report built from the audit log (providers, consents, permissions, modified files, incidents), with no conversation data unless you ask for it;
 - checkpoints: each prompt is a restore point, and `/rewind` (or Esc twice) restores the files an agent wrote, the conversation, or both, never overwriting a file you changed without asking.
 
@@ -116,6 +117,7 @@ tenon git install-hook
 ## Documentation
 
 - [Usage guide](docs/usage.md): keys, approval, non-interactive mode, sessions, configuration, providers, MCP, git marking, audit, compliance export.
+- [Organisation policy](docs/policy.md): signed floor imposed by an administrator.
 - [Security and limits](docs/security.md): sovereignty criteria, guarantees, known limits, recovery.
 - [Example configuration](docs/config.example.toml): commented file, without secrets.
 - [Report a vulnerability](SECURITY.md) and [contribute](CONTRIBUTING.md).
@@ -138,7 +140,8 @@ Les sous-agents (format `.claude/agents/*.md`) sont lancés par le modèle pour 
 Les hooks (format Claude Code) exécutent vos commandes avant et après les outils, à l'envoi d'un prompt et au début et à la fin d'une session, pour bloquer, demander, ajouter du contexte ou modifier l'entrée d'un outil, sans élargir les permissions ; les hooks d'un projet ne s'exécutent jamais.
 Chaque prompt est un point de restauration : `/rewind` (ou Échap deux fois) restaure les fichiers écrits par l'agent, la conversation, ou les deux, sans jamais écraser sans demander un fichier que vous avez modifié.
 Les profils de conformité (`eu-only`, `strict-local`) contrôlent le fournisseur et les serveurs MCP au démarrage et avant chaque envoi, et le profil est enregistré dans le journal d'audit.
+Une politique d'organisation signée (minisign) permet à un administrateur d'imposer un socle (profil, hôtes de fournisseurs autorisés, règles de permissions et de masquage, niveau d'audit, serveurs MCP) que les utilisateurs ne peuvent pas assouplir ; elle est vérifiée à chaque démarrage et tracée dans le journal d'audit ([politique](docs/fr/politique.md)).
 `tenon audit export` produit un rapport de conformité HTML et JSON tiré du journal d'audit (fournisseurs, consentements, permissions, fichiers modifiés, incidents), sans données de conversation sauf si vous les demandez.
 L'interface est en anglais par défaut : lancez `tenon --lang fr` ou mettez `lang = "fr"` dans la configuration.
 
-Documentation en français : [guide d'utilisation](docs/fr/utilisation.md), [sécurité et limites](docs/fr/securite.md).
+Documentation en français : [guide d'utilisation](docs/fr/utilisation.md), [sécurité et limites](docs/fr/securite.md), [politique d'organisation](docs/fr/politique.md).
