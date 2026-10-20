@@ -1,0 +1,102 @@
+{
+  "schema_version": 1,
+  "generator": "tenon test",
+  "report_id": "sha256:66c159d1b29590fe0185543268c22faee99bb4627b6b1181da409fad6bc632b5",
+  "html_sha256": "sha256:cc",
+  "report": {
+    "generator": "tenon test",
+    "generated_at": "2026-10-20T12:00:00Z",
+    "period": {
+      "since": "2026-10-01",
+      "until": "2026-10-20"
+    },
+    "scope": {
+      "kind": "project",
+      "project": "/work/demo"
+    },
+    "details": false,
+    "disclaimer": "This report describes the activity recorded by tenon. It is not legal advice and does not certify compliance.",
+    "integrity": {
+      "intact": true,
+      "total_lines": 4,
+      "final_hash": "sha256:aa",
+      "range_lines": 4,
+      "first_hash": "sha256:bb",
+      "last_hash": "sha256:aa",
+      "level": "metadata"
+    },
+    "content_available": false,
+    "excluded_metadata_sessions": 0,
+    "summary": {
+      "sessions": 1,
+      "turns": 2,
+      "tool_calls": 3,
+      "files_modified": 1,
+      "denials": 0,
+      "jurisdictions": [
+        "EU"
+      ]
+    },
+    "providers": [
+      {
+        "id": "p",
+        "name": "Prov",
+        "model": "m",
+        "country": "FR",
+        "jurisdiction": "EU",
+        "sessions": 1,
+        "first": "2026-10-01T09:00:00Z",
+        "last": "2026-10-01T10:00:00Z"
+      }
+    ],
+    "jurisdiction_consents": {
+      "granted": 0,
+      "denied": 0
+    },
+    "jurisdiction_warning_sessions": null,
+    "mcp_servers": null,
+    "mcp_failures": null,
+    "redactions": null,
+    "permissions": [
+      {
+        "tool": "bash",
+        "requested": 2,
+        "allowed_once": 2,
+        "allowed_session": 0,
+        "denied_user": 0,
+        "denied_policy": 0,
+        "denied_hook": 0
+      }
+    ],
+    "files": [
+      {
+        "ts": "2026-10-01T09:00:00Z",
+        "session": "s1",
+        "path": "a.go",
+        "tool": "edit",
+        "hash_before": "sha256:01",
+        "hash_after": "sha256:02",
+        "author": "main",
+        "no_checkpoint": false
+      }
+    ],
+    "commands": null,
+    "subagents": null,
+    "hooks": null,
+    "rewinds": null,
+    "incidents": {
+      "errors": null,
+      "turns": null,
+      "unreadable": null
+    },
+    "regulatory_mapping": [
+      {
+        "element": "Integrity",
+        "frameworks": [
+          "X"
+        ]
+      }
+    ],
+    "git_marking_hint": "git log --grep \"AI-Assisted-By\""
+  }
+}
