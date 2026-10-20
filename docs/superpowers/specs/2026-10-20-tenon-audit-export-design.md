@@ -33,8 +33,8 @@ tenon audit export [--since AAAA-MM-JJ] [--until AAAA-MM-JJ]
 ```
 
 - Période : dates UTC, bornes incluses (`--until` couvre la journée entière). Défaut : les 30 derniers jours jusqu'à aujourd'hui inclus.
-- Périmètre : défaut = projet courant, identifié par le `project_root` de `SessionStarted` (même comparaison que `tenon sessions` : `session.SameRoot`). `--project <chemin>` : un autre projet. `--all-projects` : tous. `--session <id>` : une seule session (combinable avec la période). `--project` et `--all-projects` sont exclusifs.
-- Un événement appartient au périmètre si sa session appartient au périmètre (la session est rattachée à un projet par son premier `SessionStarted`).
+- Périmètre : défaut = projet courant, identifié par le `project_root` de `SessionStarted` (même comparaison que `tenon sessions` : `session.SameRoot`). `--project <chemin>` : un autre projet. `--all-projects` : tous. `--session <id>` : une seule session (combinable avec la période). `--project`, `--all-projects` et `--session` sont exclusifs deux à deux.
+- Un événement appartient au périmètre si sa session appartient au périmètre (la session est rattachée à un projet par son premier `SessionStarted`, même antérieur à la période). Au niveau `metadata`, ce projet est inconnu : la session n'entre que dans `--all-projects` ou `--session`, et le rapport indique le nombre de sessions écartées pour cette raison.
 - Sortie : `--out` (défaut : dossier courant) reçoit `tenon-audit-<since>_<until>.html` et `.json`, en 0600. Si l'un des deux existe déjà : erreur, rien n'est écrit.
 - `--lang` : langue du HTML (défaut : langue de l'interface). Le JSON a des clés anglaises.
 - Codes de sortie : 0 succès ; 1 erreur d'usage ou d'écriture ; 2 rapport produit mais chaîne d'audit cassée.
@@ -86,9 +86,9 @@ Mêmes sections, clés anglaises stables, `schema_version: 1`, `generator: "teno
 - `internal/audit` : `ReadLines(dir string, fn func(file string, lineNo int, l Line, err error) error) error` (lecture en ordre des fichiers, ligne par ligne ; `Line` exporte seq, ts, session, type, payload, prev, hash).
 - `internal/compliance` (nouveau) :
   - `Filter{Since, Until time.Time; Project string; AllProjects bool; Session string}` ;
-  - `Load(dir string, f Filter) (Dataset, error)` (lignes du périmètre, lignes illisibles, niveau détecté) ;
-  - `Build(ds Dataset, opts Options) Report` (pur : sections §5) ;
-  - `RenderJSON(r Report) ([]byte, error)`, `RenderHTML(r Report, lang i18n.Lang) ([]byte, error)` (gabarit et CSS via `embed`).
+  - `Load(dir string, f Filter) (Dataset, error)` (vérification de la chaîne, lignes du périmètre, lignes illisibles, niveau détecté) ;
+  - `Build(ds Dataset, opts Options) Report` (pur : sections §5, masquage et nettoyage des textes) ;
+  - `ReportID(r Report) (string, error)`, `RenderHTML(r Report, reportID string, lang i18n.Lang) ([]byte, error)` (gabarit et CSS via `embed`), `RenderJSON(r Report, reportID, htmlSHA256 string) ([]byte, error)`.
 - `cmd/tenon` : `tenon audit export` (analyse des options, vérification, écriture des deux fichiers, codes de sortie).
 - `internal/i18n` : textes du HTML et des messages (EN/FR).
 - Docs EN/FR : usage, sécurité, schéma JSON.
@@ -101,7 +101,7 @@ Mêmes sections, clés anglaises stables, `schema_version: 1`, `generator: "teno
 | Ligne illisible | Comptée et listée dans les incidents, ignorée pour les autres sections |
 | Aucun événement | Rapport valide, mention `aucune activité sur la période`, code 0 |
 | Fichier de sortie existant | Erreur, rien n'est écrit, code 1 |
-| Date ou option invalide, `--project` avec `--all-projects` | Erreur d'usage, code 1 |
+| Date ou option invalide, `--since` après `--until`, options de périmètre combinées | Erreur d'usage, code 1 |
 | Dossier d'audit absent | Rapport vide valide (chaîne vide intacte), code 0 |
 
 ## 9. Tests
