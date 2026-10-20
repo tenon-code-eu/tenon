@@ -665,3 +665,42 @@ func TestBuildTimelineArgsFallback(t *testing.T) {
 		t.Fatalf("fallback args: %q", text)
 	}
 }
+
+// Journal mixte : la session dont le SessionStarted est réduit a un
+// fournisseur inconnu ; elle est comptée à part.
+func TestBuildMixedUnknownProviderSessions(t *testing.T) {
+	d := since.Add(time.Hour)
+	dir := writeLog(t, audit.Full,
+		ev(t, "a", 1, d, event.SessionStarted, event.SessionStartedPayload{Provider: provEU, ProjectRoot: "/p"}),
+		ev(t, "a", 2, d.Add(time.Second), event.TurnCompleted, event.TurnCompletedPayload{Reason: "done"}),
+	)
+	w, err := audit.Open(dir, audit.Metadata, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range []event.Event{
+		ev(t, "b", 1, d.Add(2*time.Second), event.SessionStarted, event.SessionStartedPayload{Provider: provUS, ProjectRoot: "/p"}),
+		ev(t, "b", 2, d.Add(3*time.Second), event.TurnCompleted, event.TurnCompletedPayload{Reason: "done"}),
+	} {
+		if err := w.Write(e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	r := Build(loadAll(t, dir), opts())
+	if r.Integrity.Level != LevelMixed || r.Summary.Sessions != 2 || r.Summary.UnknownProviderSessions != 1 {
+		t.Fatalf("level %s summary %+v", r.Integrity.Level, r.Summary)
+	}
+	if !reflect.DeepEqual(r.Summary.Jurisdictions, []string{"eu"}) || len(r.Providers) != 1 {
+		t.Fatalf("jurisdictions %v providers %+v", r.Summary.Jurisdictions, r.Providers)
+	}
+	out, err := json.Marshal(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), `"unknown_provider_sessions":1`) {
+		t.Fatalf("JSON: %s", out)
+	}
+}

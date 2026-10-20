@@ -63,6 +63,7 @@ Conséquences dans tenon :
 - Le contenu est de nouveau masqué à la construction du rapport, et les caractères de contrôle sont remplacés par des espaces.
 - Le rapport HTML ne contient aucun script et ne charge aucune ressource externe ; sa Content-Security-Policy est `default-src 'none'; style-src 'unsafe-inline'`.
 - Les deux fichiers sont créés en mode `0600` et ne remplacent jamais un fichier existant.
+- Sans `--details`, les fichiers gardent des textes masqués tirés du journal : chemins des fichiers modifiés, identifiants de session, messages d'erreur, textes des pannes MCP et raisons des hooks. Manipulez aussi le rapport par défaut avec soin.
 - Avec `--details`, les fichiers contiennent des données de conversation (prompts et commandes en entier ; réponses, arguments et résultats d'outils coupés à 500 caractères). Conservez-les et partagez-les comme le journal lui-même. Le HTML affiche un bandeau quand elles sont incluses.
 - `report_id` et `html_sha256` détectent une modification accidentelle ; ils n'arrêtent pas qui réécrit les deux fichiers. Voir [utilisation.md](utilisation.md#vérifier-lintégrité-dun-rapport).
 

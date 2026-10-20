@@ -1,6 +1,7 @@
 package compliance
 
 import (
+	"html/template"
 	"os"
 	"regexp"
 	"strings"
@@ -286,6 +287,42 @@ func TestRenderHTMLKeysExist(t *testing.T) {
 			if out := render(t, richReport(d), l); strings.Contains(out, "!report.") {
 				t.Errorf("clé inconnue rendue (%s)", l)
 			}
+		}
+	}
+}
+
+func TestRenderHTMLMixedBanner(t *testing.T) {
+	r := richReport(false)
+	r.Integrity.Level = LevelMixed
+	r.Summary.UnknownProviderSessions = 3
+	for _, c := range []struct {
+		lang         i18n.Lang
+		banner, summ string
+	}{
+		{i18n.EN, "part of the audit log is at metadata level: 3 sessions have an unknown provider; counts and providers are incomplete", "Sessions with an unknown provider: 3"},
+		{i18n.FR, "une partie du journal est au niveau metadata : 3 sessions ont un fournisseur inconnu ; décomptes et fournisseurs incomplets", "Sessions au fournisseur inconnu : 3"},
+	} {
+		out := render(t, r, c.lang)
+		if !strings.Contains(out, `<div class="banner warn">`+c.banner+`</div>`) || !strings.Contains(out, c.summ) {
+			t.Errorf("%s: banner or summary count missing:\n%s", c.lang, out)
+		}
+	}
+	full := render(t, richReport(false), i18n.EN)
+	if strings.Contains(full, "part of the audit log") || strings.Contains(full, "unknown provider") {
+		t.Errorf("mixed banner at full level")
+	}
+}
+
+// La clé report.git n'a pas d'argument : la commande suit dans un <code>.
+func TestRenderHTMLGitHint(t *testing.T) {
+	for _, l := range []i18n.Lang{i18n.FR, i18n.EN} {
+		k := i18n.T(l, "report.git")
+		if strings.Contains(k, "%") {
+			t.Errorf("%s: report.git has a verb: %q", l, k)
+		}
+		out := render(t, richReport(false), l)
+		if !strings.Contains(out, "<p>"+template.HTMLEscapeString(k)+"<code>git log") {
+			t.Errorf("%s: git hint not rendered", l)
 		}
 	}
 }

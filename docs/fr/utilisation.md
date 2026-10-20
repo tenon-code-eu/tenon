@@ -1102,7 +1102,9 @@ Chaque rapport commence par un avertissement (le champ JSON `disclaimer` est tou
 
 ### `--details`
 
-Sans `--details`, le rapport ne contient que des comptes et des empreintes : aucun prompt, réponse, commande ni résultat d'outil.
+Sans `--details`, le rapport ne contient aucun prompt, réponse, texte de commande, argument ni résultat d'outil.
+Il garde des textes tirés du journal : chemins des fichiers modifiés, identifiants de session, noms d'outils et de serveurs MCP, messages d'erreur (pannes MCP comprises) et raisons des hooks.
+Ces textes sont masqués, mais ils peuvent révéler des noms de projet ou des détails internes : manipulez aussi le rapport par défaut avec soin.
 Avec `--details`, il ajoute :
 
 - le texte des commandes shell, par session ;
@@ -1123,6 +1125,8 @@ Le rapport alors :
 - met `content_available` à `false` et `integrity.level` à `metadata`.
 
 Si le journal mêle les deux niveaux (`integrity.level` vaut `mixed`), les lignes dont la charge est au niveau metadata sont ignorées : elles ne sont pas comptées.
+Une session dont le démarrage est au niveau metadata a un fournisseur inconnu : elle manque aux fournisseurs et aux juridictions.
+Leur nombre est dans `summary.unknown_provider_sessions` ; le HTML l'affiche dans le résumé et, au niveau `mixed`, dans un bandeau qui signale des décomptes et fournisseurs incomplets.
 La correspondance réglementaire apparaît à tous les niveaux.
 
 Au niveau metadata, le projet d'une session est inconnu. Avec `--project` (ou par défaut), ces sessions sont écartées du rapport : leur nombre est dans `excluded_metadata_sessions`, et le HTML l'affiche dans un bandeau.
@@ -1186,7 +1190,7 @@ Enveloppe :
 | `integrity` | objet | voir plus bas |
 | `content_available` | booléen | `false` au niveau metadata |
 | `excluded_metadata_sessions` | nombre | sessions écartées du périmètre projet (projet inconnu au niveau metadata) |
-| `summary` | objet | `sessions`, `turns`, `tool_calls`, `files_modified`, `denials` (nombres), `jurisdictions` (liste de chaînes) |
+| `summary` | objet | `sessions`, `turns`, `tool_calls`, `files_modified`, `denials` (nombres), `jurisdictions` (liste de chaînes), `unknown_provider_sessions` (nombre : sessions de la plage au fournisseur inconnu, 0 au niveau metadata) |
 | `providers` | liste | `id`, `name`, `model`, `country`, `jurisdiction` (chaînes), `sessions` (nombre), `first`, `last` (dates) |
 | `jurisdiction_consents` | objet | `granted`, `denied` (nombres) |
 | `jurisdiction_warning_sessions` | liste | identifiants de sessions |

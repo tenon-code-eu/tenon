@@ -1100,7 +1100,9 @@ Every report starts with a notice (the JSON `disclaimer` field is always in Engl
 
 ### `--details`
 
-Without `--details`, the report holds counts and hashes only: no prompt, response, command or tool result.
+Without `--details`, the report holds no prompt, response, command text, tool argument or tool result.
+It still holds texts taken from the log: modified file paths, session ids, tool and MCP server names, error messages (including MCP failures) and hook reasons.
+These texts are redacted, but they can reveal project names or internal details: handle the default report with care too.
 With `--details`, it adds:
 
 - the text of the shell commands, per session;
@@ -1121,6 +1123,8 @@ The report then:
 - sets `content_available` to `false` and `integrity.level` to `metadata`.
 
 If the log mixes both levels (`integrity.level` is `mixed`), the lines whose payload is at metadata level are skipped: they are not counted.
+A session whose start is at metadata level has an unknown provider: it is missing from the providers and jurisdictions.
+Their number is in `summary.unknown_provider_sessions`; the HTML shows it in the summary and, at `mixed` level, in a banner saying that counts and providers are incomplete.
 Regulatory mapping appears at every level.
 
 At metadata level, the project of a session is unknown. With `--project` (or the default), such sessions are left out of the report: their number is in `excluded_metadata_sessions`, and the HTML shows it in a banner.
@@ -1184,7 +1188,7 @@ Envelope:
 | `integrity` | object | see below |
 | `content_available` | boolean | `false` at metadata level |
 | `excluded_metadata_sessions` | number | sessions left out of the project scope (project unknown at metadata level) |
-| `summary` | object | `sessions`, `turns`, `tool_calls`, `files_modified`, `denials` (numbers), `jurisdictions` (list of strings) |
+| `summary` | object | `sessions`, `turns`, `tool_calls`, `files_modified`, `denials` (numbers), `jurisdictions` (list of strings), `unknown_provider_sessions` (number: sessions in the range whose provider is unknown, 0 at metadata level) |
 | `providers` | list | `id`, `name`, `model`, `country`, `jurisdiction` (strings), `sessions` (number), `first`, `last` (dates) |
 | `jurisdiction_consents` | object | `granted`, `denied` (numbers) |
 | `jurisdiction_warning_sessions` | list | session ids |

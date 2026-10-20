@@ -58,6 +58,7 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
 {{if not .Integrity.Intact}}<div class="banner broken">{{t "report.chain.broken" .Integrity.Error}}</div>
 {{end}}{{if not .ContentAvailable}}<div class="banner warn">{{t "report.banner.metadata"}}</div>
 {{end}}{{if .Details}}<div class="banner info">{{t "report.banner.details"}}</div>
+{{end}}{{if eq .Integrity.Level "mixed"}}<div class="banner warn">{{t "report.banner.mixed" .Summary.UnknownProviderSessions}}</div>
 {{end}}{{if gt .ExcludedMetadataSessions 0}}<div class="banner warn">{{t "report.banner.excluded" .ExcludedMetadataSessions}}</div>
 {{end}}
 {{if eq .Integrity.RangeLines 0}}<p class="banner info">{{t "report.empty"}}</p>
@@ -72,7 +73,8 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
 <tr><th>{{t "report.col.sessions"}}</th><th>{{t "report.col.turns"}}</th><th>{{t "report.col.tool_calls"}}</th><th>{{t "report.col.files_modified"}}</th><th>{{t "report.col.denials"}}</th><th>{{t "report.col.jurisdictions"}}</th></tr>
 <tr><td>{{.Summary.Sessions}}</td>{{if .ContentAvailable}}<td>{{.Summary.Turns}}</td><td>{{.Summary.ToolCalls}}</td><td>{{.Summary.FilesModified}}</td><td>{{.Summary.Denials}}</td><td>{{range $i, $j := .Summary.Jurisdictions}}{{if $i}}, {{end}}{{tk "report.juris." $j}}{{else}}{{t "report.none"}}{{end}}</td>{{else}}{{template "nacell"}}{{template "nacell"}}{{template "nacell"}}{{template "nacell"}}{{template "nacell"}}{{end}}</tr>
 </table>
-</section>
+{{if gt .Summary.UnknownProviderSessions 0}}<p>{{t "report.summary.unknown_provider" .Summary.UnknownProviderSessions}}</p>
+{{end}}</section>
 
 <section id="providers">
 <h2>{{t "report.sec.providers"}}</h2>
@@ -168,7 +170,7 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
 <section id="mapping">
 <h2>{{t "report.sec.mapping"}}</h2>
 {{with .Mapping}}<ul>{{range .}}<li>{{tk "report.map." .Element}}</li>{{end}}</ul>{{else}}{{template "none"}}{{end}}
-<p>{{t "report.git" ""}}<code>{{.GitHint}}</code></p>
+<p>{{t "report.git"}}<code>{{.GitHint}}</code></p>
 </section>
 {{if .Details}}
 <section id="timeline">

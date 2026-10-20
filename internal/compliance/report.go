@@ -88,6 +88,10 @@ type Summary struct {
 	FilesModified int      `json:"files_modified"`
 	Denials       int      `json:"denials"`
 	Jurisdictions []string `json:"jurisdictions"`
+	// UnknownProviderSessions compte les sessions de la plage dont le
+	// fournisseur est inconnu (premier SessionStarted réduit ou absent) : leurs
+	// fournisseurs et juridictions manquent aux comptes.
+	UnknownProviderSessions int `json:"unknown_provider_sessions"`
 }
 
 // ProviderUse regroupe les sessions d'un même fournisseur et modèle.

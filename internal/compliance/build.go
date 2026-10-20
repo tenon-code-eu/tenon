@@ -525,6 +525,7 @@ func (b *builder) providers() {
 	for _, sid := range order {
 		st := b.ds.Sessions[sid].Started
 		if st == nil {
+			b.r.Summary.UnknownProviderSessions++
 			continue
 		}
 		pv, sp := st.Provider, spans[sid]

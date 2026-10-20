@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "generator": "tenon test",
-  "report_id": "sha256:66c159d1b29590fe0185543268c22faee99bb4627b6b1181da409fad6bc632b5",
+  "report_id": "sha256:6ac074ca3df96275dd3c5bd1f04b7343afa527f6b2bd7a462031296f29e21df4",
   "html_sha256": "sha256:cc",
   "report": {
     "generator": "tenon test",
@@ -35,7 +35,8 @@
       "denials": 0,
       "jurisdictions": [
         "EU"
-      ]
+      ],
+      "unknown_provider_sessions": 0
     },
     "providers": [
       {
