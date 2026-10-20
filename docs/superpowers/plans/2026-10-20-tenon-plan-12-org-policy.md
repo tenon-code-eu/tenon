@@ -16,7 +16,7 @@
 - `internal/orgpolicy` imports only the standard library, `golang.org/x/crypto/blake2b`, `github.com/BurntSushi/toml` and `internal/profile`. It never imports `internal/config` or `internal/policy`.
 - System directory: `/etc/tenon` (Linux), `/Library/Application Support/tenon` (macOS). Files: `policy.toml`, `policy.toml.minisig`, `policy.pub`.
 - `TENON_POLICY_DIR` is read only when the system directory has no `policy.toml`; no permission check on that directory.
-- Permission check (system directory only): refused if the directory or any of the three files has `mode & 0o022 != 0`, or is owned by the current effective uid while that uid is not 0. `os.Stat` (symlinks followed).
+- Permission check (system directory only): refused if the directory or any of the three files has `mode & 0o022 != 0`, or is not owned by uid 0 (`not owned by root`); a non-`syscall.Stat_t` FileInfo fails closed. `os.Stat` (symlinks followed).
 - minisign formats: public key line = base64(`"Ed"` + keyID[8] + pubkey[32]); signature line = base64(alg[2] + keyID[8] + sig[64]) with alg `"Ed"` (signs the message) or `"ED"` (signs BLAKE2b-512 of the message); line 3 `trusted comment: <text>`; line 4 base64(globalSig[64]) = Ed25519 over `sig[64] || <text>`. Both signatures must verify; keyIDs must match.
 - `KeyID` string = `fmt.Sprintf("%016X", binary.LittleEndian.Uint64(keyID[:]))` (as printed by minisign).
 - Merge order: defaults → global → project → policy. Policy only tightens.
@@ -134,9 +134,9 @@ minisign -G -W -p testdata/other.pub -s $SCRATCH/other.key
   - `func Resolve(getenv func(string) string) (dir string, system bool)` — delegates to `resolve(SystemDir(), getenv)`.
   - `func resolve(systemDir string, getenv func(string) string) (string, bool)` — `policy.toml` exists in `systemDir` (`os.Stat` succeeds, or fails with an error other than `fs.ErrNotExist`) → `(systemDir, true)`; else `TENON_POLICY_DIR` non-empty → `(it, false)`; else `("", false)`.
   - `func Load(dir string, checkPerms bool) (*Policy, error)` — `dir == ""` or `policy.toml` absent → `nil, nil`. Otherwise: perms (if `checkPerms`) on dir and the three files, read the three files (a missing `.minisig`/`.pub` is an error), `ParsePublicKey`, `Verify`, `Parse`, set `KeyID = pk.ID()`. Every error is `fmt.Errorf("%s: %w", path, err)` for the file at fault and wraps `ErrPolicy`.
-  - `func checkPerms(path string) error` — Global Constraints rule; messages `writable by group or others` / `owned by the current user`.
+  - `func checkPerms(path string) error` — Global Constraints rule; messages `writable by group or others` / `not owned by root`.
 
-- [ ] **Step 1: Failing tests** — `TestLoadAbsent` (empty dir and `""` → `nil, nil`); `TestLoadValid` (`orgpolicytest.Sign` then `Load(dir, false)` → ID, KeyID == returned keyID); `TestLoadMissingSig`, `TestLoadMissingPub`, `TestLoadTampered` (append a byte to `policy.toml` after signing) → error containing the file path; `TestLoadPerms` (`Load(dir, true)` with files 0644 owned by the test user → `owned by the current user`, skipped when `os.Geteuid() == 0`; file chmod 0666 → `writable by group or others`); `TestResolve`: system dir with `policy.toml` + `TENON_POLICY_DIR=/other` → `(system, true)` (Review Focus 1); system dir empty + env set → `(env, false)`; neither → `("", false)`.
+- [ ] **Step 1: Failing tests** — `TestLoadAbsent` (empty dir and `""` → `nil, nil`); `TestLoadValid` (`orgpolicytest.Sign` then `Load(dir, false)` → ID, KeyID == returned keyID); `TestLoadMissingSig`, `TestLoadMissingPub`, `TestLoadTampered` (append a byte to `policy.toml` after signing) → error containing the file path; `TestLoadPerms` (`Load(dir, true)` with files 0644 owned by the test user → `not owned by root`, skipped when `os.Geteuid() == 0`; file chmod 0666 → `writable by group or others`); `TestResolve`: system dir with `policy.toml` + `TENON_POLICY_DIR=/other` → `(system, true)` (Review Focus 1); system dir empty + env set → `(env, false)`; neither → `("", false)`.
 - [ ] **Step 2: Run** — FAIL.
 - [ ] **Step 3: Implement** (`syscall.Stat_t` for the owner uid; linux and darwin only).
 - [ ] **Step 4: Run** — PASS; full gates.

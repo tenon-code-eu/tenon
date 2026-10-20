@@ -90,8 +90,8 @@ func Load(dir string, checkPermsOn bool) (*Policy, error) {
 	return &p, nil
 }
 
-// checkPerms refuse un chemin inscriptible par groupe/autres, ou appartenant
-// à l'utilisateur effectif lorsqu'il n'est pas root.
+// checkPerms refuse un chemin inscriptible par groupe/autres ou n'appartenant
+// pas à root (uid 0). Échoue fermé si le propriétaire est indéterminable.
 func checkPerms(path string) error {
 	fi, err := os.Stat(path)
 	if err != nil {
@@ -100,10 +100,12 @@ func checkPerms(path string) error {
 	if fi.Mode().Perm()&0o022 != 0 {
 		return fail(path, errors.New("writable by group or others"))
 	}
-	if st, ok := fi.Sys().(*syscall.Stat_t); ok {
-		if euid := os.Geteuid(); euid != 0 && int(st.Uid) == euid {
-			return fail(path, errors.New("owned by the current user"))
-		}
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok {
+		return fail(path, errors.New("cannot determine owner"))
+	}
+	if st.Uid != 0 {
+		return fail(path, errors.New("not owned by root"))
 	}
 	return nil
 }

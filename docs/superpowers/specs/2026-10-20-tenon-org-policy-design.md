@@ -34,7 +34,7 @@ Critères de succès :
   - `policy.toml.minisig` ou `policy.pub` manque ;
   - l'identifiant de clé de la signature diffère de celui de `policy.pub` ;
   - la signature du fichier ou la signature globale (commentaire de confiance) est invalide ;
-  - dans le dossier système seulement : un des trois fichiers, ou le dossier, est inscriptible par le groupe ou les autres (`mode & 0o022 != 0`), ou appartient à l'utilisateur courant alors que celui-ci n'est pas root ;
+  - dans le dossier système seulement : un des trois fichiers, ou le dossier, est inscriptible par le groupe ou les autres (`mode & 0o022 != 0`), ou n'appartient pas à root (uid 0) ;
   - le TOML est invalide ou contient une clé inconnue, ou une valeur est refusée (§4).
 - La politique est vérifiée une fois, au démarrage, avant le chargement de la configuration.
 
@@ -119,7 +119,7 @@ Ordre de fusion : défauts → global → projet → politique.
 - minisign : vecteurs générés une fois avec `minisign` et commités dans `testdata` (clé publique, signature `ED`, signature `Ed`) ; signature altérée, commentaire de confiance altéré, autre clé, fichiers mal formés.
 - `Parse` : chaque refus du §4 ; politique minimale (`id`, `version`).
 - `AllowsHost` : exact, joker, apex refusé, casse, port ignoré, local avec et sans `allow_local`.
-- `Load` : absente → `nil` ; permissions 0666 refusées ; propriétaire = utilisateur courant refusé avec `checkPerms` ; `TENON_POLICY_DIR` ignoré quand une politique système existe (dossier système injecté).
+- `Load` : absente → `nil` ; permissions 0666 refusées ; propriétaire autre que root (uid 0) refusé avec `checkPerms` ; `TENON_POLICY_DIR` ignoré quand une politique système existe (dossier système injecté).
 - `config.Load` : plancher de profil, `define` qui gagne, règles en tête marquées, `allow` refusé, niveau d'audit imposé.
 - `Outbound.Check` : hôte refusé → `ErrPolicy`.
 - Bout en bout : hôte refusé (code 1, message) ; session valide avec `SessionStarted.policy` ; serveur MCP retiré ; export avec la section ; `tenon policy check` valide et invalide.

@@ -53,12 +53,13 @@ func TestLoadBroken(t *testing.T) {
 			dir := t.TempDir()
 			orgpolicytest.Sign(t, dir, loadTOML)
 			mutate(t, dir)
+			want := filepath.Join(dir, name)
 			_, err := Load(dir, false)
 			if !errors.Is(err, ErrPolicy) {
 				t.Fatalf("err = %v, want ErrPolicy", err)
 			}
-			if !strings.Contains(err.Error(), dir) {
-				t.Fatalf("err %q lacks path", err)
+			if !strings.HasPrefix(err.Error(), want+": ") {
+				t.Fatalf("err %q must start with %s", err, want)
 			}
 		})
 	}
@@ -88,8 +89,11 @@ func TestLoadPerms(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root")
 	}
+	if err := os.Chmod(f, 0o644); err != nil {
+		t.Fatal(err)
+	}
 	_, err = Load(dir, true)
-	if !errors.Is(err, ErrPolicy) || !strings.Contains(err.Error(), "owned by the current user") {
+	if !errors.Is(err, ErrPolicy) || !strings.Contains(err.Error(), "not owned by root") {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -103,6 +107,14 @@ func TestResolve(t *testing.T) {
 	}
 	if d, s := resolve(sys, none); d != "" || s {
 		t.Fatalf("neither: %q %v", d, s)
+	}
+	// Échec fermé : Stat échoue avec ENOTDIR (≠ ErrNotExist).
+	file := filepath.Join(t.TempDir(), "f")
+	if err := os.WriteFile(file, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if d, s := resolve(file, env); d != file || !s {
+		t.Fatalf("fail-closed: %q %v", d, s)
 	}
 	if err := os.WriteFile(filepath.Join(sys, "policy.toml"), nil, 0o644); err != nil {
 		t.Fatal(err)
