@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tenon-code-eu/tenon/internal/orgpolicy"
 	"github.com/tenon-code-eu/tenon/internal/profile"
 )
 
@@ -45,6 +46,14 @@ type Config struct {
 	// WeakerProjectProfile : valeur projet ignorée car plus faible que le
 	// profil global. Jamais lue depuis le TOML ; le CLI en tire un avis.
 	WeakerProjectProfile profile.Name `toml:"-"`
+
+	// Policy : politique d'organisation appliquée (nil si aucune). Posée par
+	// ApplyPolicy, jamais lue depuis le TOML.
+	Policy *orgpolicy.Policy `toml:"-"`
+	// Avis produits par ApplyPolicy, jamais lus depuis le TOML.
+	PolicyOverriddenProviders []string     `toml:"-"` // fournisseurs de la config remplacés par la politique
+	PolicyAuditFrom           string       `toml:"-"` // niveau d'audit remplacé ("" si inchangé)
+	PolicyRaisedProfile       profile.Name `toml:"-"` // profil de la config relevé par la politique
 }
 
 // Checkpoints règle la rétention des copies. 0 désactive les copies.
@@ -204,6 +213,7 @@ type Rule struct {
 	Match    string `toml:"match"`
 	Decision string `toml:"decision"`
 	Project  bool   `toml:"-"`
+	Policy   bool   `toml:"-"` // règle imposée par la politique d'organisation
 }
 
 type RedactionRule struct {
