@@ -12,6 +12,7 @@ import (
 	"github.com/tenon-code-eu/tenon/internal/event"
 	"github.com/tenon-code-eu/tenon/internal/hooks"
 	"github.com/tenon-code-eu/tenon/internal/llm"
+	"github.com/tenon-code-eu/tenon/internal/orgpolicy"
 	"github.com/tenon-code-eu/tenon/internal/policy"
 	"github.com/tenon-code-eu/tenon/internal/profile"
 	"github.com/tenon-code-eu/tenon/internal/provider"
@@ -73,10 +74,14 @@ func (t *turn) run(in Input) error {
 	d := t.e.d
 	info := d.Provider.Info()
 	if !t.s.started {
-		if err := t.emit(event.SessionStarted, event.SessionStartedPayload{
+		started := event.SessionStartedPayload{
 			Provider: info, ProjectRoot: d.ProjectRoot, Resumed: t.s.resumed, Instructions: d.Instructions,
 			MCP: d.MCP, Profile: string(d.Profile),
-		}); err != nil {
+		}
+		if d.Policy != nil {
+			started.Policy = &event.PolicyRef{ID: d.Policy.ID, Version: d.Policy.Version, KeyID: d.Policy.KeyID}
+		}
+		if err := t.emit(event.SessionStarted, started); err != nil {
 			return err
 		}
 		t.s.started = true
@@ -337,6 +342,13 @@ func (t *turn) outbound(info llm.ProviderInfo, in []llm.Message) (msgs []llm.Mes
 		if errors.Is(err, profile.ErrProfile) {
 			// Violation de profil : aucun envoi, tour clos comme un refus.
 			if eerr := t.emit(event.Error, event.ErrorPayload{Code: "profile", Message: err.Error()}); eerr != nil {
+				return nil, false, eerr
+			}
+			return nil, false, nil
+		}
+		if errors.Is(err, orgpolicy.ErrPolicy) {
+			// Hôte refusé par la politique d'organisation : aucun envoi.
+			if eerr := t.emit(event.Error, event.ErrorPayload{Code: "policy", Message: err.Error()}); eerr != nil {
 				return nil, false, eerr
 			}
 			return nil, false, nil

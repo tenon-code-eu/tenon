@@ -16,6 +16,7 @@ import (
 	"github.com/tenon-code-eu/tenon/internal/hooks"
 	"github.com/tenon-code-eu/tenon/internal/i18n"
 	"github.com/tenon-code-eu/tenon/internal/llm"
+	"github.com/tenon-code-eu/tenon/internal/orgpolicy"
 	"github.com/tenon-code-eu/tenon/internal/policy"
 	"github.com/tenon-code-eu/tenon/internal/profile"
 	"github.com/tenon-code-eu/tenon/internal/provider"
@@ -84,6 +85,9 @@ type Deps struct {
 	// Profile est le profil de conformité actif, recopié dans SessionStarted
 	// (le contrôle avant envoi est porté par Outbound).
 	Profile profile.Name
+	// Policy est la politique d'organisation active (nil : aucune), recopiée
+	// dans SessionStarted ; Outbound en revérifie les hôtes avant chaque envoi.
+	Policy *orgpolicy.Policy
 }
 
 // Reply répond à un PermissionRequested.
@@ -153,6 +157,7 @@ func New(d Deps) *Engine {
 	// avant chaque envoi.
 	if d.Outbound != nil {
 		d.Outbound.SetProfile(d.Profile)
+		d.Outbound.SetHostPolicy(d.Policy)
 	}
 	reg := d.Tools
 	if d.Agents != nil {

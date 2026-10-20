@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/tenon-code-eu/tenon/internal/llm"
+	"github.com/tenon-code-eu/tenon/internal/orgpolicy"
 	"github.com/tenon-code-eu/tenon/internal/profile"
 )
 
@@ -190,5 +191,28 @@ func TestOutboundNoProfileUnchanged(t *testing.T) {
 	o.Consent("x")
 	if _, _, err := o.Check(llm.ProviderInfo{ID: "x", Jurisdiction: llm.NonEU}, nil); err != nil {
 		t.Fatalf("with consent: err = %v", err)
+	}
+}
+
+func TestOutboundPolicyHost(t *testing.T) {
+	o := newOut(t)
+	o.SetHostPolicy(&orgpolicy.Policy{ID: "acme-dev", Providers: &orgpolicy.Providers{AllowHosts: []string{"api.mistral.ai"}}})
+	msgs := []llm.Message{{Role: llm.User, Content: "hi"}}
+	bad := llm.ProviderInfo{ID: "evil", BaseURL: "https://evil.example/v1", Jurisdiction: llm.EU}
+	o.Consent("evil")
+	_, _, err := o.Check(bad, msgs)
+	if !errors.Is(err, orgpolicy.ErrPolicy) {
+		t.Fatalf("err = %v", err)
+	}
+	if errors.Is(err, ErrJurisdiction) {
+		t.Fatal("a policy violation must not be a jurisdiction error")
+	}
+	ok := llm.ProviderInfo{ID: "mistral", BaseURL: "https://api.mistral.ai/v1", Jurisdiction: llm.EU}
+	if _, _, err := o.Check(ok, msgs); err != nil {
+		t.Fatalf("allowed host: %v", err)
+	}
+	o.SetHostPolicy(nil)
+	if _, _, err := o.Check(bad, msgs); err != nil {
+		t.Fatalf("nil policy: %v", err)
 	}
 }

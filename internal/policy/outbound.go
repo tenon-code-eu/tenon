@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/tenon-code-eu/tenon/internal/llm"
+	"github.com/tenon-code-eu/tenon/internal/orgpolicy"
 	"github.com/tenon-code-eu/tenon/internal/profile"
 )
 
@@ -20,6 +21,7 @@ type Outbound struct {
 	mu      sync.Mutex
 	consent map[string]bool
 	profile profile.Name
+	hostPol *orgpolicy.Policy
 }
 
 // NewOutbound returns an Outbound using r for masking.
@@ -42,6 +44,14 @@ func (o *Outbound) SetProfile(n profile.Name) {
 	o.mu.Unlock()
 }
 
+// SetHostPolicy fixe la politique d'organisation dont la liste blanche d'hôtes
+// est revérifiée avant chaque envoi (nil : aucune restriction).
+func (o *Outbound) SetHostPolicy(p *orgpolicy.Policy) {
+	o.mu.Lock()
+	o.hostPol = p
+	o.mu.Unlock()
+}
+
 // Check enforces the compliance profile first (a recorded consent never
 // bypasses it; its error wraps profile.ErrProfile), then the jurisdiction rule, then returns a redacted deep copy of
 // msgs with the number of masks per type. The input is never modified.
@@ -50,9 +60,15 @@ func (o *Outbound) SetProfile(n profile.Name) {
 func (o *Outbound) Check(p llm.ProviderInfo, msgs []llm.Message) ([]llm.Message, map[string]int, error) {
 	o.mu.Lock()
 	n := o.profile
+	hp := o.hostPol
 	o.mu.Unlock()
 	if err := profile.CheckProvider(n, p); err != nil {
 		return nil, nil, err
+	}
+	// Liste blanche d'hôtes de la politique : un consentement ne la contourne
+	// pas (erreur distincte de ErrJurisdiction, donc aucune demande).
+	if host := orgpolicy.HostOf(p.BaseURL); hp != nil && !hp.AllowsHost(host) {
+		return nil, nil, fmt.Errorf("%w: provider %q (host %q) not allowed by policy %s", orgpolicy.ErrPolicy, p.ID, host, hp.ID)
 	}
 	if p.Jurisdiction != llm.EU && p.Jurisdiction != llm.Local {
 		o.mu.Lock()

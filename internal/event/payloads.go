@@ -18,6 +18,15 @@ type SessionStartedPayload struct {
 	MCP []MCPServerInfo `json:"mcp,omitempty"`
 	// Profile est le profil de conformité actif (omis sans profil).
 	Profile string `json:"profile,omitempty"`
+	// Policy identifie la politique d'organisation active (omis sans politique).
+	Policy *PolicyRef `json:"policy,omitempty"`
+}
+
+// PolicyRef identifie la politique d'organisation appliquée à la session.
+type PolicyRef struct {
+	ID      string `json:"id"`
+	Version int    `json:"version"`
+	KeyID   string `json:"key_id"`
 }
 
 // MCPServerInfo describes an active MCP server (values from the configuration).
