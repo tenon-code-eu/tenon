@@ -1096,7 +1096,7 @@ It does not modify the log and does not lock it.
 - **Integrity**: whether the whole chain is intact, the number of lines, the final hash, and the hashes of the first and last line of the exported range.
 
 Git marking is not in the log: the report gives the command that finds marked code, `git log --grep "AI-Assisted-By"`.
-Every report starts with a notice: it describes the activity recorded by tenon, it is not legal advice and it does not certify compliance.
+Every report starts with a notice (the JSON `disclaimer` field is always in English): it describes the activity recorded by tenon, it is not legal advice and it does not certify compliance.
 
 ### `--details`
 
@@ -1130,7 +1130,7 @@ At metadata level, the project of a session is unknown. With `--project` (or the
 
 1. The log itself: `tenon audit verify` (see above). The report gives the final hash (`integrity.final_hash`) to compare with the hash you wrote down.
 2. The JSON file: `report_id` is `sha256:` followed by the SHA-256 of the `report` field, serialised in compact form as Go's `encoding/json` does it:
-   keys in file order, no whitespace, `<`, `>` and `&` written as `<`, `>` and `&`, U+2028 and U+2029 written as ` ` and ` `, other non-ASCII characters kept as UTF-8.
+   keys in file order, no whitespace, `<`, `>` and `&` written as `\u003c`, `\u003e` and `\u0026`, U+2028 and U+2029 written as `\u2028` and `\u2029`, other non-ASCII characters kept as UTF-8.
    With `python3`:
 
    ```python
@@ -1138,17 +1138,17 @@ At metadata level, the project of a session is unknown. With `--project` (or the
    doc = json.load(open(sys.argv[1], encoding="utf-8"))
    raw = json.dumps(doc["report"], separators=(",", ":"), ensure_ascii=False)
    for ch, esc in (("<", "\\u003c"), (">", "\\u003e"), ("&", "\\u0026"),
-                   (" ", "\\u2028"), (" ", "\\u2029")):
+                   ("\u2028", "\\u2028"), ("\u2029", "\\u2029")):
        raw = raw.replace(ch, esc)
    print("sha256:" + hashlib.sha256(raw.encode("utf-8")).hexdigest())
    print(doc["report_id"])
    ```
 
-   Run it as `python3 check.py tenon-audit-….json`: both lines must be identical.
+   Run it as `python3 check.py tenon-audit-<since>_<until>.json`: both lines must be identical.
 3. The HTML file: `html_sha256` is the SHA-256 of the HTML file.
    ```
-   shasum -a 256 tenon-audit-….html     # macOS
-   sha256sum tenon-audit-….html         # Linux
+   shasum -a 256 tenon-audit-<since>_<until>.html     # macOS
+   sha256sum tenon-audit-<since>_<until>.html         # Linux
    ```
    Compare the result with `html_sha256` (after the `sha256:` prefix).
 

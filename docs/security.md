@@ -61,7 +61,7 @@ Consequences in tenon:
 - Content is redacted again when the report is built, and control characters are replaced by spaces.
 - The HTML report has no script and loads no external resource; its Content-Security-Policy is `default-src 'none'; style-src 'unsafe-inline'`.
 - The two files are created with mode `0600` and never replace an existing file.
-- With `--details`, the files contain conversation data (prompts, responses, commands, tool results, cut to 500 characters). Store and share them like the log itself. The HTML shows a banner when they are included.
+- With `--details`, the files contain conversation data (prompts and commands in full; responses, tool arguments and tool results cut to 500 characters). Store and share them like the log itself. The HTML shows a banner when they are included.
 - `report_id` and `html_sha256` detect an accidental change; they do not stop someone who rewrites both files. See [usage.md](usage.md#check-the-integrity-of-a-report).
 
 ## Known limits
