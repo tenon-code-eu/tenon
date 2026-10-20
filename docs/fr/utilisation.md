@@ -19,6 +19,7 @@ Pour un exemple de configuration commenté, voir [config.example.toml](../config
 - [Hooks](#hooks)
 - [Points de restauration](#points-de-restauration)
 - [Fournisseurs et juridictions](#fournisseurs-et-juridictions)
+- [Profils de conformité](#profils-de-conformité)
 - [Clés d'API et trousseau](#clés-dapi-et-trousseau)
 - [Serveurs MCP](#serveurs-mcp)
 - [Marquage git du code produit](#marquage-git-du-code-produit)
@@ -936,6 +937,45 @@ model = "qwen3:8b"          # context_window absent : lu sur le serveur
 jurisdiction = "local"
 ```
 
+## Profils de conformité
+
+Un profil restreint, pour toute l'exécution, ce que tenon peut envoyer et à qui.
+Il se règle avec la clé `profile` de la configuration globale :
+
+```toml
+profile = "eu-only"
+```
+
+| Profil | Fournisseurs et serveurs MCP admis |
+|---|---|
+| `eu-only` | juridiction `eu` ou `local` |
+| `strict-local` | juridiction `local` **et** une URL dont l'hôte est une adresse locale |
+
+Les profils sont ordonnés : `strict-local` est plus strict que `eu-only`, lui-même plus strict que l'absence de profil.
+Un fournisseur ou un serveur MCP de juridiction inconnue (non renseignée) est refusé par les deux profils.
+
+**Hôtes locaux.** Pour `strict-local`, l'hôte de l'URL doit être exactement l'un de ceux-ci : `localhost`, ou un littéral d'adresse IP dans `127.0.0.0/8`, `::1`, `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16` ou `fc00::/7` (une zone IPv6 comme `%eth0` est ignorée). tenon ne fait aucune résolution DNS : un nom d'hôte autre que `localhost` est refusé, même s'il désigne une adresse locale. Un serveur MCP stdio n'a pas d'URL : seule sa juridiction est contrôlée.
+
+**Qui décide.** Le profil est lu dans la configuration globale et dans celle du projet, et le plus strict l'emporte : un projet peut durcir le profil, jamais l'assouplir. Une valeur de projet plus souple que la valeur globale est ignorée, et tenon affiche un avis au démarrage. Un nom de profil inconnu est une erreur de configuration.
+
+**Ce qui est contrôlé.**
+
+- Au démarrage, seul le fournisseur **sélectionné** (`--provider` ou `default_provider`) est contrôlé, avant tout contact : la détection du modèle local (Ollama, vLLM) n'est pas lancée pour un fournisseur refusé. Les autres fournisseurs configurés ne sont contrôlés que si vous les sélectionnez.
+- `--allow-non-eu` est refusé avec un profil : tenon s'arrête avec une erreur au démarrage.
+- Un serveur MCP que le profil refuse n'est ni lancé ni contacté. Un avis le nomme avec la raison, et le journal enregistre `McpServerDown`.
+- Défense en profondeur : avant chaque envoi au modèle, le profil est contrôlé de nouveau. En cas de violation, rien n'est envoyé, le journal enregistre un événement `Error` avec `code: "profile"`, et le tour est bloqué.
+
+Le profil en vigueur est enregistré dans le champ `profile` de `SessionStarted` (absent sans profil).
+L'écran d'accueil affiche une ligne `profil : <nom>`.
+`tenon config check` affiche une ligne `profil : <nom>` seulement quand un profil est actif, puis contrôle le fournisseur sélectionné (`--provider` est pris en compte) et sort avec le code 1 s'il est refusé.
+L'[export de conformité](#export-de-conformité) liste les profils des sessions dans la clé `profiles`.
+
+**Ce que les profils ne couvrent pas.**
+
+- Les commandes shell : une commande approuvée, ou un programme lancé par un serveur MCP stdio, peut toujours accéder au réseau. Un profil borne les données envoyées au modèle et aux serveurs MCP, pas ce que fait une commande.
+- Les permissions : les règles de validation ne changent pas.
+- Le niveau d'audit (`audit.level`) et les hooks : un hook est une commande que vous avez écrite, le profil ne la filtre pas.
+
 ## Clés d'API et trousseau
 
 Une clé n'est jamais lue dans un fichier de configuration.
@@ -1091,6 +1131,7 @@ Elle ne modifie pas le journal et ne le verrouille pas.
 
 ### Contenu du rapport
 
+- **Profils appliqués** : les profils de conformité des sessions de la plage, dans l'en-tête du rapport.
 - **Synthèse** : sessions, tours, appels d'outils, fichiers modifiés, refus, juridictions des fournisseurs.
 - **Fournisseurs et transferts** : fournisseur, modèle, pays et juridiction, nombre de sessions, première et dernière activité ; consentements de juridiction accordés et refusés ; sessions avec avertissement de juridiction ; serveurs MCP et leurs pannes.
 - **Masquages** : nombre d'éléments masqués par catégorie.
@@ -1196,6 +1237,7 @@ Enveloppe :
 | `content_available` | booléen | `false` au niveau metadata |
 | `excluded_metadata_sessions` | nombre | sessions écartées du périmètre projet (projet inconnu au niveau metadata) |
 | `summary` | objet | `sessions`, `turns`, `tool_calls`, `files_modified`, `denials` (nombres), `jurisdictions` (liste de chaînes), `unknown_provider_sessions` (nombre : sessions de la plage au fournisseur inconnu, 0 au niveau metadata) |
+| `profiles` | liste | chaînes : profils de conformité distincts des sessions de la plage (`[]` sans profil et au niveau metadata) |
 | `providers` | liste | `id`, `name`, `model`, `country`, `jurisdiction` (chaînes), `sessions` (nombre), `first`, `last` (dates) |
 | `jurisdiction_consents` | objet | `granted`, `denied` (nombres) |
 | `jurisdiction_warning_sessions` | liste | identifiants de sessions |

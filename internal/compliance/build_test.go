@@ -354,7 +354,7 @@ func TestBuildMetadataLevel(t *testing.T) {
 	for _, s := range []string{
 		`"files":[]`, `"providers":[]`, `"commands":[]`, `"permissions":[]`, `"redactions":{}`,
 		`"jurisdiction_warning_sessions":[]`, `"mcp_servers":[]`, `"mcp_failures":[]`, `"jurisdictions":[]`,
-		`"subagents":[]`, `"hooks":[]`, `"rewinds":[]`, `"errors":[]`, `"turns":[]`, `"unreadable":[]`,
+		`"profiles":[]`, `"subagents":[]`, `"hooks":[]`, `"rewinds":[]`, `"errors":[]`, `"turns":[]`, `"unreadable":[]`,
 	} {
 		if !strings.Contains(string(out), s) {
 			t.Fatalf("JSON lacks %s: %s", s, out)
@@ -702,5 +702,41 @@ func TestBuildMixedUnknownProviderSessions(t *testing.T) {
 	}
 	if !strings.Contains(string(out), `"unknown_provider_sessions":1`) {
 		t.Fatalf("JSON: %s", out)
+	}
+}
+
+func TestBuildProfiles(t *testing.T) {
+	b := newLog(t)
+	b.add("s1", event.SessionStarted, event.SessionStartedPayload{Provider: provEU, ProjectRoot: "/p", Profile: "eu-only"})
+	b.add("s2", event.SessionStarted, event.SessionStartedPayload{Provider: provEU, ProjectRoot: "/p"})
+	r := Build(b.dataset(), opts())
+	if !reflect.DeepEqual(r.Profiles, []string{"eu-only"}) {
+		t.Fatalf("profiles %v", r.Profiles)
+	}
+
+	// Reprise de s1 sous un autre profil : les deux, triés.
+	b.add("s1", event.SessionStarted, event.SessionStartedPayload{Provider: provEU, ProjectRoot: "/p", Profile: "strict-local"})
+	r = Build(b.dataset(), opts())
+	if !reflect.DeepEqual(r.Profiles, []string{"eu-only", "strict-local"}) {
+		t.Fatalf("resumed profiles %v", r.Profiles)
+	}
+
+	// Aucun profil : tranche vide, jamais nil.
+	b = newLog(t)
+	b.start("s", provEU)
+	r = Build(b.dataset(), opts())
+	if r.Profiles == nil || len(r.Profiles) != 0 {
+		t.Fatalf("profiles %#v", r.Profiles)
+	}
+}
+
+func TestBuildProfilesCleaned(t *testing.T) {
+	b := newLog(t)
+	b.add("s", event.SessionStarted, event.SessionStartedPayload{Provider: provEU, ProjectRoot: "/p", Profile: "eu\u202eonly"})
+	o := opts()
+	o.Redact = strings.ToUpper
+	r := Build(b.dataset(), o)
+	if len(r.Profiles) != 1 || r.Profiles[0] != "EU ONLY" {
+		t.Fatalf("profiles %q", r.Profiles)
 	}
 }

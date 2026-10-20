@@ -15,6 +15,10 @@
 # Default: "en". Set "fr" for French (or run with --lang fr).
 lang = "en"
 
+# Compliance profile: "eu-only" (eu or local providers and MCP servers) or
+# "strict-local" (local providers and servers only). A project can only tighten it.
+# profile = "eu-only"
+
 # Provider used without --provider. It must exist (preset or [[providers]]).
 default_provider = "mistral"
 

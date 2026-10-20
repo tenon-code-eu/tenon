@@ -17,6 +17,7 @@ For a commented configuration example, see [config.example.toml](config.example.
 - [Hooks](#hooks)
 - [Checkpoints and rewind](#checkpoints-and-rewind)
 - [Providers and jurisdictions](#providers-and-jurisdictions)
+- [Compliance profiles](#compliance-profiles)
 - [API keys and keyring](#api-keys-and-keyring)
 - [MCP servers](#mcp-servers)
 - [Git marking of generated code](#git-marking-of-generated-code)
@@ -934,6 +935,45 @@ model = "qwen3:8b"          # no context_window: read from the server
 jurisdiction = "local"
 ```
 
+## Compliance profiles
+
+A profile restricts, for the whole run, what tenon may send and to whom.
+It is set with the `profile` key of the global configuration:
+
+```toml
+profile = "eu-only"
+```
+
+| Profile | Allowed providers and MCP servers |
+|---|---|
+| `eu-only` | jurisdiction `eu` or `local` |
+| `strict-local` | jurisdiction `local` **and** a URL whose host is a local address |
+
+Profiles have an order: `strict-local` is stricter than `eu-only`, which is stricter than no profile.
+A provider or MCP server of unknown jurisdiction (not set) is refused by both profiles.
+
+**Local hosts.** For `strict-local`, the host of the URL must be exactly one of these: `localhost`, or an IP address literal in `127.0.0.0/8`, `::1`, `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16` or `fc00::/7` (an IPv6 zone such as `%eth0` is ignored). tenon does no DNS resolution: a host name other than `localhost` is refused, even if it points to a local address. A stdio MCP server has no URL, so only its jurisdiction is checked.
+
+**Who decides.** The profile is read from the global configuration and from the project configuration, and the stricter one wins: a project can tighten the profile, never loosen it. A project value weaker than the global one is ignored, and tenon shows a notice at startup. An unknown profile name is a configuration error.
+
+**What is checked.**
+
+- At startup, only the **selected** provider (`--provider` or `default_provider`) is checked, before anything is contacted: local model detection (Ollama, vLLM) is not run for a refused provider. Other configured providers are not checked until you select them.
+- `--allow-non-eu` is refused with a profile: tenon stops with an error at startup.
+- An MCP server that the profile refuses is neither started nor contacted. A notice names it and the reason, and the log records `McpServerDown`.
+- Defense in depth: before each send to the model, the profile is checked again. On a violation nothing is sent, the log records an `Error` event with `code: "profile"`, and the turn is blocked.
+
+The profile in force is recorded in the `profile` field of `SessionStarted` (omitted without a profile).
+The welcome screen shows a `profile: <name>` line.
+`tenon config check` prints a `profile: <name>` line only when a profile is active, then checks the selected provider (`--provider` is honored) and exits with code 1 if it is refused.
+The [compliance export](#compliance-export) lists the profiles of the sessions in the `profiles` key.
+
+**What profiles do not cover.**
+
+- Shell commands: an approved command, or a program started by a stdio MCP server, can still reach the network. A profile bounds the data sent to the model and the MCP servers, not what a command does.
+- Permissions: approval rules are unchanged.
+- The audit level (`audit.level`) and hooks: a hook is a command you wrote and is not filtered by the profile.
+
 ## API keys and keyring
 
 tenon never reads a key from a configuration file.
@@ -1089,6 +1129,7 @@ It does not modify the log and does not lock it.
 
 ### What the report contains
 
+- **Applied profiles**: the compliance profiles of the sessions in the range, in the report header.
 - **Summary**: sessions, turns, tool calls, modified files, denials, jurisdictions of the providers.
 - **Providers and transfers**: provider, model, country and jurisdiction, number of sessions, first and last activity; jurisdiction consents granted and denied; sessions with a jurisdiction warning; MCP servers and their failures.
 - **Redactions**: number of masked items per category.
@@ -1194,6 +1235,7 @@ Envelope:
 | `content_available` | boolean | `false` at metadata level |
 | `excluded_metadata_sessions` | number | sessions left out of the project scope (project unknown at metadata level) |
 | `summary` | object | `sessions`, `turns`, `tool_calls`, `files_modified`, `denials` (numbers), `jurisdictions` (list of strings), `unknown_provider_sessions` (number: sessions in the range whose provider is unknown, 0 at metadata level) |
+| `profiles` | list | strings: distinct compliance profiles of the sessions in the range (`[]` without profile and at metadata level) |
 | `providers` | list | `id`, `name`, `model`, `country`, `jurisdiction` (strings), `sessions` (number), `first`, `last` (dates) |
 | `jurisdiction_consents` | object | `granted`, `denied` (numbers) |
 | `jurisdiction_warning_sessions` | list | session ids |

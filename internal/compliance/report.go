@@ -37,6 +37,7 @@ type Report struct {
 	ExcludedMetadataSessions int               `json:"excluded_metadata_sessions"`
 	Summary                  Summary           `json:"summary"`
 	Providers                []ProviderUse     `json:"providers"`
+	Profiles                 []string          `json:"profiles"`
 	Consents                 Consents          `json:"jurisdiction_consents"`
 	WarningSessions          []string          `json:"jurisdiction_warning_sessions"`
 	MCPServers               []MCPUse          `json:"mcp_servers"`

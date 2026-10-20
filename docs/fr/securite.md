@@ -67,6 +67,13 @@ Conséquences dans tenon :
 - Avec `--details`, les fichiers contiennent des données de conversation (prompts et commandes en entier ; réponses, arguments et résultats d'outils coupés à 500 caractères). Conservez-les et partagez-les comme le journal lui-même. Le HTML affiche un bandeau quand elles sont incluses.
 - `report_id` et `html_sha256` détectent une modification accidentelle ; ils n'arrêtent pas qui réécrit les deux fichiers. Voir [utilisation.md](utilisation.md#vérifier-lintégrité-dun-rapport).
 
+### Profils de conformité
+
+- Avec `profile = "eu-only"` ou `"strict-local"` (configuration globale ; un projet ne peut que le durcir), le fournisseur sélectionné et les serveurs MCP doivent respecter le profil, et `--allow-non-eu` est refusé.
+- Le profil est contrôlé au démarrage puis avant chaque envoi au modèle : en cas de violation, rien n'est envoyé et le tour est bloqué (événement `Error`, `code: "profile"`).
+- Le profil est enregistré dans `SessionStarted` et listé dans l'export de conformité.
+- Un profil borne les données envoyées au modèle et aux serveurs MCP. Il ne restreint **pas** les commandes shell ni les programmes MCP stdio, qui peuvent toujours accéder au réseau, et il ne change ni les permissions, ni le niveau d'audit, ni les hooks. Voir [utilisation.md](utilisation.md#profils-de-conformité).
+
 ## Limites connues
 
 ### Les permissions ne sont pas un bac à sable

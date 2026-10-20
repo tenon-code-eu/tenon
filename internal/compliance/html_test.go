@@ -33,6 +33,7 @@ func richReport(details bool) Report {
 			ID: "p", Name: "Prov", Model: "m", Country: "FR", Jurisdiction: "eu",
 			Sessions: 1, First: t0, Last: t0.Add(time.Hour),
 		}},
+		Profiles:        []string{"eu-only", "strict-local"},
 		Consents:        Consents{Granted: 1, Denied: 2},
 		WarningSessions: []string{"s-warn"},
 		MCPServers:      []MCPUse{{ID: "mcp1", Jurisdiction: "non-eu", Country: "US", Sessions: 1}},
@@ -323,6 +324,24 @@ func TestRenderHTMLGitHint(t *testing.T) {
 		out := render(t, richReport(false), l)
 		if !strings.Contains(out, "<p>"+template.HTMLEscapeString(k)+"<code>git log") {
 			t.Errorf("%s: git hint not rendered", l)
+		}
+	}
+}
+
+func TestRenderHTMLProfiles(t *testing.T) {
+	for _, c := range []struct {
+		l          i18n.Lang
+		label, nil string
+	}{{i18n.FR, "Profils appliqués", "aucun"}, {i18n.EN, "Applied profiles", "none"}} {
+		out := render(t, richReport(false), c.l)
+		if !strings.Contains(out, "<dt>"+c.label+"</dt><dd>eu-only, strict-local</dd>") {
+			t.Errorf("%s: profiles row missing", c.l)
+		}
+		r := richReport(false)
+		r.Profiles = []string{}
+		out = render(t, r, c.l)
+		if !strings.Contains(out, "<dt>"+c.label+"</dt><dd>"+c.nil+"</dd>") {
+			t.Errorf("%s: empty profiles row missing", c.l)
 		}
 	}
 }

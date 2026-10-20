@@ -171,6 +171,7 @@ func Build(ds Dataset, o Options) Report {
 		ExcludedMetadataSessions: ds.ExcludedMetadataSessions,
 		Summary:                  Summary{Jurisdictions: []string{}},
 		Providers:                []ProviderUse{},
+		Profiles:                 []string{},
 		WarningSessions:          []string{},
 		MCPServers:               []MCPUse{},
 		MCPFailures:              []MCPFailure{},
@@ -221,10 +222,45 @@ func Build(ds Dataset, o Options) Report {
 	}
 	b.finish()
 	b.providers()
+	r.Profiles = profilesOf(ds, o)
 	if o.Details {
 		r.Timeline = timeline(ds, o)
 	}
 	return r
+}
+
+// profilesOf liste les profils de conformité distincts des sessions de la
+// plage : celui du premier SessionStarted de chaque session, et ceux des
+// SessionStarted de reprise présents dans la plage. Triée, jamais nil.
+func profilesOf(ds Dataset, o Options) []string {
+	set := map[string]bool{}
+	add := func(p string) {
+		if p = o.clean(p); p != "" {
+			set[p] = true
+		}
+	}
+	inRange := map[string]bool{}
+	for _, l := range ds.Lines {
+		inRange[l.Session] = true
+		if l.Type != event.SessionStarted || IsMetadataPayload(l.Payload) {
+			continue
+		}
+		var p event.SessionStartedPayload
+		if decode(l, &p) {
+			add(p.Profile)
+		}
+	}
+	for sid := range inRange {
+		if st := ds.Sessions[sid].Started; st != nil {
+			add(st.Profile)
+		}
+	}
+	out := make([]string, 0, len(set))
+	for p := range set {
+		out = append(out, p)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func scopeOf(f Filter) Scope {

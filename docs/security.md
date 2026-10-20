@@ -65,6 +65,13 @@ Consequences in tenon:
 - With `--details`, the files contain conversation data (prompts and commands in full; responses, tool arguments and tool results cut to 500 characters). Store and share them like the log itself. The HTML shows a banner when they are included.
 - `report_id` and `html_sha256` detect an accidental change; they do not stop someone who rewrites both files. See [usage.md](usage.md#check-the-integrity-of-a-report).
 
+### Compliance profiles
+
+- With `profile = "eu-only"` or `"strict-local"` (global configuration; a project can only tighten it), the selected provider and the MCP servers must meet the profile, and `--allow-non-eu` is refused.
+- The profile is checked at startup and again before each send to the model: on a violation nothing is sent and the turn is blocked (`Error` event, `code: "profile"`).
+- The profile is recorded in `SessionStarted` and listed in the compliance export.
+- A profile bounds the data sent to the model and to MCP servers. It does **not** restrict shell commands or stdio MCP programs, which can still reach the network, and it does not change permissions, audit level or hooks. See [usage.md](usage.md#compliance-profiles).
+
 ## Known limits
 
 ### Permissions are not a sandbox

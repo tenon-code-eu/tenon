@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "generator": "tenon test",
-  "report_id": "sha256:6ac074ca3df96275dd3c5bd1f04b7343afa527f6b2bd7a462031296f29e21df4",
+  "report_id": "sha256:6c97142fe7975040decd41b3b6c6ec490b46eaea65dc0fba4b26dfa97bb3ecab",
   "html_sha256": "sha256:cc",
   "report": {
     "generator": "tenon test",
@@ -49,6 +49,9 @@
         "first": "2026-10-01T09:00:00Z",
         "last": "2026-10-01T10:00:00Z"
       }
+    ],
+    "profiles": [
+      "eu-only"
     ],
     "jurisdiction_consents": {
       "granted": 0,
