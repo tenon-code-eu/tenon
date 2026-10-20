@@ -109,3 +109,18 @@ func TestDetectVLLM(t *testing.T) {
 		t.Fatalf("aucun modèle : %v", err)
 	}
 }
+
+// Sous strict-local, la détection ne passe par aucun proxy d'environnement.
+func TestNoProxyDetectClient(t *testing.T) {
+	c := NoProxyDetectClient()
+	tr, ok := c.Transport.(*http.Transport)
+	if !ok || tr.Proxy != nil {
+		t.Fatalf("transport : %#v, Proxy doit être nil", c.Transport)
+	}
+	if c.CheckRedirect == nil || c.Timeout != detectClient(nil).Timeout {
+		t.Fatalf("redirections ou délai perdus : %+v", c)
+	}
+	if http.DefaultTransport.(*http.Transport).Proxy == nil {
+		t.Fatal("http.DefaultTransport modifié")
+	}
+}

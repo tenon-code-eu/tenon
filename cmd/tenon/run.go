@@ -639,7 +639,7 @@ func startEngine(o engineOptions) (started, error) {
 	if err := profileProviderErr(lang, cfg.Profile, providerInfo(pc)); err != nil {
 		return started{}, err
 	}
-	pc, detectNotices, err := detectLocal(o.ctx, lang, pc)
+	pc, detectNotices, err := detectLocal(o.ctx, lang, pc, cfg.Profile == profile.StrictLocal)
 	if err != nil {
 		return started{}, err
 	}

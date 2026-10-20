@@ -45,6 +45,17 @@ func detectClient(c *http.Client) *http.Client {
 	}
 }
 
+// NoProxyDetectClient est detectClient(nil) sans proxy d'environnement
+// (HTTP_PROXY, HTTPS_PROXY) : profil strict-local. http.DefaultTransport
+// n'est pas modifié.
+func NoProxyDetectClient() *http.Client {
+	c := detectClient(nil)
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.Proxy = nil
+	c.Transport = tr
+	return c
+}
+
 func getJSON(ctx context.Context, c *http.Client, method, url string, body any, out any) error {
 	var rd io.Reader
 	if body != nil {

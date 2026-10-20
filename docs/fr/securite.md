@@ -72,7 +72,7 @@ Conséquences dans tenon :
 - Avec `profile = "eu-only"` ou `"strict-local"` (configuration globale ; un projet ne peut que le durcir), le fournisseur sélectionné et les serveurs MCP doivent respecter le profil, et `--allow-non-eu` est refusé.
 - Le profil est contrôlé au démarrage puis avant chaque envoi au modèle : en cas de violation, rien n'est envoyé et le tour est bloqué (événement `Error`, `code: "profile"`).
 - Le profil est enregistré dans `SessionStarted` et listé dans l'export de conformité.
-- Sous `strict-local`, les requêtes au fournisseur et aux serveurs MCP `http` ignorent les variables d'environnement de proxy (`HTTP_PROXY`, `HTTPS_PROXY`) : une adresse privée acceptée par le profil ne passe jamais par un proxy.
+- Sous `strict-local`, les requêtes au fournisseur (détection du modèle local comprise) et aux serveurs MCP `http` ignorent les variables d'environnement de proxy (`HTTP_PROXY`, `HTTPS_PROXY`) : une adresse privée acceptée par le profil ne passe jamais par un proxy.
 - Un profil borne les données envoyées au modèle et aux serveurs MCP. Il ne restreint **pas** les commandes shell ni les programmes MCP stdio, qui peuvent toujours accéder au réseau, et il ne change ni les permissions, ni le niveau d'audit, ni les hooks. Voir [utilisation.md](utilisation.md#profils-de-conformité).
 
 ## Limites connues

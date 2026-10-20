@@ -24,8 +24,9 @@ var detectFuncs = map[string]func(context.Context, *http.Client, string, string)
 // detectLocal complète model et context_window d'un fournisseur local
 // (Ollama, vLLM) en interrogeant son serveur, à l'adresse configurée
 // seulement. Une valeur fixée par la configuration n'est jamais remplacée.
-// Renvoie les avis à afficher au démarrage.
-func detectLocal(ctx context.Context, lang i18n.Lang, pc config.Provider) (config.Provider, []string, error) {
+// Renvoie les avis à afficher au démarrage. noProxy (profil strict-local) :
+// aucun proxy d'environnement, comme pour les appels au modèle.
+func detectLocal(ctx context.Context, lang i18n.Lang, pc config.Provider, noProxy bool) (config.Provider, []string, error) {
 	f, ok := detectFuncs[pc.Detect]
 	if !ok || (pc.Model != "" && pc.ContextWindow != 0) {
 		return pc, nil, nil
@@ -35,7 +36,11 @@ func detectLocal(ctx context.Context, lang i18n.Lang, pc config.Provider) (confi
 	}
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute) // chargement du modèle compris
 	defer cancel()
-	d, err := f(ctx, nil, pc.BaseURL, pc.Model)
+	var client *http.Client
+	if noProxy {
+		client = provider.NoProxyDetectClient()
+	}
+	d, err := f(ctx, client, pc.BaseURL, pc.Model)
 	switch {
 	case errors.Is(err, provider.ErrNoModel):
 		return pc, nil, errors.New(i18n.T(lang, "err.detect_no_model", pc.Name, pc.BaseURL))
