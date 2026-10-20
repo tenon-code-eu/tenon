@@ -118,6 +118,8 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	switch {
 	case len(rest) == 2 && rest[0] == "audit" && rest[1] == "verify":
 		return auditVerify(lang, stdout, stderr, getenv)
+	case len(rest) >= 2 && rest[0] == "audit" && rest[1] == "export":
+		return auditExport(rest[2:], *langFlag, stdout, stderr, getenv, wd)
 	case len(rest) == 2 && rest[0] == "config" && rest[1] == "check":
 		cs, err := loadSetup(getenv, wd)
 		if err == nil {
