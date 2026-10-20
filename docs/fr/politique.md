@@ -32,7 +32,12 @@ Pas de `policy.toml` dans l'un ni l'autre : pas de politique.
 ```sh
 minisign -G -p policy.pub -s org.key       # une fois : paire de clés
 minisign -Sm policy.toml                   # écrit policy.toml.minisig
+# Linux
+sudo install -d -o root -g root -m 755 /etc/tenon
 sudo install -o root -m 644 policy.toml policy.toml.minisig policy.pub /etc/tenon/
+# macOS
+sudo install -d -o root -g wheel -m 755 "/Library/Application Support/tenon"
+sudo install -o root -m 644 policy.toml policy.toml.minisig policy.pub "/Library/Application Support/tenon/"
 ```
 
 Les deux formats de signature minisign sont acceptés : préhaché (`ED`) et historique (`Ed`).
@@ -147,4 +152,4 @@ Code 0 si la politique est valide ; 1 si elle est invalide ou absente (`tenon : 
 
 ## Limites
 
-Une politique borne ce que fait tenon. Elle ne restreint ni les commandes shell ni les programmes MCP stdio, et un administrateur de la machine peut toujours la retirer. Les hooks imposés par l'organisation, le rafraîchissement par URL, l'expiration ou la révocation, plusieurs clés de confiance et Windows ne sont pas pris en charge.
+Une politique borne ce que fait tenon. Les règles de permissions s'appliquent aux commandes shell, mais la liste blanche d'hôtes des fournisseurs ne restreint pas les accès réseau faits par les commandes shell ou les programmes MCP stdio, et un administrateur de la machine peut toujours la retirer. Les hooks imposés par l'organisation, le rafraîchissement par URL, l'expiration ou la révocation, plusieurs clés de confiance et Windows ne sont pas pris en charge.

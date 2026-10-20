@@ -305,3 +305,48 @@ func TestPolicyCheckArgsE2E(t *testing.T) {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errb)
 	}
 }
+
+// La politique charge avant la configuration : avec une configuration globale
+// invalide et une politique falsifiée, l'erreur rapportée est celle de la
+// politique.
+func TestPolicyLoadedBeforeConfigE2E(t *testing.T) {
+	f := newFakeLLM(t, sseText("salut"))
+	e := newEnv(t, f, "eu")
+	dir, _ := e.withPolicy(policyHead)
+	if err := os.WriteFile(filepath.Join(dir, "policy.toml"), []byte(policyHead+"# falsifié\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	e.writeFile(e.globalConfig(), "ceci n'est pas = du toml [[[")
+	code, _, errb := e.run("--lang", "en", "-p", "salut")
+	if code != 1 || !strings.Contains(errb, "signature: invalid") || strings.Contains(errb, "config.toml") {
+		t.Fatalf("code=%d stderr=%q", code, errb)
+	}
+	if n := len(f.requests()); n != 0 {
+		t.Fatalf("%d requête(s) envoyée(s)", n)
+	}
+}
+
+// Une politique qui admet l'hôte n'empêche pas la reprise, et la session
+// reprise porte la référence de la politique.
+func TestPolicyResumeAllowedE2E(t *testing.T) {
+	f := newFakeLLM(t, sseText("enchanté"), sseText("re"))
+	e := newEnv(t, f, "eu")
+	if code, out, errb := e.run("-p", "je m'appelle Ada"); code != 0 {
+		t.Fatalf("run 1 : code=%d stdout=%q stderr=%q", code, out, errb)
+	}
+	ents, err := e.sessionFiles()
+	if err != nil || len(ents) != 1 {
+		t.Fatalf("sessions : %v %v", ents, err)
+	}
+	id := strings.TrimSuffix(ents[0].Name(), ".jsonl")
+	e.withPolicy(policyHead + "[providers]\nallow_local = true\n")
+	code, out, errb := e.run("--lang", "en", "--resume", id, "-p", "suite")
+	if code != 0 {
+		t.Fatalf("run 2 : code=%d stdout=%q stderr=%q", code, out, errb)
+	}
+	ss := sessionStarted(t, e.sessionContent())
+	last := ss[len(ss)-1]
+	if !last.Resumed || last.Policy == nil || last.Policy.ID != "acme-dev" {
+		t.Fatalf("SessionStarted : %+v", ss)
+	}
+}

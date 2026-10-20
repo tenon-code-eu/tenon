@@ -469,16 +469,18 @@ type setup struct {
 // politique d'organisation (plancher), puis la convertit en règles de
 // permissions et en Redactor.
 func loadSetup(lang i18n.Lang, getenv func(string) string, wd string) (setup, error) {
-	cfg, err := config.Load(config.GlobalPath(getenv), filepath.Join(wd, ".tenon", "config.toml"), getenv)
-	if err != nil {
-		return setup{}, err
-	}
-	// Seul le répertoire système est contrôlé (propriétaire root, droits) ;
-	// une politique illisible ou mal signée bloque le démarrage.
+	// La politique est chargée avant la configuration : une politique
+	// illisible ou mal signée bloque le démarrage, quel que soit l'état de la
+	// configuration. Seul le répertoire système est contrôlé (propriétaire
+	// root, droits).
 	dir, system := orgpolicy.Resolve(getenv)
 	pol, err := orgpolicy.Load(dir, system)
 	if err != nil {
 		return setup{}, errors.New(i18n.T(lang, "err.policy_load", err))
+	}
+	cfg, err := config.Load(config.GlobalPath(getenv), filepath.Join(wd, ".tenon", "config.toml"), getenv)
+	if err != nil {
+		return setup{}, err
 	}
 	if cfg, err = config.ApplyPolicy(cfg, pol); err != nil {
 		return setup{}, err

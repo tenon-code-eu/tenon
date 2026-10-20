@@ -109,6 +109,11 @@ func TestParseRejects(t *testing.T) {
 		"define no id":   hd + "[[providers.define]]\nbase_url=\"https://a.eu\"\njurisdiction=\"eu\"",
 		"define no url":  hd + "[[providers.define]]\nid=\"a\"\njurisdiction=\"eu\"",
 		"define jur":     hd + "[[providers.define]]\nid=\"a\"\nbase_url=\"https://a.eu\"\njurisdiction=\"x\"",
+		"redact no name": hd + "[[redaction.rules]]\npattern=\"x\"",
+		"redact blank":   hd + "[[redaction.rules]]\nname=\"  \"\npattern=\"x\"",
+		"redact no pat":  hd + "[[redaction.rules]]\nname=\"x\"",
+		"define neg ctx": hd + "[[providers.define]]\nid=\"a\"\nbase_url=\"https://a.eu\"\njurisdiction=\"eu\"\ncontext_window=-1",
+		"define dup id":  hd + "[[providers.define]]\nid=\"a\"\nbase_url=\"https://a.eu\"\njurisdiction=\"eu\"\n[[providers.define]]\nid=\"a\"\nbase_url=\"https://b.eu\"\njurisdiction=\"eu\"",
 		"define nojur":   hd + "[[providers.define]]\nid=\"a\"\nbase_url=\"https://a.eu\"",
 	}
 	for name, src := range cases {

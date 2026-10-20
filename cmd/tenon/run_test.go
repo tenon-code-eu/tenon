@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/tenon-code-eu/tenon/internal/i18n"
+	"github.com/tenon-code-eu/tenon/internal/orgpolicy/orgpolicytest"
 	"github.com/tenon-code-eu/tenon/internal/policy"
 	"github.com/tenon-code-eu/tenon/internal/tools"
 )
@@ -83,5 +84,39 @@ func TestLoadSetupProjectAskOverridesGlobalAllow(t *testing.T) {
 	}
 	if got := perms.Check(call("ls")); got != policy.Allow {
 		t.Errorf("ls : %v, attendu allow", got)
+	}
+}
+
+// Une règle ask de la politique prime l'allow global sur la même cible.
+func TestLoadSetupPolicyAskOverridesGlobalAllow(t *testing.T) {
+	xdg, wd := t.TempDir(), t.TempDir()
+	if err := os.MkdirAll(filepath.Join(xdg, "tenon"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(xdg, "tenon", "config.toml"), []byte("[[permissions.rules]]\ntool = \"shell\"\nmatch = \"git push*\"\ndecision = \"allow\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pdir := t.TempDir()
+	orgpolicytest.Sign(t, pdir, "id = \"acme-dev\"\nversion = 1\n[[permissions.rules]]\ntool = \"shell\"\nmatch = \"git push*\"\ndecision = \"ask\"\n")
+	getenv := func(k string) string {
+		switch k {
+		case "XDG_CONFIG_HOME":
+			return xdg
+		case "TENON_POLICY_DIR":
+			return pdir
+		}
+		return ""
+	}
+	s, err := loadSetup(i18n.FR, getenv, wd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	perms, err := policy.NewPermissions(wd, s.rules)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := policy.Call{Tool: "shell", Risk: tools.Exec, Target: tools.Target{Command: "git push origin main"}}
+	if d, liftable := perms.Decide(c); d != policy.Ask || liftable {
+		t.Errorf("Decide = (%v, %v), attendu (ask, false)", d, liftable)
 	}
 }

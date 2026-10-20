@@ -118,6 +118,9 @@ func Parse(b []byte) (Policy, error) {
 		}
 	}
 	for _, rd := range r.Redaction.Rules {
+		if strings.TrimSpace(rd.Name) == "" || rd.Pattern == "" {
+			return Policy{}, policyErr("redaction rule: name and pattern are required")
+		}
 		if _, err := regexp.Compile(rd.Pattern); err != nil {
 			return Policy{}, policyErr("redaction %q: %v", rd.Name, err)
 		}
@@ -126,9 +129,17 @@ func Parse(b []byte) (Policy, error) {
 		if err := checkHosts("providers.allow_hosts", r.Providers.AllowHosts); err != nil {
 			return Policy{}, err
 		}
+		seen := map[string]bool{}
 		for _, d := range r.Providers.Define {
 			if d.ID == "" || d.BaseURL == "" {
 				return Policy{}, policyErr("providers.define: id and base_url are required")
+			}
+			if seen[d.ID] {
+				return Policy{}, policyErr("providers.define: duplicate id %q", d.ID)
+			}
+			seen[d.ID] = true
+			if d.ContextWindow < 0 {
+				return Policy{}, policyErr("providers.define %q: negative context_window", d.ID)
 			}
 			switch d.Jurisdiction {
 			case "eu", "non-eu", "local":

@@ -32,7 +32,12 @@ No `policy.toml` in either place: no policy.
 ```sh
 minisign -G -p policy.pub -s org.key       # once: key pair
 minisign -Sm policy.toml                   # writes policy.toml.minisig
+# Linux
+sudo install -d -o root -g root -m 755 /etc/tenon
 sudo install -o root -m 644 policy.toml policy.toml.minisig policy.pub /etc/tenon/
+# macOS
+sudo install -d -o root -g wheel -m 755 "/Library/Application Support/tenon"
+sudo install -o root -m 644 policy.toml policy.toml.minisig policy.pub "/Library/Application Support/tenon/"
 ```
 
 Both minisign signature formats are accepted: prehashed (`ED`) and legacy (`Ed`).
@@ -147,4 +152,4 @@ Exit code 0 when valid; 1 when invalid, or when no policy is found (`tenon: no p
 
 ## Limits
 
-A policy bounds what tenon does. It does not restrict shell commands or stdio MCP programs, and an administrator of the machine can always remove it. Hooks imposed by the organisation, refresh by URL, expiry or revocation, several trusted keys and Windows are not supported.
+A policy bounds what tenon does. Permission rules apply to shell commands, but the provider host allowlist does not restrict the network access made by shell commands or stdio MCP programs, and an administrator of the machine can always remove it. Hooks imposed by the organisation, refresh by URL, expiry or revocation, several trusted keys and Windows are not supported.

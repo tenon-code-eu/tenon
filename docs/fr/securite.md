@@ -82,7 +82,7 @@ Conséquences dans tenon :
 - Les hôtes des fournisseurs sont contrôlés au démarrage puis avant chaque envoi (événement `Error`, `code: "policy"`).
 - La politique (id, version, identifiant de clé) est enregistrée dans `SessionStarted` et listée dans l'export de conformité.
 - `TENON_POLICY_DIR` n'est lue que sans politique système : elle ne peut ni en retirer ni en remplacer une. Un utilisateur qui peut y écrire ne peut qu'ajouter une politique signée par une clé qu'il fournit, ce qui le restreint davantage.
-- Une politique ne restreint ni les commandes shell ni les programmes MCP stdio, et un administrateur de la machine peut la retirer. Voir [politique.md](politique.md).
+- Les règles de permissions s'appliquent aux commandes shell, mais la liste blanche d'hôtes des fournisseurs ne restreint pas les accès réseau faits par les commandes shell ou les programmes MCP stdio, et un administrateur de la machine peut la retirer. Voir [politique.md](politique.md).
 
 ## Limites connues
 

@@ -80,7 +80,7 @@ Consequences in tenon:
 - Provider hosts are checked at startup and again before each send (`Error` event, `code: "policy"`).
 - The policy (id, version, key id) is recorded in `SessionStarted` and listed in the compliance export.
 - `TENON_POLICY_DIR` is read only when no system policy exists: it cannot remove or replace one. A user who can write there can only add a policy signed by a key they provide, which restricts them further.
-- A policy does not restrict shell commands or stdio MCP programs, and an administrator of the machine can remove it. See [policy.md](policy.md).
+- Permission rules apply to shell commands, but the provider host allowlist does not restrict the network access made by shell commands or stdio MCP programs, and an administrator of the machine can remove it. See [policy.md](policy.md).
 
 ## Known limits
 
