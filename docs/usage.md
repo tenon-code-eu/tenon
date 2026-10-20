@@ -1041,6 +1041,181 @@ Write down the last hash somewhere else: see [security.md](security.md#log-tail-
 
 If writing to the log fails, tenon runs no more actions.
 
+To give the log to an auditor, see [Compliance export](#compliance-export).
+
+## Compliance export
+
+`tenon audit export` turns the audit log into a report for an auditor or a data protection officer: an HTML file to read or print, and a JSON file for tools.
+
+```
+tenon audit export [--since YYYY-MM-DD] [--until YYYY-MM-DD]
+                   [--project <path> | --all-projects | --session <id>]
+                   [--details] [--out <dir>] [--lang fr|en]
+```
+
+| Option | Effect |
+|---|---|
+| `--since` | first day included, in UTC (default: `--until` minus 29 days) |
+| `--until` | last day included, in UTC (default: today) |
+| `--project <path>` | project to export (default: current directory) |
+| `--all-projects` | all projects |
+| `--session <id>` | a single session |
+| `--details` | adds conversation data (see below) |
+| `--out <dir>` | output directory (default: current directory) |
+| `--lang fr\|en` | language of the HTML report |
+
+By default the report covers the last 30 days of the current project.
+`--project`, `--all-projects` and `--session` cannot be combined.
+Both dates are inclusive and `--since` cannot be after `--until`.
+
+The command writes two files, with mode `0600`:
+
+- `tenon-audit-<since>_<until>.html`;
+- `tenon-audit-<since>_<until>.json`.
+
+It never replaces a file: if one of them exists, nothing is written and the command stops with code 1.
+It does not modify the log and does not lock it.
+
+| Code | Meaning |
+|---|---|
+| 0 | report written, audit chain intact |
+| 1 | usage or write error, nothing written |
+| 2 | report written, but the audit chain is broken: the report says so in a banner |
+
+### What the report contains
+
+- **Summary**: sessions, turns, tool calls, modified files, denials, jurisdictions of the providers.
+- **Providers and transfers**: provider, model, country and jurisdiction, number of sessions, first and last activity; jurisdiction consents granted and denied; sessions with a jurisdiction warning; MCP servers and their failures.
+- **Redactions**: number of masked items per category.
+- **Permissions**: per tool, requests, approvals (once or for the session) and denials (by the user, by policy, by a hook).
+- **Modified files**: date, session, path, tool, hash before and after, author (`main` or the sub-agent), whether there was no checkpoint, and the state left by a later rewind.
+- **Commands**: number of shell calls per session.
+- **Sub-agents, hooks, rewinds**: sub-agent runs, hooks that blocked, failed, timed out or asked for confirmation, rewinds with the files restored, deleted, kept, skipped, failed or unchanged.
+- **Incidents**: errors, turns that ended for a notable reason (blocked, stopped by a hook, context too large, iteration limit, incomplete, cancelled) and unreadable log lines.
+- **Regulatory mapping**: which elements of the report help document GDPR, NIS2, DORA and AI Act requirements. It cites no article.
+- **Integrity**: whether the whole chain is intact, the number of lines, the final hash, and the hashes of the first and last line of the exported range.
+
+Git marking is not in the log: the report gives the command that finds marked code, `git log --grep "AI-Assisted-By"`.
+Every report starts with a notice: it describes the activity recorded by tenon, it is not legal advice and it does not certify compliance.
+
+### `--details`
+
+Without `--details`, the report holds counts and hashes only: no prompt, response, command or tool result.
+With `--details`, it adds:
+
+- the text of the shell commands, per session;
+- a timeline per session: prompts, responses, tool calls and results, permissions, hooks.
+
+Responses, tool arguments and results are cut to 500 characters.
+All texts are redacted again when the report is built.
+The HTML then shows a banner: the report contains conversation data.
+Store and share these files like the log itself.
+
+### Metadata level
+
+With `audit.level = "metadata"`, the log keeps only the hash and the size of each payload.
+The report then:
+
+- shows the unreadable lines and the regulatory mapping, which need no content;
+- writes "not available at metadata level" in the other content sections;
+- sets `content_available` to `false` and `integrity.level` to `metadata`.
+
+If the log mixes both levels (`integrity.level` is `mixed`), the lines whose payload is at metadata level are skipped: they are not counted.
+Regulatory mapping appears at every level.
+
+At metadata level, the project of a session is unknown. With `--project` (or the default), such sessions are left out of the report: their number is in `excluded_metadata_sessions`, and the HTML shows it in a banner.
+`--all-projects` and `--session` leave nothing out.
+
+### Check the integrity of a report
+
+1. The log itself: `tenon audit verify` (see above). The report gives the final hash (`integrity.final_hash`) to compare with the hash you wrote down.
+2. The JSON file: `report_id` is `sha256:` followed by the SHA-256 of the `report` field, serialised in compact form as Go's `encoding/json` does it:
+   keys in file order, no whitespace, `<`, `>` and `&` written as `<`, `>` and `&`, U+2028 and U+2029 written as ` ` and ` `, other non-ASCII characters kept as UTF-8.
+   With `python3`:
+
+   ```python
+   import hashlib, json, sys
+   doc = json.load(open(sys.argv[1], encoding="utf-8"))
+   raw = json.dumps(doc["report"], separators=(",", ":"), ensure_ascii=False)
+   for ch, esc in (("<", "\\u003c"), (">", "\\u003e"), ("&", "\\u0026"),
+                   (" ", "\\u2028"), (" ", "\\u2029")):
+       raw = raw.replace(ch, esc)
+   print("sha256:" + hashlib.sha256(raw.encode("utf-8")).hexdigest())
+   print(doc["report_id"])
+   ```
+
+   Run it as `python3 check.py tenon-audit-….json`: both lines must be identical.
+3. The HTML file: `html_sha256` is the SHA-256 of the HTML file.
+   ```
+   shasum -a 256 tenon-audit-….html     # macOS
+   sha256sum tenon-audit-….html         # Linux
+   ```
+   Compare the result with `html_sha256` (after the `sha256:` prefix).
+
+These checks detect an accidental change of a file.
+Someone who can rewrite both files can recompute both hashes: for proof against that, keep the final hash of the log somewhere else.
+
+### JSON schema
+
+The file is indented with two spaces and ends with a newline. Dates are RFC 3339 in UTC (`2026-10-20T12:00:00Z`); `period` dates are `YYYY-MM-DD`.
+`schema_version` is `1`. A breaking change (key removed, renamed or with a different type) increases it; adding a key does not.
+An empty list is written `[]`, never `null`.
+
+Envelope:
+
+| Key | Type | Meaning |
+|---|---|---|
+| `schema_version` | number | schema version (`1`) |
+| `generator` | string | `tenon <version>` |
+| `report_id` | string | `sha256:` + hash of `report` (see above) |
+| `html_sha256` | string | `sha256:` + hash of the HTML file |
+| `report` | object | the report |
+
+`report`:
+
+| Key | Type | Meaning |
+|---|---|---|
+| `generator` | string | `tenon <version>` |
+| `generated_at` | string | generation date |
+| `period` | object | `since`, `until` (`YYYY-MM-DD`, inclusive) |
+| `scope` | object | `kind` (`project`, `all` or `session`), `project` or `session` when it applies |
+| `details` | boolean | `--details` was used |
+| `disclaimer` | string | the notice |
+| `integrity` | object | see below |
+| `content_available` | boolean | `false` at metadata level |
+| `excluded_metadata_sessions` | number | sessions left out of the project scope (project unknown at metadata level) |
+| `summary` | object | `sessions`, `turns`, `tool_calls`, `files_modified`, `denials` (numbers), `jurisdictions` (list of strings) |
+| `providers` | list | `id`, `name`, `model`, `country`, `jurisdiction` (strings), `sessions` (number), `first`, `last` (dates) |
+| `jurisdiction_consents` | object | `granted`, `denied` (numbers) |
+| `jurisdiction_warning_sessions` | list | session ids |
+| `mcp_servers` | list | `id`, `jurisdiction`, `country` (strings), `sessions` (number) |
+| `mcp_failures` | list | `session`, `server`, `error` (strings), `ts` (date) |
+| `redactions` | object | category name to number of masked items |
+| `permissions` | list | `tool` (string), `requested`, `allowed_once`, `allowed_session`, `denied_user`, `denied_policy`, `denied_hook` (numbers) |
+| `files` | list | `ts`, `session`, `path`, `tool`, `hash_before`, `hash_after`, `author`, `no_checkpoint` (boolean), `rewind_status` (omitted when no rewind concerns the file) |
+| `commands` | list | `session`, `count`; `commands` (list of strings) only with `--details` |
+| `subagents` | list | `ts`, `session`, `call_id`, `agent`, `status` |
+| `hooks` | list | `ts`, `session`, `hook_id`, `event`, `status`; `decision` and `reason` when not empty |
+| `rewinds` | list | `ts`, `session`, `mode` (strings and date), `to_seq`, `restored`, `deleted`, `kept`, `skipped`, `failed`, `unchanged`, `untracked_calls` (numbers) |
+| `incidents` | object | `errors` (`ts`, `session`, `code`, `message`), `turns` (`ts`, `session`, `reason`), `unreadable` (`file`, `line`, `error`) |
+| `regulatory_mapping` | list | `element` (string), `frameworks` (list of strings) |
+| `git_marking_hint` | string | command that finds marked code |
+| `timeline` | list | only with `--details`: `session`, `entries` (`ts`, `kind`, `text`, and `tool` when it applies) |
+
+`integrity`:
+
+| Key | Type | Meaning |
+|---|---|---|
+| `intact` | boolean | the whole chain verifies |
+| `error` | string | first fault, omitted when intact |
+| `total_lines` | number | lines in the whole log |
+| `final_hash` | string | hash of the last line of the log (omitted when broken) |
+| `range_lines` | number | lines in the exported range |
+| `first_hash`, `last_hash` | string | hashes of the first and last line of the range (omitted when the range is empty) |
+| `level` | string | `full`, `metadata`, `mixed` or `none` |
+
+`kind` in `timeline` is `prompt`, `response`, `tool_call`, `tool_result`, `permission` or `hook`.
+
 ## Files and directories
 
 | Path | Content | Permissions |

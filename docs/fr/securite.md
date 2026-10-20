@@ -57,6 +57,15 @@ Conséquences dans tenon :
 - Le modèle, le fournisseur, le pays et la juridiction sont affichés au démarrage, dans la barre d'état et dans l'événement `SessionStarted` de la sortie JSON.
 - Les commits qui contiennent des fichiers écrits par l'agent reçoivent les trailers `AI-Assisted-By` et `AI-Session` (voir [utilisation.md](utilisation.md#marquage-git-du-code-produit)).
 
+### Export de conformité
+
+- `tenon audit export` ne fait que lire le journal : il ne le modifie ni ne le verrouille.
+- Le contenu est de nouveau masqué à la construction du rapport, et les caractères de contrôle sont remplacés par des espaces.
+- Le rapport HTML ne contient aucun script et ne charge aucune ressource externe ; sa Content-Security-Policy est `default-src 'none'; style-src 'unsafe-inline'`.
+- Les deux fichiers sont créés en mode `0600` et ne remplacent jamais un fichier existant.
+- Avec `--details`, les fichiers contiennent des données de conversation (prompts, réponses, commandes, résultats d'outils, coupés à 500 caractères). Conservez-les et partagez-les comme le journal lui-même. Le HTML affiche un bandeau quand elles sont incluses.
+- `report_id` et `html_sha256` détectent une modification accidentelle ; ils n'arrêtent pas qui réécrit les deux fichiers. Voir [utilisation.md](utilisation.md#vérifier-lintégrité-dun-rapport).
+
 ## Limites connues
 
 ### Les permissions ne sont pas un bac à sable

@@ -1043,6 +1043,181 @@ Notez le dernier hash ailleurs : voir [securite.md](securite.md#troncature-de-fi
 
 Si l'écriture du journal échoue, tenon n'exécute plus aucune action.
 
+Pour remettre le journal à un auditeur, voir [Export de conformité](#export-de-conformité).
+
+## Export de conformité
+
+`tenon audit export` transforme le journal d'audit en rapport pour un auditeur ou un délégué à la protection des données : un fichier HTML à lire ou imprimer, et un fichier JSON pour les outils.
+
+```
+tenon audit export [--since AAAA-MM-JJ] [--until AAAA-MM-JJ]
+                   [--project <chemin> | --all-projects | --session <id>]
+                   [--details] [--out <dossier>] [--lang fr|en]
+```
+
+| Option | Effet |
+|---|---|
+| `--since` | premier jour inclus, en UTC (défaut : `--until` moins 29 jours) |
+| `--until` | dernier jour inclus, en UTC (défaut : aujourd'hui) |
+| `--project <chemin>` | projet à exporter (défaut : dossier courant) |
+| `--all-projects` | tous les projets |
+| `--session <id>` | une seule session |
+| `--details` | ajoute les données de conversation (voir plus bas) |
+| `--out <dossier>` | dossier de sortie (défaut : dossier courant) |
+| `--lang fr\|en` | langue du rapport HTML |
+
+Par défaut, le rapport couvre les 30 derniers jours du projet courant.
+`--project`, `--all-projects` et `--session` ne se combinent pas.
+Les deux dates sont incluses et `--since` ne peut pas suivre `--until`.
+
+La commande écrit deux fichiers, en mode `0600` :
+
+- `tenon-audit-<since>_<until>.html` ;
+- `tenon-audit-<since>_<until>.json`.
+
+Elle ne remplace jamais un fichier : si l'un des deux existe, rien n'est écrit et la commande s'arrête avec le code 1.
+Elle ne modifie pas le journal et ne le verrouille pas.
+
+| Code | Sens |
+|---|---|
+| 0 | rapport écrit, chaîne d'audit intacte |
+| 1 | erreur d'usage ou d'écriture, rien d'écrit |
+| 2 | rapport écrit, mais chaîne d'audit cassée : le rapport l'indique dans un bandeau |
+
+### Contenu du rapport
+
+- **Synthèse** : sessions, tours, appels d'outils, fichiers modifiés, refus, juridictions des fournisseurs.
+- **Fournisseurs et transferts** : fournisseur, modèle, pays et juridiction, nombre de sessions, première et dernière activité ; consentements de juridiction accordés et refusés ; sessions avec avertissement de juridiction ; serveurs MCP et leurs pannes.
+- **Masquages** : nombre d'éléments masqués par catégorie.
+- **Permissions** : par outil, demandes, accords (une fois ou pour la session) et refus (par l'utilisateur, par la politique, par un hook).
+- **Fichiers modifiés** : date, session, chemin, outil, empreinte avant et après, auteur (`main` ou le sous-agent), absence éventuelle de point de restauration, et état laissé par un rewind ultérieur.
+- **Commandes** : nombre d'appels shell par session.
+- **Sous-agents, hooks, rewinds** : exécutions de sous-agents, hooks qui ont bloqué, échoué, expiré ou demandé une confirmation, rewinds avec les fichiers restaurés, supprimés, conservés, ignorés, en échec ou inchangés.
+- **Incidents** : erreurs, tours terminés pour une raison notable (bloqué, arrêté par un hook, contexte trop grand, limite d'itérations, incomplet, annulé) et lignes illisibles du journal.
+- **Correspondance réglementaire** : quels éléments du rapport aident à documenter le RGPD, NIS2, DORA et l'AI Act. Elle ne cite aucun article.
+- **Intégrité** : chaîne entière intacte ou non, nombre de lignes, dernier hash, et empreintes de la première et de la dernière ligne de la plage exportée.
+
+Le marquage git n'est pas dans le journal : le rapport donne la commande qui retrouve le code marqué, `git log --grep "AI-Assisted-By"`.
+Chaque rapport commence par un avertissement : il décrit l'activité enregistrée par tenon, ne constitue pas un avis juridique et ne certifie pas la conformité.
+
+### `--details`
+
+Sans `--details`, le rapport ne contient que des comptes et des empreintes : aucun prompt, réponse, commande ni résultat d'outil.
+Avec `--details`, il ajoute :
+
+- le texte des commandes shell, par session ;
+- une chronologie par session : prompts, réponses, appels d'outils et résultats, permissions, hooks.
+
+Les réponses, arguments d'outils et résultats sont coupés à 500 caractères.
+Tous les textes sont de nouveau masqués à la construction du rapport.
+Le HTML affiche alors un bandeau : le rapport contient des données de conversation.
+Conservez et partagez ces fichiers comme le journal lui-même.
+
+### Niveau metadata
+
+Avec `audit.level = "metadata"`, le journal ne garde que l'empreinte et la taille de chaque charge utile.
+Le rapport alors :
+
+- montre les lignes illisibles et la correspondance réglementaire, qui n'ont pas besoin du contenu ;
+- écrit « non disponible au niveau metadata » dans les autres sections de contenu ;
+- met `content_available` à `false` et `integrity.level` à `metadata`.
+
+Si le journal mêle les deux niveaux (`integrity.level` vaut `mixed`), les lignes dont la charge est au niveau metadata sont ignorées : elles ne sont pas comptées.
+La correspondance réglementaire apparaît à tous les niveaux.
+
+Au niveau metadata, le projet d'une session est inconnu. Avec `--project` (ou par défaut), ces sessions sont écartées du rapport : leur nombre est dans `excluded_metadata_sessions`, et le HTML l'affiche dans un bandeau.
+`--all-projects` et `--session` n'écartent rien.
+
+### Vérifier l'intégrité d'un rapport
+
+1. Le journal lui-même : `tenon audit verify` (voir plus haut). Le rapport donne le dernier hash (`integrity.final_hash`) à comparer à celui que vous avez noté.
+2. Le fichier JSON : `report_id` vaut `sha256:` suivi du SHA-256 du champ `report`, sérialisé en forme compacte comme le fait `encoding/json` de Go :
+   clés dans l'ordre du fichier, sans espace, `<`, `>` et `&` écrits `<`, `>` et `&`, U+2028 et U+2029 écrits ` ` et ` `, autres caractères non ASCII gardés en UTF-8.
+   Avec `python3` :
+
+   ```python
+   import hashlib, json, sys
+   doc = json.load(open(sys.argv[1], encoding="utf-8"))
+   raw = json.dumps(doc["report"], separators=(",", ":"), ensure_ascii=False)
+   for ch, esc in (("<", "\\u003c"), (">", "\\u003e"), ("&", "\\u0026"),
+                   (" ", "\\u2028"), (" ", "\\u2029")):
+       raw = raw.replace(ch, esc)
+   print("sha256:" + hashlib.sha256(raw.encode("utf-8")).hexdigest())
+   print(doc["report_id"])
+   ```
+
+   Lancez `python3 check.py tenon-audit-….json` : les deux lignes doivent être identiques.
+3. Le fichier HTML : `html_sha256` est le SHA-256 du fichier HTML.
+   ```
+   shasum -a 256 tenon-audit-….html     # macOS
+   sha256sum tenon-audit-….html         # Linux
+   ```
+   Comparez le résultat à `html_sha256` (après le préfixe `sha256:`).
+
+Ces contrôles détectent une modification accidentelle d'un fichier.
+Qui peut réécrire les deux fichiers peut recalculer les deux empreintes : pour une preuve contre cela, gardez le dernier hash du journal ailleurs.
+
+### Schéma JSON
+
+Le fichier est indenté de deux espaces et se termine par un saut de ligne. Les dates sont en RFC 3339 UTC (`2026-10-20T12:00:00Z`) ; celles de `period` sont en `AAAA-MM-JJ`.
+`schema_version` vaut `1`. Un changement incompatible (clé supprimée, renommée ou de type différent) l'augmente ; l'ajout d'une clé ne l'augmente pas.
+Une liste vide est écrite `[]`, jamais `null`.
+
+Enveloppe :
+
+| Clé | Type | Sens |
+|---|---|---|
+| `schema_version` | nombre | version du schéma (`1`) |
+| `generator` | chaîne | `tenon <version>` |
+| `report_id` | chaîne | `sha256:` + empreinte de `report` (voir plus haut) |
+| `html_sha256` | chaîne | `sha256:` + empreinte du fichier HTML |
+| `report` | objet | le rapport |
+
+`report` :
+
+| Clé | Type | Sens |
+|---|---|---|
+| `generator` | chaîne | `tenon <version>` |
+| `generated_at` | chaîne | date de génération |
+| `period` | objet | `since`, `until` (`AAAA-MM-JJ`, inclus) |
+| `scope` | objet | `kind` (`project`, `all` ou `session`), `project` ou `session` selon le cas |
+| `details` | booléen | `--details` a été utilisé |
+| `disclaimer` | chaîne | l'avertissement |
+| `integrity` | objet | voir plus bas |
+| `content_available` | booléen | `false` au niveau metadata |
+| `excluded_metadata_sessions` | nombre | sessions écartées du périmètre projet (projet inconnu au niveau metadata) |
+| `summary` | objet | `sessions`, `turns`, `tool_calls`, `files_modified`, `denials` (nombres), `jurisdictions` (liste de chaînes) |
+| `providers` | liste | `id`, `name`, `model`, `country`, `jurisdiction` (chaînes), `sessions` (nombre), `first`, `last` (dates) |
+| `jurisdiction_consents` | objet | `granted`, `denied` (nombres) |
+| `jurisdiction_warning_sessions` | liste | identifiants de sessions |
+| `mcp_servers` | liste | `id`, `jurisdiction`, `country` (chaînes), `sessions` (nombre) |
+| `mcp_failures` | liste | `session`, `server`, `error` (chaînes), `ts` (date) |
+| `redactions` | objet | nom de catégorie vers nombre d'éléments masqués |
+| `permissions` | liste | `tool` (chaîne), `requested`, `allowed_once`, `allowed_session`, `denied_user`, `denied_policy`, `denied_hook` (nombres) |
+| `files` | liste | `ts`, `session`, `path`, `tool`, `hash_before`, `hash_after`, `author`, `no_checkpoint` (booléen), `rewind_status` (omis si aucun rewind ne concerne le fichier) |
+| `commands` | liste | `session`, `count` ; `commands` (liste de chaînes) seulement avec `--details` |
+| `subagents` | liste | `ts`, `session`, `call_id`, `agent`, `status` |
+| `hooks` | liste | `ts`, `session`, `hook_id`, `event`, `status` ; `decision` et `reason` s'ils ne sont pas vides |
+| `rewinds` | liste | `ts`, `session`, `mode` (date et chaînes), `to_seq`, `restored`, `deleted`, `kept`, `skipped`, `failed`, `unchanged`, `untracked_calls` (nombres) |
+| `incidents` | objet | `errors` (`ts`, `session`, `code`, `message`), `turns` (`ts`, `session`, `reason`), `unreadable` (`file`, `line`, `error`) |
+| `regulatory_mapping` | liste | `element` (chaîne), `frameworks` (liste de chaînes) |
+| `git_marking_hint` | chaîne | commande qui retrouve le code marqué |
+| `timeline` | liste | seulement avec `--details` : `session`, `entries` (`ts`, `kind`, `text`, et `tool` selon le cas) |
+
+`integrity` :
+
+| Clé | Type | Sens |
+|---|---|---|
+| `intact` | booléen | toute la chaîne se vérifie |
+| `error` | chaîne | première faute, omise si intacte |
+| `total_lines` | nombre | lignes de tout le journal |
+| `final_hash` | chaîne | empreinte de la dernière ligne du journal (omise si cassée) |
+| `range_lines` | nombre | lignes de la plage exportée |
+| `first_hash`, `last_hash` | chaîne | empreintes de la première et de la dernière ligne de la plage (omises si la plage est vide) |
+| `level` | chaîne | `full`, `metadata`, `mixed` ou `none` |
+
+`kind` dans `timeline` vaut `prompt`, `response`, `tool_call`, `tool_result`, `permission` ou `hook`.
+
 ## Fichiers et dossiers
 
 | Chemin | Contenu | Droits |
