@@ -250,3 +250,58 @@ func TestPolicyTUIWelcomeE2E(t *testing.T) {
 		t.Fatalf("code=%d Options.Policy=%q stderr=%q", r.code, r.opts.Policy, r.stderr)
 	}
 }
+
+func TestPolicyCheckValidE2E(t *testing.T) {
+	e := newEnv(t, nil, "eu")
+	dir := t.TempDir()
+	key := orgpolicytest.Sign(t, dir, policyHead+"profile = \"eu-only\"\n[providers]\nallow_hosts = [\"api.mistral.ai\", \"*.x.eu\"]\n[audit]\nlevel = \"full\"\n[mcp]\nmode = \"allowlist\"\n")
+	code, out, errb := e.run("--lang", "en", "policy", "check", dir)
+	want := "policy: acme-dev v3 (key " + key + ")\nprofile: eu-only\nproviders: 2 allowed hosts, local no, 0 defined\nrules: 0\nredaction: 0\naudit: full\nmcp: allowlist\n"
+	if code != 0 || out != want || errb != "" {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errb)
+	}
+	// Politique minimale, en français.
+	dir = t.TempDir()
+	key = orgpolicytest.Sign(t, dir, policyHead)
+	code, out, _ = e.run("policy", "check", dir)
+	want = "politique : acme-dev v3 (clé " + key + ")\nprofil : aucun\nfournisseurs : pas de liste blanche\nrègles : 0\nmasquage : 0\naudit : non imposé\nmcp : any\n"
+	if code != 0 || out != want {
+		t.Fatalf("fr : code=%d stdout=%q", code, out)
+	}
+	code, out, _ = e.run("--lang", "en", "policy", "check", dir)
+	if code != 0 || !strings.Contains(out, "profile: none\nproviders: no allowlist\n") || !strings.Contains(out, "audit: not imposed\nmcp: any\n") {
+		t.Fatalf("en minimal : %q", out)
+	}
+}
+
+func TestPolicyCheckInvalidE2E(t *testing.T) {
+	e := newEnv(t, nil, "eu")
+	dir := t.TempDir()
+	orgpolicytest.Sign(t, dir, policyHead)
+	e.writeFile(filepath.Join(dir, "policy.toml"), policyHead+"profile = \"\"\n")
+	code, out, errb := e.run("--lang", "en", "policy", "check", dir)
+	if code != 1 || out != "" || !strings.Contains(errb, "tenon: policy: "+filepath.Join(dir, "policy.toml")+": ") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errb)
+	}
+}
+
+func TestPolicyCheckAbsentE2E(t *testing.T) {
+	e := newEnv(t, nil, "eu")
+	dir := t.TempDir()
+	code, _, errb := e.run("--lang", "en", "policy", "check", dir)
+	if code != 1 || !strings.Contains(errb, "no policy in "+dir) {
+		t.Fatalf("code=%d stderr=%q", code, errb)
+	}
+	code, _, errb = e.run("policy", "check", dir)
+	if code != 1 || !strings.Contains(errb, "aucune politique dans "+dir) {
+		t.Fatalf("fr : code=%d stderr=%q", code, errb)
+	}
+}
+
+func TestPolicyCheckArgsE2E(t *testing.T) {
+	e := newEnv(t, nil, "eu")
+	code, out, errb := e.run("--lang", "en", "policy", "check", "a", "b")
+	if code != 1 || out != "" || !strings.Contains(errb, "usage: tenon") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errb)
+	}
+}
