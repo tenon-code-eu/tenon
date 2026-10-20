@@ -7,7 +7,7 @@ It reads your project, proposes changes and runs commands, under your control.
 
 It is designed for Europe:
 
-- the preconfigured providers are European (Mistral AI, Scaleway, OVHcloud) or local (Ollama, vLLM);
+- the preconfigured providers are European (Mistral AI, Codestral, Scaleway, OVHcloud, Albert API of the French State) or local (Ollama, vLLM);
 - any data sent outside the EU requires your explicit consent;
 - by default, writes, commands and MCP tool calls wait for your approval;
 - everything is recorded in a hash-chained, verifiable audit log;
@@ -129,7 +129,7 @@ tenon is distributed under the [EUPL-1.2](LICENSE) license.
 
 tenon est un agent de code en terminal, écrit en Go, pour Linux et macOS.
 Il lit votre projet, propose des modifications et exécute des commandes, sous votre contrôle.
-Les fournisseurs préconfigurés sont européens (Mistral AI, Scaleway, OVHcloud) ou locaux (Ollama, vLLM).
+Les fournisseurs préconfigurés sont européens (Mistral AI, Codestral, Scaleway, OVHcloud, Albert API de l'État) ou locaux (Ollama, vLLM).
 Tout envoi hors de l'UE demande votre accord explicite, et tout est tracé dans un journal d'audit chaîné.
 Par défaut, les écritures, les commandes et les appels d'outils MCP attendent votre validation.
 Les skills au format ouvert Agent Skills (`SKILL.md`) sont chargés par le modèle ou avec `/<nom>`, sans jamais élargir les permissions.

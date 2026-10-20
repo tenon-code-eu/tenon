@@ -878,8 +878,13 @@ Presets:
 | `mistral` (default) | Mistral AI, FR | `eu` | `MISTRAL_API_KEY` |
 | `scaleway` | Scaleway, FR | `eu` | `SCW_SECRET_KEY` |
 | `ovhcloud` | OVHcloud AI Endpoints, FR | `eu` | `OVH_AI_ENDPOINTS_ACCESS_TOKEN` |
+| `albert` | Albert API (DINUM), FR | `eu` | `ALBERT_API_KEY` |
+| `codestral` | Codestral (Mistral AI), FR | `eu` | `CODESTRAL_API_KEY` |
 | `ollama` | Ollama, `http://localhost:11434/v1` | `local` | none |
 | `vllm` | vLLM, `http://localhost:8000/v1` | `local` | none |
+
+- `albert`: Albert API keys are issued to public-sector staff only. Model identifiers change over time: list them with `GET /v1/models` and set `model` in a `[[providers]]` block if the preset's model is gone.
+- `codestral`: the `codestral.mistral.ai` domain needs its own key, distinct from a La Plateforme key. With a La Plateforme key, use the `mistral` preset or set `base_url = "https://api.mistral.ai/v1"`. Codestral is designed for code completion; for agent work with tools, Mistral recommends Mistral Medium 3.5 (`mistral` preset).
 
 The jurisdiction means the **law that applies to the operator**, not the location of its servers.
 A provider added without `jurisdiction` is treated as `non-eu`.
