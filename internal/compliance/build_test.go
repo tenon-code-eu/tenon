@@ -114,6 +114,21 @@ func TestBuildIntegrityBroken(t *testing.T) {
 	}
 }
 
+func TestBuildIntegrityErrorCleaned(t *testing.T) {
+	const key = "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	ds := Dataset{Chain: Chain{Error: "line 2: prev " + key + "\x1b[2J does not match"}, Level: LevelNone}
+	red, err := policy.NewRedactor(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o := opts()
+	o.Redact = func(s string) string { out, _ := red.Redact(s); return out }
+	e := Build(ds, o).Integrity.Error
+	if strings.Contains(e, key) || !strings.Contains(e, "[SECRET_") || strings.ContainsRune(e, 0x1b) {
+		t.Fatalf("chain error not cleaned: %q", e)
+	}
+}
+
 func TestBuildSummary(t *testing.T) {
 	b := newLog(t)
 	b.start("s", provEU)
@@ -264,16 +279,18 @@ func TestBuildCommands(t *testing.T) {
 	b.add("s", event.ToolCallRequested, event.ToolCallRequestedPayload{CallID: "1", Tool: "shell", Args: json.RawMessage(`{"command":"go test ./..."}`)})
 	b.add("s", event.ToolCallRequested, event.ToolCallRequestedPayload{CallID: "2", Tool: "read", Args: json.RawMessage(`{"path":"x"}`)})
 	b.add("s", event.ToolCallRequested, event.ToolCallRequestedPayload{CallID: "3", Tool: "shell", Args: json.RawMessage(`{"command":"ls"}`)})
+	// Arguments malformés : l'appel compte, aucun texte vide n'est ajouté.
+	b.add("s", event.ToolCallRequested, event.ToolCallRequestedPayload{CallID: "4", Tool: "shell", Args: json.RawMessage(`{"command":42}`)})
 	ds := b.dataset()
 
 	r := Build(ds, opts())
-	if !reflect.DeepEqual(r.Commands, []SessionCommands{{Session: "s", Count: 2}}) {
+	if !reflect.DeepEqual(r.Commands, []SessionCommands{{Session: "s", Count: 3}}) {
 		t.Fatalf("commands without details %+v", r.Commands)
 	}
 	o := opts()
 	o.Details = true
 	r = Build(ds, o)
-	want := []SessionCommands{{Session: "s", Count: 2, Commands: []string{"go test ./...", "ls"}}}
+	want := []SessionCommands{{Session: "s", Count: 3, Commands: []string{"go test ./...", "ls"}}}
 	if !reflect.DeepEqual(r.Commands, want) || !r.Details {
 		t.Fatalf("commands with details %+v", r.Commands)
 	}

@@ -68,7 +68,7 @@ func Build(ds Dataset, o Options) Report {
 		Scope:                    scopeOf(ds.Filter),
 		Details:                  o.Details,
 		Disclaimer:               Disclaimer,
-		Integrity:                integrityOf(ds),
+		Integrity:                integrityOf(ds, o),
 		ContentAvailable:         ds.Level != LevelMetadata,
 		ExcludedMetadataSessions: ds.ExcludedMetadataSessions,
 		Summary:                  Summary{Jurisdictions: []string{}},
@@ -131,10 +131,12 @@ func scopeOf(f Filter) Scope {
 	return Scope{Kind: "project", Project: f.Project}
 }
 
-func integrityOf(ds Dataset) Integrity {
+// integrityOf nettoie aussi l'erreur de vérification : elle peut citer des
+// valeurs lues dans un journal altéré.
+func integrityOf(ds Dataset, o Options) Integrity {
 	in := Integrity{
 		Intact:     ds.Chain.Intact,
-		Error:      ds.Chain.Error,
+		Error:      o.clean(ds.Chain.Error),
 		TotalLines: ds.Chain.Lines,
 		FinalHash:  ds.Chain.FinalHash,
 		RangeLines: len(ds.Lines),
@@ -255,7 +257,9 @@ func (b *builder) shell(session string, args json.RawMessage) {
 	var a struct {
 		Command string `json:"command"`
 	}
-	_ = json.Unmarshal(args, &a)
+	if json.Unmarshal(args, &a) != nil || a.Command == "" {
+		return
+	}
 	c.Commands = append(c.Commands, b.o.clean(a.Command))
 }
 
