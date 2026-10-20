@@ -13,6 +13,9 @@ const GitHint = "git log --grep \"AI-Assisted-By\""
 type Options struct {
 	// Redact masque un texte issu du journal ; nil = identité.
 	Redact func(string) string
+	// RedactJSON masque un texte JSON chaîne par chaîne une fois décodé (clés
+	// comprises) ; nil = Redact appliqué à chaque chaîne décodée.
+	RedactJSON func(string) string
 	// Details inclut les textes des commandes et la chronologie.
 	Details bool
 	// Generator vaut "tenon <version>".

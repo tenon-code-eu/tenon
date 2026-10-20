@@ -82,12 +82,75 @@ const maxDetailRunes = 500
 // cut nettoie s puis le coupe à maxDetailRunes runes, « … » ajouté si coupé.
 // La coupe suit le masquage : aucun préfixe de secret ne peut subsister.
 func (o Options) cut(s string) string {
-	s = o.clean(s)
+	return truncate(o.clean(s))
+}
+
+// truncate coupe s à maxDetailRunes runes, « … » ajouté si coupé.
+func truncate(s string) string {
 	r := []rune(s)
 	if len(r) <= maxDetailRunes {
 		return s
 	}
 	return string(r[:maxDetailRunes]) + "…"
+}
+
+// args masque les arguments d'un appel d'outil. En JSON brut un saut de ligne
+// s'écrit `\n` : les chaînes sont donc masquées une fois décodées (règles
+// ancrées en début de ligne, valeurs sous une clé sensible), le résultat est
+// ré-encodé de façon compacte, nettoyé puis coupé. Des arguments qui ne sont
+// pas du JSON valide sont masqués en texte brut.
+func (o Options) args(raw json.RawMessage) string {
+	if !json.Valid(raw) {
+		return o.cut(string(raw))
+	}
+	var s string
+	if o.RedactJSON != nil {
+		s = o.RedactJSON(string(raw))
+	} else {
+		s = o.cleanLeaves(raw)
+	}
+	var buf bytes.Buffer
+	if json.Compact(&buf, []byte(s)) == nil {
+		s = buf.String()
+	}
+	return truncate(spaceClean(s))
+}
+
+// cleanLeaves nettoie (clean) chaque chaîne et chaque clé d'un JSON décodé
+// puis le ré-encode ; les nombres sont gardés tels quels.
+func (o Options) cleanLeaves(raw json.RawMessage) string {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var v any
+	if dec.Decode(&v) != nil {
+		return o.clean(string(raw))
+	}
+	var walk func(any) any
+	walk = func(v any) any {
+		switch t := v.(type) {
+		case string:
+			return o.clean(t)
+		case []any:
+			for i := range t {
+				t[i] = walk(t[i])
+			}
+			return t
+		case map[string]any:
+			out := make(map[string]any, len(t))
+			for k, x := range t {
+				out[o.clean(k)] = walk(x)
+			}
+			return out
+		}
+		return v
+	}
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if enc.Encode(walk(v)) != nil {
+		return o.clean(string(raw))
+	}
+	return strings.TrimSuffix(buf.String(), "\n")
 }
 
 // Build construit le rapport à partir du journal chargé. Pure : ne lit rien
@@ -570,12 +633,7 @@ func timelineEntry(l audit.Line, o Options, resolved map[sessKey]bool) (Timeline
 	case event.ToolCallRequested:
 		var p event.ToolCallRequestedPayload
 		if decode(l, &p) {
-			args := string(p.Args)
-			var buf bytes.Buffer
-			if json.Compact(&buf, p.Args) == nil {
-				args = buf.String()
-			}
-			return TimelineEntry{Kind: "tool_call", Tool: o.clean(p.Tool), Text: o.cut(args)}, true
+			return TimelineEntry{Kind: "tool_call", Tool: o.clean(p.Tool), Text: o.args(p.Args)}, true
 		}
 	case event.ToolResult:
 		var p event.ToolResultPayload

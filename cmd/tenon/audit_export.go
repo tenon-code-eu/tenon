@@ -118,10 +118,11 @@ func auditExport(args []string, langFlag string, stdout, stderr io.Writer, geten
 		return 1
 	}
 	rep := compliance.Build(ds, compliance.Options{
-		Redact:    redactText(st.redactor),
-		Details:   *details,
-		Generator: "tenon " + version,
-		Now:       now,
+		Redact:     redactText(st.redactor),
+		RedactJSON: func(s string) string { out, _ := st.redactor.RedactJSON(s); return out },
+		Details:    *details,
+		Generator:  "tenon " + version,
+		Now:        now,
 	})
 	id, err := compliance.ReportID(rep)
 	if err != nil {

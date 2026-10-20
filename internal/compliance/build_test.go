@@ -9,6 +9,7 @@ import (
 
 	"github.com/tenon-code-eu/tenon/internal/audit"
 	"github.com/tenon-code-eu/tenon/internal/event"
+	"github.com/tenon-code-eu/tenon/internal/i18n"
 	"github.com/tenon-code-eu/tenon/internal/llm"
 	"github.com/tenon-code-eu/tenon/internal/policy"
 )
@@ -591,5 +592,76 @@ func TestBuildTimelineSecretAtCut(t *testing.T) {
 	}
 	if n := len([]rune(text)); n > 501 {
 		t.Fatalf("text has %d runes", n)
+	}
+}
+
+// Arguments d'appel : le masquage s'applique aux chaînes décodées, donc aux
+// règles ancrées en début de ligne, dans la chronologie comme dans les commandes.
+func TestBuildTimelineArgsRedactedDecoded(t *testing.T) {
+	const clear = "Sup3rS3cretValue99"
+	b := newLog(t)
+	b.start("s", provEU)
+	b.add("s", event.ToolCallRequested, event.ToolCallRequestedPayload{
+		CallID: "c", Tool: "shell", Args: json.RawMessage(`{"command":"echo hi\ndb_password = ` + clear + `"}`),
+	})
+	red, err := policy.NewRedactor(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o := opts()
+	o.Details = true
+	o.Redact = func(s string) string { out, _ := red.Redact(s); return out }
+	o.RedactJSON = func(s string) string { out, _ := red.RedactJSON(s); return out }
+	r := Build(b.dataset(), o)
+
+	if c := r.Commands[0].Commands; len(c) != 1 || strings.Contains(c[0], clear) {
+		t.Fatalf("commands not redacted: %q", c)
+	}
+	text := r.Timeline[0].Entries[0].Text
+	if strings.Contains(text, clear) || !strings.Contains(text, "[SECRET_") || !json.Valid([]byte(text)) {
+		t.Fatalf("timeline args not redacted: %q", text)
+	}
+	id, err := ReportID(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	js, err := RenderJSON(r, id, "sha256:00")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, lang := range []i18n.Lang{i18n.EN, i18n.FR} {
+		h, err := RenderHTML(r, id, lang)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(h), clear) {
+			t.Fatalf("%s: secret in HTML", lang)
+		}
+	}
+	if strings.Contains(string(js), clear) {
+		t.Fatalf("secret in JSON: %s", js)
+	}
+}
+
+// Sans RedactJSON, chaque chaîne décodée passe par Redact ; des arguments
+// illisibles sont masqués en texte brut.
+func TestBuildTimelineArgsFallback(t *testing.T) {
+	const clear = "Sup3rS3cretValue99"
+	b := newLog(t)
+	b.start("s", provEU)
+	b.add("s", event.ToolCallRequested, event.ToolCallRequestedPayload{
+		CallID: "c", Tool: "shell", Args: json.RawMessage(`{"command":"echo hi\ndb_password = ` + clear + `","n":12345678901234567890}`),
+	})
+	red, err := policy.NewRedactor(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o := opts()
+	o.Details = true
+	o.Redact = func(s string) string { out, _ := red.Redact(s); return out }
+	r := Build(b.dataset(), o)
+	text := r.Timeline[0].Entries[0].Text
+	if strings.Contains(text, clear) || !strings.Contains(text, "[SECRET_") || !strings.Contains(text, `"n":12345678901234567890`) {
+		t.Fatalf("fallback args: %q", text)
 	}
 }
