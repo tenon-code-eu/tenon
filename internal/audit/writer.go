@@ -29,8 +29,8 @@ const genesis = "sha256:0"
 
 var _ event.Sink = (*Writer)(nil)
 
-// line is the canonical on-disk record; field order is part of the hash.
-type line struct {
+// Line est l'enregistrement canonique sur disque ; l'ordre des champs fait partie du hash.
+type Line struct {
 	Seq     uint64          `json:"seq"`
 	TS      string          `json:"ts"`
 	Session string          `json:"session"`
@@ -40,7 +40,7 @@ type line struct {
 	Hash    string          `json:"hash,omitempty"`
 }
 
-func computeHash(l line) (string, error) {
+func computeHash(l Line) (string, error) {
 	l.Hash = ""
 	b, err := json.Marshal(l)
 	if err != nil {
@@ -126,7 +126,7 @@ func readTail(dir string) (string, string, error) {
 		if len(raw) == 0 {
 			continue
 		}
-		var l line
+		var l Line
 		if err := json.Unmarshal(raw, &l); err != nil || l.Hash == "" {
 			n := 0
 			if data, rerr := os.ReadFile(path); rerr == nil {
@@ -223,7 +223,7 @@ func (w *Writer) Write(e event.Event) error {
 	if err != nil {
 		return err
 	}
-	l := line{Seq: e.Seq, TS: string(bytes.Trim(tb, `"`)), Session: e.Session, Type: e.Type, Payload: pl, Prev: last}
+	l := Line{Seq: e.Seq, TS: string(bytes.Trim(tb, `"`)), Session: e.Session, Type: e.Type, Payload: pl, Prev: last}
 	h, err := computeHash(l)
 	if err != nil {
 		return err

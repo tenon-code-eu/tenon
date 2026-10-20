@@ -40,7 +40,7 @@ func Verify(dir string) (string, int, error) {
 			}
 			complete := rerr == nil
 			raw = bytes.TrimSuffix(raw, []byte("\n"))
-			var l line
+			var l Line
 			if err := json.Unmarshal(raw, &l); err != nil {
 				f.Close()
 				return "", total, fmt.Errorf("%s:%d: unreadable line: %v", name, n, err)
