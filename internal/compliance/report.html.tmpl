@@ -1,0 +1,179 @@
+{{define "none"}}<p class="muted">{{t "report.none"}}</p>{{end -}}
+{{define "na"}}<p class="muted">{{t "report.unavailable"}}</p>{{end -}}
+<!DOCTYPE html>
+<html lang="{{.Lang}}">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{t "report.title"}} {{.R.Period.Since}} – {{.R.Period.Until}}</title>
+<style>
+body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: #1a1a1a; background: #fff; margin: 2rem auto; max-width: 64rem; padding: 0 1rem; line-height: 1.45; font-size: 14px; }
+h1 { font-size: 1.6rem; margin-bottom: .5rem; }
+h2 { font-size: 1.2rem; border-bottom: 1px solid #ccc; padding-bottom: .2rem; margin-top: 2rem; }
+h3 { font-size: 1rem; margin-top: 1.2rem; }
+dl.meta { display: grid; grid-template-columns: max-content 1fr; gap: .2rem 1rem; }
+dl.meta dt { font-weight: 600; }
+dl.meta dd { margin: 0; overflow-wrap: anywhere; }
+table { border-collapse: collapse; width: 100%; margin: .5rem 0; }
+th, td { border: 1px solid #ccc; padding: .25rem .4rem; text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+th { background: #f3f3f3; }
+code, .mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .9em; }
+.banner { padding: .6rem .8rem; margin: .6rem 0; border-radius: 4px; border: 1px solid; }
+.banner.broken { background: #fde8e8; border-color: #c81e1e; color: #8a1010; font-weight: 600; }
+.banner.warn { background: #fff6e0; border-color: #c88a00; }
+.banner.info { background: #e8f0fd; border-color: #1e5ac8; }
+.disclaimer { font-style: italic; color: #444; }
+.muted { color: #666; }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
+@media print {
+  body { margin: 0; max-width: none; font-size: 11px; }
+  tr, .banner { break-inside: avoid; page-break-inside: avoid; }
+  thead { display: table-header-group; }
+  h2, h3 { break-after: avoid; page-break-after: avoid; }
+}
+</style>
+</head>
+<body>
+<header>
+<h1>{{t "report.title"}}</h1>
+{{with .R}}<dl class="meta">
+<dt>{{t "report.label.period"}}</dt><dd>{{.Period.Since}} – {{.Period.Until}}</dd>
+<dt>{{t "report.label.scope"}}</dt><dd>{{if eq .Scope.Kind "all"}}{{t "report.scope.all"}}{{else if eq .Scope.Kind "session"}}{{t "report.scope.session"}} <span class="mono">{{.Scope.Session}}</span>{{else}}<span class="mono">{{.Scope.Project}}</span>{{end}}</dd>
+<dt>{{t "report.label.generated"}}</dt><dd>{{date .GeneratedAt}}</dd>
+<dt>{{t "report.label.generator"}}</dt><dd>{{.Generator}}</dd>
+<dt>{{t "report.label.level"}}</dt><dd>{{tk "report.level." .Integrity.Level}}</dd>
+<dt>{{t "report.label.report_id"}}</dt><dd class="mono">{{$.ID}}</dd>
+<dt>{{t "report.label.integrity"}}</dt><dd>{{if .Integrity.Intact}}{{t "report.chain.ok" .Integrity.TotalLines .Integrity.FinalHash}}{{else}}{{t "report.chain.broken" .Integrity.Error}}{{end}}</dd>
+<dt>{{t "report.label.range"}}</dt><dd>{{t "report.range" .Integrity.RangeLines}}{{if .Integrity.FirstHash}} · {{t "report.range.hashes" .Integrity.FirstHash .Integrity.LastHash}}{{end}}</dd>
+</dl>
+<p class="disclaimer">{{t "report.disclaimer"}}</p>
+</header>
+{{if not .Integrity.Intact}}<div class="banner broken">{{t "report.chain.broken" .Integrity.Error}}</div>
+{{end}}{{if not .ContentAvailable}}<div class="banner warn">{{t "report.banner.metadata"}}</div>
+{{end}}{{if .Details}}<div class="banner info">{{t "report.banner.details"}}</div>
+{{end}}{{if gt .ExcludedMetadataSessions 0}}<div class="banner warn">{{t "report.banner.excluded" .ExcludedMetadataSessions}}</div>
+{{end}}
+{{if eq .Integrity.RangeLines 0}}<p class="banner info">{{t "report.empty"}}</p>
+{{else}}
+<section id="summary">
+<h2>{{t "report.sec.summary"}}</h2>
+<table>
+<tr><th>{{t "report.col.sessions"}}</th><th>{{t "report.col.turns"}}</th><th>{{t "report.col.tool_calls"}}</th><th>{{t "report.col.files_modified"}}</th><th>{{t "report.col.denials"}}</th><th>{{t "report.col.jurisdictions"}}</th></tr>
+<tr><td>{{.Summary.Sessions}}</td><td>{{.Summary.Turns}}</td><td>{{.Summary.ToolCalls}}</td><td>{{.Summary.FilesModified}}</td><td>{{.Summary.Denials}}</td><td>{{range $i, $j := .Summary.Jurisdictions}}{{if $i}}, {{end}}{{tk "report.juris." $j}}{{else}}{{t "report.none"}}{{end}}</td></tr>
+</table>
+</section>
+
+<section id="providers">
+<h2>{{t "report.sec.providers"}}</h2>
+{{if .ContentAvailable}}{{with .Providers}}<table>
+<thead><tr><th>{{t "report.col.provider"}}</th><th>{{t "report.col.model"}}</th><th>{{t "report.col.country"}}</th><th>{{t "report.col.jurisdiction"}}</th><th>{{t "report.col.sessions"}}</th><th>{{t "report.col.first"}}</th><th>{{t "report.col.last"}}</th></tr></thead>
+{{range .}}<tr><td>{{if .Name}}{{.Name}}{{else}}{{.ID}}{{end}}</td><td>{{.Model}}</td><td>{{.Country}}</td><td>{{tk "report.juris." .Jurisdiction}}</td><td>{{.Sessions}}</td><td>{{day .First}}</td><td>{{day .Last}}</td></tr>
+{{end}}</table>{{else}}{{template "none"}}{{end}}
+<h3>{{t "report.sec.consents"}}</h3>
+<p>{{t "report.consents" .Consents.Granted .Consents.Denied}}</p>
+<h3>{{t "report.sec.warnings"}}</h3>
+{{with .WarningSessions}}<ul>{{range .}}<li class="mono">{{.}}</li>{{end}}</ul>{{else}}{{template "none"}}{{end}}
+<h3>{{t "report.sec.mcp"}}</h3>
+{{with .MCPServers}}<table>
+<thead><tr><th>{{t "report.col.server"}}</th><th>{{t "report.col.country"}}</th><th>{{t "report.col.jurisdiction"}}</th><th>{{t "report.col.sessions"}}</th></tr></thead>
+{{range .}}<tr><td>{{.ID}}</td><td>{{.Country}}</td><td>{{tk "report.juris." .Jurisdiction}}</td><td>{{.Sessions}}</td></tr>
+{{end}}</table>{{else}}{{template "none"}}{{end}}
+<h3>{{t "report.sec.mcp_failures"}}</h3>
+{{with .MCPFailures}}<table>
+<thead><tr><th>{{t "report.col.date"}}</th><th>{{t "report.col.session"}}</th><th>{{t "report.col.server"}}</th><th>{{t "report.col.error"}}</th></tr></thead>
+{{range .}}<tr><td>{{date .TS}}</td><td class="mono">{{.Session}}</td><td>{{.Server}}</td><td>{{.Error}}</td></tr>
+{{end}}</table>{{else}}{{template "none"}}{{end}}
+{{else}}{{template "na"}}{{end}}
+</section>
+
+<section id="redactions">
+<h2>{{t "report.sec.redactions"}}</h2>
+{{if .ContentAvailable}}{{with .Redactions}}<table>
+<thead><tr><th>{{t "report.col.type"}}</th><th>{{t "report.col.count"}}</th></tr></thead>
+{{range $k, $v := .}}<tr><td>{{$k}}</td><td>{{$v}}</td></tr>
+{{end}}</table>{{else}}{{template "none"}}{{end}}{{else}}{{template "na"}}{{end}}
+</section>
+
+<section id="permissions">
+<h2>{{t "report.sec.permissions"}}</h2>
+{{if .ContentAvailable}}{{with .Permissions}}<table>
+<thead><tr><th>{{t "report.col.tool"}}</th><th>{{t "report.col.requested"}}</th><th>{{t "report.col.allowed_once"}}</th><th>{{t "report.col.allowed_session"}}</th><th>{{t "report.col.denied_user"}}</th><th>{{t "report.col.denied_policy"}}</th><th>{{t "report.col.denied_hook"}}</th></tr></thead>
+{{range .}}<tr><td>{{.Tool}}</td><td>{{.Requested}}</td><td>{{.AllowedOnce}}</td><td>{{.AllowedSession}}</td><td>{{.DeniedUser}}</td><td>{{.DeniedPolicy}}</td><td>{{.DeniedHook}}</td></tr>
+{{end}}</table>{{else}}{{template "none"}}{{end}}{{else}}{{template "na"}}{{end}}
+</section>
+
+<section id="files">
+<h2>{{t "report.sec.files"}}</h2>
+{{if .ContentAvailable}}{{with .Files}}<table>
+<thead><tr><th>{{t "report.col.date"}}</th><th>{{t "report.col.session"}}</th><th>{{t "report.col.path"}}</th><th>{{t "report.col.tool"}}</th><th>{{t "report.col.author"}}</th><th>{{t "report.col.hashes"}}</th><th>{{t "report.col.no_checkpoint"}}</th><th>{{t "report.col.rewind"}}</th></tr></thead>
+{{range .}}<tr><td>{{date .TS}}</td><td class="mono">{{.Session}}</td><td class="mono">{{.Path}}</td><td>{{.Tool}}</td><td>{{tk "report.author." .Author}}</td><td class="mono">{{.HashBefore}} → {{.HashAfter}}</td><td>{{if .NoCheckpoint}}{{t "report.yes"}}{{end}}</td><td>{{.RewindStatus}}</td></tr>
+{{end}}</table>{{else}}{{template "none"}}{{end}}{{else}}{{template "na"}}{{end}}
+</section>
+
+<section id="commands">
+<h2>{{t "report.sec.commands"}}</h2>
+{{if .ContentAvailable}}{{with .Commands}}<table>
+<thead><tr><th>{{t "report.col.session"}}</th><th>{{t "report.col.count"}}</th>{{if $.R.Details}}<th>{{t "report.col.commands"}}</th>{{end}}</tr></thead>
+{{range .}}<tr><td class="mono">{{.Session}}</td><td>{{.Count}}</td>{{if $.R.Details}}<td>{{range .Commands}}<pre class="mono">{{.}}</pre>{{end}}</td>{{end}}</tr>
+{{end}}</table>{{else}}{{template "none"}}{{end}}{{else}}{{template "na"}}{{end}}
+</section>
+
+<section id="agents">
+<h2>{{t "report.sec.agents"}}</h2>
+{{if .ContentAvailable}}<h3>{{t "report.sec.subagents"}}</h3>
+{{with .Subagents}}<table>
+<thead><tr><th>{{t "report.col.date"}}</th><th>{{t "report.col.session"}}</th><th>{{t "report.col.agent"}}</th><th>{{t "report.col.status"}}</th></tr></thead>
+{{range .}}<tr><td>{{date .TS}}</td><td class="mono">{{.Session}}</td><td>{{.Agent}}</td><td>{{.Status}}</td></tr>
+{{end}}</table>{{else}}{{template "none"}}{{end}}
+<h3>{{t "report.sec.hooks"}}</h3>
+{{with .Hooks}}<table>
+<thead><tr><th>{{t "report.col.date"}}</th><th>{{t "report.col.session"}}</th><th>{{t "report.col.hook"}}</th><th>{{t "report.col.event"}}</th><th>{{t "report.col.status"}}</th><th>{{t "report.col.decision"}}</th><th>{{t "report.col.reason"}}</th></tr></thead>
+{{range .}}<tr><td>{{date .TS}}</td><td class="mono">{{.Session}}</td><td>{{.HookID}}</td><td>{{.Event}}</td><td>{{.Status}}</td><td>{{.Decision}}</td><td>{{.Reason}}</td></tr>
+{{end}}</table>{{else}}{{template "none"}}{{end}}
+<h3>{{t "report.sec.rewinds"}}</h3>
+{{with .Rewinds}}<table>
+<thead><tr><th>{{t "report.col.date"}}</th><th>{{t "report.col.session"}}</th><th>{{t "report.col.point"}}</th><th>{{t "report.col.mode"}}</th><th>{{t "report.col.outcome"}}</th></tr></thead>
+{{range .}}<tr><td>{{date .TS}}</td><td class="mono">{{.Session}}</td><td>{{.ToSeq}}</td><td>{{.Mode}}</td><td>{{t "report.rewind.outcome" .Restored .Deleted .Kept .Skipped .Failed .Unchanged .UntrackedCalls}}</td></tr>
+{{end}}</table>{{else}}{{template "none"}}{{end}}
+{{else}}{{template "na"}}{{end}}
+</section>
+
+<section id="incidents">
+<h2>{{t "report.sec.incidents"}}</h2>
+{{if .ContentAvailable}}<h3>{{t "report.sec.errors"}}</h3>
+{{with .Incidents.Errors}}<table>
+<thead><tr><th>{{t "report.col.date"}}</th><th>{{t "report.col.session"}}</th><th>{{t "report.col.code"}}</th><th>{{t "report.col.message"}}</th></tr></thead>
+{{range .}}<tr><td>{{date .TS}}</td><td class="mono">{{.Session}}</td><td>{{.Code}}</td><td>{{.Message}}</td></tr>
+{{end}}</table>{{else}}{{template "none"}}{{end}}
+<h3>{{t "report.sec.turns"}}</h3>
+{{with .Incidents.Turns}}<table>
+<thead><tr><th>{{t "report.col.date"}}</th><th>{{t "report.col.session"}}</th><th>{{t "report.col.reason"}}</th></tr></thead>
+{{range .}}<tr><td>{{date .TS}}</td><td class="mono">{{.Session}}</td><td>{{.Reason}}</td></tr>
+{{end}}</table>{{else}}{{template "none"}}{{end}}
+<h3>{{t "report.sec.unreadable"}}</h3>
+{{with .Incidents.Unreadable}}<table>
+<thead><tr><th>{{t "report.col.location"}}</th><th>{{t "report.col.error"}}</th></tr></thead>
+{{range .}}<tr><td class="mono">{{.File}}:{{.Line}}</td><td>{{.Error}}</td></tr>
+{{end}}</table>{{else}}{{template "none"}}{{end}}
+{{else}}{{template "na"}}{{end}}
+</section>
+
+<section id="mapping">
+<h2>{{t "report.sec.mapping"}}</h2>
+{{with .Mapping}}<ul>{{range .}}<li>{{tk "report.map." .Element}}</li>{{end}}</ul>{{else}}{{template "none"}}{{end}}
+<p>{{t "report.git" ""}}<code>{{.GitHint}}</code></p>
+</section>
+{{if .Details}}
+<section id="timeline">
+<h2>{{t "report.sec.timeline"}}</h2>
+{{if .ContentAvailable}}{{range .Timeline}}<h3>{{t "report.col.session"}} <span class="mono">{{.Session}}</span></h3>
+<table>
+<thead><tr><th>{{t "report.col.date"}}</th><th>{{t "report.col.kind"}}</th><th>{{t "report.col.tool"}}</th><th>{{t "report.col.text"}}</th></tr></thead>
+{{range .Entries}}<tr><td>{{date .TS}}</td><td>{{tk "report.kind." .Kind}}</td><td>{{.Tool}}</td><td><pre>{{.Text}}</pre></td></tr>
+{{end}}</table>
+{{else}}{{template "none"}}{{end}}{{else}}{{template "na"}}{{end}}
+</section>
+{{end}}{{end}}{{end}}
+</body>
+</html>
