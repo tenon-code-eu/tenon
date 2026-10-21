@@ -11,8 +11,12 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"runtime"
 	"time"
 )
+
+// goos est runtime.GOOS, remplaçable par les tests.
+var goos = runtime.GOOS
 
 // ErrToken est l'erreur racine : toute erreur de ParseToken ou Verify
 // l'enveloppe.
@@ -144,7 +148,8 @@ func (t *token) info() Info {
 }
 
 // ParseToken décode un jeton (ContentInfo DER) sans vérifier ni signature
-// ni chaîne de certification.
+// ni chaîne de certification. Le certificat du signataire doit figurer dans
+// le jeton (demande faite avec certReq=true), sinon erreur.
 func ParseToken(der []byte) (Info, error) {
 	t, err := parse(der)
 	if err != nil {
@@ -157,7 +162,11 @@ func ParseToken(der []byte) (Info, error) {
 // (version 1, empreinte SHA-256 de 32 octets), attributs signés
 // (contentType, messageDigest, ESSCertID ou ESSCertIDv2), signature,
 // EKU timeStamping seule et critique, chaîne vers roots à la date genTime.
-// roots == nil : racines du système. La révocation n'est pas contrôlée.
+// roots == nil : racines du système, sauf sous darwin, ios et windows où Go
+// délègue au vérificateur de l'OS, qui applique une politique TLS et refuse
+// un certificat limité à timeStamping : Verify renvoie alors une erreur
+// "no trust roots" (il faut fournir une CA explicite). La révocation n'est
+// pas contrôlée.
 func Verify(der []byte, roots *x509.CertPool) (Info, error) {
 	t, err := parse(der)
 	if err != nil {
@@ -333,6 +342,9 @@ func (t *token) checkSignature() error {
 		return tokenErr("signature algorithm %s does not match digest algorithm %s", alg, t.si.DigestAlgorithm.Algorithm)
 	}
 
+	if len(t.si.SignedAttrs.FullBytes) == 0 {
+		return tokenErr("missing signed attributes")
+	}
 	signed := append([]byte(nil), t.si.SignedAttrs.FullBytes...)
 	signed[0] = 0x31 // [0] IMPLICIT → SET OF
 	d := h.New()
@@ -388,6 +400,12 @@ func (t *token) checkEKU() error {
 // checkChain vérifie la chaîne du signataire vers roots à la date genTime :
 // un certificat expiré depuis reste valide.
 func (t *token) checkChain(roots *x509.CertPool) error {
+	if roots == nil {
+		switch goos {
+		case "darwin", "ios", "windows":
+			return tokenErr("no trust roots: system roots cannot verify timestamp certificates on %s; configure a CA file", goos)
+		}
+	}
 	inter := x509.NewCertPool()
 	for _, c := range t.certs {
 		if c != t.signer {

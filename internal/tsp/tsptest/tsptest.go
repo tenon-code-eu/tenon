@@ -30,18 +30,22 @@ import (
 type Tamper int
 
 const (
-	None           Tamper = iota
-	Signature             // signature altérée
-	Imprint               // empreinte SHA-256 tronquée à 31 octets (jeton signé)
-	MessageDigest         // attribut messageDigest faux (jeton signé)
-	NoESSCertID           // pas d'attribut signingCertificate(V2)
-	WrongESSCertID        // ESSCertID qui ne désigne pas le signataire
-	NoEKU                 // signataire sans EKU
-	NonCriticalEKU        // EKU timeStamping non critique
-	SHA1                  // empreinte et signature en SHA-1
-	PSS                   // signature RSA-PSS (signataire RSA forcé)
-	Nonce                 // Response et Server : un autre nonce que celui demandé
-	HTMLBody              // Server : 200 text/html
+	None             Tamper = iota
+	Signature               // signature altérée
+	Imprint                 // empreinte SHA-256 tronquée à 31 octets (jeton signé)
+	MessageDigest           // attribut messageDigest faux (jeton signé)
+	NoESSCertID             // pas d'attribut signingCertificate(V2)
+	WrongESSCertID          // ESSCertID qui ne désigne pas le signataire
+	NoEKU                   // signataire sans EKU
+	NonCriticalEKU          // EKU timeStamping non critique
+	SHA1                    // empreinte et signature en SHA-1
+	PSS                     // signature RSA-PSS (signataire RSA forcé)
+	Nonce                   // Response et Server : un autre nonce que celui demandé
+	HTMLBody                // Server : 200 text/html
+	EKUServerAuth           // EKU critique [timeStamping, serverAuth]
+	WrongContentType        // attribut contentType = id-data au lieu de TSTInfo
+	NoSignerCert            // certificat du signataire absent de certificates
+	TwoSigners              // deux SignerInfo identiques
 )
 
 // Options règle le jeton produit. Les valeurs nulles donnent un jeton valide
@@ -75,6 +79,8 @@ var (
 	oidSigningCertV2 = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 9, 16, 2, 47}
 	oidExtKeyUsage   = asn1.ObjectIdentifier{2, 5, 29, 37}
 	oidTimeStamping  = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 3, 8}
+	oidServerAuth    = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 3, 1}
+	oidData          = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 7, 1}
 	oidPolicy        = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 99999, 1}
 
 	oidSHA1            = asn1.ObjectIdentifier{1, 3, 14, 3, 2, 26}
@@ -258,7 +264,11 @@ func (ca *CA) signer(t testing.TB, o Options, useRSA bool) (*x509.Certificate, c
 		tmpl.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageTimeStamping}
 	default:
 		// x509 émet l'EKU non critique : extension écrite à la main.
-		val := must(asn1.Marshal([]asn1.ObjectIdentifier{oidTimeStamping}))
+		usages := []asn1.ObjectIdentifier{oidTimeStamping}
+		if o.Tamper == EKUServerAuth {
+			usages = append(usages, oidServerAuth)
+		}
+		val := must(asn1.Marshal(usages))
 		tmpl.ExtraExtensions = []pkix.Extension{{Id: oidExtKeyUsage, Critical: true, Value: val}}
 	}
 	der := must(x509.CreateCertificate(rand.Reader, tmpl, ca.cert, key.Public(), ca.key))
@@ -316,8 +326,12 @@ func (ca *CA) Token(t testing.TB, digest []byte, nonce *big.Int, o Options) []by
 	if o.Tamper == MessageDigest {
 		md[0] ^= 0xff
 	}
+	contentType := oidTSTInfo
+	if o.Tamper == WrongContentType {
+		contentType = oidData
+	}
 	attrs := []attribute{
-		attr(t, oidContentType, oidTSTInfo),
+		attr(t, oidContentType, contentType),
 		attr(t, oidMessageDigest, md),
 	}
 	certForESS := cert.Raw
@@ -383,12 +397,19 @@ func (ca *CA) Token(t testing.TB, digest []byte, nonce *big.Int, o Options) []by
 	signedAttrs[0] = 0xa0 // SET OF → [0] IMPLICIT
 	si.SignedAttrs = asn1.RawValue{FullBytes: signedAttrs}
 
+	certs, signers := cert.Raw, []signerInfo{si}
+	switch o.Tamper {
+	case NoSignerCert:
+		certs = ca.cert.Raw
+	case TwoSigners:
+		signers = append(signers, si)
+	}
 	sd := signedData{
 		Version:          3,
 		DigestAlgorithms: []pkix.AlgorithmIdentifier{{Algorithm: digestOID}},
 		EncapContentInfo: encapContentInfo{EContentType: oidTSTInfo, EContent: eContent},
-		Certificates:     asn1.RawValue{Class: asn1.ClassContextSpecific, Tag: 0, IsCompound: true, Bytes: cert.Raw},
-		SignerInfos:      []signerInfo{si},
+		Certificates:     asn1.RawValue{Class: asn1.ClassContextSpecific, Tag: 0, IsCompound: true, Bytes: certs},
+		SignerInfos:      signers,
 	}
 	return marshal(t, contentInfo{
 		ContentType: oidSignedData,

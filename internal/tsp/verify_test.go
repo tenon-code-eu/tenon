@@ -101,15 +101,19 @@ func TestVerifyTampered(t *testing.T) {
 		tamper tsptest.Tamper
 		msg    string
 	}{
-		{"Signature", tsptest.Signature, ""},
-		{"Imprint", tsptest.Imprint, ""},
-		{"MessageDigest", tsptest.MessageDigest, ""},
-		{"NoESSCertID", tsptest.NoESSCertID, ""},
-		{"WrongESSCertID", tsptest.WrongESSCertID, ""},
-		{"NoEKU", tsptest.NoEKU, ""},
-		{"NonCriticalEKU", tsptest.NonCriticalEKU, ""},
-		{"SHA1", tsptest.SHA1, "unsupported algorithm"},
-		{"PSS", tsptest.PSS, "unsupported algorithm"},
+		{"Signature", tsptest.Signature, "bad signature"},
+		{"Imprint", tsptest.Imprint, "message imprint of 31 bytes"},
+		{"MessageDigest", tsptest.MessageDigest, "messageDigest does not match"},
+		{"NoESSCertID", tsptest.NoESSCertID, "missing signingCertificate"},
+		{"WrongESSCertID", tsptest.WrongESSCertID, "does not match signer certificate"},
+		{"NoEKU", tsptest.NoEKU, "without extended key usage"},
+		{"NonCriticalEKU", tsptest.NonCriticalEKU, "not critical"},
+		{"EKUServerAuth", tsptest.EKUServerAuth, "timeStamping only"},
+		{"WrongContentType", tsptest.WrongContentType, "contentType attribute is not TSTInfo"},
+		{"NoSignerCert", tsptest.NoSignerCert, "signer certificate not in token"},
+		{"TwoSigners", tsptest.TwoSigners, "2 signer infos"},
+		{"SHA1", tsptest.SHA1, "unsupported algorithm 1.3.14.3.2.26"},
+		{"PSS", tsptest.PSS, "unsupported algorithm 1.2.840.113549.1.1.10"},
 	}
 	for _, c := range cases {
 		for _, rsaSigner := range []bool{false, true} {
@@ -120,11 +124,10 @@ func TestVerifyTampered(t *testing.T) {
 			t.Run(name, func(t *testing.T) {
 				tok := ca.Token(t, testDigest(), nonce, tsptest.Options{Tamper: c.tamper, RSA: rsaSigner})
 				_, err := Verify(tok, ca.Pool)
-				t.Log(err)
 				if !errors.Is(err, ErrToken) {
 					t.Fatalf("err = %v, want ErrToken", err)
 				}
-				if c.msg != "" && !strings.Contains(err.Error(), c.msg) {
+				if !strings.Contains(err.Error(), c.msg) {
 					t.Errorf("err = %q, want %q", err, c.msg)
 				}
 			})
@@ -293,5 +296,28 @@ func TestServer(t *testing.T) {
 	resp, _ = post(t, htmlSrv.URL, digest[:], nil)
 	if resp.StatusCode != http.StatusOK || !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/html") {
 		t.Errorf("HTMLBody: HTTP %d %q", resp.StatusCode, resp.Header.Get("Content-Type"))
+	}
+}
+
+func TestVerifyNilRoots(t *testing.T) {
+	ca := tsptest.NewCA(t)
+	tok := ca.Token(t, testDigest(), nil, tsptest.Options{})
+	saved := goos
+	t.Cleanup(func() { goos = saved })
+
+	for _, os := range []string{"darwin", "ios", "windows"} {
+		goos = os
+		_, err := Verify(tok, nil)
+		want := "no trust roots: system roots cannot verify timestamp certificates on " + os + "; configure a CA file"
+		if !errors.Is(err, ErrToken) || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: err = %v, want %q", os, err, want)
+		}
+	}
+
+	goos = "linux"
+	_, err := Verify(tok, nil)
+	if !errors.Is(err, ErrToken) || strings.Contains(err.Error(), "no trust roots") ||
+		!strings.Contains(err.Error(), "signer certificate:") {
+		t.Errorf("linux: err = %v, want chain verification error", err)
 	}
 }
