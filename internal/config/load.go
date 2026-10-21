@@ -8,6 +8,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 
+	"github.com/tenon-code-eu/tenon/internal/orgpolicy"
 	"github.com/tenon-code-eu/tenon/internal/profile"
 )
 
@@ -25,6 +26,35 @@ type projectFile struct {
 // Load fusionne défauts, configuration globale puis configuration projet.
 // Un fichier absent est ignoré.
 func Load(globalPath, projectPath string, getenv func(string) string) (Config, error) {
+	cfg, err := load(globalPath, projectPath, getenv)
+	if err != nil {
+		return Config{}, err
+	}
+	if err := cfg.validate(); err != nil {
+		return Config{}, err
+	}
+	return cfg, nil
+}
+
+// LoadPolicy charge la configuration comme Load puis applique la politique
+// pol (nil : aucune). Le fournisseur par défaut n'est contrôlé qu'après la
+// politique : il peut être l'un de ses providers.define.
+func LoadPolicy(globalPath, projectPath string, getenv func(string) string, pol *orgpolicy.Policy) (Config, error) {
+	cfg, err := load(globalPath, projectPath, getenv)
+	if err != nil {
+		return Config{}, err
+	}
+	if cfg, err = ApplyPolicy(cfg, pol); err != nil {
+		return Config{}, err
+	}
+	if err := cfg.validate(); err != nil {
+		return Config{}, err
+	}
+	return cfg, nil
+}
+
+// load fusionne les fichiers et valide tout sauf le fournisseur par défaut.
+func load(globalPath, projectPath string, getenv func(string) string) (Config, error) {
 	cfg := Defaults(getenv)
 
 	if data, ok, err := readOptional(globalPath); err != nil {
@@ -104,7 +134,7 @@ func Load(globalPath, projectPath string, getenv func(string) string) (Config, e
 		cfg.Redaction.Rules = append(cfg.Redaction.Rules, p.Redaction.Rules...)
 	}
 
-	if err := cfg.validate(); err != nil {
+	if err := cfg.validateFields(); err != nil {
 		return Config{}, err
 	}
 	return cfg, nil

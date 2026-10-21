@@ -122,3 +122,19 @@ func TestApplyPolicyRedaction(t *testing.T) {
 		t.Errorf("redaction = %+v", r)
 	}
 }
+
+// LoadPolicy contrôle le fournisseur par défaut après la politique : un
+// providers.define peut l'être ; sans politique, il reste refusé.
+func TestLoadPolicyDefaultProviderDefined(t *testing.T) {
+	g := write(t, `default_provider = "souverain"`)
+	if _, err := LoadPolicy(g, "", env(nil), nil); err == nil || err.Error() != `config: unknown default_provider "souverain"` {
+		t.Fatalf("sans politique : %v", err)
+	}
+	pol := &orgpolicy.Policy{ID: "p", Providers: &orgpolicy.Providers{Define: []orgpolicy.ProviderDef{{
+		ID: "souverain", BaseURL: "https://llm.example.eu/v1", Model: "m", Jurisdiction: "eu",
+	}}}}
+	cfg, err := LoadPolicy(g, "", env(nil), pol)
+	if err != nil || cfg.DefaultProvider != "souverain" {
+		t.Fatalf("err=%v default=%q", err, cfg.DefaultProvider)
+	}
+}

@@ -314,7 +314,20 @@ func DataDir(getenv func(string) string) string {
 	return filepath.Join(getenv("HOME"), ".local", "share", "tenon")
 }
 
+// validate contrôle la configuration complète, fournisseur par défaut compris.
 func (c Config) validate() error {
+	if err := c.validateFields(); err != nil {
+		return err
+	}
+	if _, ok := c.Provider(c.DefaultProvider); !ok {
+		return fmt.Errorf("config: unknown default_provider %q", c.DefaultProvider)
+	}
+	return nil
+}
+
+// validateFields contrôle tout sauf l'existence du fournisseur par défaut,
+// qu'une politique d'organisation peut encore définir.
+func (c Config) validateFields() error {
 	switch c.Lang {
 	case "fr", "en":
 	default:
@@ -374,9 +387,6 @@ func (c Config) validate() error {
 	}
 	if err := c.ProjectAllowlist.validate("project config"); err != nil {
 		return err
-	}
-	if _, ok := c.Provider(c.DefaultProvider); !ok {
-		return fmt.Errorf("config: unknown default_provider %q", c.DefaultProvider)
 	}
 	return nil
 }

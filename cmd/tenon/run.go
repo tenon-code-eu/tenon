@@ -27,6 +27,7 @@ import (
 	"github.com/tenon-code-eu/tenon/internal/event"
 	"github.com/tenon-code-eu/tenon/internal/gitmark"
 	"github.com/tenon-code-eu/tenon/internal/hooks"
+	"github.com/tenon-code-eu/tenon/internal/hostmatch"
 	"github.com/tenon-code-eu/tenon/internal/i18n"
 	"github.com/tenon-code-eu/tenon/internal/instructions"
 	"github.com/tenon-code-eu/tenon/internal/llm"
@@ -134,8 +135,8 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 			fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", err))
 			return 1
 		}
-		// Politique et profil effectifs, puis conformité du fournisseur
-		// sélectionné (profil, puis liste blanche d'hôtes).
+		// Politique, profil et listes blanches effectifs, puis conformité du
+		// fournisseur sélectionné (profil, puis listes blanches d'hôtes).
 		if l := policyLine(lang, "config.policy", cs.cfg.Policy); l != "" {
 			fmt.Fprintln(stdout, l)
 		}
@@ -146,12 +147,11 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		if id == "" {
 			id = cs.cfg.DefaultProvider
 		}
+		if l := allowlistLine(lang, cs.cfg); l != "" {
+			fmt.Fprintln(stdout, l)
+		}
 		if pc, ok := cs.cfg.Provider(id); ok {
-			err := profileProviderErr(lang, cs.cfg.Profile, providerInfo(pc))
-			if err == nil {
-				err = policyProviderErr(lang, cs.cfg.Policy, providerInfo(pc))
-			}
-			if err != nil {
+			if err := providerErr(lang, cs.cfg, pc); err != nil {
 				fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", err))
 				return 1
 			}
@@ -363,7 +363,13 @@ func argLang(args []string) string {
 // plus loin. ok est faux si --lang n'est ni fr ni en.
 func uiLang(flagValue string, getenv func(string) string, wd string) (i18n.Lang, bool) {
 	cfgLang := config.Defaults(getenv).Lang
-	if cfg, err := config.Load(config.GlobalPath(getenv), filepath.Join(wd, ".tenon", "config.toml"), getenv); err == nil {
+	// La politique (au mieux) peut définir le fournisseur par défaut : sans
+	// elle, une telle configuration serait refusée et sa langue perdue.
+	pol, err := orgpolicy.Load(orgpolicy.Resolve(getenv))
+	if err != nil {
+		pol = nil
+	}
+	if cfg, err := config.LoadPolicy(config.GlobalPath(getenv), filepath.Join(wd, ".tenon", "config.toml"), getenv, pol); err == nil {
 		cfgLang = cfg.Lang
 	}
 	fallback := i18n.Parse(cfgLang)
@@ -478,11 +484,10 @@ func loadSetup(lang i18n.Lang, getenv func(string) string, wd string) (setup, er
 	if err != nil {
 		return setup{}, errors.New(i18n.T(lang, "err.policy_load", err))
 	}
-	cfg, err := config.Load(config.GlobalPath(getenv), filepath.Join(wd, ".tenon", "config.toml"), getenv)
+	// Le fournisseur par défaut est contrôlé après la politique : il peut être
+	// l'un de ses providers.define.
+	cfg, err := config.LoadPolicy(config.GlobalPath(getenv), filepath.Join(wd, ".tenon", "config.toml"), getenv, pol)
 	if err != nil {
-		return setup{}, err
-	}
-	if cfg, err = config.ApplyPolicy(cfg, pol); err != nil {
 		return setup{}, err
 	}
 	rules := make([]policy.Rule, 0, len(cfg.Permissions.Rules))
@@ -574,6 +579,7 @@ func providerInfo(pc config.Provider) llm.ProviderInfo {
 	return llm.ProviderInfo{
 		ID: pc.ID, Name: pc.Name, BaseURL: pc.BaseURL, Model: pc.Model,
 		Country: pc.Country, Jurisdiction: llm.Jurisdiction(pc.Jurisdiction),
+		Qualifications: slices.Clone(pc.Qualifications),
 	}
 }
 
@@ -596,16 +602,20 @@ func urlHost(raw string) string {
 
 // profileProviderErr contrôle le fournisseur info contre le profil n et
 // renvoie l'erreur traduite (nil s'il est conforme). profile.CheckProvider
-// décide ; le message est reconstruit ici depuis les valeurs connues :
-// sous strict-local, un fournisseur local ne peut échouer que par son hôte.
+// décide ; le message est reconstruit ici depuis les valeurs connues : sous
+// strict-local ou secnumcloud, un fournisseur local ne peut échouer que par
+// son hôte ; sous secnumcloud, un fournisseur eu que faute de qualification.
 func profileProviderErr(lang i18n.Lang, n profile.Name, info llm.ProviderInfo) error {
 	if profile.CheckProvider(n, info) == nil {
 		return nil
 	}
 	var msg string
-	if n == profile.StrictLocal && info.Jurisdiction == llm.Local {
-		msg = i18n.T(lang, "err.profile_host", info.ID, urlHost(info.BaseURL))
-	} else {
+	switch {
+	case (n == profile.StrictLocal || n == profile.SecNumCloud) && info.Jurisdiction == llm.Local:
+		msg = i18n.T(lang, "err.profile_host", n, info.ID, urlHost(info.BaseURL))
+	case n == profile.SecNumCloud && info.Jurisdiction == llm.EU:
+		msg = i18n.T(lang, "err.profile_unqualified", n, info.ID)
+	default:
 		msg = i18n.T(lang, "err.profile_provider", n, info.ID, profileJurisdiction(lang, string(info.Jurisdiction)))
 	}
 	if n == profile.StrictLocal {
@@ -631,6 +641,67 @@ func policyProviderErr(lang i18n.Lang, pol *orgpolicy.Policy, info llm.ProviderI
 
 // policyLine renvoie la ligne d'identification de la politique pol sous la
 // clé de traduction key ("" sans politique).
+// allowlists renvoie les listes blanches de fournisseurs de cfg : globale
+// puis projet, les listes absentes omises.
+func allowlists(cfg config.Config) []hostmatch.List {
+	var out []hostmatch.List
+	for _, a := range []struct {
+		name string
+		l    *config.ProviderAllowlist
+	}{{"global", cfg.Allowlist}, {"project", cfg.ProjectAllowlist}} {
+		if a.l != nil {
+			out = append(out, hostmatch.List{Name: a.name, Hosts: slices.Clone(a.l.Hosts), Local: a.l.Local})
+		}
+	}
+	return out
+}
+
+// allowlistProviderErr contrôle l'hôte du fournisseur info contre chaque
+// liste blanche de cfg et renvoie l'erreur traduite de la première qui le
+// refuse (nil s'il est admis partout ou sans liste).
+func allowlistProviderErr(lang i18n.Lang, cfg config.Config, info llm.ProviderInfo) error {
+	h := hostmatch.HostOf(info.BaseURL)
+	for _, l := range allowlists(cfg) {
+		if !l.Allows(h) {
+			return errors.New(i18n.T(lang, "err.allowlist_provider", info.ID, h, i18n.T(lang, "allowlist.name_"+l.Name)))
+		}
+	}
+	return nil
+}
+
+// allowlistLine renvoie la ligne « config check » des listes blanches de
+// cfg ("" sans liste).
+func allowlistLine(lang i18n.Lang, cfg config.Config) string {
+	if cfg.Allowlist == nil && cfg.ProjectAllowlist == nil {
+		return ""
+	}
+	side := func(a *config.ProviderAllowlist) (n, local string) {
+		if a == nil {
+			return "-", ""
+		}
+		if a.Local {
+			local = " + local"
+		}
+		return strconv.Itoa(len(a.Hosts)), local
+	}
+	gn, gl := side(cfg.Allowlist)
+	pn, pl := side(cfg.ProjectAllowlist)
+	return i18n.T(lang, "config.allowlist", gn, gl, pn, pl)
+}
+
+// providerErr applique au fournisseur pc les contrôles d'avant connexion :
+// profil, liste blanche de la politique, puis listes blanches de la config.
+func providerErr(lang i18n.Lang, cfg config.Config, pc config.Provider) error {
+	info := providerInfo(pc)
+	if err := profileProviderErr(lang, cfg.Profile, info); err != nil {
+		return err
+	}
+	if err := policyProviderErr(lang, cfg.Policy, info); err != nil {
+		return err
+	}
+	return allowlistProviderErr(lang, cfg, info)
+}
+
 func policyLine(lang i18n.Lang, key string, pol *orgpolicy.Policy) string {
 	if pol == nil {
 		return ""
@@ -654,6 +725,9 @@ func policyNotices(lang i18n.Lang, cfg config.Config) []string {
 	if cfg.PolicyAuditFrom != "" {
 		out = append(out, i18n.T(lang, "policy.audit_imposed", pol.ID, cfg.Audit.Level, cfg.PolicyAuditFrom))
 	}
+	if ids := cfg.PolicyStrippedQualifications; len(ids) > 0 {
+		out = append(out, i18n.T(lang, "policy.qualifications_stripped", pol.ID, strings.Join(ids, ", ")))
+	}
 	return out
 }
 
@@ -661,13 +735,16 @@ func policyNotices(lang i18n.Lang, cfg config.Config) []string {
 // l'avis traduit de son exclusion ("" s'il est conforme). Comme pour le
 // fournisseur, seul un serveur local non stdio peut échouer par son hôte.
 func profileMCPSkip(lang i18n.Lang, n profile.Name, s config.MCPServer) string {
-	t := profile.MCPTarget{ID: s.ID, Transport: s.Transport, URL: s.URL, Jurisdiction: s.Jurisdiction}
+	t := profile.MCPTarget{ID: s.ID, Transport: s.Transport, URL: s.URL, Jurisdiction: s.Jurisdiction, Qualifications: s.Qualifications}
 	if profile.CheckMCP(n, t) == nil {
 		return ""
 	}
 	reason := profileJurisdiction(lang, s.Jurisdiction)
-	if n == profile.StrictLocal && s.Jurisdiction == string(llm.Local) {
+	switch {
+	case (n == profile.StrictLocal || n == profile.SecNumCloud) && s.Jurisdiction == string(llm.Local):
 		reason = i18n.T(lang, "profile.reason_host", urlHost(s.URL))
+	case n == profile.SecNumCloud && s.Jurisdiction == string(llm.EU):
+		reason = i18n.T(lang, "profile.reason_unqualified")
 	}
 	return i18n.T(lang, "profile.mcp_skipped", n, s.ID, reason)
 }
@@ -704,13 +781,16 @@ func startEngine(o engineOptions) (started, error) {
 	if !ok {
 		return started{}, errors.New(i18n.T(lang, "err.unknown_provider", providerID))
 	}
-	// Profil avant toute connexion : la détection d'un modèle local
-	// contacterait l'hôte configuré.
-	if err := profileProviderErr(lang, cfg.Profile, providerInfo(pc)); err != nil {
-		return started{}, err
-	}
-	// Liste blanche de la politique, elle aussi avant la détection.
-	if err := policyProviderErr(lang, cfg.Policy, providerInfo(pc)); err != nil {
+	// Profil, puis listes blanches (politique, globale, projet), avant toute
+	// connexion : la détection d'un modèle local contacterait l'hôte
+	// configuré. Les avis de la politique sont affichés avant le refus : ils
+	// l'expliquent (qualification ignorée, profil relevé).
+	if err := providerErr(lang, cfg, pc); err != nil {
+		if o.stderr != nil {
+			for _, n := range profileNotices {
+				fmt.Fprintln(o.stderr, n)
+			}
+		}
 		return started{}, err
 	}
 	pc, detectNotices, err := detectLocal(o.ctx, lang, pc, cfg.Profile == profile.StrictLocal)
@@ -937,6 +1017,7 @@ func startEngine(o engineOptions) (started, error) {
 		Notify:              o.interactive,
 		Profile:             cfg.Profile,
 		Policy:              cfg.Policy,
+		Allowlists:          allowlists(cfg),
 	})
 	if o.resume != "" {
 		if err := eng.Restore(sid, events); err != nil {
