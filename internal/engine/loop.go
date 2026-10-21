@@ -353,6 +353,13 @@ func (t *turn) outbound(info llm.ProviderInfo, in []llm.Message) (msgs []llm.Mes
 			}
 			return nil, false, nil
 		}
+		if errors.Is(err, policy.ErrAllowlist) {
+			// Hôte refusé par une liste blanche de fournisseurs : aucun envoi.
+			if eerr := t.emit(event.Error, event.ErrorPayload{Code: "allowlist", Message: err.Error()}); eerr != nil {
+				return nil, false, eerr
+			}
+			return nil, false, nil
+		}
 		if !errors.Is(err, policy.ErrJurisdiction) {
 			if eerr := t.emit(event.Error, event.ErrorPayload{Code: "outbound", Message: err.Error()}); eerr != nil {
 				return nil, false, eerr

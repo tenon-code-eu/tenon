@@ -14,6 +14,7 @@ import (
 	"github.com/tenon-code-eu/tenon/internal/checkpoint"
 	"github.com/tenon-code-eu/tenon/internal/event"
 	"github.com/tenon-code-eu/tenon/internal/hooks"
+	"github.com/tenon-code-eu/tenon/internal/hostmatch"
 	"github.com/tenon-code-eu/tenon/internal/i18n"
 	"github.com/tenon-code-eu/tenon/internal/llm"
 	"github.com/tenon-code-eu/tenon/internal/orgpolicy"
@@ -88,6 +89,9 @@ type Deps struct {
 	// Policy est la politique d'organisation active (nil : aucune), recopiée
 	// dans SessionStarted ; Outbound en revérifie les hôtes avant chaque envoi.
 	Policy *orgpolicy.Policy
+	// Allowlists sont les listes blanches de fournisseurs actives (globale,
+	// projet) ; Outbound en revérifie l'hôte avant chaque envoi.
+	Allowlists []hostmatch.List
 }
 
 // Reply répond à un PermissionRequested.
@@ -158,6 +162,7 @@ func New(d Deps) *Engine {
 	if d.Outbound != nil {
 		d.Outbound.SetProfile(d.Profile)
 		d.Outbound.SetHostPolicy(d.Policy)
+		d.Outbound.SetAllowlists(d.Allowlists)
 	}
 	reg := d.Tools
 	if d.Agents != nil {

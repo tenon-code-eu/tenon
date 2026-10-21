@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/tenon-code-eu/tenon/internal/hostmatch"
 	"github.com/tenon-code-eu/tenon/internal/llm"
 	"github.com/tenon-code-eu/tenon/internal/orgpolicy"
 	"github.com/tenon-code-eu/tenon/internal/profile"
@@ -214,5 +215,40 @@ func TestOutboundPolicyHost(t *testing.T) {
 	o.SetHostPolicy(nil)
 	if _, _, err := o.Check(bad, msgs); err != nil {
 		t.Fatalf("nil policy: %v", err)
+	}
+}
+
+func TestOutboundAllowlist(t *testing.T) {
+	o := newOut(t)
+	msgs := []llm.Message{{Role: llm.User, Content: "hi"}}
+	bad := llm.ProviderInfo{ID: "evil", BaseURL: "https://evil.example/v1", Jurisdiction: llm.EU}
+	o.Consent("evil")
+	o.SetAllowlists([]hostmatch.List{{Name: "global", Hosts: []string{"api.mistral.ai"}}})
+	_, _, err := o.Check(bad, msgs)
+	if !errors.Is(err, ErrAllowlist) {
+		t.Fatalf("err = %v", err)
+	}
+	if !strings.Contains(err.Error(), "global") {
+		t.Fatalf("list name missing: %v", err)
+	}
+	if errors.Is(err, ErrJurisdiction) {
+		t.Fatal("an allowlist violation must not be a jurisdiction error")
+	}
+	ok := llm.ProviderInfo{ID: "mistral", BaseURL: "https://api.mistral.ai/v1", Jurisdiction: llm.EU}
+	o.SetAllowlists([]hostmatch.List{
+		{Name: "global", Hosts: []string{"api.mistral.ai"}},
+		{Name: "project", Hosts: []string{"other.example"}},
+	})
+	_, _, err = o.Check(ok, msgs)
+	if !errors.Is(err, ErrAllowlist) || !strings.Contains(err.Error(), "(project)") {
+		t.Fatalf("second list: %v", err)
+	}
+	o.SetAllowlists(nil)
+	if _, _, err := o.Check(bad, msgs); err != nil {
+		t.Fatalf("nil: %v", err)
+	}
+	o.SetAllowlists([]hostmatch.List{})
+	if _, _, err := o.Check(bad, msgs); err != nil {
+		t.Fatalf("empty: %v", err)
 	}
 }

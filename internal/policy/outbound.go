@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/tenon-code-eu/tenon/internal/hostmatch"
 	"github.com/tenon-code-eu/tenon/internal/llm"
 	"github.com/tenon-code-eu/tenon/internal/orgpolicy"
 	"github.com/tenon-code-eu/tenon/internal/profile"
@@ -13,6 +14,10 @@ import (
 
 // ErrJurisdiction is returned when a non-EU provider has no recorded consent.
 var ErrJurisdiction = errors.New("non-EU provider without consent")
+
+// ErrAllowlist est renvoyée quand l'hôte du fournisseur n'est pas dans une
+// liste blanche (provider_allowlist).
+var ErrAllowlist = errors.New("allowlist violation")
 
 // Outbound gates and redacts every message sent to an LLM provider.
 type Outbound struct {
@@ -22,6 +27,7 @@ type Outbound struct {
 	consent map[string]bool
 	profile profile.Name
 	hostPol *orgpolicy.Policy
+	lists   []hostmatch.List
 }
 
 // NewOutbound returns an Outbound using r for masking.
@@ -52,6 +58,15 @@ func (o *Outbound) SetHostPolicy(p *orgpolicy.Policy) {
 	o.mu.Unlock()
 }
 
+// SetAllowlists fixe les listes blanches d'hôtes (globale, projet) revérifiées
+// avant chaque envoi ; chacune doit accepter l'hôte (vide : aucune restriction).
+func (o *Outbound) SetAllowlists(lists []hostmatch.List) {
+	c := append([]hostmatch.List(nil), lists...)
+	o.mu.Lock()
+	o.lists = c
+	o.mu.Unlock()
+}
+
 // Check enforces the compliance profile first (a recorded consent never
 // bypasses it; its error wraps profile.ErrProfile), then the jurisdiction rule, then returns a redacted deep copy of
 // msgs with the number of masks per type. The input is never modified.
@@ -61,6 +76,7 @@ func (o *Outbound) Check(p llm.ProviderInfo, msgs []llm.Message) ([]llm.Message,
 	o.mu.Lock()
 	n := o.profile
 	hp := o.hostPol
+	lists := append([]hostmatch.List(nil), o.lists...)
 	o.mu.Unlock()
 	if err := profile.CheckProvider(n, p); err != nil {
 		return nil, nil, err
@@ -69,6 +85,14 @@ func (o *Outbound) Check(p llm.ProviderInfo, msgs []llm.Message) ([]llm.Message,
 	// pas (erreur distincte de ErrJurisdiction, donc aucune demande).
 	if host := orgpolicy.HostOf(p.BaseURL); hp != nil && !hp.AllowsHost(host) {
 		return nil, nil, fmt.Errorf("%w: provider %q (host %q) not allowed by policy %s", orgpolicy.ErrPolicy, p.ID, host, hp.ID)
+	}
+	// Listes blanches de fournisseurs : même règle, un consentement ne les
+	// contourne pas.
+	host := hostmatch.HostOf(p.BaseURL)
+	for _, l := range lists {
+		if !l.Allows(host) {
+			return nil, nil, fmt.Errorf("%w: provider %q (host %q) not in provider_allowlist (%s)", ErrAllowlist, p.ID, host, l.Name)
+		}
 	}
 	if p.Jurisdiction != llm.EU && p.Jurisdiction != llm.Local {
 		o.mu.Lock()
