@@ -28,7 +28,7 @@ func fixedReport() Report {
 		},
 		Summary: Summary{Sessions: 1, Turns: 2, ToolCalls: 3, FilesModified: 1, Jurisdictions: []string{"EU"}},
 		Providers: []ProviderUse{{
-			ID: "p", Name: "Prov", Model: "m", Country: "FR", Jurisdiction: "EU",
+			ID: "p", Name: "Prov", Model: "m", Country: "FR", Jurisdiction: "EU", Qualifications: []string{},
 			Sessions: 1, First: t0, Last: t0.Add(time.Hour),
 		}},
 		Profiles:    []string{"eu-only"},

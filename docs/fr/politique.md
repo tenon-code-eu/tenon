@@ -64,6 +64,7 @@ model = "qwen3"
 country = "FR"
 jurisdiction = "eu"
 context_window = 128000
+qualifications = ["secnumcloud"]         # optionnel : déclarée, jamais vérifiée
 
 [[permissions.rules]]                    # deny / ask seulement
 tool = "shell"
@@ -85,13 +86,14 @@ allow_commands = ["/usr/local/bin/mcp-git"]
 
 Seuls `id` et `version` sont obligatoires.
 
-Valeurs refusées au chargement : `id` ou `version` absents ou invalides ; profil inconnu ; règle `allow` ; décision ou outil invalides (mêmes règles que la configuration) ; motif de masquage qui ne compile pas ; entrée de `allow_hosts` vide, avec schéma, chemin, port ou joker ailleurs qu'en tête (`*.` suivi d'au moins deux labels) ; entrée de `allow_commands` non absolue ; `mcp.mode` inconnu ; `audit.level` inconnu ; entrée `providers.define` invalide (mêmes règles que `[[providers]]`, `jurisdiction` obligatoire) ; clé inconnue.
+Valeurs refusées au chargement : `id` ou `version` absents ou invalides ; profil inconnu ; règle `allow` ; décision ou outil invalides (mêmes règles que la configuration) ; motif de masquage qui ne compile pas ; entrée de `allow_hosts` vide, avec schéma, chemin, port ou joker ailleurs qu'en tête (`*.` suivi d'au moins deux labels) ; entrée de `allow_commands` non absolue ; `mcp.mode` inconnu ; `audit.level` inconnu ; entrée `providers.define` invalide (mêmes règles que `[[providers]]`, `jurisdiction` obligatoire ; `qualifications` n'accepte que `secnumcloud`) ; clé inconnue.
 
 ## Application
 
 Ordre de fusion : défauts, configuration globale, configuration projet, politique.
 
 - **Profil** : le profil effectif est le plus strict de ceux de la configuration globale, du projet et de la politique. Si la configuration en demande un plus faible, tenon affiche une notice et le relève : `profil « <c> » de la configuration plus souple que le profil « <p> » de la politique <id> : relevé`.
+- **Qualifications** : sous une politique, les `qualifications` déclarées dans la configuration utilisateur (fournisseurs et serveurs MCP) sont retirées, avec un avis : `politique <id> : qualifications déclarées dans la configuration ignorées (<ids>)`. Seules les `qualifications` de `providers.define` comptent : un utilisateur ne peut pas s'auto-qualifier pour satisfaire un profil `secnumcloud`. tenon ne vérifie jamais une qualification. `default_provider` peut désigner un fournisseur défini par la politique.
 - **Fournisseurs définis** : fusionnés après la configuration de l'utilisateur. Un fournisseur de l'utilisateur de même `id` est ignoré, avec un avertissement : `politique <id> : fournisseur « <pid> » de la configuration ignoré (défini par la politique)`.
 - **Liste blanche de fournisseurs** (seulement si `[providers]` est présent) : l'hôte de `base_url` du fournisseur (minuscules, sans port) doit être égal à une entrée de `allow_hosts`, ou couvert par une entrée `*.x.eu` (tout sous-domaine de `x.eu`, jamais `x.eu` lui-même), ou être local avec `allow_local = true`.
   - `[providers]` présent sans `allow_hosts` et avec `allow_local = false` refuse tous les fournisseurs.

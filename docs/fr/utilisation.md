@@ -949,12 +949,17 @@ profile = "eu-only"
 | Profil | Fournisseurs et serveurs MCP admis |
 |---|---|
 | `eu-only` | juridiction `eu` ou `local` |
+| `secnumcloud` | fournisseur : juridiction `local` avec un hôte local, ou juridiction `eu` avec `"secnumcloud"` dans `qualifications`. Serveur MCP : `stdio` de juridiction `local` ; `http` local (juridiction `local` et hôte local) ou `eu` avec `"secnumcloud"` dans `qualifications` |
 | `strict-local` | juridiction `local` **et** une URL dont l'hôte est une adresse locale |
 
-Les profils sont ordonnés : `strict-local` est plus strict que `eu-only`, lui-même plus strict que l'absence de profil.
+Les profils sont ordonnés : aucun < `eu-only` < `secnumcloud` < `strict-local`.
 Un fournisseur ou un serveur MCP de juridiction inconnue (non renseignée) est refusé par les deux profils.
 
 **Hôtes locaux.** Pour `strict-local`, l'hôte de l'URL doit être exactement l'un de ceux-ci : `localhost`, ou un littéral d'adresse IP dans `127.0.0.0/8`, `::1`, `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16` ou `fc00::/7` (une zone IPv6 comme `%eth0` est ignorée). tenon ne fait aucune résolution DNS : un nom d'hôte autre que `localhost` est refusé, même s'il désigne une adresse locale. Un serveur MCP stdio n'a pas d'URL : seule sa juridiction est contrôlée.
+
+**Qualifications déclarées.** Un fournisseur (`[[providers]]`), un serveur MCP (`[[mcp.servers]]`) ou un fournisseur défini par la politique peut porter `qualifications = ["secnumcloud"]`. C'est la seule valeur acceptée (exacte, en minuscules) ; une autre valeur est une erreur de configuration : `config: unknown qualification "<x>" (secnumcloud)` (message en anglais). **tenon ne vérifie jamais une qualification.** Une qualification SecNumCloud est une certification ANSSI d'un service, pas une propriété technique : tenon trace seulement qui l'a déclarée. Les préréglages n'en déclarent aucune. Sous une [politique d'organisation](politique.md), les qualifications de la configuration utilisateur sont ignorées (avis `politique <id> : qualifications déclarées dans la configuration ignorées (<ids>)`, ids triés) ; seules celles de `providers.define` comptent.
+
+Sous `secnumcloud`, les requêtes vers un fournisseur local (détection du modèle local comprise) ignorent les variables de proxy (`HTTP_PROXY`, `HTTPS_PROXY`), de même que le gestionnaire MCP (sous `strict-local` et `secnumcloud`). Un fournisseur refusé arrête tenon au démarrage avec le code 1 : `profil secnumcloud : fournisseur « <id> » non déclaré qualifié secnumcloud`. Un serveur MCP refusé pour ce motif est ignoré avec la raison `non déclaré qualifié secnumcloud`. `default_provider` peut désigner un fournisseur défini par la politique.
 
 **Qui décide.** Le profil est lu dans la configuration globale et dans celle du projet, et le plus strict l'emporte : un projet peut durcir le profil, jamais l'assouplir. Une valeur de projet plus souple que la valeur globale est ignorée, et tenon affiche un avis au démarrage. Un nom de profil inconnu est une erreur de configuration.
 
@@ -976,6 +981,23 @@ Au niveau metadata, le profil est inconnu (non disponible) et `profiles` vaut `[
 - Les commandes shell : une commande approuvée, ou un programme lancé par un serveur MCP stdio, peut toujours accéder au réseau. Un profil borne les données envoyées au modèle et aux serveurs MCP, pas ce que fait une commande.
 - Les permissions : les règles de validation ne changent pas.
 - Le niveau d'audit (`audit.level`) et les hooks de commande (les hooks prompt et agent passent par le modèle et sont contrôlés) : un hook de commande est une commande que vous avez écrite, le profil ne la filtre pas.
+
+## Liste blanche de fournisseurs
+
+Sans politique d'organisation, vous pouvez restreindre les hôtes que les fournisseurs peuvent utiliser :
+
+```toml
+[provider_allowlist]          # configuration globale, et .tenon/config.toml
+hosts = ["api.mistral.ai", "*.scaleway.ai"]
+local = true                  # admet aussi les hôtes locaux
+```
+
+- L'hôte de `base_url` (minuscules, sans port) doit être égal à une entrée, ou être un sous-domaine strict couvert par `*.x.eu` (jamais `x.eu` lui-même) ; `local = true` admet les hôtes locaux.
+- Refusés au chargement : une entrée vide, ou avec schéma, chemin, port, ou un `*` ailleurs qu'en tête sous la forme `*.` suivie d'au moins deux labels. Une section sans `hosts` ni `local = true` est refusée : `config: provider_allowlist is empty` (message en anglais).
+- Toutes les listes présentes (politique, globale, projet) doivent accepter l'hôte : un projet ne peut que restreindre.
+- Au démarrage, après le contrôle de la politique et avant la détection du modèle local, tenon s'arrête avec le code 1 : `fournisseur « <id> » (hôte « <h> ») absent de provider_allowlist (<globale|projet>)`. Avant chaque envoi le contrôle est refait : rien n'est envoyé, le journal enregistre un événement `Error` avec `code: "allowlist"`, et le tour est `blocked`.
+- La liste blanche ne s'applique pas aux serveurs MCP.
+- `tenon config check` affiche `provider_allowlist : globale <n> hôtes, projet <m> hôtes` quand une liste est présente (` + local` est ajouté à un côté avec `local = true` ; un côté absent affiche `-`).
 
 ## Clés d'API et trousseau
 
@@ -1135,7 +1157,7 @@ Elle ne modifie pas le journal et ne le verrouille pas.
 - **Politique d'organisation** : les politiques (id, version, identifiant de clé) des sessions de la plage, avec le nombre de sessions de chacune ; les sessions sans politique ne sont pas listées. Au niveau metadata, la politique est inconnue : la ligne affiche « non disponible au niveau metadata ». Voir [politique.md](politique.md).
 - **Profils appliqués** : les profils de conformité des sessions de la plage, dans l'en-tête du rapport. Au niveau metadata, le profil est inconnu : la ligne affiche « non disponible au niveau metadata ».
 - **Synthèse** : sessions, tours, appels d'outils, fichiers modifiés, refus, juridictions des fournisseurs.
-- **Fournisseurs et transferts** : fournisseur, modèle, pays et juridiction, nombre de sessions, première et dernière activité ; consentements de juridiction accordés et refusés ; sessions avec avertissement de juridiction ; serveurs MCP et leurs pannes.
+- **Fournisseurs et transferts** : fournisseur, modèle, pays et juridiction, nombre de sessions, qualifications déclarées (`qualifications`, une liste, `[]` sans qualification ; déclarées, non vérifiées par tenon), première et dernière activité ; consentements de juridiction accordés et refusés ; sessions avec avertissement de juridiction ; serveurs MCP et leurs pannes.
 - **Masquages** : nombre d'éléments masqués par catégorie.
 - **Permissions** : par outil, demandes, accords (une fois ou pour la session) et refus (par l'utilisateur, par la politique, par un hook).
 - **Fichiers modifiés** : date, session, chemin, outil, empreinte avant et après, auteur (`main` ou le sous-agent), absence éventuelle de point de restauration, et état laissé par un rewind ultérieur.

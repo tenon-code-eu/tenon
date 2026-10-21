@@ -776,3 +776,29 @@ func TestBuildPoliciesMetadata(t *testing.T) {
 		t.Fatalf("metadata : %+v", r.Policies)
 	}
 }
+
+// Les qualifications déclarées sont l'union triée des sessions du
+// fournisseur ; un fournisseur sans qualification donne [] (jamais nil).
+func TestBuildProviderQualifications(t *testing.T) {
+	b := newLog(t)
+	qual := llm.ProviderInfo{ID: "souverain", Name: "Souverain", Model: "m", Country: "FR", Jurisdiction: llm.EU, Qualifications: []string{"secnumcloud"}}
+	b.start("a", qual)
+	b.start("b", qual)
+	b.start("c", provUS)
+	r := Build(b.dataset(), opts())
+	if len(r.Providers) != 2 {
+		t.Fatalf("providers %+v", r.Providers)
+	}
+	for _, p := range r.Providers {
+		switch p.ID {
+		case "souverain":
+			if !reflect.DeepEqual(p.Qualifications, []string{"secnumcloud"}) {
+				t.Fatalf("qualifications %#v", p.Qualifications)
+			}
+		default:
+			if p.Qualifications == nil || len(p.Qualifications) != 0 {
+				t.Fatalf("attendu [] pour %s, reçu %#v", p.ID, p.Qualifications)
+			}
+		}
+	}
+}

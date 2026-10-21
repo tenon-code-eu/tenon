@@ -81,9 +81,10 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
 <section id="providers">
 <h2>{{t "report.sec.providers"}}</h2>
 {{if .ContentAvailable}}{{with .Providers}}<table>
-<thead><tr><th>{{t "report.col.provider"}}</th><th>{{t "report.col.model"}}</th><th>{{t "report.col.country"}}</th><th>{{t "report.col.jurisdiction"}}</th><th>{{t "report.col.sessions"}}</th><th>{{t "report.col.first"}}</th><th>{{t "report.col.last"}}</th></tr></thead>
-{{range .}}<tr><td>{{if .Name}}{{.Name}}{{else}}{{.ID}}{{end}}</td><td>{{.Model}}</td><td>{{.Country}}</td><td>{{tk "report.juris." .Jurisdiction}}</td><td>{{.Sessions}}</td><td>{{day .First}}</td><td>{{day .Last}}</td></tr>
-{{end}}</table>{{else}}{{template "none"}}{{end}}
+<thead><tr><th>{{t "report.col.provider"}}</th><th>{{t "report.col.model"}}</th><th>{{t "report.col.country"}}</th><th>{{t "report.col.jurisdiction"}}</th><th>{{t "report.col.qualification"}}</th><th>{{t "report.col.sessions"}}</th><th>{{t "report.col.first"}}</th><th>{{t "report.col.last"}}</th></tr></thead>
+{{range .}}<tr><td>{{if .Name}}{{.Name}}{{else}}{{.ID}}{{end}}</td><td>{{.Model}}</td><td>{{.Country}}</td><td>{{tk "report.juris." .Jurisdiction}}</td><td>{{range $i, $q := .Qualifications}}{{if $i}}, {{end}}{{$q}}{{else}}—{{end}}</td><td>{{.Sessions}}</td><td>{{day .First}}</td><td>{{day .Last}}</td></tr>
+{{end}}</table>
+<p class="muted">{{t "report.qualification_note"}}</p>{{else}}{{template "none"}}{{end}}
 <h3>{{t "report.sec.consents"}}</h3>
 <p>{{t "report.consents" .Consents.Granted .Consents.Denied}}</p>
 <h3>{{t "report.sec.warnings"}}</h3>

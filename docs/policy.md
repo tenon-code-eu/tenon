@@ -64,6 +64,7 @@ model = "qwen3"
 country = "FR"
 jurisdiction = "eu"
 context_window = 128000
+qualifications = ["secnumcloud"]         # optional: declared, never verified
 
 [[permissions.rules]]                    # deny / ask only
 tool = "shell"
@@ -85,13 +86,14 @@ allow_commands = ["/usr/local/bin/mcp-git"]
 
 Only `id` and `version` are required.
 
-Values refused at load time: missing or invalid `id` or `version`; unknown profile; an `allow` rule; invalid decision or tool (same rules as the configuration); a redaction pattern that does not compile; an empty `allow_hosts` entry, or one with a scheme, path, port, or a wildcard anywhere but the start (`*.` followed by at least two labels); a relative `allow_commands` entry; unknown `mcp.mode`; unknown `audit.level`; an invalid `providers.define` entry (same rules as `[[providers]]`, `jurisdiction` required); an unknown key.
+Values refused at load time: missing or invalid `id` or `version`; unknown profile; an `allow` rule; invalid decision or tool (same rules as the configuration); a redaction pattern that does not compile; an empty `allow_hosts` entry, or one with a scheme, path, port, or a wildcard anywhere but the start (`*.` followed by at least two labels); a relative `allow_commands` entry; unknown `mcp.mode`; unknown `audit.level`; an invalid `providers.define` entry (same rules as `[[providers]]`, `jurisdiction` required; `qualifications` accepts only `secnumcloud`); an unknown key.
 
 ## How the policy applies
 
 Merge order: defaults, global configuration, project configuration, policy.
 
 - **Profile**: the effective profile is the strictest of global, project and policy. If the configuration asks for a weaker one, tenon prints a notice and raises it: `profile "<c>" from config is weaker than policy profile "<p>" (policy <id>): raised`.
+- **Qualifications**: under a policy, `qualifications` declared in the user configuration (providers and MCP servers) are removed, with a notice: `policy <id>: qualifications declared in config ignored (<ids>)`. Only the `qualifications` of `providers.define` count, so a user cannot self-qualify to satisfy a `secnumcloud` profile. tenon never verifies a qualification. `default_provider` may name a provider defined by the policy.
 - **Defined providers**: merged after the user configuration. A user provider with the same `id` is ignored, with a warning: `policy <id>: provider "<pid>" from config ignored (defined by policy)`.
 - **Provider allowlist** (only when `[providers]` is present): the host of the provider `base_url` (lowercase, port removed) must equal an `allow_hosts` entry, or be covered by a `*.x.eu` entry (any subdomain of `x.eu`, never `x.eu` itself), or be local with `allow_local = true`.
   - `[providers]` present with no `allow_hosts` and `allow_local = false` refuses every provider.

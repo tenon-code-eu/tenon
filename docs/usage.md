@@ -947,14 +947,19 @@ profile = "eu-only"
 | Profile | Allowed providers and MCP servers |
 |---|---|
 | `eu-only` | jurisdiction `eu` or `local` |
+| `secnumcloud` | provider: jurisdiction `local` with a local host, or jurisdiction `eu` with `"secnumcloud"` in `qualifications`. MCP server: `stdio` of jurisdiction `local`; `http` local (jurisdiction `local` and local host) or `eu` with `"secnumcloud"` in `qualifications` |
 | `strict-local` | jurisdiction `local` **and** a URL whose host is a local address |
 
-Profiles have an order: `strict-local` is stricter than `eu-only`, which is stricter than no profile.
+Profiles have an order: none < `eu-only` < `secnumcloud` < `strict-local`.
 A provider or MCP server of unknown jurisdiction (not set) is refused by both profiles.
 
 **Local hosts.** For `strict-local`, the host of the URL must be exactly one of these: `localhost`, or an IP address literal in `127.0.0.0/8`, `::1`, `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16` or `fc00::/7` (an IPv6 zone such as `%eth0` is ignored). tenon does no DNS resolution: a host name other than `localhost` is refused, even if it points to a local address. A stdio MCP server has no URL, so only its jurisdiction is checked.
 
-**Who decides.** The profile is read from the global configuration and from the project configuration, and the stricter one wins: a project can tighten the profile, never loosen it. A project value weaker than the global one is ignored, and tenon shows a notice at startup. An unknown profile name is a configuration error.
+**Declared qualifications.** A provider (`[[providers]]`), an MCP server (`[[mcp.servers]]`) or a policy-defined provider can carry `qualifications = ["secnumcloud"]`. It is the only accepted value (exact, lowercase); another value is a configuration error: `config: unknown qualification "<x>" (secnumcloud)`. **tenon never verifies a qualification.** A SecNumCloud qualification is an ANSSI certification of a service, not a technical property: tenon only records who declared it. Presets declare none. Under an [organisation policy](policy.md), the qualifications from user configuration are ignored (notice `policy <id>: qualifications declared in config ignored (<ids>)`, ids sorted); only those of `providers.define` count.
+
+Under `secnumcloud`, requests to a local provider (local model detection included) ignore the proxy environment variables (`HTTP_PROXY`, `HTTPS_PROXY`), and so does the MCP manager (under `strict-local` and `secnumcloud`). A refused provider stops tenon at startup with exit code 1: `profile secnumcloud: provider "<id>" is not declared secnumcloud-qualified`. An MCP server refused for this reason is skipped with the reason `not declared secnumcloud-qualified`. `default_provider` can name a provider defined by the policy.
+
+**Who decides.** The profile is read from the global configuration and from the project configuration, and the stricter one wins: a project can tighten the profile, never loosen it. A project value weaker than the global one is ignored, and tenon shows a notice at startup. An unknown profile name is a configuration error: `config: unknown profile "<x>" (eu-only|secnumcloud|strict-local)`.
 
 **What is checked.**
 
@@ -974,6 +979,23 @@ At metadata level the profile is unknown (not available) and `profiles` is `[]`.
 - Shell commands: an approved command, or a program started by a stdio MCP server, can still reach the network. A profile bounds the data sent to the model and the MCP servers, not what a command does.
 - Permissions: approval rules are unchanged.
 - The audit level (`audit.level`) and command hooks (prompt and agent hooks go through the model and are checked): a command hook is a command you wrote and is not filtered by the profile.
+
+## Provider allowlist
+
+Without an organisation policy, you can restrict the hosts providers may use:
+
+```toml
+[provider_allowlist]          # global configuration, and .tenon/config.toml
+hosts = ["api.mistral.ai", "*.scaleway.ai"]
+local = true                  # also admit local hosts
+```
+
+- The host of `base_url` (lowercase, port removed) must equal an entry, or be a strict subdomain covered by `*.x.eu` (never `x.eu` itself); `local = true` admits local hosts.
+- Refused at load time: an empty entry, or one with a scheme, path, port, or a `*` other than a leading `*.` followed by at least two labels. A section with no `hosts` and no `local = true` is refused: `config: provider_allowlist is empty`.
+- Every list present (policy, global, project) must accept the host: a project can only restrict further.
+- At startup, after the policy check and before local model detection, tenon stops with exit code 1: `provider "<id>" (host "<h>") not in provider_allowlist (<global|project>)`. Before each send the check runs again: nothing is sent, the log records an `Error` event with `code: "allowlist"`, and the turn is `blocked`.
+- The allowlist does not apply to MCP servers.
+- `tenon config check` prints `provider_allowlist: global <n> hosts, project <m> hosts` when a list is present (` + local` is appended to a side with `local = true`; a missing side prints `-`).
 
 ## API keys and keyring
 
@@ -1133,7 +1155,7 @@ It does not modify the log and does not lock it.
 - **Organisation policy**: the policies (id, version, key id) of the sessions in the range, with the number of sessions under each; sessions without a policy are not listed. At metadata level the policy is unknown: the row shows "not available at metadata level". See [policy.md](policy.md).
 - **Applied profiles**: the compliance profiles of the sessions in the range, in the report header. At metadata level the profile is unknown: the row shows "not available at metadata level".
 - **Summary**: sessions, turns, tool calls, modified files, denials, jurisdictions of the providers.
-- **Providers and transfers**: provider, model, country and jurisdiction, number of sessions, first and last activity; jurisdiction consents granted and denied; sessions with a jurisdiction warning; MCP servers and their failures.
+- **Providers and transfers**: provider, model, country and jurisdiction, number of sessions, declared qualifications (`qualifications`, a list, `[]` when none; declared, not verified by tenon), first and last activity; jurisdiction consents granted and denied; sessions with a jurisdiction warning; MCP servers and their failures.
 - **Redactions**: number of masked items per category.
 - **Permissions**: per tool, requests, approvals (once or for the session) and denials (by the user, by policy, by a hook).
 - **Modified files**: date, session, path, tool, hash before and after, author (`main` or the sub-agent), whether there was no checkpoint, and the state left by a later rewind.

@@ -613,6 +613,7 @@ func (b *builder) providers() {
 
 	type pkey struct{ id, model string }
 	provs := map[pkey]*ProviderUse{}
+	quals := map[pkey]map[string]bool{}
 	mcps := map[MCPUse]int{}
 	juris := map[string]bool{}
 	o := b.o
@@ -629,9 +630,16 @@ func (b *builder) providers() {
 			u = &ProviderUse{
 				ID: o.clean(pv.ID), Name: o.clean(pv.Name), Model: o.clean(pv.Model),
 				Country: o.clean(pv.Country), Jurisdiction: o.clean(string(pv.Jurisdiction)),
-				First: sp.first, Last: sp.last,
+				Qualifications: []string{},
+				First:          sp.first, Last: sp.last,
 			}
 			provs[k] = u
+			quals[k] = map[string]bool{}
+		}
+		for _, q := range pv.Qualifications {
+			if c := o.clean(q); c != "" {
+				quals[k][c] = true
+			}
 		}
 		u.Sessions++
 		if sp.first.Before(u.First) {
@@ -649,7 +657,11 @@ func (b *builder) providers() {
 	}
 
 	r := b.r
-	for _, u := range provs {
+	for k, u := range provs {
+		for q := range quals[k] {
+			u.Qualifications = append(u.Qualifications, q)
+		}
+		sort.Strings(u.Qualifications)
 		r.Providers = append(r.Providers, *u)
 	}
 	sort.Slice(r.Providers, func(i, j int) bool {

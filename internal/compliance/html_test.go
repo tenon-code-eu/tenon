@@ -392,3 +392,26 @@ func TestRenderHTMLPolicies(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderHTMLQualificationColumn(t *testing.T) {
+	for _, c := range []struct {
+		l          i18n.Lang
+		head, note string
+	}{
+		{i18n.FR, "Qualification déclarée", "déclarée, non vérifiée par tenon"},
+		{i18n.EN, "Declared qualification", "declared, not verified by tenon"},
+	} {
+		r := richReport(false)
+		r.Providers[0].Qualifications = []string{"secnumcloud"}
+		out := render(t, r, c.l)
+		for _, w := range []string{"<th>" + c.head + "</th>", c.note, "<td>secnumcloud</td>"} {
+			if !strings.Contains(out, w) {
+				t.Errorf("%s: sortie sans %q", c.l, w)
+			}
+		}
+		r.Providers[0].Qualifications = []string{}
+		if out := render(t, r, c.l); !strings.Contains(out, "<td>—</td>") {
+			t.Errorf("%s: tiret attendu sans qualification", c.l)
+		}
+	}
+}

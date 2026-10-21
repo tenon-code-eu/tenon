@@ -69,11 +69,19 @@ Conséquences dans tenon :
 
 ### Profils de conformité
 
-- Avec `profile = "eu-only"` ou `"strict-local"` (configuration globale ; un projet ne peut que le durcir), le fournisseur sélectionné et les serveurs MCP doivent respecter le profil, et `--allow-non-eu` est refusé.
+- Avec `profile = "eu-only"`, `"secnumcloud"` ou `"strict-local"` (configuration globale ; un projet ne peut que le durcir), le fournisseur sélectionné et les serveurs MCP doivent respecter le profil, et `--allow-non-eu` est refusé.
 - Le profil est contrôlé au démarrage puis avant chaque envoi au modèle : en cas de violation, rien n'est envoyé et le tour est bloqué (événement `Error`, `code: "profile"`).
 - Le profil est enregistré dans `SessionStarted` et listé dans l'export de conformité.
-- Sous `strict-local`, les requêtes au fournisseur (détection du modèle local comprise) et aux serveurs MCP `http` ignorent les variables d'environnement de proxy (`HTTP_PROXY`, `HTTPS_PROXY`) : une adresse privée acceptée par le profil ne passe jamais par un proxy.
+- Sous `strict-local`, les requêtes au fournisseur (détection du modèle local comprise) et aux serveurs MCP `http` ignorent les variables d'environnement de proxy (`HTTP_PROXY`, `HTTPS_PROXY`) : une adresse privée acceptée par le profil ne passe jamais par un proxy. Sous `secnumcloud`, il en va de même pour un fournisseur local (détection du modèle local comprise) ; le gestionnaire MCP ignore les variables de proxy sous `strict-local` et `secnumcloud`.
+- `secnumcloud` accepte un destinataire local, ou un destinataire `eu` **déclaré** qualifié `secnumcloud`. tenon ne vérifie jamais une qualification : la qualification SecNumCloud est une certification ANSSI d'un service, pas une propriété technique. tenon trace qui l'a déclarée (`qualifications` dans `SessionStarted.provider` et dans l'export de conformité). Les préréglages n'en déclarent aucune.
 - Un profil borne les données envoyées au modèle et aux serveurs MCP. Il ne restreint **pas** les commandes shell ni les programmes MCP stdio, qui peuvent toujours accéder au réseau, et il ne change ni les permissions, ni le niveau d'audit, ni les hooks. Voir [utilisation.md](utilisation.md#profils-de-conformité).
+
+### Liste blanche de fournisseurs
+
+- `[provider_allowlist]` (`hosts`, `local`) dans la configuration globale, et éventuellement dans `.tenon/config.toml`, restreint les hôtes qu'un fournisseur peut utiliser, pour qui n'a pas de politique d'organisation. Toutes les listes présentes (politique, globale, projet) doivent accepter l'hôte du fournisseur : un projet ne peut que restreindre.
+- Elle est contrôlée au démarrage, avant tout contact, puis avant chaque envoi (événement `Error`, `code: "allowlist"`, tour `blocked`). `--allow-non-eu` ne la lève pas.
+- Message au démarrage : `fournisseur « <id> » (hôte « <h> ») absent de provider_allowlist (<globale|projet>)` (code de sortie 1).
+- Elle ne s'applique pas aux serveurs MCP, et ne restreint ni les commandes shell ni les programmes MCP stdio. Voir [utilisation.md](utilisation.md#liste-blanche-de-fournisseurs).
 
 ### Politique d'organisation
 
@@ -81,6 +89,7 @@ Conséquences dans tenon :
 - La politique est un plancher : elle relève le profil, restreint les fournisseurs par hôte, ajoute des règles de permissions `deny`/`ask` et de masquage, impose le niveau d'audit et filtre les serveurs MCP. La configuration de l'utilisateur et du projet, ainsi que `--allow-non-eu`, ne peuvent pas l'assouplir.
 - Les hôtes des fournisseurs sont contrôlés au démarrage puis avant chaque envoi (événement `Error`, `code: "policy"`).
 - La politique (id, version, identifiant de clé) est enregistrée dans `SessionStarted` et listée dans l'export de conformité.
+- Les qualifications déclarées dans la configuration utilisateur (fournisseurs et serveurs MCP) sont ignorées sous une politique, avec un avis ; seules celles de `providers.define` comptent : un utilisateur ne peut pas s'auto-qualifier pour franchir un profil `secnumcloud`.
 - `TENON_POLICY_DIR` n'est lue que sans politique système : elle ne peut ni en retirer ni en remplacer une. Un utilisateur qui peut y écrire ne peut qu'ajouter une politique signée par une clé qu'il fournit, ce qui le restreint davantage.
 - Les règles de permissions s'appliquent aux commandes shell, mais la liste blanche d'hôtes des fournisseurs ne restreint pas les accès réseau faits par les commandes shell ou les programmes MCP stdio, et un administrateur de la machine peut la retirer. Voir [politique.md](politique.md).
 

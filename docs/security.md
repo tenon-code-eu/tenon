@@ -67,11 +67,19 @@ Consequences in tenon:
 
 ### Compliance profiles
 
-- With `profile = "eu-only"` or `"strict-local"` (global configuration; a project can only tighten it), the selected provider and the MCP servers must meet the profile, and `--allow-non-eu` is refused.
+- With `profile = "eu-only"`, `"secnumcloud"` or `"strict-local"` (global configuration; a project can only tighten it), the selected provider and the MCP servers must meet the profile, and `--allow-non-eu` is refused.
 - The profile is checked at startup and again before each send to the model: on a violation nothing is sent and the turn is blocked (`Error` event, `code: "profile"`).
 - The profile is recorded in `SessionStarted` and listed in the compliance export.
-- Under `strict-local`, the requests to the provider (local model detection included) and to the MCP `http` servers ignore the proxy environment variables (`HTTP_PROXY`, `HTTPS_PROXY`): a private address accepted by the profile never goes through a proxy.
+- Under `strict-local`, the requests to the provider (local model detection included) and to the MCP `http` servers ignore the proxy environment variables (`HTTP_PROXY`, `HTTPS_PROXY`): a private address accepted by the profile never goes through a proxy. Under `secnumcloud`, the same holds for a local provider (local model detection included); the MCP manager ignores the proxy variables under `strict-local` and `secnumcloud`.
+- `secnumcloud` accepts a local recipient, or an `eu` recipient **declared** `secnumcloud`-qualified. tenon never verifies a qualification: a SecNumCloud qualification is an ANSSI certification of a service, not a technical property. tenon records who declared it (`qualifications` in `SessionStarted.provider` and in the compliance export). Presets declare none.
 - A profile bounds the data sent to the model and to MCP servers. It does **not** restrict shell commands or stdio MCP programs, which can still reach the network, and it does not change permissions, audit level or hooks. See [usage.md](usage.md#compliance-profiles).
+
+### Provider allowlist
+
+- `[provider_allowlist]` (`hosts`, `local`) in the global configuration, and optionally in `.tenon/config.toml`, restricts the hosts a provider may use, for users without an organisation policy. Every list present (policy, global, project) must accept the provider host: a project can only restrict further.
+- It is checked at startup, before anything is contacted, and again before each send (`Error` event, `code: "allowlist"`, turn `blocked`). `--allow-non-eu` does not lift it.
+- Startup message: `provider "<id>" (host "<h>") not in provider_allowlist (<global|project>)` (exit code 1).
+- It does not apply to MCP servers, and it does not restrict shell commands or stdio MCP programs. See [usage.md](usage.md#provider-allowlist).
 
 ### Organisation policy
 
@@ -79,6 +87,7 @@ Consequences in tenon:
 - The policy is a floor: it raises the profile, restricts providers by host, adds `deny`/`ask` permission rules and redaction rules, imposes the audit level and filters MCP servers. User and project configuration, and `--allow-non-eu`, cannot loosen it.
 - Provider hosts are checked at startup and again before each send (`Error` event, `code: "policy"`).
 - The policy (id, version, key id) is recorded in `SessionStarted` and listed in the compliance export.
+- Qualifications declared in user configuration (providers and MCP servers) are ignored under a policy, with a notice; only those of `providers.define` count, so a user cannot self-qualify to get past a `secnumcloud` profile.
 - `TENON_POLICY_DIR` is read only when no system policy exists: it cannot remove or replace one. A user who can write there can only add a policy signed by a key they provide, which restricts them further.
 - Permission rules apply to shell commands, but the provider host allowlist does not restrict the network access made by shell commands or stdio MCP programs, and an administrator of the machine can remove it. See [policy.md](policy.md).
 

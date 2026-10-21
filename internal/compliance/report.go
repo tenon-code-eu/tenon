@@ -107,14 +107,16 @@ type Summary struct {
 
 // ProviderUse regroupe les sessions d'un même fournisseur et modèle.
 type ProviderUse struct {
-	ID           string    `json:"id"`
-	Name         string    `json:"name"`
-	Model        string    `json:"model"`
-	Country      string    `json:"country"`
-	Jurisdiction string    `json:"jurisdiction"`
-	Sessions     int       `json:"sessions"`
-	First        time.Time `json:"first"`
-	Last         time.Time `json:"last"`
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	Model        string `json:"model"`
+	Country      string `json:"country"`
+	Jurisdiction string `json:"jurisdiction"`
+	// Qualifications déclarées (jamais vérifiées par tenon), jamais nil.
+	Qualifications []string  `json:"qualifications"`
+	Sessions       int       `json:"sessions"`
+	First          time.Time `json:"first"`
+	Last           time.Time `json:"last"`
 }
 
 // Consents compte les consentements de juridiction accordés et refusés.
