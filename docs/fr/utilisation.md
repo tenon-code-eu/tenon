@@ -37,7 +37,9 @@ tenon agents [--lang fr|en]
 tenon hooks [--lang fr|en]
 tenon rewind --list --resume <id|last> [--lang fr|en]
 tenon key set|delete <fournisseur>
-tenon audit verify
+tenon audit verify [--tsa-ca <pem>]
+tenon audit timestamp
+tenon audit export [--since AAAA-MM-JJ] [--until AAAA-MM-JJ] [--project <chemin> | --all-projects | --session <id>] [--details] [--tsa-ca <pem>] [--out <dossier>] [--lang fr|en]
 tenon config check
 tenon git install-hook [--force]
 tenon git mark <fichier-message>
@@ -237,6 +239,7 @@ Valeurs par défaut :
 | `output_limit` | `30000` caractères |
 | `compaction_threshold` | `0.8` |
 | `audit.level` | `"full"` |
+| `audit.timestamp` | absent (pas d'horodatage ; voir [Horodatage](#horodatage-rfc-3161)) |
 | `checkpoints.retention_days` | `30` |
 
 ### Ce que la configuration projet peut faire
@@ -1106,13 +1109,72 @@ Chaque événement est ajouté au journal `$XDG_DATA_HOME/tenon/audit/AAAA-MM-JJ
 Chaque ligne contient l'empreinte de la précédente : la chaîne continue d'un fichier au suivant.
 
 ```
-tenon audit verify
+tenon audit verify [--tsa-ca <pem>]
 ```
 
 La commande affiche `OK : <n> lignes, dernier hash sha256:…`, ou la première ligne en faute (`fichier:ligne`) avec le code 1.
+Elle vérifie ensuite les jetons d'horodatage, s'il y en a (voir [Horodatage](#horodatage-rfc-3161)).
 Notez le dernier hash ailleurs : voir [securite.md](securite.md#troncature-de-fin-du-journal).
 
 Si l'écriture du journal échoue, tenon n'exécute plus aucune action.
+
+### Horodatage (RFC 3161)
+
+La chaîne de hachage détecte une modification isolée, pas une réécriture complète par quelqu'un qui contrôle la machine.
+Une autorité d'horodatage (TSA, RFC 3161) signe le hash de tête de la chaîne : le jeton prouve que tout le journal jusqu'à cette ligne existait à l'instant signé par la TSA.
+Un auditeur le vérifie hors ligne.
+
+tenon n'intègre aucun préréglage de TSA et n'en appelle aucune par défaut : sans `[audit.timestamp]`, rien ne change et aucun appel réseau n'est fait.
+Vous choisissez l'autorité.
+
+```toml
+# configuration globale seulement (refusée dans .tenon/config.toml)
+[audit.timestamp]
+url = "https://tsa.example.eu/tsr"
+ca_file = "/etc/ssl/tsa-ca.pem"   # optionnel
+```
+
+- `url` doit être en `https`, ou en `http` pour un hôte local seulement ; sinon `config: audit.timestamp.url must be https (http only for local hosts)`.
+- `ca_file` contient les racines de confiance PEM de l'autorité. Illisible ou sans certificat : `config: audit.timestamp.ca_file: <raison>`. Sans `url` : `config: audit.timestamp.ca_file without url`.
+- Une [politique d'organisation](politique.md#horodatage-de-laudit) peut imposer l'autorité.
+- Sous `strict-local`, un hôte de TSA non local arrête tenon au démarrage (code 1) : `profil strict-local : l'hôte « <h> » de l'horodatage d'audit n'est pas une adresse locale` (en anglais : `profile strict-local: audit timestamp host "<h>" is not local`). Les proxys d'environnement sont respectés, sauf sous `strict-local`.
+- `tenon config check` affiche `audit.timestamp : <url> (racines : <ca_file|system|policy>)`.
+
+**Racines de confiance.** L'ordre est : `--tsa-ca` (de `audit verify` et `audit export`), puis `ca` de la politique, puis `ca_file`, puis les racines système.
+Sous macOS et Windows, les racines système ne permettent pas de vérifier les certificats de TSA : il faut y définir `ca_file`, `ca` de la politique ou `--tsa-ca`. Sinon l'ancrage de fin de session échoue avec une notice.
+
+**Ce qui est envoyé.** La TSA ne reçoit qu'un hash SHA-256 (le hash de tête de la chaîne), jamais de contenu.
+La requête a un délai de 10 secondes. Le client de TSA ne suit pas les redirections : une redirection échoue avec `HTTP 30x`.
+
+**Quand.** Si `[audit.timestamp]` est défini, tenon horodate le hash de tête à la fin de chaque session, une fois le journal fermé.
+Un échec ne change jamais le code de sortie : une notice `horodatage d'audit : <raison>` est écrite sur stderr.
+`tenon audit timestamp` fait la même chose à la demande ; il affiche `horodatage d'audit : <fichier> (<genTime RFC 3339>, <TSA>)`, ou `horodatage d'audit : déjà ancré` quand un jeton couvre déjà la tête.
+Codes : 0 fait ou déjà fait ; 1 non configuré (`horodatage d'audit : non configuré ([audit.timestamp] url)`), journal vide (`horodatage d'audit : le journal d'audit est vide`), erreur réseau ou réponse invalide.
+
+Les jetons sont rangés hors de la chaîne, un fichier DER chacun, dans `$XDG_DATA_HOME/tenon/audit/timestamps/<genTime>-<12 hex du hash>.tsr` (mode `0600`).
+
+**Vérifier.** `tenon audit verify` contrôle chaque jeton, puis que le hash qu'il couvre est dans la chaîne ; un jeton dont le hash n'est pas dans la chaîne signale une chaîne réécrite (`timestamp <fichier>: anchored hash not in chain`).
+Il affiche, après la ligne habituelle :
+
+```
+horodatages : <n> valides, dernier <fichier>:<ligne> à <genTime> (<TSA>), <m> lignes après
+```
+
+ou `horodatages : aucun`, ou `horodatages : 0 valides, <n> invalides` quand des jetons existent mais qu'aucun n'est valide.
+Les `<m>` lignes après le dernier jeton ne sont couvertes par aucun horodatage.
+Une ligne couverte par un jeton dont le `ts` dépasse de plus de 5 minutes l'heure du jeton donne un avertissement, pas une erreur : `timestamp <fichier>: <fichier>:<ligne> ts after genTime (local clock?)`.
+Code : 0 tout est valide ; 1 chaîne cassée, jeton invalide ou orphelin.
+`--tsa-ca <pem>` fixe les racines de confiance de l'auditeur.
+
+**Sans tenon.** Un tiers vérifie un jeton avec OpenSSL, `<hex>` étant le hash de tête sans le préfixe `sha256:` :
+
+```
+openssl ts -verify -digest <hex> -in <jeton>.tsr -token_in -CAfile <ca>
+```
+
+**Limites.** La révocation (CRL, OCSP) n'est pas contrôlée : la vérification est hors ligne.
+Seules les signatures RSA PKCS#1 v1.5 et ECDSA avec SHA-256, SHA-384 ou SHA-512 sont acceptées.
+Un jeton prouve que le journal jusqu'à la ligne couverte existait à cet instant ; il ne prouve pas que les lignes suivantes sont complètes (voir [securite.md](securite.md#horodatage-rfc-3161)).
 
 Pour remettre le journal à un auditeur, voir [Export de conformité](#export-de-conformité).
 
@@ -1123,7 +1185,7 @@ Pour remettre le journal à un auditeur, voir [Export de conformité](#export-de
 ```
 tenon audit export [--since AAAA-MM-JJ] [--until AAAA-MM-JJ]
                    [--project <chemin> | --all-projects | --session <id>]
-                   [--details] [--out <dossier>] [--lang fr|en]
+                   [--details] [--tsa-ca <pem>] [--out <dossier>] [--lang fr|en]
 ```
 
 | Option | Effet |
@@ -1134,6 +1196,7 @@ tenon audit export [--since AAAA-MM-JJ] [--until AAAA-MM-JJ]
 | `--all-projects` | tous les projets |
 | `--session <id>` | une seule session |
 | `--details` | ajoute les données de conversation (voir plus bas) |
+| `--tsa-ca <pem>` | racines de confiance PEM des jetons d'horodatage (défaut : comme `audit verify`) |
 | `--out <dossier>` | dossier de sortie (défaut : dossier courant) |
 | `--lang fr\|en` | langue du rapport HTML |
 
@@ -1153,7 +1216,7 @@ Elle ne modifie pas le journal et ne le verrouille pas.
 |---|---|
 | 0 | rapport écrit, chaîne d'audit intacte |
 | 1 | erreur d'usage ou d'écriture, rien d'écrit |
-| 2 | rapport écrit, mais chaîne d'audit cassée : le rapport l'indique dans un bandeau |
+| 2 | rapport écrit, mais chaîne d'audit cassée ou jeton d'horodatage invalide ou orphelin : le rapport l'indique (bandeau ou ligne Horodatage) ; stderr affiche `horodatages invalides : <n> (rapport écrit)` pour les jetons |
 
 ### Contenu du rapport
 
@@ -1169,6 +1232,7 @@ Elle ne modifie pas le journal et ne le verrouille pas.
 - **Incidents** : erreurs, tours terminés pour une raison notable (bloqué, arrêté par un hook, contexte trop grand, limite d'itérations, incomplet, annulé) et lignes illisibles du journal.
 - **Correspondance réglementaire** : quels éléments du rapport aident à documenter le RGPD, NIS2, DORA et l'AI Act. Elle ne cite aucun article.
 - **Intégrité** : chaîne entière intacte ou non, nombre de lignes, dernier hash, et empreintes de la première et de la dernière ligne de la plage exportée.
+- **Horodatage** (`integrity.timestamps`, toujours présent) : `count`, `valid`, `last_file`, `last_line`, `last_time` (RFC 3339), `tsa`, `lines_after` et `errors` (une liste, `[]` s'il n'y en a pas). La ligne HTML est `aucun` sans jeton, ou `<valid>/<count> valides, dernier <fichier>:<ligne> le <heure> (<tsa>), <m> lignes après` suivie des erreurs. Les jetons ne sont vérifiés que si la chaîne est intacte, avec les racines choisies comme pour `audit verify`.
 
 Le marquage git n'est pas dans le journal : le rapport donne la commande qui retrouve le code marqué, `git log --grep "AI-Assisted-By"`.
 Chaque rapport commence par un avertissement (le champ JSON `disclaimer` est toujours en anglais) : il décrit l'activité enregistrée par tenon, ne constitue pas un avis juridique et ne certifie pas la conformité.

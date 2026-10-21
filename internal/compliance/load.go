@@ -2,6 +2,7 @@
 package compliance
 
 import (
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"regexp"
@@ -59,6 +60,9 @@ type Dataset struct {
 	Sessions                 map[string]SessionInfo
 	Level                    string
 	ExcludedMetadataSessions int
+	// Timestamps résume les jetons RFC 3161 ; calculé seulement si la chaîne
+	// est intacte (zéro sinon).
+	Timestamps audit.TimestampSummary
 }
 
 // errVerifiedEnd arrête la lecture après la dernière ligne vérifiée.
@@ -90,9 +94,10 @@ func IsMetadataPayload(p json.RawMessage) bool {
 }
 
 // Load vérifie le journal puis le filtre. Il ne modifie ni ne verrouille rien :
-// seuls audit.Verify et audit.ReadLines sont appelés. Erreur seulement si la
-// lecture échoue.
-func Load(dir string, f Filter) (Dataset, error) {
+// seuls audit.Verify, audit.VerifyTimestamps et audit.ReadLines sont appelés.
+// roots : racines de confiance des jetons (nil : racines système). Erreur
+// seulement si la lecture échoue.
+func Load(dir string, f Filter, roots *x509.CertPool) (Dataset, error) {
 	ds := Dataset{Filter: f, Sessions: map[string]SessionInfo{}, Level: LevelNone}
 
 	final, n, verr := audit.Verify(dir)
@@ -100,6 +105,13 @@ func Load(dir string, f Filter) (Dataset, error) {
 	if verr != nil {
 		ds.Chain.Error = verr.Error()
 		ds.Chain.FinalHash = ""
+	}
+	if verr == nil {
+		ts, err := audit.VerifyTimestamps(dir, roots)
+		if err != nil {
+			return Dataset{}, err
+		}
+		ds.Timestamps = ts
 	}
 	afterVerify()
 

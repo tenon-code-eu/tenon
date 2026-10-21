@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +16,8 @@ import (
 	"github.com/tenon-code-eu/tenon/internal/audit"
 	"github.com/tenon-code-eu/tenon/internal/compliance"
 	"github.com/tenon-code-eu/tenon/internal/event"
+	"github.com/tenon-code-eu/tenon/internal/tsp"
+	"github.com/tenon-code-eu/tenon/internal/tsp/tsptest"
 )
 
 const allowEdit = `
@@ -416,5 +419,69 @@ func TestAuditExportPoliciesE2E(t *testing.T) {
 	}
 	if !strings.Contains(js, `"policies": [`) || !strings.Contains(html, "acme-dev v3") {
 		t.Fatalf("export sans la politique : %s", html)
+	}
+}
+
+// anchoredExportEnv : session exportée, TSA configurée puis tête ancrée par
+// « audit timestamp ».
+func anchoredExportEnv(t *testing.T) (*env, *tsptest.Server) {
+	t.Helper()
+	tsa := tsptest.NewServer(t, tsptest.Options{})
+	e := exportEnv(t)
+	e.editGlobal("", `jurisdiction = "eu"`, "jurisdiction = \"eu\"\n\n[audit.timestamp]\nurl = "+strconv.Quote(tsa.URL)+"\nca_file = "+strconv.Quote(writeCA(t, tsa.CA.PEM))+"\n")
+	if code, _, errb := e.run("--lang", "en", "audit", "timestamp"); code != 0 {
+		t.Fatalf("audit timestamp : code=%d stderr=%q", code, errb)
+	}
+	return e, tsa
+}
+
+func TestAuditExportTimestampsE2E(t *testing.T) {
+	e, tsa := anchoredExportEnv(t)
+	out := t.TempDir()
+	code, _, errb := e.run("audit", "export", "--lang", "en", "--out", out)
+	if code != 0 || errb != "" {
+		t.Fatalf("code=%d stderr=%q", code, errb)
+	}
+	html, js := readExport(t, out)
+	if !strings.Contains(js, `"timestamps": {`) || !strings.Contains(js, `"valid": 1`) || !strings.Contains(js, `"errors": []`) {
+		t.Fatalf("json : %s", js)
+	}
+	if !strings.Contains(html, "1/1 valid, last ") {
+		t.Fatalf("html sans ligne d'horodatage")
+	}
+	// --tsa-ca prime : une autre autorité rend le jeton invalide (exit 2).
+	out2 := t.TempDir()
+	other := writeCA(t, tsptest.NewCA(t).PEM)
+	code, _, errb = e.run("audit", "export", "--lang", "en", "--out", out2, "--tsa-ca", other)
+	if code != 2 || !strings.Contains(errb, "invalid timestamps: 1 (report written)") {
+		t.Fatalf("autre CA : code=%d stderr=%q", code, errb)
+	}
+	code, _, errb = e.run("audit", "export", "--lang", "en", "--out", t.TempDir(), "--tsa-ca", writeCA(t, tsa.CA.PEM))
+	if code != 0 {
+		t.Fatalf("bonne CA : code=%d stderr=%q", code, errb)
+	}
+	if code, _, errb = e.run("audit", "export", "--lang", "en", "--out", t.TempDir(), "--tsa-ca", filepath.Join(t.TempDir(), "absent.pem")); code != 1 || !strings.Contains(errb, "--tsa-ca") {
+		t.Fatalf("fichier absent : code=%d stderr=%q", code, errb)
+	}
+}
+
+func TestExportTimestampOrphanE2E(t *testing.T) {
+	e, tsa := anchoredExportEnv(t)
+	tok := tsa.CA.Token(t, make([]byte, 32), nil, tsptest.Options{})
+	info, err := tsp.ParseToken(tok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := audit.SaveToken(filepath.Join(e.dataDir, "audit"), info, tok); err != nil {
+		t.Fatal(err)
+	}
+	out := t.TempDir()
+	code, stdout, errb := e.run("audit", "export", "--lang", "en", "--out", out)
+	if code != 2 || !strings.Contains(stdout, "report written: ") || !strings.Contains(errb, "invalid timestamps: 1 (report written)") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout, errb)
+	}
+	html, js := readExport(t, out)
+	if !strings.Contains(js, "anchored hash not in chain") || !strings.Contains(html, "anchored hash not in chain") {
+		t.Fatalf("erreur absente du rapport")
 	}
 }

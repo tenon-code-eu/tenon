@@ -33,6 +33,7 @@ Consequences in tenon:
 - `tenon audit verify` detects a line that was modified, inserted or deleted in the middle of the log.
 - The content is redacted before it is written. With `audit.level = "metadata"`, only the hash and the size of each payload are kept.
 - If writing fails, tenon runs no more actions: compliance comes before continuity.
+- With `[audit.timestamp]`, a timestamp authority signs the head hash (see [Timestamping](#timestamping-rfc-3161)).
 
 ### Permissions
 
@@ -176,12 +177,28 @@ If the program relays a service outside the EU, declare it `jurisdiction = "non-
 
 Add your own rules with `[[redaction.rules]]`.
 
+### Timestamping (RFC 3161)
+
+The threat: someone who controls the machine rewrites the whole log and recomputes every hash. The chain alone cannot see it.
+
+- With `[audit.timestamp]`, a timestamp authority (TSA) signs the head hash at the end of each session or on `tenon audit timestamp`. A token proves that the log up to the covered line existed at the signed time. A log rewritten afterwards no longer contains the hash a token covers: `tenon audit verify` and `tenon audit export` report it (`anchored hash not in chain`).
+- The TSA receives only a SHA-256 hash, never content. tenon ships no TSA preset: you choose the authority, and nothing is called without configuration.
+- A token does not prove the lines after it (`<m> lines after` in the `audit verify` output), nor that the content was true. Deleting the last lines is detected only if a token covers a later line.
+- Revocation (CRL, OCSP) is not checked: verification is offline. A TSA certificate revoked after signing still verifies.
+- The TSA client does not follow redirects, so an `https` to `http` redirect cannot bypass the URL check.
+- On macOS and Windows the system roots cannot verify TSA certificates: use `ca_file`, the policy `ca` or `--tsa-ca`. Otherwise the end-of-session anchoring fails with a notice (never an error).
+- Verifying without tenon: `openssl ts -verify -digest <hex> -in <token>.tsr -token_in -CAfile <ca>`, with `<hex>` the head hash without the `sha256:` prefix.
+- A failed anchoring never blocks a session and never changes the exit code.
+
+Configuration, command and output: see [usage.md](usage.md#timestamping-rfc-3161).
+
 ### Log tail truncation
 
 Deleting the **last** lines of the log does not break the chain: `tenon audit verify` cannot detect it.
 Countermeasure: regularly write down the last hash shown by `tenon audit verify` outside the machine (ticket, separate repository, signed message).
 Later, check that this hash is still in the log, for example with `grep`.
 If it is gone, lines were removed.
+A timestamp token also covers the log up to its line: see [Timestamping](#timestamping-rfc-3161).
 
 ### Look-alike characters and the terminal
 

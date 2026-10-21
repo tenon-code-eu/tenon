@@ -342,6 +342,18 @@ func integrityOf(ds Dataset, o Options) Integrity {
 		RangeLines: len(ds.Lines),
 		Level:      ds.Level,
 	}
+	ts := ds.Timestamps
+	in.Timestamps = Timestamps{
+		Count: ts.Count, Valid: ts.Valid,
+		LastFile: o.clean(ts.LastFile), LastLine: ts.LastLine, TSA: o.clean(ts.TSA),
+		LinesAfter: ts.LinesAfter, Errors: []string{},
+	}
+	if !ts.LastTime.IsZero() {
+		in.Timestamps.LastTime = ts.LastTime.UTC().Format(time.RFC3339)
+	}
+	for _, e := range ts.Errors {
+		in.Timestamps.Errors = append(in.Timestamps.Errors, o.clean(e))
+	}
 	if n := len(ds.Lines); n > 0 {
 		in.FirstHash = ds.Lines[0].Hash
 		in.LastHash = ds.Lines[n-1].Hash

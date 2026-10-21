@@ -25,6 +25,7 @@ func fixedReport() Report {
 		Integrity: Integrity{
 			Intact: true, TotalLines: 4, FinalHash: "sha256:aa",
 			RangeLines: 4, FirstHash: "sha256:bb", LastHash: "sha256:aa", Level: "metadata",
+			Timestamps: Timestamps{LinesAfter: 4, Errors: []string{}},
 		},
 		Summary: Summary{Sessions: 1, Turns: 2, ToolCalls: 3, FilesModified: 1, Jurisdictions: []string{"EU"}},
 		Providers: []ProviderUse{{

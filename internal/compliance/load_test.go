@@ -9,6 +9,8 @@ import (
 
 	"github.com/tenon-code-eu/tenon/internal/audit"
 	"github.com/tenon-code-eu/tenon/internal/event"
+	"github.com/tenon-code-eu/tenon/internal/tsp"
+	"github.com/tenon-code-eu/tenon/internal/tsp/tsptest"
 )
 
 var (
@@ -27,7 +29,7 @@ func TestLoadPeriodBounds(t *testing.T) {
 		um(4, until.Add(24*time.Hour-time.Millisecond)),
 		um(5, until.Add(24*time.Hour)),
 	)
-	ds, err := Load(dir, Filter{Since: since, Until: until, AllProjects: true})
+	ds, err := Load(dir, Filter{Since: since, Until: until, AllProjects: true}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +50,7 @@ func TestLoadProjectScope(t *testing.T) {
 		ev(t, "b", 2, d.Add(3*time.Second), event.UserMessage, event.UserMessagePayload{Text: "x"}),
 	)
 	f := Filter{Since: since, Until: until, Project: "/proj/a/"}
-	ds, err := Load(dir, f)
+	ds, err := Load(dir, f, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,11 +63,11 @@ func TestLoadProjectScope(t *testing.T) {
 		}
 	}
 	f.Project, f.AllProjects = "", true
-	if ds, _ = Load(dir, f); len(ds.Lines) != 4 {
+	if ds, _ = Load(dir, f, nil); len(ds.Lines) != 4 {
 		t.Fatalf("all projects lines = %d", len(ds.Lines))
 	}
 	f.AllProjects, f.Session = false, "b"
-	if ds, _ = Load(dir, f); len(ds.Lines) != 2 || ds.Lines[0].Session != "b" {
+	if ds, _ = Load(dir, f, nil); len(ds.Lines) != 2 || ds.Lines[0].Session != "b" {
 		t.Fatalf("session lines = %+v", ds.Lines)
 	}
 }
@@ -75,7 +77,7 @@ func TestLoadSessionStartedBeforePeriod(t *testing.T) {
 		started(t, "s", since.Add(-72*time.Hour), "/proj"),
 		ev(t, "s", 2, since.Add(time.Hour), event.UserMessage, event.UserMessagePayload{Text: "x"}),
 	)
-	ds, err := Load(dir, Filter{Since: since, Until: until, Project: "/proj"})
+	ds, err := Load(dir, Filter{Since: since, Until: until, Project: "/proj"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +96,7 @@ func TestLoadMetadataLevel(t *testing.T) {
 		started(t, "s", d, "/proj"),
 		ev(t, "s", 2, d.Add(time.Second), event.UserMessage, event.UserMessagePayload{Text: "x"}),
 	)
-	ds, err := Load(dir, Filter{Since: since, Until: until, Project: "/proj"})
+	ds, err := Load(dir, Filter{Since: since, Until: until, Project: "/proj"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +106,7 @@ func TestLoadMetadataLevel(t *testing.T) {
 	if ds.Sessions["s"].Started != nil {
 		t.Fatal("Started must be nil at metadata level")
 	}
-	ds, err = Load(dir, Filter{Since: since, Until: until, AllProjects: true})
+	ds, err = Load(dir, Filter{Since: since, Until: until, AllProjects: true}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +126,7 @@ func TestLoadMixedLevel(t *testing.T) {
 		t.Fatal(err)
 	}
 	w.Close()
-	ds, err := Load(dir, Filter{Since: since, Until: until, AllProjects: true})
+	ds, err := Load(dir, Filter{Since: since, Until: until, AllProjects: true}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +137,7 @@ func TestLoadMixedLevel(t *testing.T) {
 
 func TestLoadEmpty(t *testing.T) {
 	dir := writeLog(t, audit.Full)
-	ds, err := Load(dir, Filter{Since: since, Until: until, AllProjects: true})
+	ds, err := Load(dir, Filter{Since: since, Until: until, AllProjects: true}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +147,7 @@ func TestLoadEmpty(t *testing.T) {
 }
 
 func TestLoadMissingDir(t *testing.T) {
-	ds, err := Load(filepath.Join(t.TempDir(), "absent"), Filter{Since: since, Until: until, AllProjects: true})
+	ds, err := Load(filepath.Join(t.TempDir(), "absent"), Filter{Since: since, Until: until, AllProjects: true}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,7 +173,7 @@ func TestLoadUnreadable(t *testing.T) {
 			f.WriteString(bad + "\n")
 			f.Close()
 			// Même hors périmètre projet, la ligne illisible est signalée.
-			ds, err := Load(dir, Filter{Since: since, Until: until, Project: "/other"})
+			ds, err := Load(dir, Filter{Since: since, Until: until, Project: "/other"}, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -233,11 +235,69 @@ func TestLoadStopsAtVerifiedLines(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	ds, err := Load(dir, Filter{Since: since, Until: until, AllProjects: true})
+	ds, err := Load(dir, Filter{Since: since, Until: until, AllProjects: true}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !ds.Chain.Intact || ds.Chain.Lines != 2 || len(ds.Lines) != 2 {
 		t.Fatalf("chain %+v lines %d", ds.Chain, len(ds.Lines))
+	}
+}
+
+// anchorHead range un jeton valide sur la tête de la chaîne de dir.
+func anchorHead(t *testing.T, ca *tsptest.CA, dir string) {
+	t.Helper()
+	head, err := audit.Head(dir)
+	if err != nil || head == "" {
+		t.Fatalf("head %q: %v", head, err)
+	}
+	d, err := audit.Digest(head)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tok := ca.Token(t, d, nil, tsptest.Options{})
+	info, err := tsp.ParseToken(tok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := audit.SaveToken(dir, info, tok); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestLoadTimestamps(t *testing.T) {
+	d := since.Add(time.Hour)
+	dir := writeLog(t, audit.Full,
+		started(t, "s1", d, "/p"),
+		ev(t, "s1", 2, d.Add(time.Second), event.UserMessage, event.UserMessagePayload{Text: "x"}),
+	)
+	ca := tsptest.NewCA(t)
+	f := Filter{Since: since, Until: until, AllProjects: true}
+	ds, err := Load(dir, f, ca.Pool)
+	if err != nil || ds.Timestamps.Count != 0 {
+		t.Fatalf("sans jeton : %+v %v", ds.Timestamps, err)
+	}
+	anchorHead(t, ca, dir)
+	ds, err = Load(dir, f, ca.Pool)
+	if err != nil || ds.Timestamps.Count != 1 || ds.Timestamps.Valid != 1 || len(ds.Timestamps.Errors) != 0 || ds.Timestamps.LinesAfter != 0 {
+		t.Fatalf("jeton valide : %+v %v", ds.Timestamps, err)
+	}
+	// Racines différentes : le jeton est invalide.
+	if ds, _ = Load(dir, f, tsptest.NewCA(t).Pool); ds.Timestamps.Valid != 0 || len(ds.Timestamps.Errors) != 1 {
+		t.Fatalf("autre CA : %+v", ds.Timestamps)
+	}
+	// Jeton orphelin : sa tête n'est pas dans la chaîne.
+	orphan := tsptest.Options{}
+	tok := ca.Token(t, make([]byte, 32), nil, orphan)
+	info, err := tsp.ParseToken(tok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := audit.SaveToken(dir, info, tok); err != nil {
+		t.Fatal(err)
+	}
+	ds, err = Load(dir, f, ca.Pool)
+	if err != nil || ds.Timestamps.Count != 2 || ds.Timestamps.Valid != 1 || len(ds.Timestamps.Errors) != 1 {
+		t.Fatalf("orphelin : %+v %v", ds.Timestamps, err)
 	}
 }

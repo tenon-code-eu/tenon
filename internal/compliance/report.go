@@ -88,6 +88,21 @@ type Integrity struct {
 	FirstHash  string `json:"first_hash,omitempty"`
 	LastHash   string `json:"last_hash,omitempty"`
 	Level      string `json:"level"`
+	// Timestamps : ancrage RFC 3161 de la chaîne (toujours présent).
+	Timestamps Timestamps `json:"timestamps"`
+}
+
+// Timestamps résume les jetons d'horodatage RFC 3161. LastTime est en RFC 3339
+// UTC ; Errors n'est jamais nil.
+type Timestamps struct {
+	Count      int      `json:"count"`
+	Valid      int      `json:"valid"`
+	LastFile   string   `json:"last_file,omitempty"`
+	LastLine   int      `json:"last_line,omitempty"`
+	LastTime   string   `json:"last_time,omitempty"`
+	TSA        string   `json:"tsa,omitempty"`
+	LinesAfter int      `json:"lines_after"`
+	Errors     []string `json:"errors"`
 }
 
 // Summary donne les comptes principaux ; Jurisdictions liste les juridictions

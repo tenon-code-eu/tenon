@@ -26,6 +26,7 @@ func richReport(details bool) Report {
 		Integrity: Integrity{
 			Intact: true, TotalLines: 12, FinalHash: "sha256:final",
 			RangeLines: 10, FirstHash: "sha256:first", LastHash: "sha256:last", Level: LevelFull,
+			Timestamps: Timestamps{Count: 2, Valid: 2, LastFile: "2026-10-01.jsonl", LastLine: 9, LastTime: "2026-10-01T10:00:00Z", TSA: "tsa.example", LinesAfter: 3, Errors: []string{}},
 		},
 		ContentAvailable: true,
 		Summary:          Summary{Sessions: 1, Turns: 2, ToolCalls: 3, FilesModified: 1, Denials: 1, Jurisdictions: []string{"eu"}},
@@ -412,6 +413,34 @@ func TestRenderHTMLQualificationColumn(t *testing.T) {
 		r.Providers[0].Qualifications = []string{}
 		if out := render(t, r, c.l); !strings.Contains(out, "<td>—</td>") {
 			t.Errorf("%s: tiret attendu sans qualification", c.l)
+		}
+	}
+}
+
+func TestRenderHTMLTimestamps(t *testing.T) {
+	fr := render(t, richReport(false), i18n.FR)
+	en := render(t, richReport(false), i18n.EN)
+	for _, c := range []struct{ out, want string }{
+		{fr, "Horodatage"}, {fr, "2/2 valides, dernier 2026-10-01.jsonl:9 le 2026-10-01T10:00:00Z (tsa.example), 3 lignes après"},
+		{en, "Timestamps"}, {en, "2/2 valid, last 2026-10-01.jsonl:9 at 2026-10-01T10:00:00Z (tsa.example), 3 lines after"},
+	} {
+		if !strings.Contains(c.out, c.want) {
+			t.Errorf("sortie sans %q", c.want)
+		}
+	}
+	r := richReport(false)
+	r.Integrity.Timestamps = Timestamps{Errors: []string{}}
+	if out := render(t, r, i18n.EN); !strings.Contains(out, "<dt>Timestamps</dt><dd>none</dd>") {
+		t.Error("sans jeton : « none » attendu")
+	}
+	if out := render(t, r, i18n.FR); !strings.Contains(out, "<dt>Horodatage</dt><dd>aucun</dd>") {
+		t.Error("sans jeton : « aucun » attendu")
+	}
+	r.Integrity.Timestamps = Timestamps{Count: 2, Valid: 0, Errors: []string{"timestamp a.tsr: <bad>", "timestamp b.tsr: orphan"}}
+	out := render(t, r, i18n.EN)
+	for _, w := range []string{"0/2 valid", "timestamp a.tsr: &lt;bad&gt;", "timestamp b.tsr: orphan"} {
+		if !strings.Contains(out, w) {
+			t.Errorf("erreurs : sortie sans %q", w)
 		}
 	}
 }

@@ -35,7 +35,9 @@ tenon agents [--lang fr|en]
 tenon hooks [--lang fr|en]
 tenon rewind --list --resume <id|last> [--lang fr|en]
 tenon key set|delete <provider>
-tenon audit verify
+tenon audit verify [--tsa-ca <pem>]
+tenon audit timestamp
+tenon audit export [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--project <path> | --all-projects | --session <id>] [--details] [--tsa-ca <pem>] [--out <dir>] [--lang fr|en]
 tenon config check
 tenon git install-hook [--force]
 tenon git mark <message-file>
@@ -237,6 +239,7 @@ Default values:
 | `output_limit` | `30000` characters |
 | `compaction_threshold` | `0.8` |
 | `audit.level` | `"full"` |
+| `audit.timestamp` | absent (no timestamping; see [Timestamping](#timestamping-rfc-3161)) |
 | `checkpoints.retention_days` | `30` |
 
 ### What the project configuration can do
@@ -1104,13 +1107,72 @@ Each event is appended to the log `$XDG_DATA_HOME/tenon/audit/YYYY-MM-DD.jsonl`.
 Each line contains the hash of the previous line: the chain continues from one file to the next.
 
 ```
-tenon audit verify
+tenon audit verify [--tsa-ca <pem>]
 ```
 
 The command shows `OK: <n> lines, last hash sha256:…`, or the first faulty line (`file:line`) with code 1.
+It then checks the timestamp tokens, if any (see [Timestamping](#timestamping-rfc-3161)).
 Write down the last hash somewhere else: see [security.md](security.md#log-tail-truncation).
 
 If writing to the log fails, tenon runs no more actions.
+
+### Timestamping (RFC 3161)
+
+The hash chain detects an isolated change, not a complete rewrite by someone who controls the machine.
+A timestamp authority (TSA, RFC 3161) signs the head hash of the chain: the token proves that the whole log up to that line existed at the time signed by the TSA.
+An auditor checks it offline.
+
+tenon ships no TSA preset and calls none by default: without `[audit.timestamp]`, nothing changes and no network call is made.
+You choose the authority.
+
+```toml
+# global configuration only (refused in .tenon/config.toml)
+[audit.timestamp]
+url = "https://tsa.example.eu/tsr"
+ca_file = "/etc/ssl/tsa-ca.pem"   # optional
+```
+
+- `url` must be `https`, or `http` for a local host only; otherwise `config: audit.timestamp.url must be https (http only for local hosts)`.
+- `ca_file` holds the PEM trust roots of the authority. Unreadable or without a certificate: `config: audit.timestamp.ca_file: <reason>`. Without `url`: `config: audit.timestamp.ca_file without url`.
+- An [organisation policy](policy.md#audit-timestamping) can impose the authority.
+- Under `strict-local`, a TSA host that is not local stops tenon at startup (code 1): `profile strict-local: audit timestamp host "<h>" is not local`. Environment proxies are respected, except under `strict-local`.
+- `tenon config check` prints `audit.timestamp: <url> (roots: <ca_file|system|policy>)`.
+
+**Trust roots.** The order is: `--tsa-ca` (of `audit verify` and `audit export`), then the `ca` of the policy, then `ca_file`, then the system roots.
+On macOS and Windows the system roots cannot verify TSA certificates: there, set `ca_file`, the policy `ca` or `--tsa-ca`. Otherwise the anchoring at the end of a session fails with a notice.
+
+**What is sent.** The TSA receives only a SHA-256 hash (the head hash of the chain), never content.
+The request has a timeout of 10 seconds. The TSA client does not follow redirects: a redirect fails with `HTTP 30x`.
+
+**When.** If `[audit.timestamp]` is set, tenon timestamps the head hash at the end of each session, after the log is closed.
+A failure never changes the exit code: a notice `audit timestamp: <reason>` goes to stderr.
+`tenon audit timestamp` does the same on demand; it prints `audit timestamp: <file> (<genTime RFC 3339>, <TSA>)`, or `audit timestamp: already anchored` when a token already covers the head.
+Exit codes: 0 done or already done; 1 not configured (`audit timestamp: not configured ([audit.timestamp] url)`), empty log (`audit timestamp: audit log is empty`), network error or invalid response.
+
+Tokens are stored apart from the chain, one DER file each, in `$XDG_DATA_HOME/tenon/audit/timestamps/<genTime>-<12 hex of the hash>.tsr` (mode `0600`).
+
+**Verify.** `tenon audit verify` checks every token, then that the hash it covers is in the chain; a token whose hash is not in the chain means the chain was rewritten (`timestamp <file>: anchored hash not in chain`).
+It prints, after the usual line:
+
+```
+timestamps: <n> valid, last <file>:<line> at <genTime> (<TSA>), <m> lines after
+```
+
+or `timestamps: none`, or `timestamps: 0 valid, <n> invalid` when tokens exist but none is valid.
+The `<m>` lines after the last token are not covered by any timestamp.
+A line covered by a token whose `ts` is more than 5 minutes after the token time gives a warning, not an error: `timestamp <file>: <file>:<line> ts after genTime (local clock?)`.
+Exit code: 0 everything is valid; 1 broken chain, invalid or orphan token.
+`--tsa-ca <pem>` sets the trust roots of the auditor.
+
+**Without tenon.** A third party checks a token with OpenSSL, with `<hex>` the head hash without the `sha256:` prefix:
+
+```
+openssl ts -verify -digest <hex> -in <token>.tsr -token_in -CAfile <ca>
+```
+
+**Limits.** Revocation (CRL, OCSP) is not checked: verification is offline.
+Only RSA PKCS#1 v1.5 and ECDSA signatures with SHA-256, SHA-384 or SHA-512 are accepted.
+A token proves that the log up to the covered line existed at that time; it does not prove that the later lines are complete (see [security.md](security.md#timestamping-rfc-3161)).
 
 To give the log to an auditor, see [Compliance export](#compliance-export).
 
@@ -1121,7 +1183,7 @@ To give the log to an auditor, see [Compliance export](#compliance-export).
 ```
 tenon audit export [--since YYYY-MM-DD] [--until YYYY-MM-DD]
                    [--project <path> | --all-projects | --session <id>]
-                   [--details] [--out <dir>] [--lang fr|en]
+                   [--details] [--tsa-ca <pem>] [--out <dir>] [--lang fr|en]
 ```
 
 | Option | Effect |
@@ -1132,6 +1194,7 @@ tenon audit export [--since YYYY-MM-DD] [--until YYYY-MM-DD]
 | `--all-projects` | all projects |
 | `--session <id>` | a single session |
 | `--details` | adds conversation data (see below) |
+| `--tsa-ca <pem>` | PEM trust roots for the timestamp tokens (default: as for `audit verify`) |
 | `--out <dir>` | output directory (default: current directory) |
 | `--lang fr\|en` | language of the HTML report |
 
@@ -1151,7 +1214,7 @@ It does not modify the log and does not lock it.
 |---|---|
 | 0 | report written, audit chain intact |
 | 1 | usage or write error, nothing written |
-| 2 | report written, but the audit chain is broken: the report says so in a banner |
+| 2 | report written, but the audit chain is broken or a timestamp token is invalid or orphan: the report says so (banner or Timestamps row); stderr shows `invalid timestamps: <n> (report written)` for tokens |
 
 ### What the report contains
 
@@ -1167,6 +1230,7 @@ It does not modify the log and does not lock it.
 - **Incidents**: errors, turns that ended for a notable reason (blocked, stopped by a hook, context too large, iteration limit, incomplete, cancelled) and unreadable log lines.
 - **Regulatory mapping**: which elements of the report help document GDPR, NIS2, DORA and AI Act requirements. It cites no article.
 - **Integrity**: whether the whole chain is intact, the number of lines, the final hash, and the hashes of the first and last line of the exported range.
+- **Timestamps** (`integrity.timestamps`, always present): `count`, `valid`, `last_file`, `last_line`, `last_time` (RFC 3339), `tsa`, `lines_after` and `errors` (a list, `[]` when none). The HTML row is `none` without tokens, or `<valid>/<count> valid, last <file>:<line> at <time> (<tsa>), <m> lines after` followed by the errors. Tokens are verified only when the chain is intact, with the roots chosen as for `audit verify`.
 
 Git marking is not in the log: the report gives the command that finds marked code, `git log --grep "AI-Assisted-By"`.
 Every report starts with a notice (the JSON `disclaimer` field is always in English): it describes the activity recorded by tenon, it is not legal advice and it does not certify compliance.

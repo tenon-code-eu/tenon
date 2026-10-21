@@ -42,7 +42,9 @@ level = "full"
 
 # RFC 3161 timestamping of the audit log (global config only).
 # https required (http only for local hosts); ca_file: PEM trust roots of the
-# authority (default: system roots).
+# authority (default: system roots; on macOS and Windows they cannot verify
+# TSA certificates, so set ca_file). tenon ships no TSA preset; revocation is
+# not checked.
 # [audit.timestamp]
 # url = "https://tsa.example.eu/tsr"
 # ca_file = "/etc/tenon/tsa-ca.pem"

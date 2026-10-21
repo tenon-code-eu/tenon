@@ -48,7 +48,7 @@ func (b *logb) dataset() Dataset {
 
 func loadAll(t *testing.T, dir string) Dataset {
 	t.Helper()
-	ds, err := Load(dir, Filter{Since: since, Until: until, AllProjects: true})
+	ds, err := Load(dir, Filter{Since: since, Until: until, AllProjects: true}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,8 +82,9 @@ func TestBuildHeaderAndIntegrity(t *testing.T) {
 	want := Integrity{
 		Intact: true, TotalLines: 2, FinalHash: ds.Chain.FinalHash, RangeLines: 2,
 		FirstHash: ds.Lines[0].Hash, LastHash: ds.Lines[1].Hash, Level: LevelFull,
+		Timestamps: Timestamps{LinesAfter: 2, Errors: []string{}},
 	}
-	if r.Integrity != want || want.FinalHash == "" || want.FirstHash == want.LastHash {
+	if !reflect.DeepEqual(r.Integrity, want) || want.FinalHash == "" || want.FirstHash == want.LastHash {
 		t.Fatalf("integrity %+v want %+v", r.Integrity, want)
 	}
 	if !r.ContentAvailable {
@@ -800,5 +801,26 @@ func TestBuildProviderQualifications(t *testing.T) {
 				t.Fatalf("attendu [] pour %s, reçu %#v", p.ID, p.Qualifications)
 			}
 		}
+	}
+}
+
+func TestBuildTimestamps(t *testing.T) {
+	b := newLog(t)
+	b.start("s", provEU)
+	ds := b.dataset()
+	if got := Build(ds, opts()).Integrity.Timestamps; !reflect.DeepEqual(got, Timestamps{LinesAfter: 1, Errors: []string{}}) {
+		t.Fatalf("sans jeton : %+v", got)
+	}
+	ds.Timestamps = audit.TimestampSummary{
+		Count: 3, Valid: 2, LastFile: "2026-01-10.jsonl", LastLine: 4,
+		LastTime: time.Date(2026, 1, 10, 9, 30, 0, 0, time.FixedZone("x", 3600)),
+		TSA:      "tsa.example", LinesAfter: 2, Errors: []string{"timestamp a.tsr: bad"},
+	}
+	want := Timestamps{
+		Count: 3, Valid: 2, LastFile: "2026-01-10.jsonl", LastLine: 4, LastTime: "2026-01-10T08:30:00Z",
+		TSA: "tsa.example", LinesAfter: 2, Errors: []string{"timestamp a.tsr: bad"},
+	}
+	if got := Build(ds, opts()).Integrity.Timestamps; !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %+v want %+v", got, want)
 	}
 }

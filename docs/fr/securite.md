@@ -35,6 +35,7 @@ Conséquences dans tenon :
 - `tenon audit verify` détecte une ligne modifiée, insérée ou supprimée au milieu du journal.
 - Le contenu est masqué avant écriture. Avec `audit.level = "metadata"`, seules l'empreinte et la taille de chaque charge utile sont gardées.
 - Si l'écriture échoue, tenon n'exécute plus aucune action : la conformité passe avant la continuité.
+- Avec `[audit.timestamp]`, une autorité d'horodatage signe le hash de tête (voir [Horodatage](#horodatage-rfc-3161)).
 
 ### Permissions
 
@@ -178,12 +179,28 @@ Si le programme relaie un service hors de l'UE, déclarez-le `jurisdiction = "no
 
 Ajoutez vos propres règles avec `[[redaction.rules]]`.
 
+### Horodatage (RFC 3161)
+
+La menace : quelqu'un qui contrôle la machine réécrit tout le journal et recalcule chaque hash. La chaîne seule ne le voit pas.
+
+- Avec `[audit.timestamp]`, une autorité d'horodatage (TSA) signe le hash de tête à la fin de chaque session ou par `tenon audit timestamp`. Un jeton prouve que le journal jusqu'à la ligne couverte existait à l'instant signé. Un journal réécrit ensuite ne contient plus le hash couvert par un jeton : `tenon audit verify` et `tenon audit export` le signalent (`anchored hash not in chain`).
+- La TSA ne reçoit qu'un hash SHA-256, jamais de contenu. tenon n'intègre aucun préréglage de TSA : vous choisissez l'autorité, et rien n'est appelé sans configuration.
+- Un jeton ne prouve pas les lignes qui le suivent (`<m> lignes après` dans la sortie de `audit verify`), ni que le contenu était vrai. La suppression des dernières lignes n'est détectée que si un jeton couvre une ligne plus tardive.
+- La révocation (CRL, OCSP) n'est pas contrôlée : la vérification est hors ligne. Un certificat de TSA révoqué après la signature se vérifie encore.
+- Le client de TSA ne suit pas les redirections : une redirection `https` vers `http` ne contourne pas le contrôle de l'URL.
+- Sous macOS et Windows, les racines système ne permettent pas de vérifier les certificats de TSA : utilisez `ca_file`, `ca` de la politique ou `--tsa-ca`. Sinon l'ancrage de fin de session échoue avec une notice (jamais une erreur).
+- Vérifier sans tenon : `openssl ts -verify -digest <hex> -in <jeton>.tsr -token_in -CAfile <ca>`, `<hex>` étant le hash de tête sans le préfixe `sha256:`.
+- Un ancrage en échec ne bloque jamais une session et ne change jamais le code de sortie.
+
+Configuration, commande et sortie : voir [utilisation.md](utilisation.md#horodatage-rfc-3161).
+
 ### Troncature de fin du journal
 
 Supprimer les **dernières** lignes du journal ne casse pas la chaîne : `tenon audit verify` ne peut pas le détecter.
 Parade : notez régulièrement le dernier hash affiché par `tenon audit verify` hors de la machine (ticket, dépôt séparé, message signé).
 Plus tard, vérifiez que ce hash figure toujours dans le journal, par exemple avec `grep`.
 S'il a disparu, des lignes ont été retirées.
+Un jeton d'horodatage couvre aussi le journal jusqu'à sa ligne : voir [Horodatage](#horodatage-rfc-3161).
 
 ### Sosies visuels et terminal
 

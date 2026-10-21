@@ -30,7 +30,7 @@ func (e errFileExists) Error() string { return e.path }
 
 // auditExport écrit le rapport de conformité (HTML et JSON) tiré du journal
 // d'audit. Codes : 0 succès, 1 erreur d'usage ou d'écriture, 2 rapport écrit
-// mais chaîne d'audit cassée. Le journal n'est ni modifié ni verrouillé.
+// mais chaîne d'audit cassée ou jeton d'horodatage invalide ou orphelin. Le journal n'est ni modifié ni verrouillé.
 func auditExport(args []string, langFlag string, stdout, stderr io.Writer, getenv func(string) string, wd string) int {
 	hl, _ := uiLang(langFlag, getenv, wd)
 	flags := flag.NewFlagSet("tenon audit export", flag.ContinueOnError)
@@ -41,6 +41,7 @@ func auditExport(args []string, langFlag string, stdout, stderr io.Writer, geten
 	allProjects := flags.Bool("all-projects", false, i18n.T(hl, "flag.export_all_projects"))
 	sessionID := flags.String("session", "", i18n.T(hl, "flag.export_session"))
 	details := flags.Bool("details", false, i18n.T(hl, "flag.export_details"))
+	tsaCA := flags.String("tsa-ca", "", i18n.T(hl, "flag.tsa_ca"))
 	out := flags.String("out", "", i18n.T(hl, "flag.export_out"))
 	langOpt := flags.String("lang", langFlag, i18n.T(hl, "flag.lang"))
 	if err := flags.Parse(args); err != nil {
@@ -112,7 +113,13 @@ func auditExport(args []string, langFlag string, stdout, stderr io.Writer, geten
 		fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", err))
 		return 1
 	}
-	ds, err := compliance.Load(filepath.Join(config.DataDir(getenv), "audit"), filter)
+	dir := auditDir(config.DataDir(getenv))
+	roots, err := verifyRoots(lang, *tsaCA, dir, getenv, wd, stderr)
+	if err != nil {
+		fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", err))
+		return 1
+	}
+	ds, err := compliance.Load(dir, filter, roots)
 	if err != nil {
 		fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", err))
 		return 1
@@ -155,6 +162,10 @@ func auditExport(args []string, langFlag string, stdout, stderr io.Writer, geten
 	if !rep.Integrity.Intact {
 		// Integrity.Error est déjà masquée et nettoyée des caractères de contrôle.
 		fmt.Fprintln(stderr, i18n.T(lang, "audit.export.broken", rep.Integrity.Error))
+		return 2
+	}
+	if n := len(rep.Integrity.Timestamps.Errors); n > 0 {
+		fmt.Fprintln(stderr, i18n.T(lang, "audit.export.timestamps_invalid", n))
 		return 2
 	}
 	return 0
