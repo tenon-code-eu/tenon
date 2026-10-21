@@ -55,7 +55,8 @@ type Options struct {
 	GenTime                         time.Time
 	SignerNotBefore, SignerNotAfter time.Time
 	Tamper                          Tamper
-	RSA                             bool // signataire RSA 2048 (SID par SKI, ESSCertID v1)
+	RSA                             bool   // signataire RSA 2048 (SID par SKI, ESSCertID v1)
+	Digest                          []byte // Server : empreinte du jeton à la place de celle de la demande
 }
 
 // CA est l'autorité de la fausse TSA. Pool et PEM contiennent son certificat.
@@ -467,7 +468,11 @@ func NewServer(t testing.TB, o Options) *Server {
 			return
 		}
 		w.Header().Set("Content-Type", "application/timestamp-reply")
-		_, _ = w.Write(s.CA.Response(t, req.MessageImprint.HashedMessage, req.Nonce, o))
+		digest := req.MessageImprint.HashedMessage
+		if o.Digest != nil {
+			digest = o.Digest
+		}
+		_, _ = w.Write(s.CA.Response(t, digest, req.Nonce, o))
 	}))
 	t.Cleanup(srv.Close)
 	s.URL = srv.URL
