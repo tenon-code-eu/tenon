@@ -15,6 +15,12 @@ import (
 // It returns the last hash and the number of lines. A missing or empty
 // dir yields ("sha256:0", 0, nil). Errors name <file>:<line>.
 func Verify(dir string) (string, int, error) {
+	return walk(dir, nil)
+}
+
+// walk applique les règles de Verify ; fn (optionnel) reçoit chaque ligne
+// validée avec son fichier et son numéro, dans l'ordre de la chaîne.
+func walk(dir string, fn func(file string, n int, l Line)) (string, int, error) {
 	files, err := listFiles(dir)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -61,6 +67,9 @@ func Verify(dir string) (string, int, error) {
 			}
 			prev = l.Hash
 			total++
+			if fn != nil {
+				fn(name, n, l)
+			}
 			if !complete {
 				break
 			}
