@@ -39,6 +39,9 @@ type Options struct {
 	// RedactText masque le texte libre : réponse finale (sortie texte) et
 	// messages écrits sur stderr. nil : Redact est utilisé.
 	RedactText func(string) string
+	// Strict : un tour terminé par max_iterations, incomplete,
+	// stopped_by_hook ou cancelled donne le code 4 (3 et 1 l'emportent).
+	Strict bool
 }
 
 // Codes de sortie.
@@ -46,6 +49,8 @@ const (
 	exitOK      = 0
 	exitError   = 1
 	exitRefused = 3
+	// exitIncomplete : tour non terminé proprement sous --strict.
+	exitIncomplete = 4
 )
 
 // Run soumet in à eng dans la session sessionID et renvoie le code de
@@ -94,14 +99,25 @@ loop:
 	if out == Text && r.final != "" {
 		fmt.Fprintln(stdout, redactText(r.final))
 	}
-	switch {
-	case err != nil:
+	if err != nil {
 		fmt.Fprint(stderr, redactText(i18n.T(lang, "err.prefix", err)+"\n"))
 		return exitError
+	}
+	return r.exitCode(opts.Strict)
+}
+
+// exitCode donne le code de sortie une fois le tour rendu : 1 l'emporte sur
+// 3, qui l'emporte sur 4 (strict). La ligne strict n'est écrite qu'en sortie
+// texte, après la ligne « tour terminé ».
+func (r *renderer) exitCode(strict bool) int {
+	switch {
 	case r.failed:
 		return exitError
 	case r.refused:
 		return exitRefused
+	case strict && r.ended != "":
+		r.text("%s\n", i18n.T(r.lang, "strict.turn_ended", r.ended))
+		return exitIncomplete
 	}
 	return exitOK
 }
@@ -116,7 +132,8 @@ type renderer struct {
 
 	final   string // dernier texte complet de l'assistant
 	refused bool
-	failed  bool // le tour n'a pas pu tourner (context_too_large)
+	failed  bool   // le tour n'a pas pu tourner (context_too_large)
+	ended   string // raison d'un tour non terminé proprement (--strict)
 
 	// hookLabels associe le run_id d'un hook à son libellé (nom de la
 	// commande, ou type) : HookCompleted ne porte pas la commande.
@@ -197,6 +214,7 @@ func (r *renderer) handle(ev event.Event) {
 				r.refused = true
 				r.text("%s\n", i18n.T(r.lang, "turn.blocked_by_hook"))
 			case "max_iterations", "incomplete", "cancelled", "stopped_by_hook":
+				r.ended = p.Reason
 				r.text("%s\n", i18n.T(r.lang, "turn.ended", p.Reason))
 			}
 		}

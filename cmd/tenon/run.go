@@ -66,6 +66,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	showVersion := fs.Bool("version", false, i18n.T(hl, "flag.version"))
 	prompt := fs.String("p", "", i18n.T(hl, "flag.p"))
 	output := fs.String("output", string(headless.Text), i18n.T(hl, "flag.output"))
+	strict := fs.Bool("strict", false, i18n.T(hl, "flag.strict"))
 	allowNonEU := fs.Bool("allow-non-eu", false, i18n.T(hl, "flag.allow_non_eu"))
 	providerID := fs.String("provider", "", i18n.T(hl, "flag.provider"))
 	langFlag := fs.String("lang", "", i18n.T(hl, "flag.lang"))
@@ -278,6 +279,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		Lang:       lang,
 		Redact:     func(s string) string { out, _ := red.RedactJSON(s); return out },
 		RedactText: redactText(red),
+		Strict:     *strict,
 	}, stdout, stderr)
 	// Les sinks sont encore ouverts : les événements du hook SessionEnd y
 	// sont écrits.
@@ -304,13 +306,20 @@ func redactText(red *policy.Redactor) func(string) string {
 	return func(s string) string { out, _ := red.Redact(s); return out }
 }
 
-// runInteractive ouvre l'interface interactive (tenon sans -p). --output et
-// l'absence de terminal sont refusés avant toute autre opération.
+// runInteractive ouvre l'interface interactive (tenon sans -p). --output,
+// --strict et l'absence de terminal sont refusés avant toute autre opération.
 func runInteractive(ctx context.Context, fs *flag.FlagSet, lang i18n.Lang, o engineOptions, stdin io.Reader, stdout, stderr io.Writer, isTerminal func() bool) int {
-	output := false
-	fs.Visit(func(f *flag.Flag) { output = output || f.Name == "output" })
+	output, strict := false, false
+	fs.Visit(func(f *flag.Flag) {
+		output = output || f.Name == "output"
+		strict = strict || f.Name == "strict"
+	})
 	if output {
 		fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", i18n.T(lang, "err.output_requires_p")))
+		return 1
+	}
+	if strict {
+		fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", i18n.T(lang, "err.strict_requires_p")))
 		return 1
 	}
 	if isTerminal == nil || !isTerminal() {

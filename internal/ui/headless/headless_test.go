@@ -544,3 +544,70 @@ func TestHookTurnReasons(t *testing.T) {
 		t.Fatal("denied hook non refusé")
 	}
 }
+
+// strictRun rejoue des événements dans un renderer et applique exitCode.
+func strictRun(t *testing.T, out Output, strict bool, evs ...any) (int, string, string) {
+	t.Helper()
+	var outb, errb bytes.Buffer
+	r := &renderer{hookLabels: map[string]string{}, out: out, lang: i18n.EN,
+		redact:     func(s string) string { return s },
+		redactText: func(s string) string { return s },
+		stdout:     &outb, stderr: &errb}
+	for i := 0; i < len(evs); i += 2 {
+		ev, err := event.New("s", uint64(i), time.Now(), evs[i].(event.Type), evs[i+1])
+		if err != nil {
+			t.Fatal(err)
+		}
+		r.handle(ev)
+	}
+	return r.exitCode(strict), outb.String(), errb.String()
+}
+
+func TestStrictReasons(t *testing.T) {
+	for _, reason := range []string{"max_iterations", "incomplete", "stopped_by_hook", "cancelled"} {
+		code, _, errb := strictRun(t, Text, true, event.TurnCompleted, event.TurnCompletedPayload{Reason: reason})
+		if code != 4 || !strings.Contains(errb, "strict: turn ended with "+reason) {
+			t.Fatalf("%s strict: code=%d %q", reason, code, errb)
+		}
+		code, _, errb = strictRun(t, Text, false, event.TurnCompleted, event.TurnCompletedPayload{Reason: reason})
+		if code != 0 || strings.Contains(errb, "strict:") || !strings.Contains(errb, "turn ended: "+reason) {
+			t.Fatalf("%s non strict: code=%d %q", reason, code, errb)
+		}
+	}
+	if code, _, errb := strictRun(t, Text, true, event.TurnCompleted, event.TurnCompletedPayload{Reason: "done"}); code != 0 || strings.Contains(errb, "strict:") {
+		t.Fatalf("done: code=%d %q", code, errb)
+	}
+}
+
+func TestStrictRefusedWins(t *testing.T) {
+	code, _, _ := strictRun(t, Text, true,
+		event.ToolResult, event.ToolResultPayload{Denied: "hook"},
+		event.TurnCompleted, event.TurnCompletedPayload{Reason: "incomplete"})
+	if code != 3 {
+		t.Fatalf("code=%d", code)
+	}
+	code, _, _ = strictRun(t, Text, true,
+		event.TurnCompleted, event.TurnCompletedPayload{Reason: "context_too_large"})
+	if code != 1 {
+		t.Fatalf("code=%d", code)
+	}
+}
+
+func TestStrictJSON(t *testing.T) {
+	code, out, errb := strictRun(t, JSON, true,
+		event.AssistantMessage, event.AssistantMessagePayload{Text: "x"},
+		event.TurnCompleted, event.TurnCompletedPayload{Reason: "incomplete"})
+	if code != 4 || strings.Contains(errb, "strict:") {
+		t.Fatalf("code=%d stderr=%q", code, errb)
+	}
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if len(lines) == 0 || lines[0] == "" {
+		t.Fatalf("stdout vide")
+	}
+	for _, l := range lines {
+		var v map[string]any
+		if err := json.Unmarshal([]byte(l), &v); err != nil {
+			t.Fatalf("ligne non JSON %q : %v", l, err)
+		}
+	}
+}

@@ -30,7 +30,7 @@ Pour un exemple de configuration commenté, voir [config.example.toml](../config
 
 ```
 tenon [--resume <id|last>] [--lang fr|en] [--allow-non-eu] [--provider <id>]
-tenon -p "<prompt>" [--resume <id|last>] [--lang fr|en] [--output text|json] [--allow-non-eu] [--provider <id>]
+tenon -p "<prompt>" [--resume <id|last>] [--lang fr|en] [--output text|json] [--strict] [--allow-non-eu] [--provider <id>]
 tenon sessions [--lang fr|en]
 tenon skills [--lang fr|en]
 tenon agents [--lang fr|en]
@@ -51,6 +51,7 @@ tenon --help
 |---|---|
 | `-p "<prompt>"` | Exécute un tour sans interface interactive. |
 | `--output text\|json` | Format de sortie du mode non interactif. Défaut : `text`. Refusé sans `-p`. |
+| `--strict` | Code de sortie 4 quand le tour se termine par `max_iterations`, `incomplete`, `stopped_by_hook` ou `cancelled`. Les codes 3 et 1 sont prioritaires. Refusé sans `-p`. |
 | `--provider <id>` | Fournisseur à utiliser. Défaut : `default_provider` de la configuration. |
 | `--allow-non-eu` | Accepte l'envoi de données hors de l'UE, pour les fournisseurs et pour les serveurs MCP. |
 | `--resume <id\|last>` | Reprend une session du projet courant. Refusé avec une sous-commande autre que `sessions`. |
@@ -178,6 +179,7 @@ Seules les lectures dans le projet et les actions couvertes par une règle `allo
 | `0` | Tour terminé. Un tour arrêté par la limite d'itérations ou une réponse incomplète donne aussi 0, avec un message. |
 | `1` | Erreur : configuration, clé absente, fournisseur, contexte trop volumineux, option invalide. |
 | `3` | Une action a été refusée (validation impossible, règle `deny`) ou l'envoi au fournisseur a été bloqué (juridiction). |
+| `4` | Avec `--strict` : le tour s'est terminé par `max_iterations`, `incomplete`, `stopped_by_hook` ou `cancelled`. La ligne `strict : tour terminé avec <raison>` va sur la sortie d'erreur (sortie texte seulement). Le code 3 l'emporte sur 4, et le code 1 l'emporte sur les deux. |
 | `130` | Second Ctrl+C : sortie immédiate. Le premier annule le tour. |
 
 Les sous-commandes renvoient 0 en cas de succès et 1 en cas d'erreur.

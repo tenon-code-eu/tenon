@@ -28,7 +28,7 @@ For a commented configuration example, see [config.example.toml](config.example.
 
 ```
 tenon [--resume <id|last>] [--lang fr|en] [--allow-non-eu] [--provider <id>]
-tenon -p "<prompt>" [--resume <id|last>] [--lang fr|en] [--output text|json] [--allow-non-eu] [--provider <id>]
+tenon -p "<prompt>" [--resume <id|last>] [--lang fr|en] [--output text|json] [--strict] [--allow-non-eu] [--provider <id>]
 tenon sessions [--lang fr|en]
 tenon skills [--lang fr|en]
 tenon agents [--lang fr|en]
@@ -51,6 +51,7 @@ In the synopsis, `<provider>` is the provider ID and `<message-file>` is the com
 |---|---|
 | `-p "<prompt>"` | Runs one turn without the interactive interface. |
 | `--output text\|json` | Output format of the non-interactive mode. Default: `text`. Refused without `-p`. |
+| `--strict` | Exit code 4 when the turn ends with `max_iterations`, `incomplete`, `stopped_by_hook` or `cancelled`. Code 3 and code 1 take precedence. Refused without `-p`. |
 | `--provider <id>` | Provider to use. Default: `default_provider` from the configuration. |
 | `--allow-non-eu` | Accepts sending data outside the EU, for providers and for MCP servers. |
 | `--resume <id\|last>` | Resumes a session of the current project. Refused with a subcommand other than `sessions`. |
@@ -178,6 +179,7 @@ Only reads inside the project and actions covered by an `allow` rule run.
 | `0` | Turn completed. A turn stopped by the iteration limit or by an incomplete answer also gives 0, with a message. |
 | `1` | Error: configuration, missing key, provider, context too large, invalid option. |
 | `3` | An action was denied (approval not possible, `deny` rule) or sending to the provider was blocked (jurisdiction). |
+| `4` | With `--strict`: the turn ended with `max_iterations`, `incomplete`, `stopped_by_hook` or `cancelled`. The line `strict: turn ended with <reason>` goes to standard error (text output only). Code 3 wins over 4, and code 1 wins over both. |
 | `130` | Second Ctrl+C: immediate exit. The first one cancels the turn. |
 
 Subcommands return 0 on success and 1 on error.
