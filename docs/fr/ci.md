@@ -31,7 +31,7 @@ Copiez le modèle de votre forge et la configuration dans `ci/tenon.toml` de vot
 
 1. **Installer.** `TENON_VERSION=<vX.Y.Z> TENON_REQUIRE_SIGNATURE=1 sh install.sh`. L'image contient `minisign` (les modèles l'installent avec `apt-get`) : la signature de la version est vérifiée, pas seulement son empreinte SHA-256.
 2. **Exécuter.** `XDG_DATA_HOME="$PWD/.tenon-data"` garde le journal d'audit dans l'espace de travail. Puis `tenon --config ci/tenon.toml -p "$TENON_TASK" --strict --output json > tenon-events.jsonl`. Le code de sortie du job est celui de tenon.
-3. **Toujours, même en cas d'échec.** `tenon audit verify` (intégrité de la chaîne de hachage) et `tenon audit export --all-projects --out tenon-audit` (rapport de conformité), puis le dépôt des artefacts.
+3. **Toujours, même en cas d'échec.** `tenon --config ci/tenon.toml audit verify` (intégrité de la chaîne de hachage) et `tenon --config ci/tenon.toml audit export --all-projects --out tenon-audit` (rapport de conformité), avec la même configuration que l'étape d'exécution pour que les racines d'horodatage coïncident, puis le dépôt des artefacts.
 
 ## Codes de sortie
 
@@ -58,6 +58,8 @@ MISTRAL_API_KEY=x tenon --config ci/tenon.toml config check
 ## Installer depuis un miroir
 
 `TENON_DOWNLOAD_BASE` remplace GitHub comme source de la version (forge souveraine, miroir isolé du réseau). Elle exige `TENON_VERSION`, n'accepte que `https://` (et `http://localhost` ou `http://127.0.0.1` pour les tests), et les redirections doivent être en `https://`. Le miroir contient `<base>/<version>/<archive>`, `SHA256SUMS` et `SHA256SUMS.minisig`.
+
+Pour une installation isolée du réseau, récupérez `install.sh` lui-même depuis le miroir (ou versionnez-le dans votre dépôt) et épinglez-le avec un contrôle `sha256sum -c` : il porte la clé publique minisign, il est donc la racine de confiance.
 
 Chaque modèle a la ligne en commentaire. La signature minisign reste vérifiée avec `TENON_REQUIRE_SIGNATURE=1` : un miroir compromis ne peut pas servir un binaire falsifié.
 

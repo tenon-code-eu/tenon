@@ -148,6 +148,11 @@ func auditExport(args []string, langFlag string, stdout, stderr io.Writer, geten
 		return 1
 	}
 
+	// Le dossier de sortie peut contenir des données sensibles : 0700.
+	if err := os.MkdirAll(outDir, 0o700); err != nil {
+		fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", err))
+		return 1
+	}
 	base := filepath.Join(outDir, "tenon-audit-"+sinceDay.Format(dateLayout)+"_"+untilDay.Format(dateLayout))
 	htmlPath, jsonPath := base+".html", base+".json"
 	if err := writeExport(htmlPath, htmlBytes, jsonPath, jsonBytes); err != nil {

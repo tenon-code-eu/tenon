@@ -111,9 +111,20 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	}
 
 	globalPath, explicit := globalConfigPath(*configFlag, getenv)
+	// --config "" ou --config= : option présente mais vide, donc une erreur.
+	configSet := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "config" {
+			configSet = true
+		}
+	})
 	lang, ok := uiLang(*langFlag, getenv, wd, globalPath)
 	if !ok {
 		fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", i18n.T(lang, "err.bad_lang", *langFlag)))
+		return 1
+	}
+	if configSet && *configFlag == "" {
+		fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", errors.New("config: --config requires a file")))
 		return 1
 	}
 	// Un --config explicite doit désigner un fichier existant.

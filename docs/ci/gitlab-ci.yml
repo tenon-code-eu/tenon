@@ -36,6 +36,9 @@ tenon:
       # To install from a mirror, uncomment the next line. The signature is
       # still verified, so a compromised mirror cannot serve a forged binary.
       # export TENON_DOWNLOAD_BASE="https://mirror.example.eu/tenon"
+      # For an air-gapped or mirror install, also fetch install.sh itself from
+      # the mirror (or vendor it in your repository) and pin it with a
+      # "sha256sum -c" check: it carries the minisign public key.
       curl -fsSL -o install.sh https://raw.githubusercontent.com/tenon-code-eu/tenon/v0.7.0/install.sh
       TENON_VERSION=v0.7.0 TENON_REQUIRE_SIGNATURE=1 sh install.sh
       export PATH="$HOME/.local/bin:$PATH"
@@ -43,8 +46,8 @@ tenon:
       tenon --config ci/tenon.toml -p "$TENON_TASK" --strict --output json > tenon-events.jsonl || rc=$?
       # Always check and export the audit log, even when tenon failed.
       vrc=0
-      tenon audit verify || vrc=$?
-      tenon audit export --all-projects --out tenon-audit || true
+      tenon --config ci/tenon.toml audit verify || vrc=$?
+      tenon --config ci/tenon.toml audit export --all-projects --out tenon-audit || true
       [ "$rc" -ne 0 ] && exit "$rc"
       exit "$vrc"
   artifacts:

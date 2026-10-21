@@ -1201,7 +1201,7 @@ tenon audit export [--since YYYY-MM-DD] [--until YYYY-MM-DD]
 | `--session <id>` | a single session |
 | `--details` | adds conversation data (see below) |
 | `--tsa-ca <pem>` | PEM trust roots for the timestamp tokens (default: as for `audit verify`) |
-| `--out <dir>` | output directory (default: current directory) |
+| `--out <dir>` | output directory, created (mode `0700`) if missing (default: current directory) |
 | `--lang fr\|en` | language of the HTML report |
 
 By default the report covers the last 30 days of the current project.

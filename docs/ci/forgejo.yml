@@ -50,6 +50,9 @@ jobs:
           # To install from a mirror, uncomment the next line. The signature is
           # still verified, so a compromised mirror cannot serve a forged binary.
           # export TENON_DOWNLOAD_BASE="https://mirror.example.eu/tenon"
+          # For an air-gapped or mirror install, also fetch install.sh itself from
+          # the mirror (or vendor it in your repository) and pin it with a
+          # "sha256sum -c" check: it carries the minisign public key.
           curl -fsSL -o install.sh https://raw.githubusercontent.com/tenon-code-eu/tenon/v0.7.0/install.sh
           TENON_VERSION=v0.7.0 TENON_REQUIRE_SIGNATURE=1 sh install.sh
       - name: Run tenon
@@ -66,9 +69,12 @@ jobs:
         run: |
           set -eu
           export PATH="$HOME/.local/bin:$PATH"
-          # The export fails when the run created no audit log; verify still reports it.
-          tenon audit export --all-projects --out tenon-audit || true
-          tenon audit verify
+          # The run step already fails the job on a tenon error; verify and
+          # export always run to archive the evidence.
+          vrc=0
+          tenon --config ci/tenon.toml audit verify || vrc=$?
+          tenon --config ci/tenon.toml audit export --all-projects --out tenon-audit
+          exit "$vrc"
       - name: Archive the evidence
         if: always()
         # Consider pinning actions by commit SHA for stronger supply-chain guarantees.

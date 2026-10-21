@@ -1203,7 +1203,7 @@ tenon audit export [--since AAAA-MM-JJ] [--until AAAA-MM-JJ]
 | `--session <id>` | une seule session |
 | `--details` | ajoute les données de conversation (voir plus bas) |
 | `--tsa-ca <pem>` | racines de confiance PEM des jetons d'horodatage (défaut : comme `audit verify`) |
-| `--out <dossier>` | dossier de sortie (défaut : dossier courant) |
+| `--out <dossier>` | dossier de sortie, créé (mode `0700`) s'il manque (défaut : dossier courant) |
 | `--lang fr\|en` | langue du rapport HTML |
 
 Par défaut, le rapport couvre les 30 derniers jours du projet courant.

@@ -31,7 +31,7 @@ Copy the template of your forge and the configuration to `ci/tenon.toml` in your
 
 1. **Install.** `TENON_VERSION=<vX.Y.Z> TENON_REQUIRE_SIGNATURE=1 sh install.sh`. The image has `minisign` (the templates install it with `apt-get`), so the signature of the release is verified, not only its SHA-256 hash.
 2. **Run.** `XDG_DATA_HOME="$PWD/.tenon-data"` keeps the audit log inside the workspace. Then `tenon --config ci/tenon.toml -p "$TENON_TASK" --strict --output json > tenon-events.jsonl`. The exit code of the job is the exit code of tenon.
-3. **Always, even on failure.** `tenon audit verify` (integrity of the hash chain) and `tenon audit export --all-projects --out tenon-audit` (compliance report), then the upload of the artifacts.
+3. **Always, even on failure.** `tenon --config ci/tenon.toml audit verify` (integrity of the hash chain) and `tenon --config ci/tenon.toml audit export --all-projects --out tenon-audit` (compliance report), with the same configuration as the run step so the timestamp trust roots match, then the upload of the artifacts.
 
 ## Exit codes
 
@@ -58,6 +58,8 @@ MISTRAL_API_KEY=x tenon --config ci/tenon.toml config check
 ## Install from a mirror
 
 `TENON_DOWNLOAD_BASE` replaces GitHub as the source of the release (sovereign forge, air-gapped mirror). It requires `TENON_VERSION`, accepts `https://` only (and `http://localhost` or `http://127.0.0.1` for tests), and redirects must be `https://`. The mirror holds `<base>/<version>/<archive>`, `SHA256SUMS` and `SHA256SUMS.minisig`.
+
+For an air-gapped install, fetch `install.sh` itself from the mirror (or vendor it in your repository) and pin it with a `sha256sum -c` check: it carries the minisign public key, so it is the root of trust.
 
 Each template has the line commented. The minisign signature is still verified with `TENON_REQUIRE_SIGNATURE=1`, so a compromised mirror cannot serve a forged binary.
 
