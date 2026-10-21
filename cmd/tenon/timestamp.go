@@ -160,7 +160,7 @@ func auditTimestamp(ctx context.Context, lang i18n.Lang, stdout, stderr io.Write
 		fmt.Fprintln(stdout, i18n.T(lang, "audit.timestamp_already"))
 		return 0
 	}
-	fmt.Fprintln(stdout, i18n.T(lang, "audit.timestamp_ok", path, genTime(info.GenTime), info.TSA))
+	fmt.Fprintln(stdout, i18n.T(lang, "audit.timestamp_ok", filepath.Base(path), genTime(info.GenTime), info.TSA))
 	return 0
 }
 
@@ -254,7 +254,9 @@ func auditVerify(lang i18n.Lang, args []string, stdout, stderr io.Writer, getenv
 	switch {
 	case sum.Count == 0:
 		fmt.Fprintln(stdout, i18n.T(lang, "audit.timestamps_none"))
-	case sum.Valid > 0:
+	case sum.Valid == 0:
+		fmt.Fprintln(stdout, i18n.T(lang, "audit.timestamps_none_valid", sum.Count))
+	default:
 		fmt.Fprintln(stdout, i18n.T(lang, "audit.timestamps_summary", sum.Valid, sum.LastFile, sum.LastLine, genTime(sum.LastTime), sum.TSA, sum.LinesAfter))
 	}
 	if len(sum.Errors) > 0 {

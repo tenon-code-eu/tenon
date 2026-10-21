@@ -298,7 +298,7 @@ func TestAuditTimestampCommandE2E(t *testing.T) {
 	e.editGlobal("", `url = ""`, fmt.Sprintf("url = %q\nca_file = %q", tsa.URL, writeCA(t, tsa.CA.PEM)))
 	code, out, errb = e.run("--lang", "en", "audit", "timestamp")
 	tk := e.tokens()
-	okLine := regexp.MustCompile(`^audit timestamp: \S+\.tsr \(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ, tsptest TSA\)\n$`)
+	okLine := regexp.MustCompile(`^audit timestamp: [^/\\\s]+\.tsr \(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ, tsptest TSA\)\n$`)
 	if code != 0 || len(tk) != 1 || !okLine.MatchString(out) || !strings.Contains(out, tk[0]) {
 		t.Fatalf("code=%d stdout=%q stderr=%q jetons=%v", code, out, errb, tk)
 	}
@@ -329,6 +329,9 @@ func TestAuditVerifyTSACAE2E(t *testing.T) {
 	code, out, errb := e.run("--lang", "en", "audit", "verify", "--tsa-ca", other)
 	if code != 1 || !strings.HasPrefix(out, "OK: ") || !strings.Contains(errb, "timestamp ") {
 		t.Fatalf("autre CA : code=%d stdout=%q stderr=%q", code, out, errb)
+	}
+	if !strings.HasSuffix(out, "timestamps: 0 valid, 1 invalid\n") {
+		t.Fatalf("autre CA : stdout=%q", out)
 	}
 	code, out, errb = e.run("--lang", "en", "audit", "verify", "--tsa-ca", writeCA(t, tsa.CA.PEM))
 	if code != 0 || !strings.Contains(out, "timestamps: 1 valid") || errb != "" {
