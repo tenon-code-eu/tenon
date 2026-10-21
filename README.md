@@ -43,6 +43,9 @@ curl -fsSL https://raw.githubusercontent.com/tenon-code-eu/tenon/main/install.sh
 
 The script installs the latest version in `~/.local/bin` (change the directory with `TENON_INSTALL_DIR`, pin a version with `TENON_VERSION=vX.Y.Z`).
 It always verifies the SHA-256 hash of the archive, and the minisign signature if `minisign` is installed (`TENON_REQUIRE_SIGNATURE=1` makes it mandatory).
+To install from a mirror (sovereign forge, air-gapped network) instead of GitHub, set `TENON_DOWNLOAD_BASE` and `TENON_VERSION=vX.Y.Z` (the version is required).
+The mirror must serve `<base>/<version>/<archive>`, `<base>/<version>/SHA256SUMS` and `<base>/<version>/SHA256SUMS.minisig`; the base must be `https` (`http` is accepted only for `localhost` and `127.0.0.1`).
+The hash and signature checks are unchanged.
 Read it before you run it: [install.sh](install.sh).
 
 ### With Go
