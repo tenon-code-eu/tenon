@@ -27,7 +27,7 @@ type Option func(*OpenAICompat)
 func WithHTTPClient(c *http.Client) Option { return func(o *OpenAICompat) { o.client = c } }
 
 // WithoutProxy makes the client ignore HTTP_PROXY/HTTPS_PROXY (strict-local
-// profile): a private address accepted by the profile must not leave the
+// profile, or secnumcloud with a local provider): a private address accepted by the profile must not leave the
 // machine through an environment proxy.
 func WithoutProxy() Option { return func(o *OpenAICompat) { o.noProxy = true } }
 

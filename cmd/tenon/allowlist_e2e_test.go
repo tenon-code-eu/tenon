@@ -5,6 +5,9 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/tenon-code-eu/tenon/internal/config"
+	"github.com/tenon-code-eu/tenon/internal/profile"
 )
 
 // qualified déclare la qualification secnumcloud sur le fournisseur de test
@@ -249,5 +252,61 @@ func TestConfigCheckAllowlistE2E(t *testing.T) {
 	if code != 1 || out != "provider_allowlist: global 1 hosts + local, project 1 hosts\n" ||
 		!strings.Contains(errb, `provider "test" (host "127.0.0.1") not in provider_allowlist (project)`) {
 		t.Fatalf("projet : code=%d stdout=%q stderr=%q", code, out, errb)
+	}
+}
+
+// Contournement des proxys d'environnement : strict-local, ou secnumcloud
+// avec un fournisseur local ; le gestionnaire MCP, global, l'active pour
+// les deux profils.
+func TestProviderNoProxy(t *testing.T) {
+	local := config.Provider{Jurisdiction: "local"}
+	eu := config.Provider{Jurisdiction: "eu"}
+	cases := []struct {
+		n         profile.Name
+		pc        config.Provider
+		prov, mcp bool
+	}{
+		{profile.None, local, false, false},
+		{profile.EUOnly, local, false, false},
+		{profile.SecNumCloud, local, true, true},
+		{profile.SecNumCloud, eu, false, true},
+		{profile.StrictLocal, local, true, true},
+	}
+	for _, c := range cases {
+		if got := providerNoProxy(c.n, c.pc); got != c.prov {
+			t.Errorf("providerNoProxy(%q, %q) = %v", c.n, c.pc.Jurisdiction, got)
+		}
+		if got := mcpNoProxy(c.n); got != c.mcp {
+			t.Errorf("mcpNoProxy(%q) = %v", c.n, got)
+		}
+	}
+}
+
+// Fumée : secnumcloud + fournisseur local, proxys d'environnement vers un
+// port mort ; la session aboutit. Non discriminant à lui seul (Go ne passe
+// jamais par un proxy pour 127.0.0.1) : TestProviderNoProxy couvre la règle.
+func TestSecNumCloudLocalProxyE2E(t *testing.T) {
+	t.Setenv("HTTP_PROXY", "http://127.0.0.1:1")
+	t.Setenv("HTTPS_PROXY", "http://127.0.0.1:1")
+	f := newFakeLLM(t, sseText("bonjour"))
+	e := newEnv(t, f, "local")
+	e.editGlobal("profile = \"secnumcloud\"\n")
+	if code, out, errb := e.run("-p", "salut"); code != 0 || !strings.Contains(out, "bonjour") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errb)
+	}
+	if n := len(f.requests()); n != 1 {
+		t.Fatalf("%d requête(s) reçue(s)", n)
+	}
+}
+
+// config check affiche, comme le démarrage, les avis qui expliquent le refus.
+func TestConfigCheckStrippedNoticeE2E(t *testing.T) {
+	e := newEnv(t, nil, "eu")
+	e.editGlobal("", qualified...)
+	e.withPolicy(policyHead + "profile = \"secnumcloud\"\n[providers]\nallow_local = true\n")
+	code, _, errb := e.run("--lang", "en", "config", "check")
+	if code != 1 || !strings.Contains(errb, "policy acme-dev: qualifications declared in config ignored (test)\n") ||
+		!strings.Contains(errb, `profile secnumcloud: provider "test" is not declared secnumcloud-qualified`) {
+		t.Fatalf("code=%d stderr=%q", code, errb)
 	}
 }

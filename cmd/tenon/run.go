@@ -152,6 +152,10 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		}
 		if pc, ok := cs.cfg.Provider(id); ok {
 			if err := providerErr(lang, cs.cfg, pc); err != nil {
+				// Comme au démarrage : les avis expliquent le refus.
+				for _, n := range profileNotices(lang, cs.cfg) {
+					fmt.Fprintln(stderr, n)
+				}
 				fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", err))
 				return 1
 			}
@@ -639,8 +643,6 @@ func policyProviderErr(lang i18n.Lang, pol *orgpolicy.Policy, info llm.ProviderI
 	return errors.New(i18n.T(lang, "err.policy_provider", info.ID, h, pol.ID))
 }
 
-// policyLine renvoie la ligne d'identification de la politique pol sous la
-// clé de traduction key ("" sans politique).
 // allowlists renvoie les listes blanches de fournisseurs de cfg : globale
 // puis projet, les listes absentes omises.
 func allowlists(cfg config.Config) []hostmatch.List {
@@ -689,6 +691,21 @@ func allowlistLine(lang i18n.Lang, cfg config.Config) string {
 	return i18n.T(lang, "config.allowlist", gn, gl, pn, pl)
 }
 
+// providerNoProxy dit si le fournisseur pc doit ignorer les variables de
+// proxy (HTTP_PROXY, HTTPS_PROXY) sous le profil n : strict-local, ou
+// secnumcloud avec un fournisseur local. Sinon une adresse privée acceptée
+// par le profil sortirait par un proxy.
+func providerNoProxy(n profile.Name, pc config.Provider) bool {
+	return n == profile.StrictLocal || (n == profile.SecNumCloud && pc.Jurisdiction == string(llm.Local))
+}
+
+// mcpNoProxy dit si le gestionnaire MCP ignore les variables de proxy sous
+// le profil n. L'option vaut pour tous ses serveurs : secnumcloud l'active
+// car il admet des serveurs http locaux.
+func mcpNoProxy(n profile.Name) bool {
+	return n == profile.StrictLocal || n == profile.SecNumCloud
+}
+
 // providerErr applique au fournisseur pc les contrôles d'avant connexion :
 // profil, liste blanche de la politique, puis listes blanches de la config.
 func providerErr(lang i18n.Lang, cfg config.Config, pc config.Provider) error {
@@ -702,11 +719,24 @@ func providerErr(lang i18n.Lang, cfg config.Config, pc config.Provider) error {
 	return allowlistProviderErr(lang, cfg, info)
 }
 
+// policyLine renvoie la ligne d'identification de la politique pol sous la
+// clé de traduction key ("" sans politique).
 func policyLine(lang i18n.Lang, key string, pol *orgpolicy.Policy) string {
 	if pol == nil {
 		return ""
 	}
 	return i18n.T(lang, key, pol.ID, pol.Version, pol.KeyID)
+}
+
+// profileNotices renvoie les avis du profil et de la politique de cfg,
+// affichés au démarrage et avant un refus du fournisseur.
+func profileNotices(lang i18n.Lang, cfg config.Config) []string {
+	var out []string
+	if cfg.WeakerProjectProfile != profile.None {
+		// La valeur projet, plus faible, a été ignorée : cfg.Profile est le profil global.
+		out = append(out, i18n.T(lang, "profile.weaker_project", cfg.WeakerProjectProfile, cfg.Profile))
+	}
+	return append(out, policyNotices(lang, cfg)...)
 }
 
 // policyNotices renvoie les avis du durcissement de cfg par sa politique.
@@ -762,12 +792,7 @@ func startEngine(o engineOptions) (started, error) {
 	if o.allowNonEU && cfg.Profile != profile.None {
 		return started{}, errors.New(i18n.T(lang, "err.profile_allow_non_eu", cfg.Profile))
 	}
-	var profileNotices []string
-	if cfg.WeakerProjectProfile != profile.None {
-		// La valeur projet, plus faible, a été ignorée : cfg.Profile est le profil global.
-		profileNotices = append(profileNotices, i18n.T(lang, "profile.weaker_project", cfg.WeakerProjectProfile, cfg.Profile))
-	}
-	profileNotices = append(profileNotices, policyNotices(lang, cfg)...)
+	startNotices := profileNotices(lang, cfg)
 	hookSet, hookNotices, err := loadHooks(lang, getenv, wd, cfg.Hooks)
 	if err != nil {
 		return started{}, err
@@ -787,13 +812,13 @@ func startEngine(o engineOptions) (started, error) {
 	// l'expliquent (qualification ignorée, profil relevé).
 	if err := providerErr(lang, cfg, pc); err != nil {
 		if o.stderr != nil {
-			for _, n := range profileNotices {
+			for _, n := range startNotices {
 				fmt.Fprintln(o.stderr, n)
 			}
 		}
 		return started{}, err
 	}
-	pc, detectNotices, err := detectLocal(o.ctx, lang, pc, cfg.Profile == profile.StrictLocal)
+	pc, detectNotices, err := detectLocal(o.ctx, lang, pc, providerNoProxy(cfg.Profile, pc))
 	if err != nil {
 		return started{}, err
 	}
@@ -985,10 +1010,10 @@ func startEngine(o engineOptions) (started, error) {
 	// masquer aucun outil interne.
 	ts = append(ts, mgr.Tools()...)
 
-	// strict-local : le fournisseur ignore les variables de proxy, sinon une
-	// adresse privée acceptée par le profil sortirait par un proxy.
+	// strict-local, ou secnumcloud avec un fournisseur local : le
+	// fournisseur ignore les variables de proxy (voir providerNoProxy).
 	var provOpts []provider.Option
-	if cfg.Profile == profile.StrictLocal {
+	if providerNoProxy(cfg.Profile, pc) {
 		provOpts = append(provOpts, provider.WithoutProxy())
 	}
 
@@ -1026,7 +1051,7 @@ func startEngine(o engineOptions) (started, error) {
 		}
 	}
 	return started{
-		eng: eng, redactor: red, sessionID: sid, close: closeAll, notices: slices.Concat(profileNotices, detectNotices, skillNotices, ad.notices, hookNotices, ckNotices, notices), skills: cat, agents: ad.cat, hooks: hookSet,
+		eng: eng, redactor: red, sessionID: sid, close: closeAll, notices: slices.Concat(startNotices, detectNotices, skillNotices, ad.notices, hookNotices, ckNotices, notices), skills: cat, agents: ad.cat, hooks: hookSet,
 		downNotices: downNotices(o.lang, unavailable, red),
 		provider:    info, contextWindow: pc.Window(), profile: cfg.Profile,
 		policy: policyLine(lang, "tui.welcome.policy", cfg.Policy),
@@ -1116,7 +1141,7 @@ func startMCP(o engineOptions, cfg config.Config, red *policy.Redactor) (*mcp.Ma
 		Consent:     consent,
 		Root:        o.wd,
 		AllowNonEU:  allowNonEU,
-		NoProxy:     cfg.Profile == profile.StrictLocal,
+		NoProxy:     mcpNoProxy(cfg.Profile),
 	})
 	liveMCP.Store(mgr)
 	// Comme les clés d'API : une valeur trop courte (ex. DEBUG=1) masquerait

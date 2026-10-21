@@ -68,7 +68,7 @@ type Options struct {
 	// outils d'un serveur hors UE exigent une validation humaine (ForceAsk).
 	AllowNonEU bool
 
-	// NoProxy (profil strict-local) : les clients HTTP ignorent
+	// NoProxy (profils strict-local et secnumcloud) : les clients HTTP ignorent
 	// HTTP_PROXY/HTTPS_PROXY ; une adresse privée ne sort pas par un proxy.
 	NoProxy bool
 
