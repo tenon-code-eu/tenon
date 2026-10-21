@@ -1,15 +1,14 @@
 package orgpolicy
 
 import (
-	"errors"
 	"fmt"
-	"net/url"
 	"path/filepath"
 	"regexp"
 	"strings"
 
 	"github.com/BurntSushi/toml"
 
+	"github.com/tenon-code-eu/tenon/internal/hostmatch"
 	"github.com/tenon-code-eu/tenon/internal/profile"
 )
 
@@ -175,67 +174,15 @@ func Parse(b []byte) (Policy, error) {
 
 func checkHosts(field string, hosts []string) error {
 	for _, h := range hosts {
-		if err := checkHost(h); err != nil {
+		if err := hostmatch.CheckEntry(h); err != nil {
 			return policyErr("%s: %q: %v", field, h, err)
 		}
 	}
 	return nil
 }
 
-func checkHost(h string) error {
-	if h == "" {
-		return errors.New("empty host")
-	}
-	if strings.ContainsAny(h, "/:") {
-		return errors.New("scheme, path or port not allowed")
-	}
-	rest := h
-	if strings.HasPrefix(h, "*.") {
-		rest = h[2:]
-		if len(strings.Split(rest, ".")) < 2 {
-			return errors.New("wildcard needs at least two labels")
-		}
-	}
-	if strings.Contains(rest, "*") {
-		return errors.New("wildcard only allowed as leading \"*.\"")
-	}
-	for _, l := range strings.Split(rest, ".") {
-		if l == "" {
-			return errors.New("empty label")
-		}
-	}
-	return nil
-}
-
 // HostOf renvoie l'hôte de l'URL en minuscules, sans port ; "" en cas d'erreur.
-func HostOf(rawURL string) string {
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return ""
-	}
-	return strings.ToLower(u.Hostname())
-}
-
-// matchHost applique la règle exacte / joker strict.
-func matchHost(entries []string, host string) bool {
-	host = strings.ToLower(host)
-	if host == "" {
-		return false
-	}
-	for _, e := range entries {
-		e = strings.ToLower(e)
-		if rest, ok := strings.CutPrefix(e, "*."); ok {
-			if strings.HasSuffix(host, "."+rest) {
-				return true
-			}
-			continue
-		}
-		if host == e {
-			return true
-		}
-	}
-	return false
-}
+func HostOf(rawURL string) string { return hostmatch.HostOf(rawURL) }
 
 // AllowsHost indique si un fournisseur sur cet hôte est admis. Un *Policy nil
 // n'impose rien.
@@ -246,7 +193,7 @@ func (p *Policy) AllowsHost(host string) bool {
 	if p.Providers.AllowLocal && profile.IsLocalHost(host) {
 		return true
 	}
-	return matchHost(p.Providers.AllowHosts, host)
+	return hostmatch.Match(p.Providers.AllowHosts, host)
 }
 
 // AllowsMCP indique si un serveur MCP est admis (transport "http" ou "stdio").
@@ -260,7 +207,7 @@ func (p *Policy) AllowsMCP(transport, rawURL, command0 string) bool {
 	case "allowlist":
 		switch transport {
 		case "http":
-			return matchHost(p.MCP.AllowHosts, HostOf(rawURL))
+			return hostmatch.Match(p.MCP.AllowHosts, HostOf(rawURL))
 		case "stdio":
 			for _, c := range p.MCP.AllowCommands {
 				if c == command0 {
