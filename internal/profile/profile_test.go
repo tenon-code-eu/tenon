@@ -1,14 +1,16 @@
 package profile
 
 import (
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/tenon-code-eu/tenon/internal/llm"
 )
 
 func TestParse(t *testing.T) {
-	for in, want := range map[string]Name{"": None, "eu-only": EUOnly, "strict-local": StrictLocal} {
+	for in, want := range map[string]Name{"": None, "eu-only": EUOnly, "secnumcloud": SecNumCloud, "strict-local": StrictLocal} {
 		got, err := Parse(in)
 		if err != nil || got != want {
 			t.Errorf("Parse(%q) = %q, %v", in, got, err)
@@ -16,7 +18,7 @@ func TestParse(t *testing.T) {
 	}
 	for _, in := range []string{"EU-ONLY", "x"} {
 		_, err := Parse(in)
-		want := `unknown profile "` + in + `" (eu-only|strict-local)`
+		want := `unknown profile "` + in + `" (eu-only|secnumcloud|strict-local)`
 		if err == nil || err.Error() != want {
 			t.Errorf("Parse(%q) err = %v, want %q", in, err, want)
 		}
@@ -24,16 +26,12 @@ func TestParse(t *testing.T) {
 }
 
 func TestStricter(t *testing.T) {
-	names := []Name{None, EUOnly, StrictLocal}
-	want := [3][3]Name{
-		{None, EUOnly, StrictLocal},
-		{EUOnly, EUOnly, StrictLocal},
-		{StrictLocal, StrictLocal, StrictLocal},
-	}
+	names := []Name{None, EUOnly, SecNumCloud, StrictLocal}
 	for i, a := range names {
 		for j, b := range names {
-			if got := Stricter(a, b); got != want[i][j] {
-				t.Errorf("Stricter(%q,%q) = %q, want %q", a, b, got, want[i][j])
+			want := names[max(i, j)]
+			if got := Stricter(a, b); got != want {
+				t.Errorf("Stricter(%q,%q) = %q, want %q", a, b, got, want)
 			}
 		}
 	}
@@ -118,5 +116,75 @@ func TestIsLocalHost(t *testing.T) {
 		if IsLocalHost(h) {
 			t.Errorf("IsLocalHost(%q) = true", h)
 		}
+	}
+}
+
+func TestCheckProviderSecNumCloud(t *testing.T) {
+	q := []string{QualSecNumCloud}
+	tests := []struct {
+		name string
+		p    llm.ProviderInfo
+		want string
+	}{
+		{"local localhost", llm.ProviderInfo{ID: "o", BaseURL: "http://localhost:11434/v1", Jurisdiction: llm.Local}, ""},
+		{"local remote host", llm.ProviderInfo{ID: "o", BaseURL: "http://gpu.lan:8000/v1", Jurisdiction: llm.Local}, `profile secnumcloud: provider "o" url host "gpu.lan" is not a local address`},
+		{"eu qualified", llm.ProviderInfo{ID: "m", BaseURL: "https://api.m.eu", Jurisdiction: llm.EU, Qualifications: q}, ""},
+		{"eu unqualified", llm.ProviderInfo{ID: "m", BaseURL: "https://api.m.eu", Jurisdiction: llm.EU}, `profile secnumcloud: provider "m" is not declared secnumcloud-qualified`},
+		{"non-eu qualified", llm.ProviderInfo{ID: "x", Jurisdiction: llm.NonEU, Qualifications: q}, `profile secnumcloud: provider "x" (non-eu) not allowed`},
+		{"empty jurisdiction", llm.ProviderInfo{ID: "x", Qualifications: q}, `profile secnumcloud: provider "x" (unknown) not allowed`},
+	}
+	for _, tc := range tests {
+		err := CheckProvider(SecNumCloud, tc.p)
+		if tc.want == "" {
+			if err != nil {
+				t.Errorf("%s: %v", tc.name, err)
+			}
+			continue
+		}
+		if err == nil || err.Error() != tc.want || !errors.Is(err, ErrProfile) {
+			t.Errorf("%s: err = %v, want %q", tc.name, err, tc.want)
+		}
+	}
+}
+
+func TestCheckMCPSecNumCloud(t *testing.T) {
+	q := []string{QualSecNumCloud}
+	tests := []struct {
+		name string
+		s    MCPTarget
+		want string
+	}{
+		{"stdio local", MCPTarget{ID: "a", Transport: "stdio", Jurisdiction: "local"}, ""},
+		{"stdio eu", MCPTarget{ID: "a", Transport: "stdio", Jurisdiction: "eu"}, `profile secnumcloud: MCP server "a" (not declared secnumcloud-qualified) skipped`},
+		{"http local", MCPTarget{ID: "a", Transport: "http", URL: "http://localhost:9/mcp", Jurisdiction: "local"}, ""},
+		{"http eu qualified", MCPTarget{ID: "a", Transport: "http", URL: "https://x.eu/mcp", Jurisdiction: "eu", Qualifications: q}, ""},
+		{"http eu unqualified", MCPTarget{ID: "a", Transport: "http", URL: "https://x.eu/mcp", Jurisdiction: "eu"}, `profile secnumcloud: MCP server "a" (not declared secnumcloud-qualified) skipped`},
+		{"http local remote host", MCPTarget{ID: "a", Transport: "http", URL: "http://gpu.lan/mcp", Jurisdiction: "local"}, `profile secnumcloud: MCP server "a" (url host "gpu.lan" is not a local address) skipped`},
+		{"non-eu", MCPTarget{ID: "a", Transport: "http", Jurisdiction: "non-eu", Qualifications: q}, `profile secnumcloud: MCP server "a" (non-eu) skipped`},
+	}
+	for _, tc := range tests {
+		err := CheckMCP(SecNumCloud, tc.s)
+		if tc.want == "" {
+			if err != nil {
+				t.Errorf("%s: %v", tc.name, err)
+			}
+			continue
+		}
+		if err == nil || err.Error() != tc.want {
+			t.Errorf("%s: err = %v, want %q", tc.name, err, tc.want)
+		}
+	}
+}
+
+func TestQualified(t *testing.T) {
+	if !Qualified([]string{"x", QualSecNumCloud}) || Qualified(nil) || Qualified([]string{"SecNumCloud"}) {
+		t.Error("Qualified")
+	}
+}
+
+func TestProviderInfoQualificationsOmitted(t *testing.T) {
+	b, _ := json.Marshal(llm.ProviderInfo{ID: "a"})
+	if strings.Contains(string(b), "qualifications") {
+		t.Errorf("json = %s", b)
 	}
 }

@@ -1,5 +1,5 @@
 // Package profile porte les règles des profils de conformité (eu-only,
-// strict-local). Paquet pur : aucune E/S, aucune résolution DNS.
+// secnumcloud, strict-local). Paquet pur : aucune E/S, aucune résolution DNS.
 package profile
 
 import (
@@ -18,8 +18,22 @@ type Name string
 const (
 	None        Name = ""
 	EUOnly      Name = "eu-only"
+	SecNumCloud Name = "secnumcloud"
 	StrictLocal Name = "strict-local"
 )
+
+// QualSecNumCloud est la seule qualification acceptée.
+const QualSecNumCloud = "secnumcloud"
+
+// Qualified dit si la liste déclare la qualification secnumcloud.
+func Qualified(quals []string) bool {
+	for _, q := range quals {
+		if q == QualSecNumCloud {
+			return true
+		}
+	}
+	return false
+}
 
 // ErrProfile est enveloppée par toute violation de profil.
 var ErrProfile = errors.New("profile violation")
@@ -33,18 +47,20 @@ func (v violation) Is(target error) bool { return target == ErrProfile }
 // Parse valide un nom de profil ("" = aucun). Le paquet config ajoute son préfixe.
 func Parse(s string) (Name, error) {
 	switch Name(s) {
-	case None, EUOnly, StrictLocal:
+	case None, EUOnly, SecNumCloud, StrictLocal:
 		return Name(s), nil
 	}
-	return None, fmt.Errorf("unknown profile %q (eu-only|strict-local)", s)
+	return None, fmt.Errorf("unknown profile %q (eu-only|secnumcloud|strict-local)", s)
 }
 
 func rank(n Name) int {
 	switch n {
 	case EUOnly:
 		return 1
-	case StrictLocal:
+	case SecNumCloud:
 		return 2
+	case StrictLocal:
+		return 3
 	}
 	return 0
 }
@@ -70,6 +86,8 @@ func jurisdictionOK(n Name, j string) bool {
 	switch n {
 	case EUOnly:
 		return j == string(llm.EU) || j == string(llm.Local)
+	case SecNumCloud:
+		return j == string(llm.EU) || j == string(llm.Local)
 	case StrictLocal:
 		return j == string(llm.Local)
 	}
@@ -93,7 +111,11 @@ func CheckProvider(n Name, p llm.ProviderInfo) error {
 	if !jurisdictionOK(n, string(p.Jurisdiction)) {
 		return violation(fmt.Sprintf("profile %s: provider %q (%s) not allowed", n, p.ID, juris(string(p.Jurisdiction))))
 	}
-	if n == StrictLocal {
+	// secnumcloud : local avec hôte local, ou eu qualifié.
+	if n == SecNumCloud && p.Jurisdiction == llm.EU && !Qualified(p.Qualifications) {
+		return violation(fmt.Sprintf("profile %s: provider %q is not declared secnumcloud-qualified", n, p.ID))
+	}
+	if n == StrictLocal || (n == SecNumCloud && p.Jurisdiction == llm.Local) {
 		if host := hostOf(p.BaseURL); !IsLocalHost(host) {
 			return violation(fmt.Sprintf("profile %s: provider %q url host %q is not a local address", n, p.ID, host))
 		}
@@ -102,7 +124,10 @@ func CheckProvider(n Name, p llm.ProviderInfo) error {
 }
 
 // MCPTarget décrit un serveur MCP à contrôler.
-type MCPTarget struct{ ID, Transport, URL, Jurisdiction string }
+type MCPTarget struct {
+	ID, Transport, URL, Jurisdiction string
+	Qualifications                   []string
+}
 
 // CheckMCP vérifie un serveur MCP contre le profil.
 func CheckMCP(n Name, s MCPTarget) error {
@@ -115,8 +140,11 @@ func CheckMCP(n Name, s MCPTarget) error {
 	if !jurisdictionOK(n, s.Jurisdiction) {
 		return skip(juris(s.Jurisdiction))
 	}
+	if n == SecNumCloud && s.Jurisdiction == string(llm.EU) && !Qualified(s.Qualifications) {
+		return skip("not declared secnumcloud-qualified")
+	}
 	// Seul le transport stdio n'a pas d'URL ; tout autre transport est vérifié par hôte.
-	if n == StrictLocal && s.Transport != "stdio" {
+	if (n == StrictLocal || (n == SecNumCloud && s.Jurisdiction == string(llm.Local))) && s.Transport != "stdio" {
 		if host := hostOf(s.URL); !IsLocalHost(host) {
 			return skip(fmt.Sprintf("url host %q is not a local address", host))
 		}

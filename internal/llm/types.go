@@ -67,4 +67,6 @@ type ProviderInfo struct {
 	Model        string       `json:"model"`
 	Country      string       `json:"country"`
 	Jurisdiction Jurisdiction `json:"jurisdiction"`
+	// Qualifications déclarées (ex. "secnumcloud") ; jamais déduites.
+	Qualifications []string `json:"qualifications,omitempty"`
 }
