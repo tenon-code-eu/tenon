@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/tenon-code-eu/tenon/internal/profile"
+	"github.com/tenon-code-eu/tenon/internal/tsp/tsptest"
 )
 
 const fullTOML = `
@@ -117,6 +118,9 @@ func TestParseRejects(t *testing.T) {
 		"define neg ctx": hd + "[[providers.define]]\nid=\"a\"\nbase_url=\"https://a.eu\"\njurisdiction=\"eu\"\ncontext_window=-1",
 		"define dup id":  hd + "[[providers.define]]\nid=\"a\"\nbase_url=\"https://a.eu\"\njurisdiction=\"eu\"\n[[providers.define]]\nid=\"a\"\nbase_url=\"https://b.eu\"\njurisdiction=\"eu\"",
 		"define nojur":   hd + "[[providers.define]]\nid=\"a\"\nbase_url=\"https://a.eu\"",
+		"ts http remote": hd + "[audit.timestamp]\nurl=\"http://tsa.example.eu\"",
+		"ts bad ca":      hd + "[audit.timestamp]\nurl=\"https://tsa.eu\"\nca=\"junk\"",
+		"ts no url":      hd + "[audit.timestamp]\nca=\"x\"",
 	}
 	for name, src := range cases {
 		_, err := Parse([]byte(src))
@@ -188,5 +192,17 @@ func TestAllowsMCP(t *testing.T) {
 		if got := al.AllowsMCP(c.tr, c.u, c.c); got != c.want {
 			t.Errorf("%+v: got %v", c, got)
 		}
+	}
+}
+
+func TestParseTimestamp(t *testing.T) {
+	ca := tsptest.NewCA(t)
+	p := mustParse(t, "[audit]\nlevel=\"full\"\n[audit.timestamp]\nurl=\"https://tsa.eu\"\nca='''"+string(ca.PEM)+"'''\n")
+	if p.AuditLevel != "full" || p.Timestamp == nil || p.Timestamp.URL != "https://tsa.eu" || string(p.Timestamp.CA) != string(ca.PEM) {
+		t.Fatalf("%+v", p)
+	}
+	p = mustParse(t, "[audit.timestamp]\nurl=\"https://tsa.eu\"\n")
+	if p.Timestamp == nil || p.Timestamp.CA != nil {
+		t.Fatalf("%+v", p.Timestamp)
 	}
 }

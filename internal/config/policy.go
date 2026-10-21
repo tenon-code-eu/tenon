@@ -90,6 +90,13 @@ func ApplyPolicy(cfg Config, pol *orgpolicy.Policy) (Config, error) {
 		cfg.Audit.Level = pol.AuditLevel
 	}
 
+	if pol.Timestamp != nil {
+		if u := cfg.Audit.Timestamp; u == nil || u.URL != pol.Timestamp.URL {
+			cfg.PolicyTimestampImposed = true
+		}
+		cfg.Audit.Timestamp = &AuditTimestamp{URL: pol.Timestamp.URL, CAPEM: slices.Clone(pol.Timestamp.CA)}
+	}
+
 	if err := cfg.validate(); err != nil {
 		return Config{}, err
 	}

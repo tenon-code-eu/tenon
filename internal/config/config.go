@@ -6,9 +6,11 @@
 package config
 
 import (
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -17,6 +19,7 @@ import (
 	"github.com/tenon-code-eu/tenon/internal/hostmatch"
 	"github.com/tenon-code-eu/tenon/internal/orgpolicy"
 	"github.com/tenon-code-eu/tenon/internal/profile"
+	"github.com/tenon-code-eu/tenon/internal/tsp"
 )
 
 type Config struct {
@@ -60,6 +63,7 @@ type Config struct {
 	// Avis produits par ApplyPolicy, jamais lus depuis le TOML.
 	PolicyOverriddenProviders []string     `toml:"-"` // fournisseurs de la config remplacés par la politique
 	PolicyAuditFrom           string       `toml:"-"` // niveau d'audit remplacé ("" si inchangé)
+	PolicyTimestampImposed    bool         `toml:"-"` // horodatage de la config remplacé par la politique
 	PolicyRaisedProfile       profile.Name `toml:"-"` // profil de la config relevé par la politique
 	// PolicyStrippedQualifications : identifiants (triés) dont les
 	// qualifications de la config ont été retirées par la politique.
@@ -203,7 +207,75 @@ func (m MCP) validate() error {
 }
 
 type Audit struct {
-	Level string `toml:"level"`
+	Level     string          `toml:"level"`
+	Timestamp *AuditTimestamp `toml:"timestamp"` // globale uniquement
+}
+
+// AuditTimestamp configure l'horodatage RFC 3161 du journal d'audit. CAPEM
+// vient de la politique d'organisation, jamais du TOML.
+type AuditTimestamp struct {
+	URL    string `toml:"url"`
+	CAFile string `toml:"ca_file"`
+	CAPEM  []byte `toml:"-"`
+}
+
+// TimestampRoots renvoie les racines de confiance de l'autorité d'horodatage
+// et leur origine : "policy" (CAPEM) > "ca_file" > "system" (pool nil).
+func (c Config) TimestampRoots() (*x509.CertPool, string, error) {
+	ts := c.Audit.Timestamp
+	if ts == nil {
+		return nil, "system", nil
+	}
+	if len(ts.CAPEM) > 0 {
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(ts.CAPEM) {
+			return nil, "", errors.New("audit.timestamp: policy ca: no certificate")
+		}
+		return pool, "policy", nil
+	}
+	if ts.CAFile != "" {
+		pool, err := loadCAFile(ts.CAFile)
+		if err != nil {
+			return nil, "", fmt.Errorf("config: audit.timestamp.ca_file: %w", err)
+		}
+		return pool, "ca_file", nil
+	}
+	return nil, "system", nil
+}
+
+func loadCAFile(path string) (*x509.CertPool, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(b) {
+		return nil, errors.New("no certificate")
+	}
+	return pool, nil
+}
+
+// validate contrôle l'horodatage : URL https (http pour les hôtes locaux),
+// ca_file lisible et contenant un certificat.
+func (t *AuditTimestamp) validate() error {
+	if t == nil {
+		return nil
+	}
+	if t.URL == "" {
+		if t.CAFile != "" {
+			return errors.New("config: audit.timestamp.ca_file without url")
+		}
+		return nil
+	}
+	if err := tsp.CheckURL(t.URL); err != nil {
+		return err
+	}
+	if t.CAFile != "" {
+		if _, err := loadCAFile(t.CAFile); err != nil {
+			return fmt.Errorf("config: audit.timestamp.ca_file: %w", err)
+		}
+	}
+	return nil
 }
 
 type Permissions struct {
@@ -337,6 +409,9 @@ func (c Config) validateFields() error {
 	case "full", "metadata":
 	default:
 		return fmt.Errorf("config: invalid audit.level %q (full|metadata)", c.Audit.Level)
+	}
+	if err := c.Audit.Timestamp.validate(); err != nil {
+		return err
 	}
 	if c.CompactionThreshold <= 0 || c.CompactionThreshold >= 1 {
 		return fmt.Errorf("config: invalid compaction_threshold %v (]0,1[)", c.CompactionThreshold)

@@ -40,6 +40,13 @@ compaction_threshold = 0.8
 # "metadata": SHA-256 hash and size of each payload, without content.
 level = "full"
 
+# RFC 3161 timestamping of the audit log (global config only).
+# https required (http only for local hosts); ca_file: PEM trust roots of the
+# authority (default: system roots).
+# [audit.timestamp]
+# url = "https://tsa.example.eu/tsr"
+# ca_file = "/etc/tenon/tsa-ca.pem"
+
 # --- Providers ------------------------------------------------------------
 #
 # Built-in presets: mistral, scaleway, ovhcloud, albert, codestral (jurisdiction "eu"),

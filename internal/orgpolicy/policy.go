@@ -1,6 +1,7 @@
 package orgpolicy
 
 import (
+	"crypto/x509"
 	"fmt"
 	"path/filepath"
 	"regexp"
@@ -10,19 +11,28 @@ import (
 
 	"github.com/tenon-code-eu/tenon/internal/hostmatch"
 	"github.com/tenon-code-eu/tenon/internal/profile"
+	"github.com/tenon-code-eu/tenon/internal/tsp"
 )
 
 // Policy est la politique d'organisation décodée et validée.
 type Policy struct {
 	ID         string
 	Version    int
-	Profile    profile.Name // plancher ; "" = aucun
-	Providers  *Providers   // nil : pas de liste blanche
-	Rules      []Rule       // [[permissions.rules]]
-	Redaction  []Redaction  // [[redaction.rules]]
-	AuditLevel string       // [audit] level ; "" = non imposé
+	Profile    profile.Name    // plancher ; "" = aucun
+	Providers  *Providers      // nil : pas de liste blanche
+	Rules      []Rule          // [[permissions.rules]]
+	Redaction  []Redaction     // [[redaction.rules]]
+	AuditLevel string          // [audit] level ; "" = non imposé
+	Timestamp  *AuditTimestamp // [audit.timestamp] ; nil = non imposé
 	MCP        MCP
 	KeyID      string // renseigné par Load
+}
+
+// AuditTimestamp : horodatage RFC 3161 imposé. CA : PEM des racines de
+// confiance de l'autorité (nil = racines système).
+type AuditTimestamp struct {
+	URL string
+	CA  []byte
 }
 
 // Providers porte la liste blanche et les fournisseurs imposés.
@@ -79,7 +89,11 @@ type raw struct {
 		Rules []Redaction `toml:"rules"`
 	} `toml:"redaction"`
 	Audit struct {
-		Level string `toml:"level"`
+		Level     string `toml:"level"`
+		Timestamp *struct {
+			URL string `toml:"url"`
+			CA  string `toml:"ca"`
+		} `toml:"timestamp"`
 	} `toml:"audit"`
 	MCP MCP `toml:"mcp"`
 }
@@ -172,8 +186,25 @@ func Parse(b []byte) (Policy, error) {
 	default:
 		return Policy{}, policyErr("unknown audit.level %q", r.Audit.Level)
 	}
+	var ts *AuditTimestamp
+	if t := r.Audit.Timestamp; t != nil {
+		if t.URL == "" {
+			return Policy{}, policyErr("audit.timestamp.url missing")
+		}
+		if err := tsp.CheckURL(t.URL); err != nil {
+			return Policy{}, policyErr("%v", err)
+		}
+		ts = &AuditTimestamp{URL: t.URL}
+		if t.CA != "" {
+			if !x509.NewCertPool().AppendCertsFromPEM([]byte(t.CA)) {
+				return Policy{}, policyErr("audit.timestamp.ca: no certificate")
+			}
+			ts.CA = []byte(t.CA)
+		}
+	}
 	return Policy{
-		ID: r.ID, Version: r.Version, Profile: prof, Providers: r.Providers,
+		Timestamp: ts,
+		ID:        r.ID, Version: r.Version, Profile: prof, Providers: r.Providers,
 		Rules: r.Permissions.Rules, Redaction: r.Redaction.Rules,
 		AuditLevel: r.Audit.Level, MCP: r.MCP,
 	}, nil
