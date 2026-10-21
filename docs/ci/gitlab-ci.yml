@@ -1,0 +1,54 @@
+# tenon in GitLab CI (GitLab.com or a self-managed instance).
+#
+# Copy this file into your .gitlab-ci.yml (or include it) and ci/tenon.toml
+# next to it (see docs/ci.md).
+#
+# Variables to define in Settings > CI/CD > Variables:
+#   MISTRAL_API_KEY  the provider key; masked AND protected.
+# Run the job from a pipeline with the variable TENON_TASK (manual run) or
+# from a merge request. Never give the key to pipelines of fork merge
+# requests: a fork author controls ci/tenon.toml and the task.
+#
+# The exit code of the job is the exit code of tenon (0, 1, 3 or 4).
+
+tenon:
+  # Debian-based image with Go (the allow rule runs "go test ./..."); the
+  # tag is pinned, raise it when Go ships a fix.
+  image: golang:1.26.9-bookworm
+  variables:
+    TENON_TASK: "Review the changes of this merge request and run the tests."
+    XDG_DATA_HOME: "$CI_PROJECT_DIR/.tenon-data"
+  rules:
+    # Pipelines of fork merge requests never run this job.
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_PROJECT_PATH == $CI_PROJECT_PATH'
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+      when: manual
+  script:
+    - apt-get update -qq
+    - apt-get install -y --no-install-recommends ca-certificates curl minisign
+    - |
+      set -eu
+      # Pinned version; the signature is mandatory.
+      # To install from a mirror, uncomment the next line. The signature is
+      # still verified, so a compromised mirror cannot serve a forged binary.
+      # export TENON_DOWNLOAD_BASE="https://mirror.example.eu/tenon"
+      curl -fsSL https://raw.githubusercontent.com/tenon-code-eu/tenon/v0.7.0/install.sh \
+        | TENON_VERSION=v0.7.0 TENON_REQUIRE_SIGNATURE=1 sh
+      export PATH="$HOME/.local/bin:$PATH"
+      rc=0
+      tenon --config ci/tenon.toml -p "$TENON_TASK" --strict --output json > tenon-events.jsonl || rc=$?
+      # Always check and export the audit log, even when tenon failed.
+      vrc=0
+      tenon audit verify || vrc=$?
+      tenon audit export --all-projects --out tenon-audit || true
+      [ "$rc" -ne 0 ] && exit "$rc"
+      exit "$vrc"
+  artifacts:
+    # Kept even when the job fails. Copy them off the runner: they are the
+    # evidence of the run.
+    when: always
+    expire_in: 90 days
+    paths:
+      - tenon-events.jsonl
+      - tenon-audit/
+      - .tenon-data/tenon/audit/

@@ -168,6 +168,8 @@ tenon -p "summarize this repository" --output json
 Any action that would need an approval is **denied**.
 Only reads inside the project and actions covered by an `allow` rule run.
 
+For pipelines (GitLab CI, Forgejo/Gitea, GitHub Actions), see [tenon in CI](ci.md): templates, `--strict`, `--config`, audit artifacts.
+
 ### Outputs
 
 - `--output text` (default): the final answer goes to standard output. The banner, warnings and denials go to standard error.

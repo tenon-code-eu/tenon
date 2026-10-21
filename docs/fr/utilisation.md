@@ -168,6 +168,8 @@ tenon -p "résume ce dépôt" --output json
 Toute action qui demanderait une validation est **refusée**.
 Seules les lectures dans le projet et les actions couvertes par une règle `allow` s'exécutent.
 
+Pour les pipelines (GitLab CI, Forgejo/Gitea, GitHub Actions), voir [tenon en CI](ci.md) : modèles, `--strict`, `--config`, artefacts d'audit.
+
 ### Sorties
 
 - `--output text` (défaut) : la réponse finale va sur la sortie standard. La bannière, les avertissements et les refus vont sur la sortie d'erreur.

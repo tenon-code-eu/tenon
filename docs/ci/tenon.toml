@@ -1,0 +1,43 @@
+# Example tenon configuration for a CI job (docs/ci.md).
+#
+# Copy it to ci/tenon.toml in your repository; the templates run
+#   tenon --config ci/tenon.toml -p "$TENON_TASK" --strict --output json
+# Check it: MISTRAL_API_KEY=x tenon --config ci/tenon.toml config check
+#
+# This file contains no secret. The API key is read from the environment
+# variable named below: define it as a masked and protected CI variable.
+#
+# Warning: a merge request can edit this file like it edits the pipeline.
+# Run the job only on protected branches, or take this file from a separate
+# repository (see docs/ci.md).
+
+# Provider used without --provider: the built-in "mistral" preset
+# (jurisdiction "eu"). The preset reads its key from MISTRAL_API_KEY.
+default_provider = "mistral"
+
+# "eu-only": eu or local providers and MCP servers only.
+profile = "eu-only"
+
+max_iterations = 30
+shell_timeout = "5m"
+
+[audit]
+# "full": content of the events (redacted).
+level = "full"
+
+# RFC 3161 timestamping of the audit log. The token is written next to the
+# audit log: archive it off the runner. tenon ships no TSA preset.
+# [audit.timestamp]
+# url = "https://tsa.example.eu/tsr"
+# ca_file = "ci/tsa-ca.pem"
+
+# --- Permissions ----------------------------------------------------------
+#
+# In non-interactive mode every action that needs an approval is denied (exit
+# code 3). Keep the allow rules minimal: reads inside the project are already
+# allowed; add only what the task needs.
+
+[[permissions.rules]]
+tool = "shell"
+match = "go test ./..."
+decision = "allow"

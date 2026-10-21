@@ -121,6 +121,7 @@ tenon git install-hook
 ## Documentation
 
 - [Usage guide](docs/usage.md): keys, approval, non-interactive mode, sessions, configuration, providers, MCP, git marking, audit, compliance export.
+- [tenon in CI](docs/ci.md): templates for GitLab CI, Forgejo/Gitea and GitHub Actions, `--strict`, `--config`, `TENON_DOWNLOAD_BASE` mirror install.
 - [Organisation policy](docs/policy.md): signed floor imposed by an administrator.
 - [Security and limits](docs/security.md): sovereignty criteria, guarantees, known limits, recovery.
 - [Example configuration](docs/config.example.toml): commented file, without secrets.
@@ -149,4 +150,4 @@ Une politique d'organisation signée (minisign) permet à un administrateur d'im
 `tenon audit export` produit un rapport de conformité HTML et JSON tiré du journal d'audit (fournisseurs, consentements, permissions, fichiers modifiés, incidents), sans données de conversation sauf si vous les demandez.
 L'interface est en anglais par défaut : lancez `tenon --lang fr` ou mettez `lang = "fr"` dans la configuration.
 
-Documentation en français : [guide d'utilisation](docs/fr/utilisation.md), [sécurité et limites](docs/fr/securite.md), [politique d'organisation](docs/fr/politique.md).
+Documentation en français : [guide d'utilisation](docs/fr/utilisation.md), [sécurité et limites](docs/fr/securite.md), [politique d'organisation](docs/fr/politique.md), [tenon en CI](docs/fr/ci.md).
