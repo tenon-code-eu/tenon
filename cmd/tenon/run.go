@@ -120,8 +120,10 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	}
 
 	switch {
-	case len(rest) == 2 && rest[0] == "audit" && rest[1] == "verify":
-		return auditVerify(lang, stdout, stderr, getenv)
+	case len(rest) >= 2 && rest[0] == "audit" && rest[1] == "verify":
+		return auditVerify(lang, rest[2:], stdout, stderr, getenv, wd)
+	case len(rest) == 2 && rest[0] == "audit" && rest[1] == "timestamp":
+		return auditTimestamp(ctx, lang, stdout, stderr, getenv, wd)
 	case len(rest) >= 2 && rest[0] == "audit" && rest[1] == "export":
 		return auditExport(rest[2:], *langFlag, stdout, stderr, getenv, wd)
 	case len(rest) >= 2 && rest[0] == "policy" && rest[1] == "check":
@@ -159,6 +161,21 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 				fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", err))
 				return 1
 			}
+		}
+		// Horodatage : URL et origine des racines, puis contrôle du profil.
+		l, err := timestampLine(lang, cs.cfg)
+		if err == nil {
+			err = timestampProfileErr(lang, cs.cfg, cs.cfg.Profile)
+		}
+		if err != nil {
+			for _, n := range profileNotices(lang, cs.cfg) {
+				fmt.Fprintln(stderr, n)
+			}
+			fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", err))
+			return 1
+		}
+		if l != "" {
+			fmt.Fprintln(stdout, l)
 		}
 		fmt.Fprintln(stdout, i18n.T(lang, "config.ok"))
 		return 0
@@ -554,7 +571,8 @@ type started struct {
 	redactor  *policy.Redactor // celui de l'audit, de la session et d'Outbound
 	sessionID string
 	// close ferme les serveurs MCP, puis le journal d'audit et le fichier de
-	// session ; à appeler après la fin du tour.
+	// session, et horodate la chaîne d'audit si configuré ; à appeler après
+	// la fin du tour.
 	close func()
 	// notices sont les avertissements du démarrage (fournisseur local
 	// détecté, MCP), déjà traduits.
@@ -758,6 +776,9 @@ func policyNotices(lang i18n.Lang, cfg config.Config) []string {
 	if ids := cfg.PolicyStrippedQualifications; len(ids) > 0 {
 		out = append(out, i18n.T(lang, "policy.qualifications_stripped", pol.ID, strings.Join(ids, ", ")))
 	}
+	if cfg.PolicyTimestampImposed {
+		out = append(out, i18n.T(lang, "policy.timestamp_imposed", pol.ID, timestampURL(cfg)))
+	}
 	return out
 }
 
@@ -810,7 +831,12 @@ func startEngine(o engineOptions) (started, error) {
 	// connexion : la détection d'un modèle local contacterait l'hôte
 	// configuré. Les avis de la politique sont affichés avant le refus : ils
 	// l'expliquent (qualification ignorée, profil relevé).
-	if err := providerErr(lang, cfg, pc); err != nil {
+	// L'autorité d'horodatage est contrôlée de même, avant toute connexion.
+	err = providerErr(lang, cfg, pc)
+	if err == nil {
+		err = timestampProfileErr(lang, cfg, cfg.Profile)
+	}
+	if err != nil {
 		if o.stderr != nil {
 			for _, n := range startNotices {
 				fmt.Fprintln(o.stderr, n)
@@ -1050,8 +1076,14 @@ func startEngine(o engineOptions) (started, error) {
 			return started{}, fmt.Errorf("session %s : %w", sid, err)
 		}
 	}
+	// Fin de session : le journal fermé, sa tête est horodatée (avis seul en
+	// cas d'échec).
+	closeAndAnchor := func() {
+		closeAll()
+		anchorAtEnd(lang, cfg, config.DataDir(getenv), redactText(red), o.stderr)
+	}
 	return started{
-		eng: eng, redactor: red, sessionID: sid, close: closeAll, notices: slices.Concat(startNotices, detectNotices, skillNotices, ad.notices, hookNotices, ckNotices, notices), skills: cat, agents: ad.cat, hooks: hookSet,
+		eng: eng, redactor: red, sessionID: sid, close: closeAndAnchor, notices: slices.Concat(startNotices, detectNotices, skillNotices, ad.notices, hookNotices, ckNotices, notices), skills: cat, agents: ad.cat, hooks: hookSet,
 		downNotices: downNotices(o.lang, unavailable, red),
 		provider:    info, contextWindow: pc.Window(), profile: cfg.Profile,
 		policy: policyLine(lang, "tui.welcome.policy", cfg.Policy),
@@ -1243,16 +1275,6 @@ func skippedLines(dir, sid string, valid int) int {
 		return 1
 	}
 	return n - valid
-}
-
-func auditVerify(lang i18n.Lang, stdout, stderr io.Writer, getenv func(string) string) int {
-	hash, n, err := audit.Verify(filepath.Join(config.DataDir(getenv), "audit"))
-	if err != nil {
-		fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", err))
-		return 1
-	}
-	fmt.Fprintln(stdout, i18n.T(lang, "audit.ok", n, hash))
-	return 0
 }
 
 // newSessionID renvoie "s_" suivi de 12 caractères hexadécimaux aléatoires.

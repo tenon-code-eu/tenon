@@ -244,7 +244,8 @@ func TestHeadlessReadsFileAndAnswers(t *testing.T) {
 	}
 
 	code, out, errb = e.run("audit", "verify")
-	if code != 0 || !strings.HasPrefix(out, "OK : ") || !strings.Contains(out, "dernier hash sha256:") {
+	// Sans horodatage configuré : aucun jeton.
+	if code != 0 || !strings.HasPrefix(out, "OK : ") || !strings.Contains(out, "dernier hash sha256:") || !strings.HasSuffix(out, "\nhorodatages : aucun\n") {
 		t.Fatalf("audit verify : code=%d stdout=%q stderr=%q", code, out, errb)
 	}
 }
