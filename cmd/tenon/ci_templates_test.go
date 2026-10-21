@@ -38,6 +38,12 @@ func TestCITemplates(t *testing.T) {
 					t.Errorf("%s : %q absent", name, want)
 				}
 			}
+			if name != "gitlab-ci.yml" && !strings.Contains(s, "include-hidden-files: true") {
+				t.Errorf("%s : include-hidden-files: true absent", name)
+			}
+			if strings.Contains(s, "| TENON_VERSION") {
+				t.Errorf("%s : pas de curl | sh", name)
+			}
 			if !versionRe.MatchString(s) {
 				t.Errorf("%s : TENON_VERSION=vX.Y.Z absent", name)
 			}

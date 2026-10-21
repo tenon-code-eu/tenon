@@ -28,9 +28,9 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     env:
       TENON_TASK: ${{ github.event.inputs.task || 'Review the changes of this pull request and run the tests.' }}
-      MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
       XDG_DATA_HOME: ${{ github.workspace }}/.tenon-data
     steps:
+      # Consider pinning actions by commit SHA for stronger supply-chain guarantees.
       - uses: actions/checkout@v4.2.2
         with:
           persist-credentials: false
@@ -46,10 +46,12 @@ jobs:
           # To install from a mirror, uncomment the next line. The signature is
           # still verified, so a compromised mirror cannot serve a forged binary.
           # export TENON_DOWNLOAD_BASE="https://mirror.example.eu/tenon"
-          curl -fsSL https://raw.githubusercontent.com/tenon-code-eu/tenon/v0.7.0/install.sh \
-            | TENON_VERSION=v0.7.0 TENON_REQUIRE_SIGNATURE=1 sh
+          curl -fsSL -o install.sh https://raw.githubusercontent.com/tenon-code-eu/tenon/v0.7.0/install.sh
+          TENON_VERSION=v0.7.0 TENON_REQUIRE_SIGNATURE=1 sh install.sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: Run tenon
+        env:
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
         run: |
           set -eu
           rc=0
@@ -66,6 +68,8 @@ jobs:
         uses: actions/upload-artifact@v4.4.3
         with:
           name: tenon-evidence
+          include-hidden-files: true
+          if-no-files-found: warn
           retention-days: 90
           path: |
             tenon-events.jsonl

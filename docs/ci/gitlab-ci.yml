@@ -5,6 +5,10 @@
 #
 # Variables to define in Settings > CI/CD > Variables:
 #   MISTRAL_API_KEY  the provider key; masked AND protected.
+# A protected variable exists only in pipelines on protected refs: the merge
+# request rule below therefore requires a protected source branch. Making the
+# variable unprotected would expose the key to the pipeline of any branch
+# (not recommended).
 # Run the job from a pipeline with the variable TENON_TASK (manual run) or
 # from a merge request. Never give the key to pipelines of fork merge
 # requests: a fork author controls ci/tenon.toml and the task.
@@ -20,9 +24,9 @@ tenon:
     XDG_DATA_HOME: "$CI_PROJECT_DIR/.tenon-data"
   rules:
     # Pipelines of fork merge requests never run this job.
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_PROJECT_PATH == $CI_PROJECT_PATH'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_PROJECT_PATH == $CI_PROJECT_PATH && $CI_COMMIT_REF_PROTECTED == "true"'
+    # A web pipeline is already manual.
     - if: '$CI_PIPELINE_SOURCE == "web"'
-      when: manual
   script:
     - apt-get update -qq
     - apt-get install -y --no-install-recommends ca-certificates curl minisign
@@ -32,8 +36,8 @@ tenon:
       # To install from a mirror, uncomment the next line. The signature is
       # still verified, so a compromised mirror cannot serve a forged binary.
       # export TENON_DOWNLOAD_BASE="https://mirror.example.eu/tenon"
-      curl -fsSL https://raw.githubusercontent.com/tenon-code-eu/tenon/v0.7.0/install.sh \
-        | TENON_VERSION=v0.7.0 TENON_REQUIRE_SIGNATURE=1 sh
+      curl -fsSL -o install.sh https://raw.githubusercontent.com/tenon-code-eu/tenon/v0.7.0/install.sh
+      TENON_VERSION=v0.7.0 TENON_REQUIRE_SIGNATURE=1 sh install.sh
       export PATH="$HOME/.local/bin:$PATH"
       rc=0
       tenon --config ci/tenon.toml -p "$TENON_TASK" --strict --output json > tenon-events.jsonl || rc=$?

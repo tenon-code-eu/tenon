@@ -49,7 +49,7 @@ Code 3 wins over 4, and code 1 wins over both. See [Exit codes](usage.md#exit-co
 
 `--config <file>` replaces the global configuration file (`$XDG_CONFIG_HOME/tenon/config.toml`) with a file of the repository, so the job does not depend on the home of the runner. The project file `.tenon/config.toml` and the organisation policy still apply: a policy can only tighten what `ci/tenon.toml` says. The file must exist, otherwise tenon exits with code 1.
 
-[docs/ci/tenon.toml](ci/tenon.toml) declares the provider (`api_key_env`, the name of the variable, never the key), the `eu-only` profile, minimal `allow` rules (reads, `go test ./...`), `[audit] level = "full"` and, commented, `[audit.timestamp]`. Check it without network:
+[docs/ci/tenon.toml](ci/tenon.toml) uses the built-in `mistral` preset, which reads its key from `MISTRAL_API_KEY` (a variable name, never the key), sets the `eu-only` profile, and adds a single `allow` rule, `go test ./...` (reads inside the project are already allowed by default), `[audit] level = "full"` and, commented, `[audit.timestamp]`. Check it without network:
 
 ```
 MISTRAL_API_KEY=x tenon --config ci/tenon.toml config check
@@ -74,6 +74,8 @@ See [Audit log](usage.md#audit-log), [Timestamping](usage.md#timestamping-rfc-31
 ## Security
 
 **A merge request can edit `ci/tenon.toml` like it edits the pipeline.** Whoever can change the configuration changes the provider, the profile and the permissions of the job. Either run the job only on protected branches with protected variables, or take the configuration from a separate repository that merge requests cannot modify (check it out and pass its path to `--config`).
+
+**The key exists only on protected refs (GitLab).** A protected variable reaches only pipelines on protected branches or tags, so the merge request rule of the template requires a protected source branch. Unprotecting the variable would expose the key to the pipeline of any branch, including one that rewrites `ci/tenon.toml`: this works, but it is not recommended.
 
 **Keep the `allow` rules minimal.** In CI nobody approves anything, so each `allow` rule is a permanent authorisation for the model. Allow the exact commands the task needs (`go test ./...`), nothing broader. An `allow` rule on a command does not cover a chained command, but permissions are not a sandbox (see [Security and limits](security.md)): run the job on a runner that holds nothing you cannot lose.
 

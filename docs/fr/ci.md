@@ -49,7 +49,7 @@ Le code 3 l'emporte sur 4, et le code 1 l'emporte sur les deux. Voir [Codes de s
 
 `--config <fichier>` remplace le fichier de configuration global (`$XDG_CONFIG_HOME/tenon/config.toml`) par un fichier du dépôt : le job ne dépend pas du répertoire personnel du runner. Le fichier projet `.tenon/config.toml` et la politique d'organisation s'appliquent toujours : une politique ne fait que durcir ce que dit `ci/tenon.toml`. Le fichier doit exister, sinon tenon sort avec le code 1.
 
-[docs/ci/tenon.toml](../ci/tenon.toml) déclare le fournisseur (`api_key_env`, nom de la variable, jamais la clé), le profil `eu-only`, des règles `allow` minimales (lectures, `go test ./...`), `[audit] level = "full"` et, en commentaire, `[audit.timestamp]`. Vérifiez-le sans réseau :
+[docs/ci/tenon.toml](../ci/tenon.toml) utilise le préréglage `mistral`, qui lit sa clé dans `MISTRAL_API_KEY` (un nom de variable, jamais la clé), fixe le profil `eu-only` et ajoute une seule règle `allow`, `go test ./...` (les lectures dans le projet sont déjà autorisées par défaut), `[audit] level = "full"` et, en commentaire, `[audit.timestamp]`. Vérifiez-le sans réseau :
 
 ```
 MISTRAL_API_KEY=x tenon --config ci/tenon.toml config check
@@ -74,6 +74,8 @@ Voir [Journal d'audit](utilisation.md#journal-daudit), [Horodatage](utilisation.
 ## Sécurité
 
 **Une merge request peut modifier `ci/tenon.toml` comme elle modifie le pipeline.** Qui change la configuration change le fournisseur, le profil et les permissions du job. Soit le job ne s'exécute que sur des branches protégées avec des variables protégées, soit la configuration vient d'un dépôt séparé que les merge requests ne peuvent pas modifier (extrayez-le et passez son chemin à `--config`).
+
+**La clé n'existe que sur les références protégées (GitLab).** Une variable protégée n'atteint que les pipelines des branches ou étiquettes protégées : la règle de merge request du modèle exige donc une branche source protégée. Retirer la protection exposerait la clé au pipeline de n'importe quelle branche, y compris une branche qui réécrit `ci/tenon.toml` : cela fonctionne, mais ce n'est pas recommandé.
 
 **Gardez les règles `allow` minimales.** En CI personne ne valide rien : chaque règle `allow` est une autorisation permanente donnée au modèle. N'autorisez que les commandes exactes dont la tâche a besoin (`go test ./...`), rien de plus large. Une règle `allow` sur une commande ne couvre pas une commande enchaînée, mais les permissions ne sont pas un bac à sable (voir [Sécurité et limites](securite.md)) : exécutez le job sur un runner qui ne contient rien que vous ne puissiez perdre.
 

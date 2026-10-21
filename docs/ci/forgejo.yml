@@ -20,13 +20,14 @@ on:
 
 jobs:
   tenon:
+    # "docker" is the default label of forgejo-runner. Gitea act_runner and
+    # Codeberg use other labels: set the one of your runner.
     runs-on: docker
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     # Debian-based image with Go; the tag is pinned, raise it when Go ships a fix.
     container: golang:1.26.9-bookworm
     env:
       TENON_TASK: ${{ github.event.inputs.task || 'Review the changes of this pull request and run the tests.' }}
-      MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
       XDG_DATA_HOME: ${{ github.workspace }}/.tenon-data
     steps:
       - name: Fetch the repository
@@ -49,9 +50,11 @@ jobs:
           # To install from a mirror, uncomment the next line. The signature is
           # still verified, so a compromised mirror cannot serve a forged binary.
           # export TENON_DOWNLOAD_BASE="https://mirror.example.eu/tenon"
-          curl -fsSL https://raw.githubusercontent.com/tenon-code-eu/tenon/v0.7.0/install.sh \
-            | TENON_VERSION=v0.7.0 TENON_REQUIRE_SIGNATURE=1 sh
+          curl -fsSL -o install.sh https://raw.githubusercontent.com/tenon-code-eu/tenon/v0.7.0/install.sh
+          TENON_VERSION=v0.7.0 TENON_REQUIRE_SIGNATURE=1 sh install.sh
       - name: Run tenon
+        env:
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
         run: |
           set -eu
           export PATH="$HOME/.local/bin:$PATH"
@@ -68,11 +71,14 @@ jobs:
           tenon audit verify
       - name: Archive the evidence
         if: always()
+        # Consider pinning actions by commit SHA for stronger supply-chain guarantees.
         # Needs node in the container (installed above). Use v3: v4 is not
         # supported by Forgejo and Gitea runners.
         uses: actions/upload-artifact@v3.2.1
         with:
           name: tenon-evidence
+          include-hidden-files: true
+          if-no-files-found: warn
           retention-days: 90
           path: |
             tenon-events.jsonl
