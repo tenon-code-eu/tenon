@@ -773,7 +773,7 @@ func profileMCPSkip(lang i18n.Lang, n profile.Name, s config.MCPServer) string {
 	switch {
 	case (n == profile.StrictLocal || n == profile.SecNumCloud) && s.Jurisdiction == string(llm.Local):
 		reason = i18n.T(lang, "profile.reason_host", urlHost(s.URL))
-	case n == profile.SecNumCloud && s.Jurisdiction == string(llm.EU):
+	case n == profile.SecNumCloud && s.Jurisdiction == string(llm.EU) && s.Transport != "stdio":
 		reason = i18n.T(lang, "profile.reason_unqualified")
 	}
 	return i18n.T(lang, "profile.mcp_skipped", n, s.ID, reason)

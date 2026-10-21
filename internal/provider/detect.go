@@ -47,8 +47,7 @@ func detectClient(c *http.Client) *http.Client {
 
 // NoProxyDetectClient est detectClient(nil) sans proxy d'environnement
 // (HTTP_PROXY, HTTPS_PROXY) : profil strict-local, ou secnumcloud avec un
-// fournisseur local. http.DefaultTransport
-// n'est pas modifié.
+// fournisseur local. http.DefaultTransport n'est pas modifié.
 func NoProxyDetectClient() *http.Client {
 	c := detectClient(nil)
 	tr := http.DefaultTransport.(*http.Transport).Clone()

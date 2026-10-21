@@ -245,7 +245,10 @@ A repository can be hostile. For this reason, its configuration is limited to:
 
 - `lang`;
 - `deny` and `ask` permission rules;
-- `[[redaction.rules]]` redaction rules.
+- `[[redaction.rules]]` redaction rules;
+- `profile` and `provider_allowlist`: both restrict-only (the project can raise the profile or narrow the allowlist, never relax them).
+
+Errors in the project file are reported with the prefix `project config:`.
 
 It **cannot**:
 

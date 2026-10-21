@@ -84,7 +84,7 @@ func (a *ProviderAllowlist) validate(prefix string) error {
 	}
 	for _, h := range a.Hosts {
 		if err := hostmatch.CheckEntry(h); err != nil {
-			return fmt.Errorf("%s: provider_allowlist: %w", prefix, err)
+			return fmt.Errorf("%s: provider_allowlist: %q: %w", prefix, h, err)
 		}
 	}
 	return nil

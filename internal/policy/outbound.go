@@ -67,9 +67,11 @@ func (o *Outbound) SetAllowlists(lists []hostmatch.List) {
 	o.mu.Unlock()
 }
 
-// Check enforces the compliance profile first (a recorded consent never
-// bypasses it; its error wraps profile.ErrProfile), then the jurisdiction rule, then returns a redacted deep copy of
-// msgs with the number of masks per type. The input is never modified.
+// Check enforces, in order: the compliance profile (its error wraps
+// profile.ErrProfile), the policy host allowlist, the provider allowlists,
+// then the jurisdiction rule. A recorded consent never bypasses the first
+// three. It then returns a redacted deep copy of msgs with the number of
+// masks per type. The input is never modified.
 // Only EU and local providers pass freely; any other jurisdiction (including
 // an empty one) requires consent.
 func (o *Outbound) Check(p llm.ProviderInfo, msgs []llm.Message) ([]llm.Message, map[string]int, error) {

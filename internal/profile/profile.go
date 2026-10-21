@@ -140,6 +140,10 @@ func CheckMCP(n Name, s MCPTarget) error {
 	if !jurisdictionOK(n, s.Jurisdiction) {
 		return skip(juris(s.Jurisdiction))
 	}
+	// secnumcloud : un serveur stdio doit être local, même eu qualifié.
+	if n == SecNumCloud && s.Transport == "stdio" && s.Jurisdiction != string(llm.Local) {
+		return skip(juris(s.Jurisdiction))
+	}
 	if n == SecNumCloud && s.Jurisdiction == string(llm.EU) && !Qualified(s.Qualifications) {
 		return skip("not declared secnumcloud-qualified")
 	}

@@ -72,11 +72,11 @@ func TestAllowlistEmpty(t *testing.T) {
 
 func TestAllowlistBadEntry(t *testing.T) {
 	_, err := Load(write(t, "[provider_allowlist]\nhosts = [\"https://x.eu\"]\n"), "", env(nil))
-	if err == nil || !strings.HasPrefix(err.Error(), "config: provider_allowlist: ") {
+	if err == nil || !strings.HasPrefix(err.Error(), `config: provider_allowlist: "https://x.eu": `) {
 		t.Fatalf("global err = %v", err)
 	}
 	_, err = Load("", write(t, "[provider_allowlist]\nhosts = [\"https://x.eu\"]\n"), env(nil))
-	if err == nil || !strings.HasPrefix(err.Error(), "project config: provider_allowlist: ") {
+	if err == nil || !strings.HasPrefix(err.Error(), `project config: provider_allowlist: "https://x.eu": `) {
 		t.Fatalf("project err = %v", err)
 	}
 }
@@ -108,5 +108,41 @@ func TestApplyPolicyStripsQualifications(t *testing.T) {
 	// cfg d'origine intacte (pas d'aliasing)
 	if len(cfg.MCP.Servers[0].Qualifications) == 0 {
 		t.Error("input cfg mutated")
+	}
+}
+
+// Un id redéfini par la politique (sans qualifications) n'est pas listé.
+func TestApplyPolicyStrippedExcludesDefined(t *testing.T) {
+	cfg := baseCfg()
+	cfg.Providers = append(cfg.Providers,
+		Provider{ID: "org", BaseURL: "https://o.eu", Jurisdiction: "eu", Qualifications: []string{"secnumcloud"}})
+	pol := &orgpolicy.Policy{ID: "p", Providers: &orgpolicy.Providers{Define: []orgpolicy.ProviderDef{
+		{ID: "org", BaseURL: "https://o.eu", Jurisdiction: "eu"}}}}
+	got, err := ApplyPolicy(cfg, pol)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range got.Providers {
+		if p.ID == "org" && len(p.Qualifications) > 0 {
+			t.Errorf("quals kept: %v", p.Qualifications)
+		}
+	}
+	if len(got.PolicyStrippedQualifications) != 0 {
+		t.Errorf("stripped = %v", got.PolicyStrippedQualifications)
+	}
+}
+
+// Un id partagé par un fournisseur et un serveur MCP n'est listé qu'une fois.
+func TestApplyPolicyStrippedDedup(t *testing.T) {
+	cfg := baseCfg()
+	cfg.Providers = append(cfg.Providers,
+		Provider{ID: "x", BaseURL: "https://x.eu", Jurisdiction: "eu", Qualifications: []string{"secnumcloud"}})
+	cfg.MCP.Servers = []MCPServer{{ID: "x", Transport: "http", URL: "https://m.eu", Jurisdiction: "eu", Qualifications: []string{"secnumcloud"}}}
+	got, err := ApplyPolicy(cfg, &orgpolicy.Policy{ID: "p"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(got.PolicyStrippedQualifications, []string{"x"}) {
+		t.Errorf("stripped = %v", got.PolicyStrippedQualifications)
 	}
 }

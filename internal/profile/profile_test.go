@@ -155,7 +155,8 @@ func TestCheckMCPSecNumCloud(t *testing.T) {
 		want string
 	}{
 		{"stdio local", MCPTarget{ID: "a", Transport: "stdio", Jurisdiction: "local"}, ""},
-		{"stdio eu", MCPTarget{ID: "a", Transport: "stdio", Jurisdiction: "eu"}, `profile secnumcloud: MCP server "a" (not declared secnumcloud-qualified) skipped`},
+		{"stdio eu", MCPTarget{ID: "a", Transport: "stdio", Jurisdiction: "eu"}, `profile secnumcloud: MCP server "a" (eu) skipped`},
+		{"stdio eu qualified", MCPTarget{ID: "a", Transport: "stdio", Jurisdiction: "eu", Qualifications: q}, `profile secnumcloud: MCP server "a" (eu) skipped`},
 		{"http local", MCPTarget{ID: "a", Transport: "http", URL: "http://localhost:9/mcp", Jurisdiction: "local"}, ""},
 		{"http eu qualified", MCPTarget{ID: "a", Transport: "http", URL: "https://x.eu/mcp", Jurisdiction: "eu", Qualifications: q}, ""},
 		{"http eu unqualified", MCPTarget{ID: "a", Transport: "http", URL: "https://x.eu/mcp", Jurisdiction: "eu"}, `profile secnumcloud: MCP server "a" (not declared secnumcloud-qualified) skipped`},

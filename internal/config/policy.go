@@ -41,8 +41,6 @@ func ApplyPolicy(cfg Config, pol *orgpolicy.Policy) (Config, error) {
 			cfg.MCP.Servers[i].Qualifications = nil
 		}
 	}
-	slices.Sort(stripped)
-	cfg.PolicyStrippedQualifications = stripped
 
 	// Fournisseurs imposés : ils remplacent ceux de la config, sans hériter
 	// de la détection d'un préréglage. On copie pour ne pas aliaser cfg.
@@ -61,6 +59,16 @@ func ApplyPolicy(cfg Config, pol *orgpolicy.Policy) (Config, error) {
 			}
 		}
 	}
+
+	// Avis des qualifications retirées : hors ids définis par la politique
+	// (ils portent leurs propres qualifications), triés et dédoublonnés.
+	if pol.Providers != nil {
+		stripped = slices.DeleteFunc(stripped, func(id string) bool {
+			return slices.ContainsFunc(pol.Providers.Define, func(d orgpolicy.ProviderDef) bool { return d.ID == id })
+		})
+	}
+	slices.Sort(stripped)
+	cfg.PolicyStrippedQualifications = slices.Compact(stripped)
 
 	// Règles de la politique en tête, celles de la config ensuite.
 	rules := make([]Rule, 0, len(pol.Rules)+len(cfg.Permissions.Rules))

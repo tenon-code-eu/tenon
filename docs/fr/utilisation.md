@@ -245,7 +245,10 @@ Un dépôt peut être hostile. Sa configuration est donc limitée à :
 
 - `lang` ;
 - des règles de permission `deny` et `ask` ;
-- des règles de masquage `[[redaction.rules]]`.
+- des règles de masquage `[[redaction.rules]]` ;
+- `profile` et `provider_allowlist` : tous deux en restriction seule (le projet peut relever le profil ou réduire la liste blanche, jamais les assouplir).
+
+Les erreurs du fichier projet sont préfixées par `project config:`.
 
 Elle **ne peut pas** :
 
