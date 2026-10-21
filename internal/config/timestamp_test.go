@@ -121,6 +121,27 @@ func TestApplyPolicyTimestamp(t *testing.T) {
 	if cfg.Audit.Timestamp.URL != "https://a.eu" {
 		t.Error("input config mutated")
 	}
+	// Politique sans ca : le ca_file de l'utilisateur reste, l'URL est celle de la politique.
+	userCA := tsFile(t, ca.PEM)
+	cfg.Audit.Timestamp = &AuditTimestamp{URL: "https://a.eu", CAFile: userCA}
+	got, err = ApplyPolicy(cfg, &orgpolicy.Policy{ID: "p", Timestamp: &orgpolicy.AuditTimestamp{URL: "https://b.eu"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ts := got.Audit.Timestamp; ts.URL != "https://b.eu" || ts.CAFile != userCA || len(ts.CAPEM) != 0 {
+		t.Fatalf("sans ca : %+v", ts)
+	}
+	if _, src, err := got.TimestampRoots(); err != nil || src != "ca_file" {
+		t.Fatalf("sans ca : src=%q err=%v", src, err)
+	}
+	cfg.Audit.Timestamp = &AuditTimestamp{URL: "https://a.eu", CAFile: userCA}
+	got, err = ApplyPolicy(cfg, pol)
+	if err != nil || got.Audit.Timestamp.CAFile != "" {
+		t.Fatalf("avec ca : %+v %v", got.Audit.Timestamp, err)
+	}
+	if _, src, err := got.TimestampRoots(); err != nil || src != "policy" {
+		t.Fatalf("avec ca : src=%q err=%v", src, err)
+	}
 	cfg.Audit.Timestamp = &AuditTimestamp{URL: "https://b.eu"}
 	got, err = ApplyPolicy(cfg, pol)
 	if err != nil || got.PolicyTimestampImposed || got.Audit.Timestamp.URL != "https://b.eu" {

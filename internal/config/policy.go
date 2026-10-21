@@ -94,7 +94,13 @@ func ApplyPolicy(cfg Config, pol *orgpolicy.Policy) (Config, error) {
 		if u := cfg.Audit.Timestamp; u == nil || u.URL != pol.Timestamp.URL {
 			cfg.PolicyTimestampImposed = true
 		}
-		cfg.Audit.Timestamp = &AuditTimestamp{URL: pol.Timestamp.URL, CAPEM: slices.Clone(pol.Timestamp.CA)}
+		ts := &AuditTimestamp{URL: pol.Timestamp.URL, CAPEM: slices.Clone(pol.Timestamp.CA)}
+		// Sans ca dans la politique, le ca_file de l'utilisateur reste ; avec
+		// un ca, celui-ci l'emporte et ca_file est abandonné.
+		if len(ts.CAPEM) == 0 && cfg.Audit.Timestamp != nil {
+			ts.CAFile = cfg.Audit.Timestamp.CAFile
+		}
+		cfg.Audit.Timestamp = ts
 	}
 
 	if err := cfg.validate(); err != nil {

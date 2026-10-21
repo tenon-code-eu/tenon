@@ -1138,7 +1138,7 @@ ca_file = "/etc/ssl/tsa-ca.pem"   # optional
 - Under `strict-local`, a TSA host that is not local stops tenon at startup (code 1): `profile strict-local: audit timestamp host "<h>" is not local`. Environment proxies are respected, except under `strict-local`.
 - `tenon config check` prints `audit.timestamp: <url> (roots: <ca_file|system|policy>)`.
 
-**Trust roots.** The order is: `--tsa-ca` (of `audit verify` and `audit export`), then the `ca` of the policy, then `ca_file`, then the system roots.
+**Trust roots.** The order is: `--tsa-ca` (of `audit verify` and `audit export`), then the `ca` of the policy, then `ca_file`, then the system roots. A policy without `ca` keeps your `ca_file` (only the `url` is replaced).
 On macOS and Windows the system roots cannot verify TSA certificates: there, set `ca_file`, the policy `ca` or `--tsa-ca`. Otherwise the anchoring at the end of a session fails with a notice.
 
 **What is sent.** The TSA receives only a SHA-256 hash (the head hash of the chain), never content.
@@ -1152,6 +1152,7 @@ Exit codes: 0 done or already done; 1 not configured (`audit timestamp: not conf
 Tokens are stored apart from the chain, one DER file each, in `$XDG_DATA_HOME/tenon/audit/timestamps/<genTime>-<12 hex of the hash>.tsr` (mode `0600`).
 
 **Verify.** `tenon audit verify` checks every token, then that the hash it covers is in the chain; a token whose hash is not in the chain means the chain was rewritten (`timestamp <file>: anchored hash not in chain`).
+This holds only while the tokens exist: if `audit/timestamps/` is deleted, `audit verify` prints `timestamps: none` and exits 0. Copy the tokens (and the log) off the machine regularly, and compare against those copies or the expected number of tokens.
 It prints, after the usual line:
 
 ```

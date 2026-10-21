@@ -1140,7 +1140,7 @@ ca_file = "/etc/ssl/tsa-ca.pem"   # optionnel
 - Sous `strict-local`, un hôte de TSA non local arrête tenon au démarrage (code 1) : `profil strict-local : l'hôte « <h> » de l'horodatage d'audit n'est pas une adresse locale` (en anglais : `profile strict-local: audit timestamp host "<h>" is not local`). Les proxys d'environnement sont respectés, sauf sous `strict-local`.
 - `tenon config check` affiche `audit.timestamp : <url> (racines : <ca_file|system|policy>)`.
 
-**Racines de confiance.** L'ordre est : `--tsa-ca` (de `audit verify` et `audit export`), puis `ca` de la politique, puis `ca_file`, puis les racines système.
+**Racines de confiance.** L'ordre est : `--tsa-ca` (de `audit verify` et `audit export`), puis `ca` de la politique, puis `ca_file`, puis les racines système. Une politique sans `ca` laisse votre `ca_file` en place (seule l'`url` est remplacée).
 Sous macOS et Windows, les racines système ne permettent pas de vérifier les certificats de TSA : il faut y définir `ca_file`, `ca` de la politique ou `--tsa-ca`. Sinon l'ancrage de fin de session échoue avec une notice.
 
 **Ce qui est envoyé.** La TSA ne reçoit qu'un hash SHA-256 (le hash de tête de la chaîne), jamais de contenu.
@@ -1154,13 +1154,14 @@ Codes : 0 fait ou déjà fait ; 1 non configuré (`horodatage d'audit : non conf
 Les jetons sont rangés hors de la chaîne, un fichier DER chacun, dans `$XDG_DATA_HOME/tenon/audit/timestamps/<genTime>-<12 hex du hash>.tsr` (mode `0600`).
 
 **Vérifier.** `tenon audit verify` contrôle chaque jeton, puis que le hash qu'il couvre est dans la chaîne ; un jeton dont le hash n'est pas dans la chaîne signale une chaîne réécrite (`timestamp <fichier>: anchored hash not in chain`).
+Cela ne vaut que tant que les jetons existent : si `audit/timestamps/` est supprimé, `audit verify` affiche `horodatages : aucun` et sort avec le code 0. Copiez régulièrement les jetons (et le journal) hors de la machine, et comparez-les à ces copies ou au nombre de jetons attendu.
 Il affiche, après la ligne habituelle :
 
 ```
-horodatages : <n> valides, dernier <fichier>:<ligne> à <genTime> (<TSA>), <m> lignes après
+horodatages — valides : <n>, dernier <fichier>:<ligne> à <genTime> (<TSA>), lignes après : <m>
 ```
 
-ou `horodatages : aucun`, ou `horodatages : 0 valides, <n> invalides` quand des jetons existent mais qu'aucun n'est valide.
+ou `horodatages : aucun`, ou `horodatages — valides : 0, invalides : <n>` quand des jetons existent mais qu'aucun n'est valide.
 Les `<m>` lignes après le dernier jeton ne sont couvertes par aucun horodatage.
 Une ligne couverte par un jeton dont le `ts` dépasse de plus de 5 minutes l'heure du jeton donne un avertissement, pas une erreur : `timestamp <fichier>: <fichier>:<ligne> ts after genTime (local clock?)`.
 Code : 0 tout est valide ; 1 chaîne cassée, jeton invalide ou orphelin.

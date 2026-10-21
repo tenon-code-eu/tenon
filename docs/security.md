@@ -181,7 +181,7 @@ Add your own rules with `[[redaction.rules]]`.
 
 The threat: someone who controls the machine rewrites the whole log and recomputes every hash. The chain alone cannot see it.
 
-- With `[audit.timestamp]`, a timestamp authority (TSA) signs the head hash at the end of each session or on `tenon audit timestamp`. A token proves that the log up to the covered line existed at the signed time. A log rewritten afterwards no longer contains the hash a token covers: `tenon audit verify` and `tenon audit export` report it (`anchored hash not in chain`).
+- With `[audit.timestamp]`, a timestamp authority (TSA) signs the head hash at the end of each session or on `tenon audit timestamp`. A token proves that the log up to the covered line existed at the signed time. A log rewritten afterwards no longer contains the hash a token covers: `tenon audit verify` and `tenon audit export` report it (`anchored hash not in chain`), provided the tokens are still there. Someone who controls the machine can also delete `audit/timestamps/`: `audit verify` then prints `timestamps: none` and exits 0. Copy the tokens (and the log) off the machine regularly, like the last hash (see below), and let auditors compare against those copies or the expected number of tokens.
 - The TSA receives only a SHA-256 hash, never content. tenon ships no TSA preset: you choose the authority, and nothing is called without configuration.
 - A token does not prove the lines after it (`<m> lines after` in the `audit verify` output), nor that the content was true. Deleting the last lines is detected only if a token covers a later line.
 - Revocation (CRL, OCSP) is not checked: verification is offline. A TSA certificate revoked after signing still verifies.

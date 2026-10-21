@@ -17,6 +17,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/tenon-code-eu/tenon/internal/tsp"
 	"github.com/tenon-code-eu/tenon/internal/tsp/tsptest"
 )
 
@@ -92,7 +93,7 @@ func TestTimestampEndOfSessionE2E(t *testing.T) {
 		t.Fatalf("audit verify : code=%d stdout=%q stderr=%q", code, out, errb)
 	}
 	code, out, _ = e.run("audit", "verify")
-	if code != 0 || !strings.Contains(out, "horodatages : 1 valides, dernier ") {
+	if code != 0 || !strings.Contains(out, "horodatages — valides : 1, dernier ") {
 		t.Fatalf("fr : code=%d stdout=%q", code, out)
 	}
 }
@@ -269,7 +270,7 @@ func TestTimestampPolicyStrictLocalE2E(t *testing.T) {
 	e := newEnv(t, f, "local")
 	e.withPolicy(policyHead + "profile = \"strict-local\"\n" + policyTimestamp("https://tsa.example.eu/tsr", nil))
 	code, _, errb := e.run("--lang", "en", "-p", "salut")
-	if code != 1 || !strings.Contains(errb, `profile strict-local: audit timestamp host "tsa.example.eu" is not local`) {
+	if code != 1 || !strings.Contains(errb, `audit.timestamp.url host "tsa.example.eu" is not local (profile strict-local)`) {
 		t.Fatalf("code=%d stderr=%q", code, errb)
 	}
 	if n := len(f.requests()); n != 0 {
@@ -389,5 +390,46 @@ func TestTimestampNoRedirectE2E(t *testing.T) {
 	code, _, errb := e.run("--lang", "en", "-p", "salut")
 	if code != 0 || !strings.Contains(errb, "audit timestamp: HTTP 307") || tsa.Requests.Load() != 0 || len(e.tokens()) != 0 {
 		t.Fatalf("code=%d stderr=%q requêtes=%d", code, errb, tsa.Requests.Load())
+	}
+}
+
+// Un jeton illisible dont le nom contient une séquence d'échappement : la
+// sortie de audit verify ne doit transmettre aucun caractère de contrôle.
+func TestAuditVerifyStripsControlE2E(t *testing.T) {
+	tsa := tsptest.NewServer(t, tsptest.Options{})
+	e := tsaEnv(t, newFakeLLM(t, sseText("bonjour")), tsa)
+	if code, _, errb := e.run("-p", "salut"); code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, errb)
+	}
+	bad := filepath.Join(e.dataDir, "audit", "timestamps", "\x1b[31mevil.tsr")
+	if err := os.WriteFile(bad, []byte("junk"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, out, errb := e.run("--lang", "en", "audit", "verify")
+	if code != 1 || !strings.Contains(errb, "evil.tsr") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errb)
+	}
+	if strings.ContainsRune(out+errb, 0x1b) {
+		t.Fatalf("caractère de contrôle en sortie : %q", errb)
+	}
+}
+
+func TestStripControl(t *testing.T) {
+	if got := stripControl("a\x1b[31mb\u009bc\u202ed\te"); got != "a?[31mb?c?d?e" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+// Racines nil sous darwin : l'ancrage échoue avant tout contact avec la TSA.
+func TestAnchorNoRootsFailsFastE2E(t *testing.T) {
+	tsa := tsptest.NewServer(t, tsptest.Options{})
+	e := newEnvExtra(t, newFakeLLM(t, sseText("bonjour")), "eu", timestampTOML(tsa.URL, ""))
+	defer tsp.SetGOOS("darwin")()
+	code, _, errb := e.run("--lang", "en", "-p", "salut")
+	if code != 0 || !strings.Contains(errb, "no trust roots: system roots cannot verify timestamp certificates on darwin; configure a CA file") {
+		t.Fatalf("code=%d stderr=%q", code, errb)
+	}
+	if n := tsa.Requests.Load(); n != 0 {
+		t.Fatalf("%d requête(s) à la TSA", n)
 	}
 }

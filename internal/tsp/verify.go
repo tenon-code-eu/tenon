@@ -18,6 +18,27 @@ import (
 // goos est runtime.GOOS, remplaçable par les tests.
 var goos = runtime.GOOS
 
+// SetGOOS remplace la plateforme vue par NeedRoots et renvoie la fonction qui
+// la restaure. Réservé aux tests d'autres paquets.
+func SetGOOS(s string) (restore func()) {
+	old := goos
+	goos = s
+	return func() { goos = old }
+}
+
+// NeedRoots refuse des racines nil sur les plateformes dont les racines
+// système ne permettent pas de vérifier les certificats de TSA (darwin, ios,
+// windows) ; nil ailleurs ou si roots est fourni.
+func NeedRoots(roots *x509.CertPool) error {
+	if roots == nil {
+		switch goos {
+		case "darwin", "ios", "windows":
+			return fmt.Errorf("no trust roots: system roots cannot verify timestamp certificates on %s; configure a CA file", goos)
+		}
+	}
+	return nil
+}
+
 // ErrToken est l'erreur racine : toute erreur de ParseToken ou Verify
 // l'enveloppe.
 var ErrToken = errors.New("invalid timestamp token")
@@ -400,11 +421,8 @@ func (t *token) checkEKU() error {
 // checkChain vérifie la chaîne du signataire vers roots à la date genTime :
 // un certificat expiré depuis reste valide.
 func (t *token) checkChain(roots *x509.CertPool) error {
-	if roots == nil {
-		switch goos {
-		case "darwin", "ios", "windows":
-			return tokenErr("no trust roots: system roots cannot verify timestamp certificates on %s; configure a CA file", goos)
-		}
+	if err := NeedRoots(roots); err != nil {
+		return tokenErr("%v", err)
 	}
 	inter := x509.NewCertPool()
 	for _, c := range t.certs {

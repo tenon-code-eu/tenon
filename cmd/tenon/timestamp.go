@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/tenon-code-eu/tenon/internal/audit"
 	"github.com/tenon-code-eu/tenon/internal/config"
@@ -99,6 +100,9 @@ func anchor(ctx context.Context, cfg config.Config, p profile.Name, dataDir stri
 	if err != nil {
 		return "", tsp.Info{}, false, err
 	}
+	if err := tsp.NeedRoots(roots); err != nil {
+		return "", tsp.Info{}, false, err
+	}
 	rctx, cancel := context.WithTimeout(ctx, timestampTimeout)
 	defer cancel()
 	token, info, err := tsp.Request(rctx, timestampClient(p), u, digest, roots)
@@ -123,6 +127,17 @@ func anchorAtEnd(lang i18n.Lang, cfg config.Config, dataDir string, redact func(
 	if err != nil && stderr != nil {
 		fmt.Fprintln(stderr, redact(i18n.T(lang, "audit.timestamp_failed", err)))
 	}
+}
+
+// stripControl remplace par « ? » les caractères de contrôle (C0, C1) et de
+// format : le texte vient d'un jeton non fiable et irait sur le terminal.
+func stripControl(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
+			return '?'
+		}
+		return r
+	}, s)
 }
 
 // genTime formate l'heure d'un jeton (RFC 3339, UTC).
@@ -246,10 +261,10 @@ func auditVerify(lang i18n.Lang, args []string, stdout, stderr io.Writer, getenv
 		return 1
 	}
 	for _, l := range sum.Errors {
-		fmt.Fprintln(stderr, l)
+		fmt.Fprintln(stderr, stripControl(l))
 	}
 	for _, l := range sum.Warnings {
-		fmt.Fprintln(stderr, l)
+		fmt.Fprintln(stderr, stripControl(l))
 	}
 	switch {
 	case sum.Count == 0:
@@ -257,7 +272,7 @@ func auditVerify(lang i18n.Lang, args []string, stdout, stderr io.Writer, getenv
 	case sum.Valid == 0:
 		fmt.Fprintln(stdout, i18n.T(lang, "audit.timestamps_none_valid", sum.Count))
 	default:
-		fmt.Fprintln(stdout, i18n.T(lang, "audit.timestamps_summary", sum.Valid, sum.LastFile, sum.LastLine, genTime(sum.LastTime), sum.TSA, sum.LinesAfter))
+		fmt.Fprintln(stdout, i18n.T(lang, "audit.timestamps_summary", sum.Valid, sum.LastFile, sum.LastLine, genTime(sum.LastTime), stripControl(sum.TSA), sum.LinesAfter))
 	}
 	if len(sum.Errors) > 0 {
 		return 1

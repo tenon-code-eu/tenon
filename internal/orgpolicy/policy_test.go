@@ -121,6 +121,7 @@ func TestParseRejects(t *testing.T) {
 		"ts http remote": hd + "[audit.timestamp]\nurl=\"http://tsa.example.eu\"",
 		"ts bad ca":      hd + "[audit.timestamp]\nurl=\"https://tsa.eu\"\nca=\"junk\"",
 		"ts no url":      hd + "[audit.timestamp]\nca=\"x\"",
+		"ts sl remote":   hd + "profile = \"strict-local\"\n[audit.timestamp]\nurl=\"https://tsa.example.eu\"",
 	}
 	for name, src := range cases {
 		_, err := Parse([]byte(src))

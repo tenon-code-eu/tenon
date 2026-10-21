@@ -194,6 +194,11 @@ func Parse(b []byte) (Policy, error) {
 		if err := tsp.CheckURL(t.URL); err != nil {
 			return Policy{}, policyErr("%v", err)
 		}
+		if prof == profile.StrictLocal {
+			if h := tsp.Host(t.URL); !profile.IsLocalHost(h) {
+				return Policy{}, policyErr("audit.timestamp.url host %q is not local (profile %s)", h, prof)
+			}
+		}
 		ts = &AuditTimestamp{URL: t.URL}
 		if t.CA != "" {
 			if !x509.NewCertPool().AppendCertsFromPEM([]byte(t.CA)) {

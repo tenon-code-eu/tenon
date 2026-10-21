@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/tenon-code-eu/tenon/internal/tsp"
@@ -25,6 +26,14 @@ const clockTolerance = 5 * time.Minute
 func Head(dir string) (string, error) {
 	if _, err := os.Stat(dir); errors.Is(err, os.ErrNotExist) {
 		return "", nil
+	}
+	// Verrou partagé pendant la lecture de la queue, si le fichier de verrou
+	// existe (il n'est pas créé ici) : pas de lecture d'une ligne à moitié écrite.
+	if lk, err := os.Open(filepath.Join(dir, ".lock")); err == nil {
+		defer lk.Close()
+		if err := syscall.Flock(int(lk.Fd()), syscall.LOCK_SH); err == nil {
+			defer syscall.Flock(int(lk.Fd()), syscall.LOCK_UN)
+		}
 	}
 	_, h, err := readTail(dir)
 	if err != nil {
