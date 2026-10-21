@@ -240,16 +240,16 @@ jurisdiction = "eu"
 
 func TestConfigCheckAllowlistE2E(t *testing.T) {
 	e := newEnvExtra(t, nil, "eu", "\n[provider_allowlist]\nhosts = [\"127.0.0.1\"]\nlocal = true\n")
-	code, out, errb := e.run("--lang", "en", "config", "check")
+	code, out, errb := e.runCheck("--lang", "en")
 	if code != 0 || out != "provider_allowlist: global 1 hosts + local, project - hosts\nOK\n" {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errb)
 	}
-	if _, out, _ = e.run("config", "check"); out != "provider_allowlist : globale 1 hôtes + local, projet - hôtes\nOK\n" {
+	if _, out, _ = e.runCheck(); out != "provider_allowlist : globale 1 hôtes + local, projet - hôtes\nOK\n" {
 		t.Fatalf("fr : %q", out)
 	}
 	// Liste projet qui refuse l'hôte du fournisseur sélectionné.
 	e.projectConfig("[provider_allowlist]\nhosts = [\"api.mistral.ai\"]\n")
-	code, out, errb = e.run("--lang", "en", "config", "check")
+	code, out, errb = e.runCheck("--lang", "en")
 	if code != 1 || out != "provider_allowlist: global 1 hosts + local, project 1 hosts\n" ||
 		!strings.Contains(errb, `provider "test" (host "127.0.0.1") not in provider_allowlist (project)`) {
 		t.Fatalf("projet : code=%d stdout=%q stderr=%q", code, out, errb)
@@ -288,7 +288,7 @@ func TestConfigCheckStrippedNoticeE2E(t *testing.T) {
 	e := newEnv(t, nil, "eu")
 	e.editGlobal("", qualified...)
 	e.withPolicy(policyHead + "profile = \"secnumcloud\"\n[providers]\nallow_local = true\n")
-	code, _, errb := e.run("--lang", "en", "config", "check")
+	code, _, errb := e.runCheck("--lang", "en")
 	if code != 1 || !strings.Contains(errb, "policy acme-dev: qualifications declared in config ignored (test)\n") ||
 		!strings.Contains(errb, `profile secnumcloud: provider "test" is not declared secnumcloud-qualified`) {
 		t.Fatalf("code=%d stderr=%q", code, errb)

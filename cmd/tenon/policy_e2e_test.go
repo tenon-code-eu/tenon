@@ -77,7 +77,7 @@ func TestPolicyBadSignatureE2E(t *testing.T) {
 		t.Fatalf("fr : code=%d stderr=%q", code, errb)
 	}
 	// Même refus pour config check.
-	code, _, errb = e.run("--lang", "en", "config", "check")
+	code, _, errb = e.runCheck("--lang", "en")
 	if code != 1 || !strings.Contains(errb, "tenon: policy: ") {
 		t.Fatalf("config check : code=%d stderr=%q", code, errb)
 	}
@@ -205,16 +205,16 @@ func TestPolicyAuditImposedE2E(t *testing.T) {
 func TestConfigCheckPolicyE2E(t *testing.T) {
 	e := newEnv(t, nil, "eu")
 	_, key := e.withPolicy(policyHead)
-	code, out, errb := e.run("--lang", "en", "config", "check")
+	code, out, errb := e.runCheck("--lang", "en")
 	if code != 0 || out != "policy: acme-dev v3 (key "+key+")\nOK\n" {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errb)
 	}
-	if _, out, _ = e.run("config", "check"); out != "politique : acme-dev v3 (clé "+key+")\nOK\n" {
+	if _, out, _ = e.runCheck(); out != "politique : acme-dev v3 (clé "+key+")\nOK\n" {
 		t.Fatalf("fr : %q", out)
 	}
 	// Ligne de politique avant celle du profil, puis contrôle d'hôte.
 	_, key = e.withPolicy(policyHead + "profile = \"eu-only\"\n[providers]\nallow_hosts = [\"api.mistral.ai\"]\n")
-	code, out, errb = e.run("--lang", "en", "config", "check")
+	code, out, errb = e.runCheck("--lang", "en")
 	if code != 1 || out != "policy: acme-dev v3 (key "+key+")\nprofile: eu-only\n" ||
 		!strings.Contains(errb, `provider "test" (host "127.0.0.1") not allowed by policy acme-dev`) {
 		t.Fatalf("hôte : code=%d stdout=%q stderr=%q", code, out, errb)

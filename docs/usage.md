@@ -27,8 +27,8 @@ For a commented configuration example, see [config.example.toml](config.example.
 ## Commands
 
 ```
-tenon [--resume <id|last>] [--lang fr|en] [--allow-non-eu] [--provider <id>]
-tenon -p "<prompt>" [--resume <id|last>] [--lang fr|en] [--output text|json] [--strict] [--allow-non-eu] [--provider <id>]
+tenon [--resume <id|last>] [--lang fr|en] [--config <file>] [--allow-non-eu] [--provider <id>]
+tenon -p "<prompt>" [--resume <id|last>] [--lang fr|en] [--output text|json] [--strict] [--config <file>] [--allow-non-eu] [--provider <id>]
 tenon sessions [--lang fr|en]
 tenon skills [--lang fr|en]
 tenon agents [--lang fr|en]
@@ -52,6 +52,7 @@ In the synopsis, `<provider>` is the provider ID and `<message-file>` is the com
 | `-p "<prompt>"` | Runs one turn without the interactive interface. |
 | `--output text\|json` | Output format of the non-interactive mode. Default: `text`. Refused without `-p`. |
 | `--strict` | Exit code 4 when the turn ends with `max_iterations`, `incomplete`, `stopped_by_hook` or `cancelled`. Code 3 and code 1 take precedence. Refused without `-p`. |
+| `--config <file>` | Global configuration file, instead of `$XDG_CONFIG_HOME/tenon/config.toml`. It replaces the global file only: the project `.tenon/config.toml` and the organisation policy still apply. The file must exist (otherwise `config: <file>: no such file or directory`, code 1). `~` is not expanded. |
 | `--provider <id>` | Provider to use. Default: `default_provider` from the configuration. |
 | `--allow-non-eu` | Accepts sending data outside the EU, for providers and for MCP servers. |
 | `--resume <id\|last>` | Resumes a session of the current project. Refused with a subcommand other than `sessions`. |

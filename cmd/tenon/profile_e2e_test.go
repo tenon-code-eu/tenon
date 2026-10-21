@@ -294,15 +294,15 @@ func TestProfileWeakerProjectE2E(t *testing.T) {
 func TestConfigCheckProfileE2E(t *testing.T) {
 	e := newEnv(t, nil, "eu")
 	e.editGlobal("profile = \"eu-only\"\n")
-	code, out, errb := e.run("--lang", "en", "config", "check")
+	code, out, errb := e.runCheck("--lang", "en")
 	if code != 0 || out != "profile: eu-only\nOK\n" {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errb)
 	}
-	if _, out, _ = e.run("config", "check"); out != "profil : eu-only\nOK\n" {
+	if _, out, _ = e.runCheck(); out != "profil : eu-only\nOK\n" {
 		t.Fatalf("fr : %q", out)
 	}
 	e.editGlobal("", `jurisdiction = "eu"`, `jurisdiction = "non-eu"`)
-	code, out, errb = e.run("--lang", "en", "config", "check")
+	code, out, errb = e.runCheck("--lang", "en")
 	if code != 1 || strings.Contains(out, "OK") || !strings.Contains(errb, `profile eu-only: provider "test" (non-eu) not allowed`) {
 		t.Fatalf("violation : code=%d stdout=%q stderr=%q", code, out, errb)
 	}

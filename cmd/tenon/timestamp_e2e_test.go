@@ -218,7 +218,7 @@ func TestTimestampStrictLocalRemoteE2E(t *testing.T) {
 		t.Fatalf("fr : code=%d stderr=%q", code, errb)
 	}
 	// Même refus pour config check et audit timestamp.
-	if code, _, errb := e.run("--lang", "en", "config", "check"); code != 1 || !strings.Contains(errb, `audit timestamp host "tsa.example.eu" is not local`) {
+	if code, _, errb := e.runCheck("--lang", "en"); code != 1 || !strings.Contains(errb, `audit timestamp host "tsa.example.eu" is not local`) {
 		t.Fatalf("config check : code=%d stderr=%q", code, errb)
 	}
 	if code, _, errb := e.run("--lang", "en", "audit", "timestamp"); code != 1 || !strings.Contains(errb, `audit timestamp host "tsa.example.eu" is not local`) {
@@ -260,7 +260,7 @@ func TestTimestampPolicyImposedE2E(t *testing.T) {
 	if code, out, errb := e.run("--lang", "en", "audit", "verify"); code != 0 || !strings.Contains(out, "timestamps: 2 valid") {
 		t.Fatalf("audit verify : code=%d stdout=%q stderr=%q", code, out, errb)
 	}
-	if code, out, errb := e.run("--lang", "en", "config", "check"); code != 0 || !strings.Contains(out, "audit.timestamp: "+tsa.URL+" (roots: policy)") {
+	if code, out, errb := e.runCheck("--lang", "en"); code != 0 || !strings.Contains(out, "audit.timestamp: "+tsa.URL+" (roots: policy)") {
 		t.Fatalf("config check : code=%d stdout=%q stderr=%q", code, out, errb)
 	}
 }
@@ -364,11 +364,11 @@ func TestAuditVerifyNoTokensE2E(t *testing.T) {
 func TestConfigCheckTimestampE2E(t *testing.T) {
 	tsa := tsptest.NewServer(t, tsptest.Options{})
 	e := tsaEnv(t, nil, tsa)
-	code, out, errb := e.run("--lang", "en", "config", "check")
+	code, out, errb := e.runCheck("--lang", "en")
 	if code != 0 || !strings.Contains(out, "audit.timestamp: "+tsa.URL+" (roots: ca_file)\n") {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errb)
 	}
-	if _, out, _ := e.run("config", "check"); !strings.Contains(out, "audit.timestamp : "+tsa.URL+" (racines : ca_file)") {
+	if _, out, _ := e.runCheck(); !strings.Contains(out, "audit.timestamp : "+tsa.URL+" (racines : ca_file)") {
 		t.Fatalf("fr : stdout=%q", out)
 	}
 	if tsa.Requests.Load() != 0 {

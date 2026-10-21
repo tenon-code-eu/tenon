@@ -68,7 +68,7 @@ func TestLoadSetupProjectAskOverridesGlobalAllow(t *testing.T) {
 		}
 		return ""
 	}
-	s, err := loadSetup(i18n.FR, getenv, wd)
+	s, err := loadSetup(i18n.FR, getenv, wd, filepath.Join(xdg, "tenon", "config.toml"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +107,7 @@ func TestLoadSetupPolicyAskOverridesGlobalAllow(t *testing.T) {
 		}
 		return ""
 	}
-	s, err := loadSetup(i18n.FR, getenv, wd)
+	s, err := loadSetup(i18n.FR, getenv, wd, filepath.Join(xdg, "tenon", "config.toml"))
 	if err != nil {
 		t.Fatal(err)
 	}

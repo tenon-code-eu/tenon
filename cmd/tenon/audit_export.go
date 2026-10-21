@@ -31,8 +31,8 @@ func (e errFileExists) Error() string { return e.path }
 // auditExport écrit le rapport de conformité (HTML et JSON) tiré du journal
 // d'audit. Codes : 0 succès, 1 erreur d'usage ou d'écriture, 2 rapport écrit
 // mais chaîne d'audit cassée ou jeton d'horodatage invalide ou orphelin. Le journal n'est ni modifié ni verrouillé.
-func auditExport(args []string, langFlag string, stdout, stderr io.Writer, getenv func(string) string, wd string) int {
-	hl, _ := uiLang(langFlag, getenv, wd)
+func auditExport(args []string, langFlag string, stdout, stderr io.Writer, getenv func(string) string, wd, globalPath string) int {
+	hl, _ := uiLang(langFlag, getenv, wd, globalPath)
 	flags := flag.NewFlagSet("tenon audit export", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	since := flags.String("since", "", i18n.T(hl, "flag.export_since"))
@@ -50,7 +50,7 @@ func auditExport(args []string, langFlag string, stdout, stderr io.Writer, geten
 		}
 		return 1
 	}
-	lang, ok := uiLang(*langOpt, getenv, wd)
+	lang, ok := uiLang(*langOpt, getenv, wd, globalPath)
 	if !ok {
 		fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", i18n.T(lang, "err.bad_lang", *langOpt)))
 		return 1
@@ -108,13 +108,13 @@ func auditExport(args []string, langFlag string, stdout, stderr io.Writer, geten
 		outDir = resolveFrom(wd, *out)
 	}
 
-	st, err := loadSetup(lang, getenv, wd)
+	st, err := loadSetup(lang, getenv, wd, globalPath)
 	if err != nil {
 		fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", err))
 		return 1
 	}
 	dir := auditDir(config.DataDir(getenv))
-	roots, err := verifyRoots(lang, *tsaCA, dir, getenv, wd, stderr)
+	roots, err := verifyRoots(lang, *tsaCA, dir, getenv, wd, globalPath, stderr)
 	if err != nil {
 		fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", err))
 		return 1

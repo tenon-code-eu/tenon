@@ -145,8 +145,8 @@ func genTime(t time.Time) string { return t.UTC().Format(time.RFC3339) }
 
 // auditTimestamp exécute « tenon audit timestamp » : ancre la tête actuelle
 // de la chaîne. Codes : 0 ancré (ou déjà ancré), 1 sinon.
-func auditTimestamp(ctx context.Context, lang i18n.Lang, stdout, stderr io.Writer, getenv func(string) string, wd string) int {
-	s, err := loadSetup(lang, getenv, wd)
+func auditTimestamp(ctx context.Context, lang i18n.Lang, stdout, stderr io.Writer, getenv func(string) string, wd, globalPath string) int {
+	s, err := loadSetup(lang, getenv, wd, globalPath)
 	if err != nil {
 		fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", err))
 		return 1
@@ -198,7 +198,7 @@ func hasTokens(dir string) bool {
 // certificat), sinon, si dir contient un jeton, celles de la configuration
 // (politique > ca_file > système ; une configuration illisible est signalée
 // sur stderr et les racines système sont utilisées), sinon nil (système).
-func verifyRoots(lang i18n.Lang, tsaCA, dir string, getenv func(string) string, wd string, stderr io.Writer) (*x509.CertPool, error) {
+func verifyRoots(lang i18n.Lang, tsaCA, dir string, getenv func(string) string, wd, globalPath string, stderr io.Writer) (*x509.CertPool, error) {
 	if tsaCA != "" {
 		b, err := os.ReadFile(tsaCA)
 		if err != nil {
@@ -213,7 +213,7 @@ func verifyRoots(lang i18n.Lang, tsaCA, dir string, getenv func(string) string, 
 	if !hasTokens(dir) {
 		return nil, nil
 	}
-	s, err := loadSetup(lang, getenv, wd)
+	s, err := loadSetup(lang, getenv, wd, globalPath)
 	if err != nil {
 		fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", err))
 		return nil, nil
@@ -229,7 +229,7 @@ func verifyRoots(lang i18n.Lang, tsaCA, dir string, getenv func(string) string, 
 // auditVerify exécute « tenon audit verify [--tsa-ca <pem>] » : la chaîne,
 // puis les jetons d'horodatage. Codes : 0 tout est valide, 1 chaîne cassée,
 // jeton invalide ou orphelin, ou erreur d'usage.
-func auditVerify(lang i18n.Lang, args []string, stdout, stderr io.Writer, getenv func(string) string, wd string) int {
+func auditVerify(lang i18n.Lang, args []string, stdout, stderr io.Writer, getenv func(string) string, wd, globalPath string) int {
 	flags := flag.NewFlagSet("tenon audit verify", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	tsaCA := flags.String("tsa-ca", "", i18n.T(lang, "flag.tsa_ca"))
@@ -250,7 +250,7 @@ func auditVerify(lang i18n.Lang, args []string, stdout, stderr io.Writer, getenv
 		return 1
 	}
 	fmt.Fprintln(stdout, i18n.T(lang, "audit.ok", n, hash))
-	roots, err := verifyRoots(lang, *tsaCA, dir, getenv, wd, stderr)
+	roots, err := verifyRoots(lang, *tsaCA, dir, getenv, wd, globalPath, stderr)
 	if err != nil {
 		fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", err))
 		return 1

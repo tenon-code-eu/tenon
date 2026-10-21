@@ -60,7 +60,8 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	}
 	// La langue de l'aide est connue avant l'analyse des options : --lang
 	// est lu directement dans args.
-	hl, _ := uiLang(argLang(args), getenv, wd)
+	// --config est lu de la même façon, pour la langue de l'aide.
+	hl, _ := uiLang(argLang(args), getenv, wd, argConfig(args, getenv))
 	fs := flag.NewFlagSet("tenon", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	showVersion := fs.Bool("version", false, i18n.T(hl, "flag.version"))
@@ -70,6 +71,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	allowNonEU := fs.Bool("allow-non-eu", false, i18n.T(hl, "flag.allow_non_eu"))
 	providerID := fs.String("provider", "", i18n.T(hl, "flag.provider"))
 	langFlag := fs.String("lang", "", i18n.T(hl, "flag.lang"))
+	configFlag := fs.String("config", "", i18n.T(hl, "flag.config"))
 	resume := fs.String("resume", "", i18n.T(hl, "flag.resume"))
 	fs.Usage = func() {
 		fmt.Fprintln(stderr, i18n.T(hl, "usage"))
@@ -108,10 +110,18 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		rest = append([]string{rest[0]}, sub.Args()...)
 	}
 
-	lang, ok := uiLang(*langFlag, getenv, wd)
+	globalPath, explicit := globalConfigPath(*configFlag, getenv)
+	lang, ok := uiLang(*langFlag, getenv, wd, globalPath)
 	if !ok {
 		fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", i18n.T(lang, "err.bad_lang", *langFlag)))
 		return 1
+	}
+	// Un --config explicite doit désigner un fichier existant.
+	if explicit {
+		if err := checkExplicitConfig(globalPath); err != nil {
+			fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", err))
+			return 1
+		}
 	}
 
 	// --resume ne vaut que pour une conversation (interface interactive ou -p).
@@ -122,15 +132,15 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 
 	switch {
 	case len(rest) >= 2 && rest[0] == "audit" && rest[1] == "verify":
-		return auditVerify(lang, rest[2:], stdout, stderr, getenv, wd)
+		return auditVerify(lang, rest[2:], stdout, stderr, getenv, wd, globalPath)
 	case len(rest) == 2 && rest[0] == "audit" && rest[1] == "timestamp":
-		return auditTimestamp(ctx, lang, stdout, stderr, getenv, wd)
+		return auditTimestamp(ctx, lang, stdout, stderr, getenv, wd, globalPath)
 	case len(rest) >= 2 && rest[0] == "audit" && rest[1] == "export":
-		return auditExport(rest[2:], *langFlag, stdout, stderr, getenv, wd)
+		return auditExport(rest[2:], *langFlag, stdout, stderr, getenv, wd, globalPath)
 	case len(rest) >= 2 && rest[0] == "policy" && rest[1] == "check":
 		return policyCheck(lang, rest[2:], stdout, stderr)
 	case len(rest) == 2 && rest[0] == "config" && rest[1] == "check":
-		cs, err := loadSetup(lang, getenv, wd)
+		cs, err := loadSetup(lang, getenv, wd, globalPath)
 		if err == nil {
 			_, _, err = loadHooks(lang, getenv, wd, cs.cfg.Hooks)
 		}
@@ -138,8 +148,14 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 			fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", err))
 			return 1
 		}
-		// Politique, profil et listes blanches effectifs, puis conformité du
+		// Chemin du fichier global lu, puis politique, profil et listes
+		// blanches effectifs, puis conformité du
 		// fournisseur sélectionné (profil, puis listes blanches d'hôtes).
+		if _, err := os.Stat(globalPath); err != nil {
+			fmt.Fprintln(stdout, i18n.T(lang, "config.path_absent", globalPath))
+		} else {
+			fmt.Fprintln(stdout, i18n.T(lang, "config.path", globalPath))
+		}
 		if l := policyLine(lang, "config.policy", cs.cfg.Policy); l != "" {
 			fmt.Fprintln(stdout, l)
 		}
@@ -214,7 +230,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 			fmt.Fprintln(stderr, i18n.T(lang, "err.unexpected_args", rest[1]))
 			return 1
 		}
-		return listHooks(lang, stdout, stderr, getenv, wd)
+		return listHooks(lang, stdout, stderr, getenv, wd, globalPath)
 	case len(rest) >= 1 && rest[0] == "rewind":
 		// La restauration elle-même se fait dans l'interface interactive.
 		if len(rest) > 1 || !rewindList || *resume == "" {
@@ -232,7 +248,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	case len(rest) >= 2 && rest[0] == "git" && rest[1] == "install-hook":
 		return gitInstallHook(lang, rest[2:], stdout, stderr, wd)
 	case len(rest) == 3 && rest[0] == "key" && (rest[1] == "set" || rest[1] == "delete"):
-		return keyCommand(lang, rest[1], rest[2], stdin, stdout, stderr, getenv, wd)
+		return keyCommand(lang, rest[1], rest[2], stdin, stdout, stderr, getenv, wd, globalPath)
 	case len(rest) > 0:
 		fmt.Fprintln(stderr, i18n.T(lang, "err.unexpected_args", rest[0]))
 		return 1
@@ -240,7 +256,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 
 	if *prompt == "" {
 		return runInteractive(ctx, fs, lang, engineOptions{
-			ctx: ctx, getenv: getenv, wd: wd, providerID: *providerID, allowNonEU: *allowNonEU,
+			ctx: ctx, getenv: getenv, wd: wd, globalPath: globalPath, providerID: *providerID, allowNonEU: *allowNonEU,
 			lang: lang, resume: *resume, stderr: stderr, interactive: true,
 		}, stdin, stdout, stderr, isTerminal)
 	}
@@ -260,7 +276,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	}
 	agentsDisc := discoverAgents(lang, getenv, wd)
 	st, err := startEngine(engineOptions{
-		ctx: ctx, getenv: getenv, wd: wd, providerID: *providerID, allowNonEU: *allowNonEU,
+		ctx: ctx, getenv: getenv, wd: wd, globalPath: globalPath, providerID: *providerID, allowNonEU: *allowNonEU,
 		lang: lang, resume: *resume, stderr: stderr, skills: &disc, agents: &agentsDisc,
 	})
 	if err != nil {
@@ -366,6 +382,57 @@ func runInteractive(ctx context.Context, fs *flag.FlagSet, lang i18n.Lang, o eng
 	return 0
 }
 
+// argConfig renvoie le chemin global résolu à partir de -config/--config lu
+// directement dans args (comme argLang), sinon le chemin par défaut.
+func argConfig(args []string, getenv func(string) string) string {
+	v := ""
+	for i, a := range args {
+		if a == "--" {
+			break
+		}
+		switch {
+		case a == "-config" || a == "--config":
+			if i+1 < len(args) {
+				v = args[i+1]
+			}
+		case strings.HasPrefix(a, "-config="):
+			v = strings.TrimPrefix(a, "-config=")
+		case strings.HasPrefix(a, "--config="):
+			v = strings.TrimPrefix(a, "--config=")
+		}
+		if v != "" {
+			break
+		}
+	}
+	p, _ := globalConfigPath(v, getenv)
+	return p
+}
+
+// globalConfigPath résout le fichier de configuration global : la valeur de
+// --config telle quelle (sans expansion de « ~ »), sinon le chemin par défaut.
+// explicit indique que le chemin vient de --config.
+func globalConfigPath(flagValue string, getenv func(string) string) (path string, explicit bool) {
+	if flagValue != "" {
+		return flagValue, true
+	}
+	return config.GlobalPath(getenv), false
+}
+
+// checkExplicitConfig vérifie qu'un --config explicite désigne un fichier
+// existant (les erreurs de contenu sont signalées au chargement).
+func checkExplicitConfig(path string) error {
+	fi, err := os.Stat(path)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return fmt.Errorf("config: %s: no such file or directory", path)
+	case err != nil:
+		return fmt.Errorf("config: %s: %w", path, err)
+	case fi.IsDir():
+		return fmt.Errorf("config: %s: is a directory", path)
+	}
+	return nil
+}
+
 // argLang renvoie la valeur de -lang/--lang dans args (forme séparée ou
 // avec « = »), ou "" ; l'analyse s'arrête à « -- ».
 func argLang(args []string) string {
@@ -391,7 +458,7 @@ func argLang(args []string) string {
 // configuration (anglais par défaut). Une configuration
 // illisible n'empêche pas de choisir une langue : son erreur sera signalée
 // plus loin. ok est faux si --lang n'est ni fr ni en.
-func uiLang(flagValue string, getenv func(string) string, wd string) (i18n.Lang, bool) {
+func uiLang(flagValue string, getenv func(string) string, wd, globalPath string) (i18n.Lang, bool) {
 	cfgLang := config.Defaults(getenv).Lang
 	// La politique (au mieux) peut définir le fournisseur par défaut : sans
 	// elle, une telle configuration serait refusée et sa langue perdue.
@@ -399,7 +466,7 @@ func uiLang(flagValue string, getenv func(string) string, wd string) (i18n.Lang,
 	if err != nil {
 		pol = nil
 	}
-	if cfg, err := config.LoadPolicy(config.GlobalPath(getenv), filepath.Join(wd, ".tenon", "config.toml"), getenv, pol); err == nil {
+	if cfg, err := config.LoadPolicy(globalPath, filepath.Join(wd, ".tenon", "config.toml"), getenv, pol); err == nil {
 		cfgLang = cfg.Lang
 	}
 	fallback := i18n.Parse(cfgLang)
@@ -437,8 +504,8 @@ func listSessions(lang i18n.Lang, stdout, stderr io.Writer, getenv func(string) 
 
 // keyCommand enregistre (set) ou supprime (delete) la clé d'un fournisseur
 // configuré dans le trousseau système.
-func keyCommand(lang i18n.Lang, action, providerID string, stdin io.Reader, stdout, stderr io.Writer, getenv func(string) string, wd string) int {
-	s, err := loadSetup(lang, getenv, wd)
+func keyCommand(lang i18n.Lang, action, providerID string, stdin io.Reader, stdout, stderr io.Writer, getenv func(string) string, wd, globalPath string) int {
+	s, err := loadSetup(lang, getenv, wd, globalPath)
 	if err != nil {
 		fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", err))
 		return 1
@@ -504,7 +571,7 @@ type setup struct {
 // loadSetup charge la configuration globale et projet, y applique la
 // politique d'organisation (plancher), puis la convertit en règles de
 // permissions et en Redactor.
-func loadSetup(lang i18n.Lang, getenv func(string) string, wd string) (setup, error) {
+func loadSetup(lang i18n.Lang, getenv func(string) string, wd, globalPath string) (setup, error) {
 	// La politique est chargée avant la configuration : une politique
 	// illisible ou mal signée bloque le démarrage, quel que soit l'état de la
 	// configuration. Seul le répertoire système est contrôlé (propriétaire
@@ -516,7 +583,7 @@ func loadSetup(lang i18n.Lang, getenv func(string) string, wd string) (setup, er
 	}
 	// Le fournisseur par défaut est contrôlé après la politique : il peut être
 	// l'un de ses providers.define.
-	cfg, err := config.LoadPolicy(config.GlobalPath(getenv), filepath.Join(wd, ".tenon", "config.toml"), getenv, pol)
+	cfg, err := config.LoadPolicy(globalPath, filepath.Join(wd, ".tenon", "config.toml"), getenv, pol)
 	if err != nil {
 		return setup{}, err
 	}
@@ -554,9 +621,11 @@ func loadSetup(lang i18n.Lang, getenv func(string) string, wd string) (setup, er
 // engineOptions paramètre startEngine.
 type engineOptions struct {
 	// ctx borne la connexion aux serveurs MCP (nil : context.Background).
-	ctx        context.Context
-	getenv     func(string) string
-	wd         string
+	ctx    context.Context
+	getenv func(string) string
+	wd     string
+	// globalPath : fichier de configuration global résolu (--config ou défaut).
+	globalPath string
 	providerID string
 	allowNonEU bool
 	lang       i18n.Lang
@@ -813,7 +882,7 @@ func profileMCPSkip(lang i18n.Lang, n profile.Name, s config.MCPServer) string {
 // session ; une session reprise est restaurée dans l'Engine.
 func startEngine(o engineOptions) (started, error) {
 	getenv, wd, lang := o.getenv, o.wd, o.lang
-	s, err := loadSetup(lang, getenv, wd)
+	s, err := loadSetup(lang, getenv, wd, o.globalPath)
 	if err != nil {
 		return started{}, err
 	}

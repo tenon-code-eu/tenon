@@ -29,8 +29,8 @@ Pour un exemple de configuration commenté, voir [config.example.toml](../config
 ## Commandes
 
 ```
-tenon [--resume <id|last>] [--lang fr|en] [--allow-non-eu] [--provider <id>]
-tenon -p "<prompt>" [--resume <id|last>] [--lang fr|en] [--output text|json] [--strict] [--allow-non-eu] [--provider <id>]
+tenon [--resume <id|last>] [--lang fr|en] [--config <fichier>] [--allow-non-eu] [--provider <id>]
+tenon -p "<prompt>" [--resume <id|last>] [--lang fr|en] [--output text|json] [--strict] [--config <fichier>] [--allow-non-eu] [--provider <id>]
 tenon sessions [--lang fr|en]
 tenon skills [--lang fr|en]
 tenon agents [--lang fr|en]
@@ -52,6 +52,7 @@ tenon --help
 | `-p "<prompt>"` | Exécute un tour sans interface interactive. |
 | `--output text\|json` | Format de sortie du mode non interactif. Défaut : `text`. Refusé sans `-p`. |
 | `--strict` | Code de sortie 4 quand le tour se termine par `max_iterations`, `incomplete`, `stopped_by_hook` ou `cancelled`. Les codes 3 et 1 sont prioritaires. Refusé sans `-p`. |
+| `--config <fichier>` | Fichier de configuration global, à la place de `$XDG_CONFIG_HOME/tenon/config.toml`. Il remplace le fichier global seulement : la configuration projet `.tenon/config.toml` et la politique d'organisation s'appliquent toujours. Le fichier doit exister (sinon `config: <fichier>: no such file or directory`, code 1). `~` n'est pas développé. |
 | `--provider <id>` | Fournisseur à utiliser. Défaut : `default_provider` de la configuration. |
 | `--allow-non-eu` | Accepte l'envoi de données hors de l'UE, pour les fournisseurs et pour les serveurs MCP. |
 | `--resume <id\|last>` | Reprend une session du projet courant. Refusé avec une sous-commande autre que `sessions`. |

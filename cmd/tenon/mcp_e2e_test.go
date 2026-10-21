@@ -328,7 +328,7 @@ id = "web"
 transport = "http"
 url = "https://mcp.example.com/mcp"
 `)
-	code, out, errb := e.run("config", "check")
+	code, out, errb := e.runCheck()
 	if code != 1 || !strings.Contains(errb, "jurisdiction required") {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errb)
 	}
@@ -339,7 +339,7 @@ id = "absent"
 transport = "stdio"
 command = ["/nonexistent/tenon-mcp-server"]
 `)
-	if code, out, errb := e.run("config", "check"); code != 0 || strings.TrimSpace(out) != "OK" {
+	if code, out, errb := e.runCheck(); code != 0 || strings.TrimSpace(out) != "OK" {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errb)
 	}
 }
@@ -461,7 +461,7 @@ func TestHardExitKillsMCP(t *testing.T) {
 func TestHardExitDuringClose(t *testing.T) {
 	e := newEnvExtra(t, nil, "eu", stdioDecl(t))
 	log := stdioMCP(t, e, "stubborn")
-	st, err := startEngine(engineOptions{getenv: func(k string) string { return e.vars[k] }, wd: e.wd, lang: "fr", stderr: io.Discard})
+	st, err := startEngine(engineOptions{getenv: func(k string) string { return e.vars[k] }, wd: e.wd, globalPath: filepath.Join(e.vars["XDG_CONFIG_HOME"], "tenon", "config.toml"), lang: "fr", stderr: io.Discard})
 	if err != nil {
 		t.Fatal(err)
 	}
