@@ -179,3 +179,21 @@ disabled = false
 # [checkpoints]
 # Days to keep the copies. 0: no copy is saved and /rewind cannot restore files.
 # retention_days = 30
+
+# Provider allowlist: restricts the hosts providers may use. Present lists
+# (organisation policy, global, project) must all accept the host. Entries:
+# "x.eu" (exact) or "*.x.eu" (subdomains only); no scheme, port or path.
+# local = true also admits local hosts. An empty list is refused. In
+# .tenon/config.toml the section can only restrict further.
+# [provider_allowlist]
+# hosts = ["api.example.eu", "*.llm.example.eu"]
+# local = true
+
+# Declared qualifications (providers and MCP servers): "secnumcloud" is the
+# only accepted value. Declarative, never verified; used by the secnumcloud
+# profile for "eu" jurisdictions. Ignored under an organisation policy.
+# [[providers]]
+# id = "sovereign"
+# base_url = "https://llm.example.eu/v1"
+# jurisdiction = "eu"
+# qualifications = ["secnumcloud"]

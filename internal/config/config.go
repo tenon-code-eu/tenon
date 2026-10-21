@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tenon-code-eu/tenon/internal/hostmatch"
 	"github.com/tenon-code-eu/tenon/internal/orgpolicy"
 	"github.com/tenon-code-eu/tenon/internal/profile"
 )
@@ -47,6 +48,12 @@ type Config struct {
 	// profil global. Jamais lue depuis le TOML ; le CLI en tire un avis.
 	WeakerProjectProfile profile.Name `toml:"-"`
 
+	// Allowlist : liste blanche d'hôtes de fournisseurs de la config globale
+	// (nil si absente). ProjectAllowlist : celle du projet, qui ne peut que
+	// restreindre (les listes présentes s'appliquent toutes).
+	Allowlist        *ProviderAllowlist `toml:"provider_allowlist"`
+	ProjectAllowlist *ProviderAllowlist `toml:"-"`
+
 	// Policy : politique d'organisation appliquée (nil si aucune). Posée par
 	// ApplyPolicy, jamais lue depuis le TOML.
 	Policy *orgpolicy.Policy `toml:"-"`
@@ -54,6 +61,42 @@ type Config struct {
 	PolicyOverriddenProviders []string     `toml:"-"` // fournisseurs de la config remplacés par la politique
 	PolicyAuditFrom           string       `toml:"-"` // niveau d'audit remplacé ("" si inchangé)
 	PolicyRaisedProfile       profile.Name `toml:"-"` // profil de la config relevé par la politique
+	// PolicyStrippedQualifications : identifiants (triés) dont les
+	// qualifications de la config ont été retirées par la politique.
+	PolicyStrippedQualifications []string `toml:"-"`
+}
+
+// ProviderAllowlist restreint les hôtes des fournisseurs. Local admet les
+// hôtes locaux (profile.IsLocalHost).
+type ProviderAllowlist struct {
+	Hosts []string `toml:"hosts"`
+	Local bool     `toml:"local"`
+}
+
+// validate refuse une liste vide ou une entrée invalide. prefix vaut
+// « config » ou « project config ».
+func (a *ProviderAllowlist) validate(prefix string) error {
+	if a == nil {
+		return nil
+	}
+	if len(a.Hosts) == 0 && !a.Local {
+		return fmt.Errorf("%s: provider_allowlist is empty", prefix)
+	}
+	for _, h := range a.Hosts {
+		if err := hostmatch.CheckEntry(h); err != nil {
+			return fmt.Errorf("%s: provider_allowlist: %w", prefix, err)
+		}
+	}
+	return nil
+}
+
+func checkQualifications(quals []string) error {
+	for _, q := range quals {
+		if q != profile.QualSecNumCloud {
+			return fmt.Errorf("config: unknown qualification %q (%s)", q, profile.QualSecNumCloud)
+		}
+	}
+	return nil
 }
 
 // Checkpoints règle la rétention des copies. 0 désactive les copies.
@@ -84,6 +127,9 @@ type MCPServer struct {
 	Risk         string   `toml:"risk"`  // "" | "read" | "write" | "exec" | "network"
 	Tools        []string `toml:"tools"` // liste blanche optionnelle des outils exposés
 	Disabled     bool     `toml:"disabled"`
+	// Qualifications : qualifications déclarées (« secnumcloud »). Déclaratif,
+	// jamais vérifié ; ignoré sous politique d'organisation.
+	Qualifications []string `toml:"qualifications"`
 }
 
 var mcpIDPattern = regexp.MustCompile(`^[a-z0-9_-]{1,32}$`)
@@ -193,6 +239,9 @@ type Provider struct {
 	// (modèle servi, fenêtre appliquée) quand model ou context_window est
 	// vide ; "off" désactive la détection héritée d'un préréglage.
 	Detect string `toml:"detect"`
+	// Qualifications : qualifications déclarées (« secnumcloud »). Déclaratif,
+	// jamais vérifié ; ignoré sous politique d'organisation (sauf define).
+	Qualifications []string `toml:"qualifications"`
 }
 
 // defaultWindow : fenêtre de contexte (jetons) si le fournisseur n'en déclare pas.
@@ -280,6 +329,9 @@ func (c Config) validate() error {
 		return fmt.Errorf("config: invalid compaction_threshold %v (]0,1[)", c.CompactionThreshold)
 	}
 	for _, p := range c.Providers {
+		if err := checkQualifications(p.Qualifications); err != nil {
+			return err
+		}
 		if p.ContextWindow < 0 {
 			return fmt.Errorf("config: negative context_window for provider %q", p.ID)
 		}
@@ -310,6 +362,17 @@ func (c Config) validate() error {
 		return errors.New("config: retention_days must be >= 0")
 	}
 	if err := c.MCP.validate(); err != nil {
+		return err
+	}
+	for _, s := range c.MCP.Servers {
+		if err := checkQualifications(s.Qualifications); err != nil {
+			return err
+		}
+	}
+	if err := c.Allowlist.validate("config"); err != nil {
+		return err
+	}
+	if err := c.ProjectAllowlist.validate("project config"); err != nil {
 		return err
 	}
 	if _, ok := c.Provider(c.DefaultProvider); !ok {

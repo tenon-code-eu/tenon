@@ -2,6 +2,7 @@ package orgpolicy
 
 import (
 	"errors"
+	"reflect"
 	"testing"
 
 	"github.com/tenon-code-eu/tenon/internal/profile"
@@ -68,7 +69,7 @@ func TestParseFull(t *testing.T) {
 	}
 	want := ProviderDef{ID: "interne", Name: "vLLM interne", BaseURL: "https://llm.acme.eu/v1",
 		APIKeyEnv: "ACME_LLM_KEY", Model: "qwen3", Country: "FR", Jurisdiction: "eu", ContextWindow: 128000}
-	if pr.Define[0] != want {
+	if !reflect.DeepEqual(pr.Define[0], want) {
 		t.Fatalf("define: %+v", pr.Define[0])
 	}
 	if len(p.Rules) != 1 || p.Rules[0] != (Rule{"shell", "curl *", "deny"}) {
@@ -112,6 +113,7 @@ func TestParseRejects(t *testing.T) {
 		"redact no name": hd + "[[redaction.rules]]\npattern=\"x\"",
 		"redact blank":   hd + "[[redaction.rules]]\nname=\"  \"\npattern=\"x\"",
 		"redact no pat":  hd + "[[redaction.rules]]\nname=\"x\"",
+		"define qual":    hd + "[[providers.define]]\nid=\"a\"\nbase_url=\"https://a.eu\"\njurisdiction=\"eu\"\nqualifications=[\"hds\"]",
 		"define neg ctx": hd + "[[providers.define]]\nid=\"a\"\nbase_url=\"https://a.eu\"\njurisdiction=\"eu\"\ncontext_window=-1",
 		"define dup id":  hd + "[[providers.define]]\nid=\"a\"\nbase_url=\"https://a.eu\"\njurisdiction=\"eu\"\n[[providers.define]]\nid=\"a\"\nbase_url=\"https://b.eu\"\njurisdiction=\"eu\"",
 		"define nojur":   hd + "[[providers.define]]\nid=\"a\"\nbase_url=\"https://a.eu\"",

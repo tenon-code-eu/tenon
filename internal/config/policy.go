@@ -24,15 +24,34 @@ func ApplyPolicy(cfg Config, pol *orgpolicy.Policy) (Config, error) {
 	}
 	cfg.Profile = profile.Stricter(cfg.Profile, pol.Profile)
 
+	// Qualifications : déclaratives, donc ignorées sous politique (seuls les
+	// define en portent). On copie les serveurs MCP pour ne pas aliaser cfg.
+	cfg.MCP.Servers = slices.Clone(cfg.MCP.Servers)
+	var stripped []string
+	cfg.Providers = slices.Clone(cfg.Providers)
+	for i := range cfg.Providers {
+		if len(cfg.Providers[i].Qualifications) > 0 {
+			stripped = append(stripped, cfg.Providers[i].ID)
+			cfg.Providers[i].Qualifications = nil
+		}
+	}
+	for i := range cfg.MCP.Servers {
+		if len(cfg.MCP.Servers[i].Qualifications) > 0 {
+			stripped = append(stripped, cfg.MCP.Servers[i].ID)
+			cfg.MCP.Servers[i].Qualifications = nil
+		}
+	}
+	slices.Sort(stripped)
+	cfg.PolicyStrippedQualifications = stripped
+
 	// Fournisseurs imposés : ils remplacent ceux de la config, sans hériter
 	// de la détection d'un préréglage. On copie pour ne pas aliaser cfg.
-	cfg.Providers = slices.Clone(cfg.Providers)
 	if pol.Providers != nil {
 		for _, d := range pol.Providers.Define {
 			p := Provider{
 				ID: d.ID, Name: d.Name, BaseURL: d.BaseURL, APIKeyEnv: d.APIKeyEnv,
 				Model: d.Model, Country: d.Country, Jurisdiction: d.Jurisdiction,
-				ContextWindow: d.ContextWindow,
+				ContextWindow: d.ContextWindow, Qualifications: slices.Clone(d.Qualifications),
 			}
 			if i := slices.IndexFunc(cfg.Providers, func(q Provider) bool { return q.ID == p.ID }); i >= 0 {
 				cfg.Providers[i] = p

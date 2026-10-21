@@ -18,6 +18,8 @@ type projectFile struct {
 	Permissions Permissions `toml:"permissions"`
 	Redaction   Redaction   `toml:"redaction"`
 	Profile     string      `toml:"profile"`
+	// ProviderAllowlist ne peut que restreindre : liste vide refusée à la validation.
+	ProviderAllowlist *ProviderAllowlist `toml:"provider_allowlist"`
 }
 
 // Load fusionne défauts, configuration globale puis configuration projet.
@@ -47,6 +49,7 @@ func Load(globalPath, projectPath string, getenv func(string) string) (Config, e
 		cfg.MCP = g.MCP
 		cfg.Hooks = g.Hooks
 		cfg.Checkpoints = g.Checkpoints
+		cfg.Allowlist = g.Allowlist
 		gp, err := profile.Parse(string(g.Profile))
 		if err != nil {
 			return Config{}, fmt.Errorf("config: %w", err)
@@ -96,6 +99,7 @@ func Load(globalPath, projectPath string, getenv func(string) string) (Config, e
 			cfg.WeakerProjectProfile = pp
 		}
 		cfg.Profile = profile.Stricter(cfg.Profile, pp)
+		cfg.ProjectAllowlist = p.ProviderAllowlist
 		cfg.Permissions.Rules = append(cfg.Permissions.Rules, p.Permissions.Rules...)
 		cfg.Redaction.Rules = append(cfg.Redaction.Rules, p.Redaction.Rules...)
 	}

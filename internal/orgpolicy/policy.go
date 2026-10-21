@@ -42,6 +42,8 @@ type ProviderDef struct {
 	Country       string `toml:"country"`
 	Jurisdiction  string `toml:"jurisdiction"`
 	ContextWindow int    `toml:"context_window"`
+	// Qualifications : qualifications déclarées par l'organisation.
+	Qualifications []string `toml:"qualifications"`
 }
 
 // Rule est une règle de permission (deny ou ask uniquement).
@@ -144,6 +146,11 @@ func Parse(b []byte) (Policy, error) {
 			case "eu", "non-eu", "local":
 			default:
 				return Policy{}, policyErr("providers.define %q: invalid jurisdiction %q", d.ID, d.Jurisdiction)
+			}
+			for _, q := range d.Qualifications {
+				if q != profile.QualSecNumCloud {
+					return Policy{}, policyErr("providers.define %q: unknown qualification %q (%s)", d.ID, q, profile.QualSecNumCloud)
+				}
 			}
 		}
 	}
