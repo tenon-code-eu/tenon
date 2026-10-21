@@ -12,8 +12,10 @@
 #                            forges, air-gapped mirrors). Requires
 #                            TENON_VERSION. Layout: <base>/<version>/<archive>,
 #                            <base>/<version>/SHA256SUMS and
-#                            <base>/<version>/SHA256SUMS.minisig. https only,
-#                            except http://localhost and http://127.0.0.1.
+#                            <base>/<version>/SHA256SUMS.minisig. Scheme: lowercase
+#                            https:// only (uppercase is refused), except
+#                            http://localhost and http://127.0.0.1 (exact,
+#                            lowercase host; redirects must then be https).
 #
 # The SHA-256 hash of the archive is always verified. The minisign signature
 # of SHA256SUMS is verified if minisign is installed: without it, the hash
@@ -33,13 +35,16 @@ allow_http=0
 fetch() { # fetch URL FILE
 	if command -v curl >/dev/null 2>&1; then
 		if [ "$allow_http" = 1 ]; then
-			curl -fsSL --proto '=https,http' -o "$2" "$1"
+			# Local http mirror: redirects may only go to https, so it cannot
+			# bounce the download to a remote http host.
+			curl -fsSL --proto '=https,http' --proto-redir '=https' --tlsv1.2 -o "$2" "$1"
 		else
 			curl -fsSL --proto '=https' --tlsv1.2 -o "$2" "$1"
 		fi
 	elif command -v wget >/dev/null 2>&1; then
 		if [ "$allow_http" = 1 ]; then
-			wget -q -O "$2" "$1"
+			# Same rule: no redirect at all from a local http mirror.
+			wget -q --max-redirect=0 -O "$2" "$1"
 		else
 			wget -q --https-only -O "$2" "$1"
 		fi

@@ -6,14 +6,17 @@ import (
 	"compress/gzip"
 	"crypto/sha256"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 )
 
@@ -197,5 +200,58 @@ func TestInstallMirrorRequireSignature(t *testing.T) {
 	r := runInstall(t, p, sh, "TENON_DOWNLOAD_BASE="+m.srv.URL, "TENON_VERSION="+testVersion, "TENON_REQUIRE_SIGNATURE=1")
 	if r.code != 1 || !strings.Contains(r.stderr, "TENON_REQUIRE_SIGNATURE=1") {
 		t.Fatalf("code %d: %s", r.code, r.stderr)
+	}
+}
+
+func TestInstallMirrorRefusedHosts(t *testing.T) {
+	p, sh := restrictedPath(t)
+	for _, base := range []string{
+		"http://localhost.evil.com",
+		"http://127.0.0.1.nip.io",
+		"http://localhost@evil",
+		"http://evil@localhost",
+		"http://LOCALHOST",
+		"http://[::1]",
+		"http://localhost.:80",
+	} {
+		r := runInstall(t, p, sh, "TENON_DOWNLOAD_BASE="+base, "TENON_VERSION="+testVersion)
+		if r.code != 1 || !strings.Contains(r.stderr, "TENON_DOWNLOAD_BASE must be https.") {
+			t.Errorf("%s: code %d: %s", base, r.code, r.stderr)
+		}
+	}
+}
+
+func TestInstallMirrorLocalhostName(t *testing.T) {
+	addrs, err := net.LookupHost("localhost")
+	if err != nil || !slices.Contains(addrs, "127.0.0.1") {
+		t.Skip("localhost ne résout pas vers 127.0.0.1")
+	}
+	p, sh := restrictedPath(t)
+	m := newMirror(t, sh, false)
+	base := strings.Replace(m.srv.URL, "127.0.0.1", "localhost", 1)
+	r := runInstall(t, p, sh, "TENON_DOWNLOAD_BASE="+base, "TENON_VERSION="+testVersion)
+	if r.code != 0 {
+		t.Fatalf("code %d: %s", r.code, r.stderr)
+	}
+}
+
+// Une redirection depuis un miroir local ne doit pas sortir en http.
+func TestInstallMirrorHTTPRedirectRefused(t *testing.T) {
+	p, sh := restrictedPath(t)
+	var hits int32
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hits, 1)
+	}))
+	defer other.Close()
+	redir := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, other.URL+r.URL.Path, http.StatusFound)
+	}))
+	defer redir.Close()
+	r := runInstall(t, p, sh, "TENON_DOWNLOAD_BASE="+redir.URL, "TENON_VERSION="+testVersion)
+	if r.code != 1 {
+		t.Fatalf("code %d: %s", r.code, r.stderr)
+	}
+	if n := atomic.LoadInt32(&hits); n != 0 {
+		t.Fatalf("le second serveur a reçu %d requêtes", n)
 	}
 }
