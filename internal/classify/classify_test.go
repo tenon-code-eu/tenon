@@ -103,6 +103,17 @@ func TestMatchCommand(t *testing.T) {
 	}
 }
 
+func TestCommandPath(t *testing.T) {
+	root := tmpRoot(t)
+	r := Rules{Paths: []string{"rh/**"}}
+	if w, ok := r.CommandPath(root, `cat a;cat "rh/b c.csv"`); !ok || w != "rh/b c.csv" {
+		t.Fatalf("got %q, %v", w, ok)
+	}
+	if w, ok := r.CommandPath(root, "ls src"); ok || w != "" {
+		t.Fatalf("got %q, %v", w, ok)
+	}
+}
+
 func TestEmpty(t *testing.T) {
 	if !(Rules{}).Empty() {
 		t.Fatal("empty")

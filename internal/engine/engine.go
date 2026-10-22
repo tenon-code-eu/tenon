@@ -12,6 +12,7 @@ import (
 
 	"github.com/tenon-code-eu/tenon/internal/agents"
 	"github.com/tenon-code-eu/tenon/internal/checkpoint"
+	"github.com/tenon-code-eu/tenon/internal/classify"
 	"github.com/tenon-code-eu/tenon/internal/event"
 	"github.com/tenon-code-eu/tenon/internal/hooks"
 	"github.com/tenon-code-eu/tenon/internal/hostmatch"
@@ -99,6 +100,13 @@ type Deps struct {
 	// Sandbox décrit l'isolation de la session, recopiée dans SessionStarted
 	// (nil : omise).
 	Sandbox *event.SandboxInfo
+	// Classify porte les règles de classification (chemins, marquages) ; les
+	// marquages intégrés s'appliquent même avec des règles vides.
+	Classify classify.Rules
+	// HasLocal indique qu'un fournisseur local est disponible : un contenu
+	// classé rend alors la session sensible au lieu d'être refusé ou retenu.
+	// Provisoire : remplacé par le routeur (Router.Local()).
+	HasLocal bool
 }
 
 // Reply répond à un PermissionRequested. Network accorde le réseau à la
@@ -141,6 +149,21 @@ type session struct {
 	startCtx string
 	// rw : points, écritures et appels non annulables de la session (rewind).
 	rw rewindState
+
+	// classMu protège sensitive et sensitiveReason : les tours de hooks
+	// agent concurrents partagent la session.
+	classMu sync.Mutex
+	// sensitive : la session a touché un contenu classé (définitif, partagé
+	// avec les sous-agents, restauré depuis SessionClassified).
+	sensitive       bool
+	sensitiveReason string
+}
+
+// isSensitive indique que la session est sensible.
+func (s *session) isSensitive() bool {
+	s.classMu.Lock()
+	defer s.classMu.Unlock()
+	return s.sensitive
 }
 
 // New construit un Engine.

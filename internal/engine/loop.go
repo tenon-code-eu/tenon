@@ -105,6 +105,11 @@ func (t *turn) run(in Input) error {
 	if prompt == "" {
 		prompt = in.Text
 	}
+	// Classification : avant les hooks UserPromptSubmit (un hook prompt
+	// enverrait le texte au fournisseur).
+	if blocked, err := t.checkUser(in.Text, in.Typed); blocked || err != nil {
+		return err
+	}
 	out, err := t.runHooks(hooks.UserPromptSubmit, "", map[string]any{"prompt": prompt})
 	if err != nil {
 		return t.hookFailed(err)
@@ -122,6 +127,12 @@ func (t *turn) run(in Input) error {
 		return t.done(0, "blocked_by_hook")
 	}
 	um.HookContext = joinContext(t.s.startCtx, out.Context)
+	// Contexte des hooks (SessionStart, UserPromptSubmit) joint au message :
+	// contrôlé comme lui ; un blocage l'abandonne.
+	if blocked, err := t.checkUser(um.HookContext); blocked || err != nil {
+		t.s.startCtx = ""
+		return err
+	}
 	t.s.startCtx = ""
 	histLen := len(*t.h)
 	*t.h = append(*t.h, llm.Message{Role: llm.User, Content: withHookContext(in.Text, um.HookContext)})
@@ -333,6 +344,10 @@ func (t *turn) compactOrStop(info llm.ProviderInfo, defs []llm.ToolDef, force bo
 // l'utilisateur refuse la juridiction ou si le profil interdit le fournisseur.
 func (t *turn) outbound(info llm.ProviderInfo, in []llm.Message) (msgs []llm.Message, ok bool, err error) {
 	d := t.e.d
+	// Session sensible sans fournisseur local (reprise) : aucun envoi.
+	if blocked, err := t.blockSensitive(); blocked || err != nil {
+		return nil, false, err
+	}
 	var counts map[string]int
 	for asked := false; ; asked = true {
 		msgs, counts, err = d.Outbound.Check(info, in)
@@ -513,6 +528,17 @@ func (t *turn) runTool(c llm.ToolCall) (tools.Result, error) {
 	if err != nil {
 		return tools.Result{}, err
 	}
+	// Classification du résultat complet, avant PostToolUse (un hook prompt
+	// l'enverrait au fournisseur), l'enregistrement et l'historique.
+	if ran {
+		file := ""
+		if c.Name == "read_file" && !res.IsError {
+			file = res.Path
+		}
+		if res.Content, err = t.scanResult(c.Name, c.ID, res.Content, file); err != nil {
+			return tools.Result{}, err
+		}
+	}
 	// Appel exécuté hors du suivi des copies (shell, MCP write/exec).
 	untracked := false
 	if ran && res.Denied == "" && t.tools != nil {
@@ -538,6 +564,12 @@ func (t *turn) runTool(c llm.ToolCall) (tools.Result, error) {
 		}
 		if out.Context != "" {
 			res.Content += "\n\n" + out.Context
+		}
+		// Ajouts des hooks : contrôlés à leur tour.
+		if out.Block || out.Context != "" {
+			if res.Content, err = t.scanResult(c.Name, c.ID, res.Content, ""); err != nil {
+				return tools.Result{}, err
+			}
 		}
 	}
 	trp := event.ToolResultPayload{
@@ -696,6 +728,15 @@ func (t *turn) decideAndRun(c llm.ToolCall) (res tools.Result, denied string, ra
 			// Approbation mémorisée : la règle ask accorde son réseau.
 			network = ruleNet
 		}
+	}
+	// Classification : sur les arguments définitifs, après hooks et
+	// permissions, juste avant l'exécution.
+	refused, err := t.gateClassified(c, target, args)
+	if err != nil {
+		return tools.Result{}, "", false, nil, err
+	}
+	if refused {
+		return toolError("%s", classifiedRefused), deniedClassification, false, nil, nil
 	}
 	if _, isAgent := tool.(agentTool); isAgent {
 		run := c

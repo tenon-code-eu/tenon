@@ -224,6 +224,20 @@ type ErrorPayload struct {
 	ParentCallID string `json:"parent_call_id,omitempty"`
 }
 
+// SessionClassifiedPayload records that the session became sensitive (once,
+// permanently). Reason is "path" or "marker"; Source is "tool", "shell",
+// "mcp", "user" or "outbound". CallID is the tool call that triggered it,
+// Path the classified path (relative to the project root when inside it) and
+// Marker the classification marker as configured; empty fields are omitted.
+// Session-wide, so it carries no ParentCallID even when a sub-agent triggers it.
+type SessionClassifiedPayload struct {
+	Reason string `json:"reason"`
+	Source string `json:"source"`
+	CallID string `json:"call_id,omitempty"`
+	Path   string `json:"path,omitempty"`
+	Marker string `json:"marker,omitempty"`
+}
+
 // SubagentStartedPayload opens a sub-agent run launched by the "agent" tool call CallID.
 type SubagentStartedPayload struct {
 	CallID      string `json:"call_id"`

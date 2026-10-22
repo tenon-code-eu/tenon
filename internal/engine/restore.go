@@ -37,7 +37,8 @@ const interruptedMsg = "cancelled: session interrupted"
 // appels non annulables) est rejoué comme en direct ; un Rewound des modes
 // conversation et both tronque l'historique à la longueur du point, celui du
 // mode code met sa note en attente (jointe au prochain UserMessage accepté).
-// Les autres types sont ignorés.
+// Un SessionClassified rend la session sensible (définitivement, quel que soit
+// son parent_call_id). Les autres types sont ignorés.
 func (e *Engine) Restore(sessionID string, events []event.Event) error {
 	s := e.session(sessionID)
 	s.turn.Lock()
@@ -53,6 +54,9 @@ func (e *Engine) Restore(sessionID string, events []event.Event) error {
 	var pending []llm.ToolCall // appels du dernier message assistant sans résultat
 	// startCtx : contexte SessionStart encore en attente (dernier prompt bloqué).
 	var startCtx string
+	// sensitive : la session a été classée (SessionClassified).
+	var sensitive bool
+	var sensitiveReason string
 	closePending := func() {
 		for _, c := range pending {
 			history = append(history, llm.Message{Role: llm.Tool, Content: interruptedMsg, ToolCallID: c.ID})
@@ -83,7 +87,7 @@ func (e *Engine) Restore(sessionID string, events []event.Event) error {
 			}
 			rw.addResult(ev.Seq, p)
 		}
-		if meta.ParentCallID != "" && ev.Type != event.PermissionRequested {
+		if meta.ParentCallID != "" && ev.Type != event.PermissionRequested && ev.Type != event.SessionClassified {
 			continue
 		}
 		switch ev.Type {
@@ -171,6 +175,15 @@ func (e *Engine) Restore(sessionID string, events []event.Event) error {
 				history = append(history[:0:0], history[:pt.HistoryLen]...)
 			}
 			rw.addRewound(ev.Seq, p)
+		case event.SessionClassified:
+			var p event.SessionClassifiedPayload
+			if err := unmarshalPayload(ev, &p); err != nil {
+				return err
+			}
+			// Définitif : le premier SessionClassified fixe la raison.
+			if !sensitive {
+				sensitive, sensitiveReason = true, p.Reason
+			}
 		case event.PermissionRequested:
 			var p event.PermissionRequestedPayload
 			if err := unmarshalPayload(ev, &p); err != nil {
@@ -194,6 +207,9 @@ func (e *Engine) Restore(sessionID string, events []event.Event) error {
 	s.resumed = true
 	s.warned = false
 	s.remembered = map[string]bool{}
+	s.classMu.Lock()
+	s.sensitive, s.sensitiveReason = sensitive, sensitiveReason
+	s.classMu.Unlock()
 	return nil
 }
 

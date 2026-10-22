@@ -176,8 +176,20 @@ func boundary(s string, start, end int) bool {
 // MatchCommand découpe cmd en mots et teste ceux qui ressemblent à un chemin
 // (contient `/` ou existe relativement à root).
 func (r Rules) MatchCommand(root, cmd string) (string, bool) {
+	_, pat, ok := r.matchCommand(root, cmd)
+	return pat, ok
+}
+
+// CommandPath est MatchCommand, mais rend le mot de la commande classé (le
+// chemin tel qu'écrit) plutôt que le motif.
+func (r Rules) CommandPath(root, cmd string) (string, bool) {
+	w, _, ok := r.matchCommand(root, cmd)
+	return w, ok
+}
+
+func (r Rules) matchCommand(root, cmd string) (word, pat string, ok bool) {
 	if len(r.Paths) == 0 {
-		return "", false
+		return "", "", false
 	}
 	for _, w := range splitWords(cmd) {
 		if !strings.Contains(w, "/") {
@@ -186,10 +198,10 @@ func (r Rules) MatchCommand(root, cmd string) (string, bool) {
 			}
 		}
 		if pat, ok := r.MatchPath(root, w); ok {
-			return pat, true
+			return w, pat, true
 		}
 	}
-	return "", false
+	return "", "", false
 }
 
 // splitWords sépare sur les espaces (hors guillemets) et sur `= < > ; | & ( )`,
