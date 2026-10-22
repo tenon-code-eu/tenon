@@ -22,11 +22,15 @@
   'copied': 'Copié' if fr else 'Copied',
   'script_note': 'Le script vérifie le hash SHA-256, et la signature minisign si elle est installée.' if fr else 'The script checks the SHA-256 hash, and the minisign signature when minisign is installed.',
   'read_script': 'Lire le script' if fr else 'Read the script',
-  'stage_hint': 'Glissez pour tourner · touchez pour assembler' if fr else 'Drag to turn · tap to assemble',
-  'stage_label': "Assemblage tenon-mortaise en 3D : la pièce dorée, le tenon, entre dans la mortaise du montant bleu. Glissez pour tourner, Entrée pour assembler ou séparer." if fr else 'A 3D mortise-and-tenon joint: the gold tenon slides into the mortise of the blue post. Drag to turn, Enter to join or separate.',
-  'assemble': 'Assembler' if fr else 'Join',
-  'separate': 'Séparer' if fr else 'Separate',
-  'caption': "Un tenon s'emboîte dans une mortaise, sans jeu. tenon s'emboîte dans votre code, sans laisser fuir vos données." if fr else 'A tenon fits its mortise with no play. tenon fits your codebase without letting your data leak.',
+  'stage_hint': 'Cliquez un composant · glissez pour tourner' if fr else 'Click a component · drag to orbit',
+  'stage_label': "Maquette 3D du harness tenon vue de haut : douze composants reliés par des pistes de données. Flèches gauche et droite pour passer d'un composant à l'autre, Échap pour la vue d'ensemble." if fr else 'A 3D top-down model of the tenon harness: twelve components linked by data traces. Left and right arrows move between components, Escape returns to the overview.',
+  'prev': 'Composant précédent' if fr else 'Previous component',
+  'next': 'Composant suivant' if fr else 'Next component',
+  'tour': 'Visite' if fr else 'Tour',
+  'pause': 'Pause' if fr else 'Pause',
+  'overview': "Vue d'ensemble" if fr else 'Overview',
+  'overview_name': 'Le harness tenon' if fr else 'The tenon harness',
+  'overview_desc': "Douze composants, une seule règle : rien ne sort sans passer par vos permissions, votre masquage et votre journal." if fr else 'Twelve components, one rule: nothing leaves without going through your permissions, your masking and your log.',
   'map_title': 'Où partent vos données' if fr else 'Where your data goes',
   'map_lede': "Avant chaque envoi, tenon masque les secrets et applique vos règles. La destination dépend de votre configuration, et elle est inscrite au journal." if fr else 'Before each send, tenon masks secrets and applies your rules. The destination depends on your configuration, and it is written to the audit log.',
   'node_project': 'Votre projet' if fr else 'Your project',
@@ -72,6 +76,33 @@
   'policy': "Politique d'organisation" if fr else 'Organisation policy',
   'ci': 'Intégration CI' if fr else 'CI integration',
 } %}
+{% set parts = [
+  {'id': 'tools', 'name': 'Outils', 'desc': 'Lire, écrire, chercher, lancer une commande : chaque outil reste ancré à la racine du projet.'},
+  {'id': 'permissions', 'name': 'Permissions', 'desc': 'Écritures, commandes et appels MCP attendent votre accord. Un dépôt ne peut rien assouplir.'},
+  {'id': 'engine', 'name': 'Moteur', 'desc': "La boucle d'agent : lire, proposer, exécuter, tour après tour, chaque événement émis vers le journal."},
+  {'id': 'redaction', 'name': 'Masquage', 'desc': 'Secrets et certaines données personnelles masqués avant que la requête ne quitte la machine.'},
+  {'id': 'providers', 'name': 'Fournisseurs', 'desc': 'Mistral AI, Codestral, Scaleway, OVHcloud, Albert API, ou local avec Ollama et vLLM. Hors UE : votre consentement.'},
+  {'id': 'audit', 'name': "Journal d'audit", 'desc': "Chaque ligne scelle la précédente par hachage. tenon audit verify le prouve, l'horodatage RFC 3161 le date."},
+  {'id': 'skills', 'name': 'Skills', 'desc': "Des SKILL.md au format Agent Skills, chargés à la demande, incapables d'élargir les permissions."},
+  {'id': 'subagents', 'name': 'Sous-agents', 'desc': "Des tâches confiées à d'autres agents, avec les mêmes permissions, le même masquage et le même audit."},
+  {'id': 'hooks', 'name': 'Hooks', 'desc': "Vos commandes avant et après les outils : bloquer, demander, ajouter du contexte. Les hooks d'un dépôt ne tournent jamais."},
+  {'id': 'mcp', 'name': 'MCP', 'desc': 'Serveurs stdio ou http à juridiction déclarée, filtrés par profil et par la politique.'},
+  {'id': 'checkpoints', 'name': 'Points de reprise', 'desc': 'Chaque message est un point de restauration : /rewind rend les fichiers, la conversation, ou les deux.'},
+  {'id': 'policy', 'name': "Politique d'organisation", 'desc': 'Un plancher signé avec minisign, vérifié à chaque démarrage, que personne ne peut desserrer.'}
+] if fr else [
+  {'id': 'tools', 'name': 'Tools', 'desc': 'Read, write, search, run a command: every tool stays anchored to the project root.'},
+  {'id': 'permissions', 'name': 'Permissions', 'desc': 'Writes, commands and MCP calls wait for your approval. A repository cannot loosen anything.'},
+  {'id': 'engine', 'name': 'Engine', 'desc': 'The agent loop: read, propose, run, turn after turn, every event sent to the log.'},
+  {'id': 'redaction', 'name': 'Masking', 'desc': 'Secrets and some personal data masked before the request leaves the machine.'},
+  {'id': 'providers', 'name': 'Providers', 'desc': 'Mistral AI, Codestral, Scaleway, OVHcloud, Albert API, or local with Ollama and vLLM. Outside the EU: your consent.'},
+  {'id': 'audit', 'name': 'Audit log', 'desc': 'Each line seals the previous one by hash. tenon audit verify proves it, RFC 3161 timestamps date it.'},
+  {'id': 'skills', 'name': 'Skills', 'desc': 'SKILL.md files in the Agent Skills format, loaded on demand, unable to widen permissions.'},
+  {'id': 'subagents', 'name': 'Sub-agents', 'desc': 'Tasks handed to other agents, with the same permissions, masking and audit.'},
+  {'id': 'hooks', 'name': 'Hooks', 'desc': "Your commands before and after tools: block, ask, add context. A repository's hooks never run."},
+  {'id': 'mcp', 'name': 'MCP', 'desc': 'stdio or http servers with a declared jurisdiction, filtered by profile and policy.'},
+  {'id': 'checkpoints', 'name': 'Checkpoints', 'desc': 'Every prompt is a restore point: /rewind brings back the files, the conversation, or both.'},
+  {'id': 'policy', 'name': 'Organisation policy', 'desc': 'A floor signed with minisign, verified at every startup, that nobody can loosen.'}
+] %}
 {% set brew = 'brew install tenon-code-eu/tap/tenon' %}
 {% set script = 'curl -fsSL https://raw.githubusercontent.com/tenon-code-eu/tenon/main/install.sh | sh' %}
 
@@ -134,19 +165,31 @@
         </div>
       </div>
 
-      <figure class="h-stage" id="h-stage">
-        <canvas class="h-stage__canvas" id="h-joint" tabindex="0" role="img" aria-label="{{ T.stage_label }}"></canvas>
-        <svg class="h-stage__fallback" viewBox="0 0 320 240" aria-hidden="true">
-          <polygon points="70,60 150,40 150,190 70,210" class="fb-post"/>
-          <polygon points="150,40 190,55 190,205 150,190" class="fb-post-side"/>
-          <polygon points="190,95 290,95 290,150 190,150" class="fb-rail"/>
-          <polygon points="160,108 190,108 190,138 160,138" class="fb-tenon"/>
-        </svg>
+      <figure class="h-stage is-fallback" id="h-stage">
+        <div class="h-stage__view">
+          <canvas class="h-stage__canvas" id="h-harness" tabindex="0" role="img" aria-label="{{ T.stage_label }}"></canvas>
+          <div class="h-pins" id="h-pins"></div>
+        </div>
+        <div class="h-stage__panel" aria-live="polite">
+          <span class="h-stage__num" id="h-part-num">00</span>
+          <div>
+            <p class="h-stage__name" id="h-part-name">{{ T.overview_name }}</p>
+            <p class="h-stage__desc" id="h-part-desc">{{ T.overview_desc }}</p>
+          </div>
+        </div>
         <div class="h-stage__bar">
           <span class="h-stage__hint">{{ T.stage_hint }}</span>
-          <button class="h-stage__toggle" type="button" id="h-joint-toggle" data-assemble="{{ T.assemble }}" data-separate="{{ T.separate }}">{{ T.separate }}</button>
+          <div class="h-stage__ctl">
+            <button class="h-stage__btn" type="button" id="h-prev" aria-label="{{ T.prev }}">◀</button>
+            <button class="h-stage__btn h-stage__btn--tour" type="button" id="h-tour" data-play="{{ T.tour }}" data-pause="{{ T.pause }}">{{ T.tour }}</button>
+            <button class="h-stage__btn" type="button" id="h-overview">{{ T.overview }}</button>
+            <button class="h-stage__btn" type="button" id="h-next" aria-label="{{ T.next }}">▶</button>
+          </div>
         </div>
-        <figcaption class="h-stage__cap">{{ T.caption }}</figcaption>
+        <ol class="h-stage__list">
+          {% for p in parts %}<li><strong>{{ p.name }}</strong> — {{ p.desc }}</li>{% endfor %}
+        </ol>
+        <script type="application/json" id="h-parts" data-overview-name="{{ T.overview_name }}" data-overview-desc="{{ T.overview_desc }}">{{ parts | tojson }}</script>
       </figure>
     </div>
   </section>

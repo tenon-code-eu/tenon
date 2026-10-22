@@ -2,7 +2,7 @@
  * vibe: European night, star gold, engineered, sovereign
  * paper oklch(97.5% 0.006 262) · accent oklch(44% 0.19 264) + gold oklch(86% 0.17 92)
  * display: Bricolage Grotesque · body: IBM Plex Sans · mono: IBM Plex Mono
- * enrichment: interactive WebGL joint (hand-built, no library) · nav: N13 · footer: Ft5
+ * enrichment: interactive WebGL harness model with guided tour (hand-built, no library) · nav: N13 · footer: Ft5
  * audience: developers + CISOs/DPOs + public sector · use: install · tone: technical, sovereign
  * Hallmark · pre-emit critique: P5 H4 E4 S5 R4 V5
  */
@@ -112,26 +112,50 @@ body:has(.h-page) { background: var(--color-paper); color: var(--color-ink-2);
 .h-copy--light { color: var(--color-ink); border-color: var(--color-rule-2); background: var(--color-paper); }
 .h-copy--light:hover, .h-copy--light[data-state="done"] { border-color: var(--color-accent); color: var(--color-accent); }
 
-/* ── Scène 3D ────────────────────────────────────────────────────── */
+/* ── Scène 3D : maquette du harness ─────────────────────────────── */
 .h-stage { margin: 0; position: relative; display: grid; gap: var(--space-sm); min-width: 0; }
-.h-stage__canvas { display: block; width: 100%; aspect-ratio: 1 / 1; max-height: 34rem; border-radius: var(--radius-md);
+.h-stage__view { position: relative; }
+.h-stage__canvas { display: block; width: 100%; aspect-ratio: 1 / 1; max-height: 36rem; border-radius: var(--radius-md);
   touch-action: pan-y; cursor: grab; background: transparent; }
 .h-stage__canvas:active { cursor: grabbing; }
-.h-stage__fallback { display: none; width: 100%; max-height: 22rem; }
-.h-stage.is-fallback .h-stage__canvas { display: none; }
-.h-stage.is-fallback .h-stage__fallback { display: block; }
-.h-stage.is-fallback .h-stage__hint, .h-stage.is-fallback .h-stage__toggle { display: none; }
-.fb-post { fill: var(--color-3d-post); } .fb-post-side { fill: var(--color-night-rule); }
-.fb-rail { fill: var(--color-3d-rail); } .fb-tenon { fill: var(--color-3d-tenon); }
-.h-stage__bar { display: flex; align-items: center; justify-content: space-between; gap: var(--space-sm); }
+.h-pins { position: absolute; inset: 0; pointer-events: none; overflow: hidden; border-radius: var(--radius-md); }
+.h-pin { position: absolute; left: 0; top: 0; pointer-events: auto; display: inline-flex; align-items: center; gap: var(--space-2xs);
+  min-height: 26px; padding: 0 7px; border-radius: 999px; cursor: pointer; white-space: nowrap;
+  font: 500 0.7rem/1 var(--font-mono); letter-spacing: 0.04em;
+  color: var(--color-on-night); background: var(--color-night); border: var(--rule-hair) solid var(--color-night-rule);
+  transform: translate(-50%, -100%); transition: opacity var(--dur-short) var(--ease-out), border-color var(--dur-micro) var(--ease-out); }
+.h-pin::after { content: ""; position: absolute; left: 50%; top: 100%; width: 1px; height: 10px; background: var(--color-night-rule); }
+.h-pin__name { display: none; font-family: var(--font-body); font-weight: 600; letter-spacing: 0; }
+.h-pin:hover { border-color: var(--color-gold); }
+.h-pin.is-active { color: var(--color-gold-ink); background: var(--color-gold); border-color: var(--color-gold); }
+.h-pin.is-active::after { background: var(--color-gold); height: 18px; }
+.h-pin.is-active .h-pin__name { display: inline; }
+.h-pin.is-dim { opacity: 0.35; }
+.h-pin.is-hidden { opacity: 0; pointer-events: none; }
+
+.h-stage__panel { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-md); align-items: start;
+  min-height: 6.5rem; padding: var(--space-md); border: var(--rule-hair) solid var(--color-night-rule);
+  border-left: 3px solid var(--color-gold); border-radius: var(--radius-sm); background: var(--color-night-2); }
+.h-stage__num { font: 500 var(--text-2xl)/1 var(--font-mono); color: var(--color-gold); font-variant-numeric: tabular-nums; }
+.h-stage__name { margin: 0 0 var(--space-2xs); font-family: var(--font-display); font-weight: 700; font-size: var(--text-lg);
+  line-height: 1.2; color: var(--color-on-night); }
+.h-stage__desc { margin: 0; font-size: var(--text-sm); color: var(--color-on-night-muted); max-width: 52ch; }
+.h-stage__bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-sm); }
 .h-stage__hint { font: 500 0.75rem/1.3 var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase;
   color: var(--color-on-night-muted); }
-.h-stage__toggle { flex: none; min-height: 34px; padding: 0 var(--space-sm); border-radius: var(--radius-sm); cursor: pointer;
-  font: 600 var(--text-sm)/1 var(--font-body); white-space: nowrap; color: var(--color-gold);
-  background: transparent; border: var(--rule-hair) solid var(--color-gold);
-  transition: transform var(--dur-micro) var(--ease-out); }
-.h-stage__toggle:active { transform: translateY(1px); }
-.h-stage__cap { font-size: var(--text-sm); color: var(--color-on-night-muted); max-width: 44ch; }
+.h-stage__ctl { display: flex; gap: var(--space-2xs); }
+.h-stage__btn { min-height: 34px; min-width: 34px; padding: 0 var(--space-sm); border-radius: var(--radius-sm); cursor: pointer;
+  font: 600 var(--text-sm)/1 var(--font-body); white-space: nowrap; color: var(--color-on-night);
+  background: transparent; border: var(--rule-hair) solid var(--color-night-rule);
+  transition: border-color var(--dur-micro) var(--ease-out), transform var(--dur-micro) var(--ease-out); }
+.h-stage__btn:hover { border-color: var(--color-gold); }
+.h-stage__btn:active { transform: translateY(1px); }
+.h-stage__btn--tour { color: var(--color-gold); border-color: var(--color-gold); }
+.h-stage__list { display: none; margin: 0; padding-inline-start: var(--space-lg); font-size: var(--text-sm); color: var(--color-on-night-muted); }
+.h-stage__list li { margin-bottom: var(--space-2xs); }
+.h-stage__list strong { color: var(--color-on-night); }
+.h-stage.is-fallback .h-stage__view, .h-stage.is-fallback .h-stage__panel, .h-stage.is-fallback .h-stage__bar { display: none; }
+.h-stage.is-fallback .h-stage__list { display: block; }
 
 /* ── Carte des flux (macrostructure Map / Diagram) ───────────────── */
 .h-map { padding-block: var(--space-3xl) var(--space-2xl); }
@@ -230,7 +254,7 @@ body:has(.h-page) { background: var(--color-paper); color: var(--color-ink-2);
     width: var(--space-2xl); height: 0; border-left: 0; border-top: 2px solid var(--color-ink); }
   .h-proof__grid { grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr); gap: var(--space-2xl); }
 }
-@media (pointer: coarse) { .h-btn, .h-copy, .h-stage__toggle, .h-install__tab { min-height: 44px; } }
+@media (pointer: coarse) { .h-btn, .h-copy, .h-stage__btn, .h-install__tab { min-height: 44px; } }
 
 @media (prefers-reduced-motion: reduce) {
   .h-page *, .h-nav *, .h-foot * { transition-duration: 150ms !important; }
