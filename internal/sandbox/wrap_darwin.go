@@ -31,7 +31,7 @@ func Probe() Status {
 			probeStatus = Status{Available: false, Mechanism: "none", Network: "none", Reason: "sandbox-exec: " + err.Error()}
 			return
 		}
-		probeStatus = Status{Available: true, Mechanism: "sandbox-exec", Network: "full"}
+		probeStatus = Status{Available: true, Mechanism: "sandbox-exec", Network: "full", UnixSockets: true}
 	})
 	return probeStatus
 }

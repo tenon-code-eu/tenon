@@ -36,4 +36,7 @@ type Status struct {
 	Network string
 	// Reason explique une indisponibilité ou une isolation réseau partielle.
 	Reason string
+	// UnixSockets indique que les connexions aux sockets Unix sont
+	// confinées : Linux, ABI Landlock ≥ 9 ; macOS, (deny network*) les couvre.
+	UnixSockets bool
 }

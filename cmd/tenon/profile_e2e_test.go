@@ -152,6 +152,7 @@ jurisdiction = "local"
 }
 
 func TestProfileStrictLocalOKE2E(t *testing.T) {
+	sandboxReady(t)
 	f := newFakeLLM(t, sseText("bonjour local"))
 	e := newEnv(t, f, "local")
 	e.editGlobal("profile = \"strict-local\"\n")
@@ -231,6 +232,7 @@ func TestProfileMCPSkippedE2E(t *testing.T) {
 // strict-local : un serveur http local de nom d'hôte distant est ignoré pour
 // son hôte.
 func TestProfileMCPHostSkippedE2E(t *testing.T) {
+	sandboxReady(t)
 	f := newFakeLLM(t, sseText("fini"))
 	e := newEnvExtra(t, f, "local", httpDecl("https://mcp.example", "local", ""))
 	e.editGlobal("profile = \"strict-local\"\n")
@@ -277,6 +279,7 @@ func TestProfileTUIMCPSkippedE2E(t *testing.T) {
 }
 
 func TestProfileWeakerProjectE2E(t *testing.T) {
+	sandboxReady(t)
 	f := newFakeLLM(t, sseText("salut"))
 	e := newEnv(t, f, "local")
 	e.editGlobal("profile = \"strict-local\"\n")
@@ -295,10 +298,10 @@ func TestConfigCheckProfileE2E(t *testing.T) {
 	e := newEnv(t, nil, "eu")
 	e.editGlobal("profile = \"eu-only\"\n")
 	code, out, errb := e.runCheck("--lang", "en")
-	if code != 0 || out != "profile: eu-only\nOK\n" {
+	if code != 0 || out != "profile: eu-only\n"+sandboxCheckEN+"OK\n" {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errb)
 	}
-	if _, out, _ = e.runCheck(); out != "profil : eu-only\nOK\n" {
+	if _, out, _ = e.runCheck(); out != "profil : eu-only\n"+sandboxCheckFR+"OK\n" {
 		t.Fatalf("fr : %q", out)
 	}
 	e.editGlobal("", `jurisdiction = "eu"`, `jurisdiction = "non-eu"`)

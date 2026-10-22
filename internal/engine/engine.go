@@ -96,6 +96,9 @@ type Deps struct {
 	// demandes qui le concernent portent alors Sandboxed (option « Autoriser
 	// avec réseau »).
 	ShellSandboxed bool
+	// Sandbox décrit l'isolation de la session, recopiée dans SessionStarted
+	// (nil : omise).
+	Sandbox *event.SandboxInfo
 }
 
 // Reply répond à un PermissionRequested. Network accorde le réseau à la

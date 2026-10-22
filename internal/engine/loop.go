@@ -76,7 +76,7 @@ func (t *turn) run(in Input) error {
 	if !t.s.started {
 		started := event.SessionStartedPayload{
 			Provider: info, ProjectRoot: d.ProjectRoot, Resumed: t.s.resumed, Instructions: d.Instructions,
-			MCP: d.MCP, Profile: string(d.Profile),
+			MCP: d.MCP, Profile: string(d.Profile), Sandbox: d.Sandbox,
 		}
 		if d.Policy != nil {
 			started.Policy = &event.PolicyRef{ID: d.Policy.ID, Version: d.Policy.Version, KeyID: d.Policy.KeyID}

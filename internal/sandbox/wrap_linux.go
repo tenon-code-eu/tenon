@@ -39,7 +39,7 @@ func probe() Status {
 	if err != nil {
 		return Status{Mechanism: "none", Network: "none", Reason: "executable: " + err.Error()}
 	}
-	st := Status{Available: true, Mechanism: "landlock"}
+	st := Status{Available: true, Mechanism: "landlock", UnixSockets: abi >= 9}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, exe, "__sandbox", "--probe")

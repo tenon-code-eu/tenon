@@ -20,6 +20,19 @@ type SessionStartedPayload struct {
 	Profile string `json:"profile,omitempty"`
 	// Policy identifie la politique d'organisation active (omis sans politique).
 	Policy *PolicyRef `json:"policy,omitempty"`
+	// Sandbox décrit l'isolation des commandes de la session (omis si inconnue).
+	Sandbox *SandboxInfo `json:"sandbox,omitempty"`
+}
+
+// SandboxInfo décrit l'isolation des commandes : mode effectif ("auto",
+// "required", "off"), mécanisme ("landlock", "sandbox-exec", "none"),
+// isolation réseau ("full", "tcp", "none") et raison d'une indisponibilité
+// ou d'une isolation partielle.
+type SandboxInfo struct {
+	Mode      string `json:"mode"`
+	Mechanism string `json:"mechanism"`
+	Network   string `json:"network"`
+	Reason    string `json:"reason,omitempty"`
 }
 
 // PolicyRef identifie la politique d'organisation appliquée à la session.
@@ -34,6 +47,8 @@ type MCPServerInfo struct {
 	ID           string           `json:"id"`
 	Jurisdiction llm.Jurisdiction `json:"jurisdiction"`
 	Country      string           `json:"country,omitempty"`
+	// Sandbox records how a stdio server was started (omitted for http).
+	Sandbox *SandboxUse `json:"sandbox,omitempty"`
 }
 
 // UserMessagePayload carries a user message.

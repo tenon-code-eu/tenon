@@ -199,3 +199,20 @@ func TestShellConfined(t *testing.T) {
 		t.Fatalf("résultat %+v, Sandbox = %+v, attendu %+v", res, res.Sandbox, want)
 	}
 }
+
+// Isolation réseau absente (NetworkOpen) : une commande confinée a le réseau,
+// le journal le dit même sans autorisation réseau.
+func TestShellConfinedNetworkOpen(t *testing.T) {
+	if st := sandbox.Probe(); !st.Available {
+		t.Skipf("isolation indisponible : %s", st.Reason)
+	}
+	root := t.TempDir()
+	tl := Shell(root, 10*time.Second, 10000, ShellOptions{
+		Sandbox:     &sandbox.Spec{Dir: root, Write: []string{root, "/dev/null"}},
+		NetworkOpen: true,
+	})
+	res := runShell(t, tl, `{"command":"true"}`)
+	if want := (&event.SandboxUse{Confined: true, Network: true}); res.IsError || !reflect.DeepEqual(res.Sandbox, want) {
+		t.Fatalf("résultat %+v, Sandbox = %+v, attendu %+v", res, res.Sandbox, want)
+	}
+}

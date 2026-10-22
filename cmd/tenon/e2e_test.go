@@ -24,14 +24,24 @@ import (
 	"github.com/tenon-code-eu/tenon/internal/event"
 	"github.com/tenon-code-eu/tenon/internal/i18n"
 	"github.com/tenon-code-eu/tenon/internal/mcp/mcptest"
+	"github.com/tenon-code-eu/tenon/internal/sandbox"
 	"github.com/tenon-code-eu/tenon/internal/session"
 	"github.com/zalando/go-keyring"
 )
 
 // TestMain remplace le trousseau système par un trousseau en mémoire : aucun
 // test ne lit ni n'écrit le trousseau réel. Relancé avec
-// TENON_TEST_MCP_SERVER=1, le binaire de test joue le serveur MCP stdio.
+// TENON_TEST_MCP_SERVER=1, le binaire de test joue le serveur MCP stdio ;
+// relancé avec __sandbox, il joue l'assistant d'isolation (Linux).
 func TestMain(m *testing.M) {
+	sandbox.MaybeMain()
+	// Isolation déclarée indisponible et avis muets par défaut : les tests
+	// existants lancent leurs commandes sans confinement (hors de leur projet
+	// temporaire, vers httptest). Les tests du bac à sable l'activent.
+	probeSandbox = func() sandbox.Status {
+		return sandbox.Status{Available: false, Mechanism: "none", Network: "none", Reason: "test"}
+	}
+	sandboxNotices = false
 	mcptest.Main()
 	keyring.MockInit()
 	// Relancé avec TENON_TEST_CLI=1, le binaire de test joue la CLI tenon
@@ -340,7 +350,7 @@ func TestSecretNeverInAuditOrRequest(t *testing.T) {
 
 func TestConfigCheckRejectsProjectAllow(t *testing.T) {
 	e := newEnv(t, nil, "eu")
-	if code, out, errb := e.runCheck(); code != 0 || strings.TrimSpace(out) != "OK" {
+	if code, out, errb := e.runCheck(); code != 0 || out != sandboxCheckFR+"OK\n" {
 		t.Fatalf("config saine : code=%d stdout=%q stderr=%q", code, out, errb)
 	}
 	e.writeFile(filepath.Join(e.wd, ".tenon", "config.toml"), `

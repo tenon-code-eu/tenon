@@ -36,6 +36,7 @@ import (
 	"github.com/tenon-code-eu/tenon/internal/policy"
 	"github.com/tenon-code-eu/tenon/internal/profile"
 	"github.com/tenon-code-eu/tenon/internal/provider"
+	"github.com/tenon-code-eu/tenon/internal/sandbox"
 	"github.com/tenon-code-eu/tenon/internal/secrets"
 	"github.com/tenon-code-eu/tenon/internal/session"
 	"github.com/tenon-code-eu/tenon/internal/skills"
@@ -204,6 +205,14 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		}
 		if l != "" {
 			fmt.Fprintln(stdout, l)
+		}
+		// Isolation : mode effectif et sonde ; le refus du mode required
+		// fait échouer le contrôle comme il bloquerait le démarrage.
+		mode, st := sandboxStatus(cs.cfg)
+		fmt.Fprintln(stdout, sandboxLine(lang, mode, st))
+		if err := sandboxRefusal(lang, mode, st); err != nil {
+			fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", err))
+			return 1
 		}
 		fmt.Fprintln(stdout, i18n.T(lang, "config.ok"))
 		return 0
@@ -933,6 +942,17 @@ func startEngine(o engineOptions) (started, error) {
 		}
 		return started{}, err
 	}
+	// Isolation : sondée une fois, après les refus de configuration et avant
+	// tout contact d'un fournisseur (détection locale) ou d'un serveur MCP ;
+	// le mode required refuse ici le démarrage.
+	home, configDir, dataDir, policyPath := sandboxPaths(getenv)
+	sbSpec, sbInfo, sbNotices, err := sandboxSetup(lang, cfg, wd, home, configDir, dataDir, policyPath, getenv)
+	if err != nil {
+		return started{}, err
+	}
+	startNotices = append(startNotices, sbNotices...)
+	// Isolation sans coupure réseau : le journal déclare le réseau ouvert.
+	sbNetOpen := sbSpec != nil && sbInfo.Network == "none"
 	pc, detectNotices, err := detectLocal(o.ctx, lang, pc, providerNoProxy(cfg.Profile, pc))
 	if err != nil {
 		return started{}, err
@@ -1075,7 +1095,13 @@ func startEngine(o engineOptions) (started, error) {
 		fsOpts = append(fsOpts, tools.WithoutCheckpoints())
 	}
 	ts := append(tools.FS(wd, cfg.OutputLimit, fsOpts...),
-		tools.Shell(wd, cfg.ShellTimeout.Duration, cfg.OutputLimit, tools.ShellOptions{}))
+		// Environnement des commandes : celui de tenon sans les secrets
+		// configurés, dans tous les modes, isolation active ou non.
+		tools.Shell(wd, cfg.ShellTimeout.Duration, cfg.OutputLimit, tools.ShellOptions{
+			Sandbox:     sbSpec,
+			Env:         secretEnv(cfg, environ()),
+			NetworkOpen: sbNetOpen,
+		}))
 	// Skills : l'outil skill rejoint les outils internes, avant ceux de MCP.
 	disc := o.skills
 	if disc == nil {
@@ -1110,7 +1136,7 @@ func startEngine(o engineOptions) (started, error) {
 	}
 	// Serveurs MCP (configuration globale seulement), démarrés après les
 	// étapes qui peuvent échouer sans eux.
-	mgr, unavailable, active, notices := startMCP(o, cfg, red)
+	mgr, unavailable, active, notices := startMCP(o, cfg, red, mcpSandboxSpec(sbSpec, wd), sbNetOpen)
 	closeAll := func() {
 		// Serveurs MCP d'abord : un appel en cours ne peut plus écrire dans
 		// des sinks fermés.
@@ -1158,6 +1184,8 @@ func startEngine(o engineOptions) (started, error) {
 		Profile:             cfg.Profile,
 		Policy:              cfg.Policy,
 		Allowlists:          allowlists(cfg),
+		ShellSandboxed:      sbSpec != nil,
+		Sandbox:             &sbInfo,
 	})
 	if o.resume != "" {
 		if err := eng.Restore(sid, events); err != nil {
@@ -1205,7 +1233,9 @@ func killLiveMCP() {
 // secrets (env_from, bearer_env) sont ajoutés au Redactor avant toute
 // écriture ; les serveurs injoignables et les avertissements sont renvoyés
 // pour être signalés.
-func startMCP(o engineOptions, cfg config.Config, red *policy.Redactor) (*mcp.Manager, []event.McpServerDownPayload, []event.MCPServerInfo, []string) {
+// Les serveurs stdio sont confinés par sbSpec (nil : non confinés) ;
+// netOpen signale une isolation sans coupure réseau.
+func startMCP(o engineOptions, cfg config.Config, red *policy.Redactor, sbSpec *sandbox.Spec, netOpen bool) (*mcp.Manager, []event.McpServerDownPayload, []event.MCPServerInfo, []string) {
 	ctx := o.ctx
 	if ctx == nil {
 		ctx = context.Background()
@@ -1263,6 +1293,8 @@ func startMCP(o engineOptions, cfg config.Config, red *policy.Redactor) (*mcp.Ma
 		Root:        o.wd,
 		AllowNonEU:  allowNonEU,
 		NoProxy:     mcpNoProxy(cfg.Profile),
+		Sandbox:     sbSpec,
+		NetworkOpen: netOpen,
 	})
 	liveMCP.Store(mgr)
 	// Comme les clés d'API : une valeur trop courte (ex. DEBUG=1) masquerait
@@ -1293,7 +1325,7 @@ func startMCP(o engineOptions, cfg config.Config, red *policy.Redactor) (*mcp.Ma
 		if s.Disabled || isDown[s.ID] {
 			continue
 		}
-		active = append(active, event.MCPServerInfo{ID: s.ID, Jurisdiction: llm.Jurisdiction(s.Jurisdiction), Country: s.Country})
+		active = append(active, event.MCPServerInfo{ID: s.ID, Jurisdiction: llm.Jurisdiction(s.Jurisdiction), Country: s.Country, Sandbox: mgr.SandboxUse(s.ID)})
 	}
 	for _, w := range mgr.Warnings() {
 		notices = append(notices, i18n.T(o.lang, "mcp.warning", headless.OneLine(w)))

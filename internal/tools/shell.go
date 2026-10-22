@@ -26,6 +26,10 @@ type ShellOptions struct {
 	// Env est l'environnement des commandes, déjà filtré des secrets ; nil
 	// hérite de l'environnement de tenon.
 	Env []string
+	// NetworkOpen indique que l'isolation ne coupe pas le réseau (sonde :
+	// isolation réseau "none") : une commande confinée a alors le réseau, et
+	// le journal le dit.
+	NetworkOpen bool
 }
 
 // Shell renvoie l'outil d'exécution de commandes, ancré sur root.
@@ -34,7 +38,7 @@ func Shell(root string, timeout time.Duration, limit int, opts ShellOptions) Too
 	if r, err := filepath.EvalSymlinks(root); err == nil {
 		root = r
 	}
-	s := &shellTool{root: root, timeout: timeout, limit: limit}
+	s := &shellTool{root: root, timeout: timeout, limit: limit, netOpen: opts.NetworkOpen}
 	if opts.Sandbox != nil {
 		spec := *opts.Sandbox
 		spec.Write = append([]string(nil), spec.Write...)
@@ -53,6 +57,7 @@ type shellTool struct {
 	limit   int
 	spec    *sandbox.Spec // nil : commandes non isolées
 	env     []string      // nil : environnement de tenon
+	netOpen bool          // réseau non isolé malgré le confinement
 }
 
 type shellArgs struct {
@@ -125,7 +130,7 @@ func (s *shellTool) Run(ctx context.Context, args json.RawMessage) (Result, erro
 			// Échec fermé : la commande n'est pas lancée (ni Sandbox, rien n'a tourné).
 			return fail("cannot confine command: %v", err), nil
 		}
-		use.Confined, use.Network = true, network
+		use.Confined, use.Network = true, network || s.netOpen
 	}
 
 	if err := cmd.Start(); err != nil {
