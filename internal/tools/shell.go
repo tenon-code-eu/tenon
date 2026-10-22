@@ -114,8 +114,9 @@ func (s *shellTool) Run(ctx context.Context, args json.RawMessage) (Result, erro
 	cmd.Cancel = func() error { return killGroup(cmd) }
 	cmd.Env = s.env
 
+	// Sans isolation, la commande a tout le réseau : le journal le dit.
 	network := NetworkFrom(ctx)
-	use := &event.SandboxUse{Network: network}
+	use := &event.SandboxUse{Network: true}
 	if s.spec != nil {
 		// Copie par appel : le réseau dépend de la règle ou de la réponse.
 		spec := *s.spec
@@ -124,7 +125,7 @@ func (s *shellTool) Run(ctx context.Context, args json.RawMessage) (Result, erro
 			// Échec fermé : la commande n'est pas lancée (ni Sandbox, rien n'a tourné).
 			return fail("cannot confine command: %v", err), nil
 		}
-		use.Confined = true
+		use.Confined, use.Network = true, network
 	}
 
 	if err := cmd.Start(); err != nil {

@@ -859,3 +859,41 @@ func TestPermissionNetworkOption(t *testing.T) {
 		})
 	}
 }
+
+func TestPermissionRuleNetworkNote(t *testing.T) {
+	for _, tc := range []struct {
+		lang         i18n.Lang
+		netKey, once rune
+		option       string
+	}{
+		{i18n.EN, 'w', 'y', "allow with network"},
+		{i18n.FR, 'r', 'o', "autoriser avec réseau"},
+	} {
+		t.Run(string(tc.lang), func(t *testing.T) {
+			f := newFake()
+			h := newHarness(t, f, Options{Lang: tc.lang})
+			p := shellPerm("p1")
+			p.Sandboxed, p.RuleNetwork = true, true
+			askPerm(t, h, f, p)
+			v := h.m.View()
+			if !strings.Contains(v, i18n.T(tc.lang, "perm.network_by_rule")) {
+				t.Fatalf("note réseau de la règle absente : %q", v)
+			}
+			if !strings.Contains(v, i18n.T(tc.lang, "tui.perm.keys_tool_rule_network")) {
+				t.Fatalf("touches attendues absentes : %q", v)
+			}
+			for _, bad := range []string{tc.option, i18n.T(tc.lang, "tui.perm.sandboxed")} {
+				if strings.Contains(v, bad) {
+					t.Fatalf("vue contient %q : %q", bad, v)
+				}
+			}
+			h.send(runeKey(tc.netKey))
+			if _, ok := f.reply("p1"); ok {
+				t.Fatal("option réseau séparée acceptée")
+			}
+			quiet(h)
+			h.send(runeKey(tc.once))
+			wantReply(t, f, "p1", engine.Reply{Allow: true})
+		})
+	}
+}

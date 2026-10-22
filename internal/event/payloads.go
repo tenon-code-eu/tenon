@@ -116,6 +116,9 @@ type PermissionRequestedPayload struct {
 	// Sandboxed is true when the shell command will run confined: UIs then
 	// offer "Allow with network" besides "Allow".
 	Sandboxed bool `json:"sandboxed,omitempty"`
+	// RuleNetwork is true when the matched permission rule grants network:
+	// approving the request then runs the command with network access.
+	RuleNetwork bool `json:"rule_network,omitempty"`
 	// ParentCallID is the call_id of the "agent" tool call that produced this
 	// event inside a sub-agent run; empty for the main agent.
 	ParentCallID string `json:"parent_call_id,omitempty"`
@@ -157,11 +160,12 @@ type ToolResultPayload struct {
 	ParentCallID string `json:"parent_call_id,omitempty"`
 }
 
-// SandboxUse records whether a command ran confined by the system sandbox and
-// whether network access was granted to it.
+// SandboxUse records how a command ran.
 type SandboxUse struct {
+	// Confined: the command ran confined by the system sandbox.
 	Confined bool `json:"confined"`
-	Network  bool `json:"network"`
+	// Network: the command had network access (always true when not confined).
+	Network bool `json:"network"`
 }
 
 // McpServerDownPayload reports an MCP server that is unreachable (at start or

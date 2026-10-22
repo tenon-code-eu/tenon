@@ -121,9 +121,16 @@ func TestNetworkFromAskRule(t *testing.T) {
 		call("c1", "shell", `{"command":"curl https://example.eu"}`),
 		text("fini"),
 	}, withNetShell(t, sh, policy.Rule{Tool: "shell", Match: "curl *", Decision: policy.Ask, Network: true}))
-	evs, err := h.submit(t, "s_1", "télécharge", func(event.PermissionRequestedPayload) Reply { return Reply{Allow: true} })
+	var req event.PermissionRequestedPayload
+	evs, err := h.submit(t, "s_1", "télécharge", func(p event.PermissionRequestedPayload) Reply {
+		req = p
+		return Reply{Allow: true}
+	})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if !req.RuleNetwork || !req.Sandboxed {
+		t.Fatalf("PermissionRequested %+v, attendu rule_network et sandboxed", req)
 	}
 	if got := sh.calls(); len(got) != 1 || !got[0] {
 		t.Fatalf("réseau = %v, attendu [true]", got)
@@ -222,5 +229,45 @@ func TestNetworkInSubagent(t *testing.T) {
 	}
 	if got := sh.calls(); len(got) != 1 || !got[0] {
 		t.Fatalf("réseau dans le sous-agent = %v, attendu [true] ; events %v", got, types(evs))
+	}
+}
+
+func TestRuleNetworkHookForcedPrompt(t *testing.T) {
+	sh := &netShell{}
+	h := newHarness(t, euInfo, [][]llm.Chunk{
+		call("c1", "shell", `{"command":"npm install"}`),
+		text("fini"),
+	}, withNetShell(t, sh, policy.Rule{Tool: "shell", Match: "npm install*", Decision: policy.Allow, Network: true}),
+		withHooks(t, hk{"PreToolUse", "Bash", jsonHook(t, askOut)}))
+	var req event.PermissionRequestedPayload
+	if _, err := h.submit(t, "s_1", "installe", func(p event.PermissionRequestedPayload) Reply {
+		req = p
+		return Reply{Allow: true}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if req.Tool != "shell" || !req.RuleNetwork || req.HookReason == "" {
+		t.Fatalf("PermissionRequested %+v, attendu rule_network et hook_reason", req)
+	}
+	if got := sh.calls(); len(got) != 1 || !got[0] {
+		t.Fatalf("réseau = %v, attendu [true]", got)
+	}
+}
+
+func TestRuleNetworkAbsentByDefault(t *testing.T) {
+	sh := &netShell{}
+	h := newHarness(t, euInfo, [][]llm.Chunk{
+		call("c1", "shell", `{"command":"ls"}`),
+		text("fini"),
+	}, withNetShell(t, sh))
+	var req event.PermissionRequestedPayload
+	if _, err := h.submit(t, "s_1", "liste", func(p event.PermissionRequestedPayload) Reply {
+		req = p
+		return Reply{Allow: true}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if req.RuleNetwork {
+		t.Fatalf("PermissionRequested %+v : rule_network inattendu", req)
 	}
 }

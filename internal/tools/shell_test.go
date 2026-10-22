@@ -152,7 +152,8 @@ func TestShellEnvFiltered(t *testing.T) {
 func TestShellUnconfinedRecorded(t *testing.T) {
 	tl := newShell(t.TempDir(), 5*time.Second)
 	res := runShell(t, tl, `{"command":"true"}`)
-	if want := (&event.SandboxUse{}); !reflect.DeepEqual(res.Sandbox, want) {
+	// Sans isolation, la commande a toujours le réseau (R12).
+	if want := (&event.SandboxUse{Network: true}); !reflect.DeepEqual(res.Sandbox, want) {
 		t.Fatalf("Sandbox = %+v, attendu %+v", res.Sandbox, want)
 	}
 	res, err := tl.Run(WithNetwork(context.Background(), true), []byte(`{"command":"true"}`))

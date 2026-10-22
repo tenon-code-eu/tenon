@@ -359,8 +359,16 @@ type panel struct {
 // networkOption indique que la demande affichée propose « Autoriser avec
 // réseau » : commande d'un outil isolé (Sandboxed, posé par l'engine pour le
 // shell seulement).
+// Absente quand la règle accorde déjà le réseau (RuleNetwork) : « oui une
+// fois » l'ouvre alors.
 func (m Model) networkOption() bool {
-	return m.prompting() && m.prompts[0].p.Kind == "tool" && m.prompts[0].p.Sandboxed
+	return m.prompting() && m.prompts[0].p.Kind == "tool" && m.prompts[0].p.Sandboxed && !m.prompts[0].p.RuleNetwork
+}
+
+// ruleNetwork indique que la demande affichée porte sur une commande isolée
+// dont la règle accorde le réseau.
+func (m Model) ruleNetwork() bool {
+	return m.prompting() && m.prompts[0].p.Kind == "tool" && m.prompts[0].p.Sandboxed && m.prompts[0].p.RuleNetwork
 }
 
 // promptKeys renvoie la ligne des touches de la demande affichée.
@@ -371,6 +379,10 @@ func (m Model) promptKeys() string {
 			return i18n.T(m.lang, "tui.perm.keys_hook_network", label)
 		}
 		return i18n.T(m.lang, "tui.perm.keys_tool_network", label)
+	}
+	if m.ruleNetwork() && m.prompts[0].p.HookReason == "" {
+		// « Pour la session » ne mémorise jamais le réseau : à préciser.
+		return i18n.T(m.lang, "tui.perm.keys_tool_rule_network")
 	}
 	return i18n.T(m.lang, m.promptKeysKey())
 }
@@ -642,10 +654,16 @@ func (m Model) headLines(p *permPrompt, collapse bool) []string {
 		// Risque rappelé par la spécification : pas de bac à sable, sauf
 		// commande isolée (écriture limitée, réseau fermé par défaut).
 		note := "tui.perm.not_sandbox"
-		if p.p.Sandboxed {
+		switch {
+		case p.p.Sandboxed && p.p.RuleNetwork:
+			note = "tui.perm.sandboxed_write"
+		case p.p.Sandboxed:
 			note = "tui.perm.sandboxed"
 		}
 		out = append(out, splitLines(m.st.notice.Render(m.wrap(i18n.T(m.lang, note))))...)
+		if p.p.Sandboxed && p.p.RuleNetwork {
+			out = append(out, splitLines(m.st.notice.Render(m.wrap(i18n.T(m.lang, "perm.network_by_rule"))))...)
+		}
 		// Sosies de guillemets, tirets… : information seule, sans effet sur
 		// l'acceptation.
 		if !isASCII(p.command) {

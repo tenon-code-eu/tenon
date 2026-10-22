@@ -666,6 +666,8 @@ func (t *turn) decideAndRun(c llm.ToolCall) (res tools.Result, denied string, ra
 			p := event.PermissionRequestedPayload{
 				Kind: "tool", Tool: c.Name, Paths: target.Paths, Command: target.Command,
 				Sandboxed: d.ShellSandboxed && c.Name == "shell",
+				// Une acceptation simple accorde alors le réseau (ask).
+				RuleNetwork: ruleNet,
 			}
 			if out.Ask {
 				p.HookReason = out.Reason
