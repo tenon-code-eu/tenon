@@ -10,6 +10,8 @@ import (
 	"syscall"
 
 	"golang.org/x/term"
+
+	"github.com/tenon-code-eu/tenon/internal/sandbox"
 )
 
 // version est surchargée à la compilation via -ldflags "-X main.version=...".
@@ -36,6 +38,8 @@ func resolveVersion(injected, module string) string {
 var handledSignals = []os.Signal{os.Interrupt, syscall.SIGTERM, syscall.SIGHUP}
 
 func main() {
+	// Assistant interne `tenon __sandbox` : traité avant toute configuration.
+	sandbox.MaybeMain()
 	sig := make(chan os.Signal, 2)
 	signal.Notify(sig, handledSignals...)
 	// Au second Ctrl+C, les serveurs MCP stdio sont tués avant de quitter :

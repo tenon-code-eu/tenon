@@ -20,6 +20,10 @@ type Spec struct {
 	DenyRead []string `json:"deny_read"`
 	// Network ouvre le réseau quand il vaut true ; fermé sinon.
 	Network bool `json:"network"`
+	// TCP demande à l'assistant Linux de refuser connect et bind TCP par
+	// Landlock (repli quand les espaces de noms sont indisponibles). Seul
+	// Wrap le positionne ; la valeur fournie par l'appelant est ignorée.
+	TCP bool `json:"tcp,omitempty"`
 }
 
 // Status est le résultat de la sonde d'isolation.
