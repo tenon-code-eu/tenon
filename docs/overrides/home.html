@@ -1,0 +1,294 @@
+{% extends "main.html" %}
+
+{#- Page d'accueil EN/FR : la langue vient du front matter (lang: fr). -#}
+{% set fr = page.meta.lang == 'fr' %}
+{% set root = base_url %}
+{% set T = {
+  'lang': 'fr' if fr else 'en',
+  'skip': 'Aller au contenu' if fr else 'Skip to content',
+  'docs': 'Documentation' if fr else 'Docs',
+  'docs_href': root ~ ('/fr/utilisation/' if fr else '/usage/'),
+  'security_href': root ~ ('/fr/securite/' if fr else '/security/'),
+  'policy_href': root ~ ('/fr/politique/' if fr else '/policy/'),
+  'ci_href': root ~ ('/fr/ci/' if fr else '/ci/'),
+  'search': 'Rechercher, copier…' if fr else 'Search, copy…',
+  'install': 'Installer' if fr else 'Install',
+  'other_lang': 'English' if fr else 'Français',
+  'other_href': root ~ ('/' if fr else '/fr/'),
+  'title': "Codez avec l'IA. Vos données restent en Europe." if fr else 'Code with AI. Keep your data in Europe.',
+  'lede': "tenon est un agent de code open source pour le terminal. Il lit votre projet, propose des changements et lance des commandes, avec des modèles européens ou locaux. Chaque action attend votre accord, et chaque étape entre dans un journal vérifiable." if fr else 'tenon is an open-source coding agent for the terminal. It reads your project, proposes changes and runs commands, with European or local models. Every action waits for your approval, and every step goes into a verifiable audit log.',
+  'tab_script': 'Script' if fr else 'Script',
+  'copy_label': 'Copier' if fr else 'Copy',
+  'copied': 'Copié' if fr else 'Copied',
+  'script_note': 'Le script vérifie le hash SHA-256, et la signature minisign si elle est installée.' if fr else 'The script checks the SHA-256 hash, and the minisign signature when minisign is installed.',
+  'read_script': 'Lire le script' if fr else 'Read the script',
+  'stage_hint': 'Glissez pour tourner · touchez pour assembler' if fr else 'Drag to turn · tap to assemble',
+  'stage_label': "Assemblage tenon-mortaise en 3D : la pièce dorée, le tenon, entre dans la mortaise du montant bleu. Glissez pour tourner, Entrée pour assembler ou séparer." if fr else 'A 3D mortise-and-tenon joint: the gold tenon slides into the mortise of the blue post. Drag to turn, Enter to join or separate.',
+  'assemble': 'Assembler' if fr else 'Join',
+  'separate': 'Séparer' if fr else 'Separate',
+  'caption': "Un tenon s'emboîte dans une mortaise, sans jeu. tenon s'emboîte dans votre code, sans laisser fuir vos données." if fr else 'A tenon fits its mortise with no play. tenon fits your codebase without letting your data leak.',
+  'map_title': 'Où partent vos données' if fr else 'Where your data goes',
+  'map_lede': "Avant chaque envoi, tenon masque les secrets et applique vos règles. La destination dépend de votre configuration, et elle est inscrite au journal." if fr else 'Before each send, tenon masks secrets and applies your rules. The destination depends on your configuration, and it is written to the audit log.',
+  'node_project': 'Votre projet' if fr else 'Your project',
+  'node_project_d': 'code, fichiers, commandes' if fr else 'code, files, commands',
+  'gate_mask': 'Masquage des secrets et de données personnelles' if fr else 'Secrets and personal data masked',
+  'gate_perm': 'Écritures, commandes et appels MCP soumis à votre accord' if fr else 'Writes, commands and MCP calls wait for you',
+  'gate_log': 'Journal chaîné par hachage, horodatable (RFC 3161)' if fr else 'Hash-chained log, timestampable (RFC 3161)',
+  'dest_local': 'Sur votre machine' if fr else 'On your machine',
+  'dest_eu': 'Fournisseurs européens' if fr else 'European providers',
+  'dest_out': 'Hors UE' if fr else 'Outside the EU',
+  'dest_out_d': 'seulement avec votre consentement explicite' if fr else 'only with your explicit consent',
+  'proof_title': "Des preuves pour l'audit, pas des promesses" if fr else 'Evidence for the audit, not promises',
+  'proof_lede': "tenon ne rend pas un système conforme à lui seul. Il produit les traces que vos équipes conformité et votre DPO demandent." if fr else 'tenon does not make a system compliant on its own. It produces the records your compliance team and DPO ask for.',
+  'col_ref': 'Repère' if fr else 'Reference',
+  'col_what': 'Ce que tenon fait' if fr else 'What tenon does',
+  'r1_ref': 'AI Act, art. 12 · journalisation' if fr else 'AI Act, Art. 12 · record-keeping',
+  'r1_what': "Chaque requête, outil et décision entre dans un journal chaîné par hachage. tenon audit verify détecte une ligne modifiée ; l'horodatage RFC 3161 détecte une réécriture." if fr else 'Every request, tool call and decision goes into a hash-chained log. tenon audit verify detects a changed line; RFC 3161 timestamps detect a rewrite.',
+  'r2_ref': 'AI Act, art. 14 · contrôle humain' if fr else 'AI Act, Art. 14 · human oversight',
+  'r2_what': "Par défaut, écritures, commandes et appels MCP attendent votre accord. Un dépôt ne peut pas assouplir vos règles." if fr else 'By default, writes, commands and MCP calls wait for your approval. A repository cannot loosen your rules.',
+  'r3_ref': 'AI Act, art. 50 · transparence' if fr else 'AI Act, Art. 50 · transparency',
+  'r3_what': "Les commits qui contiennent du code écrit par l'agent peuvent être marqués." if fr else 'Commits that contain code written by the agent can be marked.',
+  'r4_ref': 'RGPD · transferts hors UE' if fr else 'GDPR · transfers outside the EU',
+  'r4_what': "Fournisseurs européens ou locaux préconfigurés. Tout envoi hors UE exige votre consentement, et les profils eu-only, secnumcloud et strict-local le verrouillent." if fr else 'European or local providers preconfigured. Any send outside the EU needs your consent; the eu-only, secnumcloud and strict-local profiles lock it down.',
+  'r5_ref': "Organisation · politique signée" if fr else 'Organisation · signed policy',
+  'r5_what': "Un administrateur impose un plancher signé avec minisign : profil, hôtes autorisés, règles, niveau d'audit. Personne ne peut le desserrer." if fr else 'An administrator imposes a floor signed with minisign: profile, allowed hosts, rules, audit level. Nobody can loosen it.',
+  'export_cap': "Le rapport HTML et JSON pour le DPO, construit depuis le journal, sans contenu de conversation sauf demande." if fr else 'The HTML and JSON report for your DPO, built from the audit log, with no conversation content unless you ask.',
+  'install_title': 'Installer tenon' if fr else 'Install tenon',
+  'install_lede': 'Linux et macOS. Tout point d’accès compatible OpenAI fonctionne.' if fr else 'Linux and macOS. Any OpenAI-compatible endpoint works.',
+  'verify_title': 'Vérifier une version' if fr else 'Verify a release',
+  'verify_d': "Chaque version publie ses archives, paquets .deb et .rpm, une SBOM CycloneDX et un SHA256SUMS signé avec minisign." if fr else 'Each release ships archives, .deb and .rpm packages, a CycloneDX SBOM and a SHA256SUMS signed with minisign.',
+  'soon': 'En préparation' if fr else 'In the works',
+  'soon_d': 'Extensions VS Code et JetBrains, application de bureau.' if fr else 'VS Code and JetBrains extensions, a desktop app.',
+  'read_docs': 'Lire la documentation' if fr else 'Read the docs',
+  'foot_line': 'Votre code. Vos règles. Votre juridiction.' if fr else 'Your code. Your rules. Your jurisdiction.',
+  'pal_go': 'Aller à' if fr else 'Go to',
+  'pal_copy': 'Copier' if fr else 'Copy',
+  'pal_none': 'Aucun résultat' if fr else 'No results',
+  'pal_nav': 'naviguer' if fr else 'navigate',
+  'pal_open': 'ouvrir' if fr else 'open',
+  'pal_close': 'fermer' if fr else 'close',
+  'usage': 'Guide d’utilisation' if fr else 'Usage guide',
+  'security': 'Sécurité et limites' if fr else 'Security and limits',
+  'policy': "Politique d'organisation" if fr else 'Organisation policy',
+  'ci': 'Intégration CI' if fr else 'CI integration',
+} %}
+{% set brew = 'brew install tenon-code-eu/tap/tenon' %}
+{% set script = 'curl -fsSL https://raw.githubusercontent.com/tenon-code-eu/tenon/main/install.sh | sh' %}
+
+{% block extrahead %}
+  {{ super() }}
+  <link rel="stylesheet" href="{{ root }}/assets/site/tokens.css">
+  <link rel="stylesheet" href="{{ root }}/assets/site/home.css">
+  <link rel="preload" href="{{ root }}/assets/site/fonts/bricolage-grotesque-latin-700-normal.woff2" as="font" type="font/woff2" crossorigin>
+{% endblock %}
+
+{% block header %}
+<a class="h-skip" href="#h-main">{{ T.skip }}</a>
+<header class="h-nav" id="h-nav">
+  <div class="h-nav__inner">
+    <a class="h-nav__brand" href="{{ root }}/{{ 'fr/' if fr else '' }}" aria-label="tenon">
+      <img src="{{ root }}/assets/site/mark.svg" width="28" height="28" alt="">
+      <span>tenon</span>
+    </a>
+    <button class="h-search" id="h-search" type="button" aria-haspopup="dialog" aria-controls="h-cmdk">
+      <span class="h-search__ico" aria-hidden="true"></span>
+      <span class="h-search__text">{{ T.search }}</span>
+      <span class="h-search__kbd" aria-hidden="true"><kbd>⌘</kbd><kbd>K</kbd></span>
+    </button>
+    <nav class="h-nav__right" aria-label="{{ T.docs }}">
+      <a class="h-nav__link h-nav__link--docs" href="{{ T.docs_href }}">{{ T.docs }}</a>
+      <a class="h-nav__link h-nav__link--hide" href="https://github.com/tenon-code-eu/tenon">GitHub</a>
+      <a class="h-nav__link" href="{{ T.other_href }}" hreflang="{{ 'en' if fr else 'fr' }}" lang="{{ 'en' if fr else 'fr' }}">{{ 'EN' if fr else 'FR' }}</a>
+      <a class="h-btn h-btn--gold" href="#h-install">{{ T.install }}</a>
+    </nav>
+  </div>
+</header>
+{% endblock %}
+
+{% block tabs %}{% endblock %}
+{% block site_nav %}{% endblock %}
+
+{% block container %}
+<main class="h-page" id="h-main" lang="{{ T.lang }}">
+
+  <section class="h-hero" aria-labelledby="h-title">
+    <div class="h-hero__inner">
+      <div class="h-hero__copy">
+        <h1 class="h-hero__title" id="h-title">{{ T.title }}</h1>
+        <p class="h-hero__lede">{{ T.lede }}</p>
+
+        <div class="h-install" data-tabs>
+          <div class="h-install__tabs" role="tablist" aria-label="{{ T.install }}">
+            <button class="h-install__tab" role="tab" id="h-tab-brew" aria-selected="true" aria-controls="h-pane-brew">Homebrew</button>
+            <button class="h-install__tab" role="tab" id="h-tab-script" aria-selected="false" aria-controls="h-pane-script" tabindex="-1">{{ T.tab_script }}</button>
+          </div>
+          <div class="h-install__pane" role="tabpanel" id="h-pane-brew" aria-labelledby="h-tab-brew">
+            <code class="h-cmd"><span class="h-cmd__prompt" aria-hidden="true">$</span><span class="h-cmd__text">{{ brew }}</span></code>
+            <button class="h-copy" type="button" data-copy="{{ brew }}" data-copied="{{ T.copied }}">{{ T.copy_label }}</button>
+          </div>
+          <div class="h-install__pane" role="tabpanel" id="h-pane-script" aria-labelledby="h-tab-script" hidden>
+            <code class="h-cmd"><span class="h-cmd__prompt" aria-hidden="true">$</span><span class="h-cmd__text">{{ script }}</span></code>
+            <button class="h-copy" type="button" data-copy="{{ script }}" data-copied="{{ T.copied }}">{{ T.copy_label }}</button>
+          </div>
+          <p class="h-install__note">{{ T.script_note }} <a href="https://github.com/tenon-code-eu/tenon/blob/main/install.sh">{{ T.read_script }}</a></p>
+        </div>
+      </div>
+
+      <figure class="h-stage" id="h-stage">
+        <canvas class="h-stage__canvas" id="h-joint" tabindex="0" role="img" aria-label="{{ T.stage_label }}"></canvas>
+        <svg class="h-stage__fallback" viewBox="0 0 320 240" aria-hidden="true">
+          <polygon points="70,60 150,40 150,190 70,210" class="fb-post"/>
+          <polygon points="150,40 190,55 190,205 150,190" class="fb-post-side"/>
+          <polygon points="190,95 290,95 290,150 190,150" class="fb-rail"/>
+          <polygon points="160,108 190,108 190,138 160,138" class="fb-tenon"/>
+        </svg>
+        <div class="h-stage__bar">
+          <span class="h-stage__hint">{{ T.stage_hint }}</span>
+          <button class="h-stage__toggle" type="button" id="h-joint-toggle" data-assemble="{{ T.assemble }}" data-separate="{{ T.separate }}">{{ T.separate }}</button>
+        </div>
+        <figcaption class="h-stage__cap">{{ T.caption }}</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section class="h-map" aria-labelledby="h-map-title">
+    <div class="h-wrap">
+      <h2 class="h-h2" id="h-map-title">{{ T.map_title }}</h2>
+      <p class="h-lede">{{ T.map_lede }}</p>
+
+      <ol class="h-flow">
+        <li class="h-flow__node h-flow__node--src">
+          <span class="h-flow__label">{{ T.node_project }}</span>
+          <span class="h-flow__meta">{{ T.node_project_d }}</span>
+        </li>
+        <li class="h-flow__node h-flow__node--gate">
+          <span class="h-flow__label"><img src="{{ root }}/assets/site/mark.svg" width="20" height="20" alt=""> tenon</span>
+          <ul class="h-flow__gates">
+            <li>{{ T.gate_mask }}</li>
+            <li>{{ T.gate_perm }}</li>
+            <li>{{ T.gate_log }}</li>
+          </ul>
+        </li>
+        <li class="h-flow__dests">
+          <div class="h-dest h-dest--local">
+            <span class="h-flow__label">{{ T.dest_local }}</span>
+            <span class="h-flow__meta">Ollama · vLLM</span>
+          </div>
+          <div class="h-dest h-dest--eu">
+            <span class="h-flow__label">{{ T.dest_eu }}</span>
+            <span class="h-flow__meta">Mistral AI · Codestral · Scaleway · OVHcloud · Albert API</span>
+          </div>
+          <div class="h-dest h-dest--out">
+            <span class="h-flow__label">{{ T.dest_out }}</span>
+            <span class="h-flow__meta">{{ T.dest_out_d }}</span>
+          </div>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="h-proof" aria-labelledby="h-proof-title">
+    <div class="h-wrap h-proof__grid">
+      <div class="h-proof__head">
+        <h2 class="h-h2" id="h-proof-title">{{ T.proof_title }}</h2>
+        <p class="h-lede">{{ T.proof_lede }}</p>
+        <figure class="h-export">
+          <code class="h-cmd h-cmd--light"><span class="h-cmd__prompt" aria-hidden="true">$</span><span class="h-cmd__text">tenon audit export --out {{ "rapport" if fr else "report" }}</span></code>
+          <figcaption>{{ T.export_cap }}</figcaption>
+        </figure>
+      </div>
+      <table class="h-table">
+        <thead><tr><th scope="col">{{ T.col_ref }}</th><th scope="col">{{ T.col_what }}</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">{{ T.r1_ref }}</th><td>{{ T.r1_what }}</td></tr>
+          <tr><th scope="row">{{ T.r2_ref }}</th><td>{{ T.r2_what }}</td></tr>
+          <tr><th scope="row">{{ T.r3_ref }}</th><td>{{ T.r3_what }}</td></tr>
+          <tr><th scope="row">{{ T.r4_ref }}</th><td>{{ T.r4_what }}</td></tr>
+          <tr><th scope="row">{{ T.r5_ref }}</th><td>{{ T.r5_what }}</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="h-get" id="h-install" aria-labelledby="h-get-title">
+    <div class="h-wrap">
+      <h2 class="h-h2" id="h-get-title">{{ T.install_title }}</h2>
+      <p class="h-lede">{{ T.install_lede }}</p>
+      <div class="h-get__grid">
+        <div class="h-get__item">
+          <h3 class="h-h3">Homebrew</h3>
+          <div class="h-get__cmd">
+            <code class="h-cmd h-cmd--light"><span class="h-cmd__prompt" aria-hidden="true">$</span><span class="h-cmd__text">{{ brew }}</span></code>
+            <button class="h-copy h-copy--light" type="button" data-copy="{{ brew }}" data-copied="{{ T.copied }}">{{ T.copy_label }}</button>
+          </div>
+        </div>
+        <div class="h-get__item">
+          <h3 class="h-h3">{{ T.tab_script }}</h3>
+          <div class="h-get__cmd">
+            <code class="h-cmd h-cmd--light"><span class="h-cmd__prompt" aria-hidden="true">$</span><span class="h-cmd__text">{{ script }}</span></code>
+            <button class="h-copy h-copy--light" type="button" data-copy="{{ script }}" data-copied="{{ T.copied }}">{{ T.copy_label }}</button>
+          </div>
+        </div>
+        <div class="h-get__item">
+          <h3 class="h-h3">{{ T.verify_title }}</h3>
+          <p>{{ T.verify_d }}</p>
+          <code class="h-cmd h-cmd--light"><span class="h-cmd__prompt" aria-hidden="true">$</span><span class="h-cmd__text">minisign -Vm SHA256SUMS -p tenon.pub</span></code>
+        </div>
+        <div class="h-get__item h-get__item--soon">
+          <h3 class="h-h3">{{ T.soon }}</h3>
+          <p>{{ T.soon_d }}</p>
+        </div>
+      </div>
+      <p class="h-get__docs"><a class="h-link" href="{{ T.docs_href }}">{{ T.read_docs }}</a></p>
+    </div>
+  </section>
+
+  <div class="h-cmdk" id="h-cmdk" aria-hidden="true">
+    <div class="h-cmdk__backdrop" data-close></div>
+    <div class="h-cmdk__panel" role="dialog" aria-modal="true" aria-label="{{ T.search }}">
+      <div class="h-cmdk__field">
+        <span class="h-search__ico" aria-hidden="true"></span>
+        <input id="h-cmdk-input" type="text" autocomplete="off" spellcheck="false" placeholder="{{ T.search }}" aria-controls="h-cmdk-list">
+        <kbd>esc</kbd>
+      </div>
+      <div class="h-cmdk__list" id="h-cmdk-list" role="listbox">
+        <p class="h-cmdk__group">{{ T.pal_copy }}</p>
+        <button class="h-cmdk__item" role="option" data-copy="{{ brew }}" data-copied="{{ T.copied }}">{{ brew }}</button>
+        <button class="h-cmdk__item" role="option" data-copy="{{ script }}" data-copied="{{ T.copied }}">{{ T.tab_script }} · install.sh</button>
+        <p class="h-cmdk__group">{{ T.pal_go }}</p>
+        <button class="h-cmdk__item" role="option" data-href="{{ T.docs_href }}">{{ T.usage }}</button>
+        <button class="h-cmdk__item" role="option" data-href="{{ T.security_href }}">{{ T.security }}</button>
+        <button class="h-cmdk__item" role="option" data-href="{{ T.policy_href }}">{{ T.policy }}</button>
+        <button class="h-cmdk__item" role="option" data-href="{{ T.ci_href }}">{{ T.ci }}</button>
+        <button class="h-cmdk__item" role="option" data-href="https://github.com/tenon-code-eu/tenon">GitHub · tenon-code-eu/tenon</button>
+        <button class="h-cmdk__item" role="option" data-href="{{ T.other_href }}">{{ T.other_lang }}</button>
+        <p class="h-cmdk__empty" hidden>{{ T.pal_none }}</p>
+      </div>
+      <div class="h-cmdk__foot" aria-hidden="true">
+        <span><kbd>↑</kbd><kbd>↓</kbd> {{ T.pal_nav }}</span><span><kbd>↵</kbd> {{ T.pal_open }}</span><span><kbd>esc</kbd> {{ T.pal_close }}</span>
+      </div>
+    </div>
+  </div>
+</main>
+{% endblock %}
+
+{% block footer %}
+<footer class="h-foot">
+  <div class="h-wrap">
+    <p class="h-foot__line">{{ T.foot_line }}</p>
+    <div class="h-foot__meta">
+      <span class="h-foot__brand"><img src="{{ root }}/assets/site/mark.svg" width="20" height="20" alt=""> tenon</span>
+      <nav class="h-foot__links" aria-label="tenon">
+        <a href="{{ T.docs_href }}">{{ T.docs }}</a>
+        <a href="https://github.com/tenon-code-eu/tenon">GitHub</a>
+        <a href="https://github.com/tenon-code-eu/tenon/blob/main/LICENSE">EUPL-1.2</a>
+      </nav>
+    </div>
+  </div>
+</footer>
+{% endblock %}
+
+{% block scripts %}
+  {{ super() }}
+  <script src="{{ root }}/assets/site/home.js" defer></script>
+{% endblock %}

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="tenon">
+  <title>tenon</title>
+  <!-- Montant (mortaise) bleu nuit, tenon doré qui s'y emboîte -->
+  <path d="M4 3h12v26H4z" fill="#22357f"/>
+  <path d="M10 12.5h18v7H10z" fill="#f6efe2"/>
+  <path d="M10 13.5h6v5h-6z" fill="#f5c400"/>
+  <path d="M10 12.5v7" stroke="#0f1a3d" stroke-width="1"/>
+</svg>

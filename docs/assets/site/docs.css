@@ -1,0 +1,24 @@
+/* Pages de documentation (thème Material) : mêmes jetons que l'accueil. */
+@import url("tokens.css");
+
+:root, [data-md-color-scheme="default"] {
+  --md-primary-fg-color:        var(--color-night);
+  --md-primary-fg-color--light: var(--color-night-2);
+  --md-primary-fg-color--dark:  var(--color-night);
+  --md-primary-bg-color:        var(--color-on-night);
+  --md-accent-fg-color:         var(--color-accent);
+  --md-typeset-a-color:         var(--color-accent);
+  --md-text-font:               "IBM Plex Sans";
+  --md-code-font:               "IBM Plex Mono";
+}
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color:        var(--color-night);
+  --md-primary-bg-color:        var(--color-on-night);
+  --md-accent-fg-color:         var(--color-gold);
+  --md-typeset-a-color:         var(--color-gold);
+  --md-default-bg-color:        var(--color-night);
+}
+.md-header { border-bottom: 3px solid var(--color-gold); }
+.md-typeset h1, .md-typeset h2, .md-typeset h3 {
+  font-family: var(--font-display); font-weight: 700; letter-spacing: -0.02em; font-style: normal;
+}

@@ -11,3 +11,6 @@
 # Enregistrements bruts de démo (le GIF est dans docs/assets/).
 *.mov
 .DS_Store
+
+# Site MkDocs construit localement.
+/site/

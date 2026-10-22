@@ -1,0 +1,86 @@
+site_name: tenon
+site_description: European open-source terminal coding agent. EU or local models, human approval, verifiable audit log.
+site_url: https://tenon-code-eu.github.io/tenon/
+repo_url: https://github.com/tenon-code-eu/tenon
+repo_name: tenon-code-eu/tenon
+edit_uri: ""
+copyright: tenon · EUPL-1.2
+
+docs_dir: docs
+# Specs et plans internes : jamais publiés.
+exclude_docs: |
+  superpowers/
+  overrides/
+  requirements.txt
+
+theme:
+  name: material
+  custom_dir: docs/overrides
+  language: en
+  logo: assets/site/mark.svg
+  favicon: assets/site/mark.svg
+  font: false            # polices auto-hébergées (docs/assets/site/fonts), aucun appel externe
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-night
+        name: Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-sunny
+        name: Light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+
+extra_css:
+  - assets/site/docs.css
+
+extra:
+  alternate:
+    - name: English
+      link: /tenon/
+      lang: en
+    - name: Français
+      link: /tenon/fr/
+      lang: fr
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/tenon-code-eu/tenon
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+      # Ancres Unicode, comme GitHub (titres français accentués).
+      slugify: !!python/object/apply:pymdownx.slugs.slugify
+        kwds:
+          case: lower
+  - pymdownx.highlight
+  - pymdownx.superfences
+
+nav:
+  - Home: index.md
+  - English:
+      - Usage: usage.md
+      - Security: security.md
+      - Organisation policy: policy.md
+      - CI integration: ci.md
+  - Français:
+      - Accueil: fr/index.md
+      - Utilisation: fr/utilisation.md
+      - Sécurité: fr/securite.md
+      - Politique d'organisation: fr/politique.md
+      - Intégration CI: fr/ci.md
