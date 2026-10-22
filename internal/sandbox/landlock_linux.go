@@ -21,9 +21,11 @@ const fileRights = unix.LANDLOCK_ACCESS_FS_EXECUTE |
 	unix.LANDLOCK_ACCESS_FS_WRITE_FILE |
 	unix.LANDLOCK_ACCESS_FS_READ_FILE |
 	unix.LANDLOCK_ACCESS_FS_TRUNCATE |
-	unix.LANDLOCK_ACCESS_FS_IOCTL_DEV
+	unix.LANDLOCK_ACCESS_FS_IOCTL_DEV |
+	unix.LANDLOCK_ACCESS_FS_RESOLVE_UNIX
 
-// Droits de lecture accordés partout hors interdits.
+// Droits de lecture accordés partout hors interdits. RESOLVE_UNIX en est
+// exclu : une socket Unix n'est joignable que dans une zone inscriptible.
 const readRights = unix.LANDLOCK_ACCESS_FS_EXECUTE |
 	unix.LANDLOCK_ACCESS_FS_READ_FILE |
 	unix.LANDLOCK_ACCESS_FS_READ_DIR
@@ -32,11 +34,12 @@ const readRights = unix.LANDLOCK_ACCESS_FS_EXECUTE |
 // connect et bind TCP est refusé.
 const tcpRights = unix.LANDLOCK_ACCESS_NET_BIND_TCP | unix.LANDLOCK_ACCESS_NET_CONNECT_TCP
 
-// rulesetAttr reprend les deux premiers champs de struct
+// rulesetAttr reprend les trois premiers champs de struct
 // landlock_ruleset_attr ; la taille passée au noyau s'adapte à l'ABI.
 type rulesetAttr struct {
-	fs  uint64
-	net uint64
+	fs     uint64
+	net    uint64
+	scoped uint64
 }
 
 // landlockABI renvoie la version d'ABI Landlock du noyau, ou une erreur
@@ -61,6 +64,9 @@ func fsRights(abi int) uint64 {
 	}
 	if abi >= 5 {
 		r |= unix.LANDLOCK_ACCESS_FS_IOCTL_DEV
+	}
+	if abi >= 9 {
+		r |= unix.LANDLOCK_ACCESS_FS_RESOLVE_UNIX
 	}
 	return r
 }
@@ -101,13 +107,19 @@ func confineAndExec(argv []string) error {
 		return fmt.Errorf("prctl no_new_privs: %w", err)
 	}
 	attr := rulesetAttr{fs: fsRights(abi)}
-	size := unsafe.Sizeof(attr.fs)
+	size := unsafe.Offsetof(attr.net)
 	if s.TCP {
 		if abi < 4 {
 			return fmt.Errorf("landlock ABI %d cannot restrict TCP", abi)
 		}
 		attr.net = tcpRights
-		size = unsafe.Sizeof(attr)
+		size = unsafe.Offsetof(attr.scoped)
+		// Repli TCP : les sockets Unix abstraites (hors système de fichiers)
+		// créées hors du domaine sont aussi refusées (ABI ≥ 6).
+		if abi >= 6 {
+			attr.scoped = unix.LANDLOCK_SCOPE_ABSTRACT_UNIX_SOCKET
+			size = unsafe.Sizeof(attr)
+		}
 	}
 	fd, _, errno := unix.Syscall(unix.SYS_LANDLOCK_CREATE_RULESET, uintptr(unsafe.Pointer(&attr)), size, 0)
 	if errno != 0 {
@@ -122,6 +134,13 @@ func confineAndExec(argv []string) error {
 	}
 	for _, p := range reads {
 		if err := addPathRule(ruleset, p, readRights&attr.fs); err != nil {
+			return err
+		}
+	}
+	// Les ancêtres des interdits sont seulement listables : les noms
+	// deviennent visibles, jamais le contenu des fichiers interdits.
+	for _, p := range denyAncestors(s.DenyRead) {
+		if err := addPathRule(ruleset, p, unix.LANDLOCK_ACCESS_FS_READ_DIR); err != nil {
 			return err
 		}
 	}

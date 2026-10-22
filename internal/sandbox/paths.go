@@ -157,3 +157,28 @@ func isUnder(dir, p string) bool {
 	}
 	return len(rel) < 3 || rel[:3] != ".."+string(filepath.Separator)
 }
+
+// denyAncestors renvoie les dossiers ancêtres de chaque chemin interdit
+// existant, de son parent jusqu'à /, sans doublon. Seuls les vrais dossiers
+// sont gardés, jamais un lien symbolique : les chemins sont canonisés avant.
+// Ils reçoivent sous Linux le seul droit de lister (READ_DIR) pour que `ls /`
+// ou `ls $HOME` fonctionnent malgré un interdit en dessous.
+func denyAncestors(deny []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, d := range Canonical(deny) {
+		if _, err := os.Lstat(d); err != nil {
+			continue
+		}
+		for p := filepath.Dir(d); !seen[p]; p = filepath.Dir(p) {
+			if fi, err := os.Lstat(p); err == nil && fi.IsDir() {
+				seen[p] = true
+				out = append(out, p)
+			}
+			if p == filepath.Dir(p) {
+				break
+			}
+		}
+	}
+	return out
+}

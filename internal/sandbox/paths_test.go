@@ -164,3 +164,42 @@ func TestSplitAroundRootUnderDeny(t *testing.T) {
 		t.Errorf("racine sous un interdit: %v, %v", got, err)
 	}
 }
+
+func TestDenyAncestors(t *testing.T) {
+	root := realDir(t)
+	deny := filepath.Join(root, "a", "b", "secret")
+	if err := os.MkdirAll(deny, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Un lien vers le dossier interdit : canonisé, ses parents à lui ne comptent pas.
+	if err := os.Symlink(deny, filepath.Join(root, "lien")); err != nil {
+		t.Fatal(err)
+	}
+	got := denyAncestors([]string{deny, filepath.Join(root, "lien"), filepath.Join(root, "absent", "x")})
+	want := []string{filepath.Join(root, "a", "b"), filepath.Join(root, "a"), root}
+	for _, w := range want {
+		if !slices.Contains(got, w) {
+			t.Fatalf("ancêtre %s manquant: %q", w, got)
+		}
+	}
+	if !slices.Contains(got, "/") {
+		t.Fatalf("racine manquante: %q", got)
+	}
+	for _, g := range got {
+		if g == deny || g == filepath.Join(root, "absent") || g == filepath.Join(root, "lien") {
+			t.Fatalf("entrée inattendue %s: %q", g, got)
+		}
+	}
+	if len(got) != len(slices.Compact(slices.Sorted(slices.Values(got)))) {
+		t.Fatalf("doublons: %q", got)
+	}
+}
+
+func realDir(t *testing.T) string {
+	t.Helper()
+	d, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return d
+}

@@ -24,8 +24,20 @@ import (
 // TestMain : le binaire de test sert d'assistant `__sandbox` (os.Executable).
 func TestMain(m *testing.M) {
 	MaybeMain()
+	// Client de test sans dépendance : connexion à une socket Unix.
+	if addr, ok := os.LookupEnv(unixClientEnv); ok {
+		c, err := net.Dial("unix", addr)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		_ = c.Close()
+		os.Exit(0)
+	}
 	os.Exit(m.Run())
 }
+
+const unixClientEnv = "TENON_TEST_UNIX_CONNECT"
 
 func needSandbox(t *testing.T) {
 	t.Helper()
@@ -138,6 +150,19 @@ func TestLinuxDenyRead(t *testing.T) {
 	}
 	if err := runWrapped(t, s, "/bin/cat", ok); err != nil {
 		t.Fatalf("lecture normale refusée: %v", err)
+	}
+	// Les ancêtres des interdits restent listables (READ_DIR seul) ; le
+	// contenu des fichiers interdits reste illisible.
+	for _, d := range []string{"/", home, proj} {
+		if err := runWrapped(t, s, "/bin/ls", d); err != nil {
+			t.Fatalf("ls %s refusé: %v", d, err)
+		}
+	}
+	if err := runWrapped(t, s, "/bin/sh", "-c", "echo "+proj+"/*"); err != nil {
+		t.Fatalf("glob du projet refusé: %v", err)
+	}
+	if err := runWrapped(t, s, "/bin/cat", id); err == nil {
+		t.Fatal("lecture de ~/.ssh/id acceptée après ls")
 	}
 	// Limite Landlock : le dossier qui contient un interdit n'est pas accordé
 	// en entier (une règle couvrirait l'interdit) ; on écrit donc dans un
@@ -380,5 +405,88 @@ func TestProbeLinux(t *testing.T) {
 		}
 	default:
 		t.Fatalf("réseau inattendu: %+v", a)
+	}
+}
+
+// unixServer écoute sur une socket Unix et accepte en boucle.
+func unixServer(t *testing.T, addr string) {
+	t.Helper()
+	l, err := net.Listen("unix", addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = l.Close() })
+	go func() {
+		for {
+			c, err := l.Accept()
+			if err != nil {
+				return
+			}
+			_ = c.Close()
+		}
+	}()
+}
+
+// runUnixClient lance le binaire de test, confiné, en client de addr.
+func runUnixClient(t *testing.T, s Spec, addr string) error {
+	t.Helper()
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(exe)
+	cmd.Dir = s.Dir
+	cmd.Env = append(os.Environ(), unixClientEnv+"="+addr)
+	if err := Wrap(cmd, s); err != nil {
+		t.Fatal(err)
+	}
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Logf("client %s: %v; %s", addr, err, out)
+	}
+	return err
+}
+
+func TestLinuxUnixSocketPath(t *testing.T) {
+	needSandbox(t)
+	abi, _ := landlockABI()
+	proj, home, outside := realTemp(t), realTemp(t), realTemp(t)
+	s := fakeSpec(t, proj, home)
+	s.Write = []string{proj}
+	s.Network = true // isole l'effet de RESOLVE_UNIX du réglage réseau
+	in := filepath.Join(proj, "in.sock")
+	unixServer(t, in)
+	if err := runUnixClient(t, s, in); err != nil {
+		t.Fatalf("socket dans une zone inscriptible refusée: %v", err)
+	}
+	if abi < 9 {
+		t.Skipf("landlock ABI %d < 9 : LANDLOCK_ACCESS_FS_RESOLVE_UNIX absent", abi)
+	}
+	out := filepath.Join(outside, "out.sock")
+	unixServer(t, out)
+	if err := runUnixClient(t, s, out); err == nil {
+		t.Fatal("socket hors zone inscriptible accessible")
+	}
+}
+
+func TestLinuxAbstractUnixScoped(t *testing.T) {
+	needSandbox(t)
+	abi, _ := landlockABI()
+	if Probe().Network != "tcp" {
+		t.Skipf("réseau %q : la portée abstraite ne sert qu'au repli TCP", Probe().Network)
+	}
+	if abi < 6 {
+		t.Skipf("landlock ABI %d < 6 : LANDLOCK_SCOPE_ABSTRACT_UNIX_SOCKET absent", abi)
+	}
+	proj, home := realTemp(t), realTemp(t)
+	s := fakeSpec(t, proj, home)
+	addr := "@tenon-test-" + strconv.Itoa(os.Getpid())
+	unixServer(t, addr)
+	if err := runUnixClient(t, s, addr); err == nil {
+		t.Fatal("socket abstraite accessible avec réseau fermé")
+	}
+	s.Network = true
+	if err := runUnixClient(t, s, addr); err != nil {
+		t.Fatalf("socket abstraite refusée avec réseau ouvert: %v", err)
 	}
 }
