@@ -14,7 +14,12 @@ import (
 
 type fakeProv struct{ id string }
 
-func (f fakeProv) Info() llm.ProviderInfo { return llm.ProviderInfo{} }
+func (f fakeProv) Info() llm.ProviderInfo {
+	if f.id == "local" {
+		return llm.ProviderInfo{Jurisdiction: llm.Local}
+	}
+	return llm.ProviderInfo{Jurisdiction: llm.EU}
+}
 func (f fakeProv) Stream(context.Context, llm.Request) (<-chan llm.Chunk, error) {
 	return nil, nil
 }
@@ -99,5 +104,16 @@ func TestRetryable(t *testing.T) {
 		if got := Retryable(c.err); got != c.want {
 			t.Errorf("%s: got %v", c.name, got)
 		}
+	}
+}
+
+func TestNewIgnoresNonLocalLocal(t *testing.T) {
+	remote := cand("remote")
+	r := New(cand("a"), &remote, nil)
+	if _, ok := r.Local(); ok {
+		t.Fatal("non-local provider accepted as local")
+	}
+	if got := r.Candidates(true); len(got) != 0 {
+		t.Fatalf("got %v", ids(got))
 	}
 }

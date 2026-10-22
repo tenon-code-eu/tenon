@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/tenon-code-eu/tenon/internal/llm"
 	"github.com/tenon-code-eu/tenon/internal/provider"
 )
 
@@ -34,7 +35,9 @@ type Router struct {
 // New construit un Router ; les replis égaux au courant ou en double sont ignorés.
 func New(current Candidate, local *Candidate, fallback []Candidate) *Router {
 	r := &Router{current: current}
-	if local != nil {
+	// Un candidat « local » qui ne l'est pas est ignoré : une session
+	// sensible ne doit jamais atteindre un fournisseur distant.
+	if local != nil && local.Provider != nil && local.Provider.Info().Jurisdiction == llm.Local {
 		l := *local
 		r.local = &l
 	}
@@ -71,10 +74,12 @@ func (r *Router) Local() (Candidate, bool) {
 	return *r.local, true
 }
 
-// Retryable indique si l'erreur justifie un repli : indisponibilité,
-// erreur de connexion ou délai avant le premier chunk. Jamais pour
-// l'authentification, le contexte trop long, un flux interrompu (sortie
-// déjà produite), une annulation ou les autres erreurs 4xx.
+// Retryable classe l'erreur : indisponibilité, erreur de connexion ou délai
+// avant le premier chunk sont réessayables ; authentification, contexte
+// trop long, flux interrompu, annulation et autres 4xx ne le sont pas.
+// Elle ne sait pas si une sortie a déjà été produite (une net.Error en
+// cours de flux renvoie true) : l'appelant ne doit l'appeler que si aucun
+// chunk n'a encore été reçu.
 func Retryable(err error) bool {
 	if err == nil {
 		return false
