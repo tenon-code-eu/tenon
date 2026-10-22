@@ -26,7 +26,23 @@ type Policy struct {
 	Timestamp  *AuditTimestamp // [audit.timestamp] ; nil = non imposé
 	MCP        MCP
 	Sandbox    Sandbox // [sandbox] ; Mode "" = non imposé
-	KeyID      string  // renseigné par Load
+	// Classification : chemins et marqueurs ajoutés à ceux de la config.
+	Classification Classification
+	// Routing : fournisseur local imposé ("" = non imposé).
+	Routing Routing
+	KeyID   string // renseigné par Load
+}
+
+// Classification : règles de sensibilité imposées ([classification]).
+type Classification struct {
+	Paths   []string `toml:"paths"`
+	Markers []string `toml:"markers"`
+}
+
+// Routing : [routing] de la politique. Seul local est imposable ; le
+// fournisseur est vérifié à l'application (config.ApplyPolicy).
+type Routing struct {
+	Local string `toml:"local"`
 }
 
 // AuditTimestamp : horodatage RFC 3161 imposé. CA : PEM des racines de
@@ -103,8 +119,10 @@ type raw struct {
 			CA  string `toml:"ca"`
 		} `toml:"timestamp"`
 	} `toml:"audit"`
-	MCP     MCP     `toml:"mcp"`
-	Sandbox Sandbox `toml:"sandbox"`
+	MCP            MCP            `toml:"mcp"`
+	Sandbox        Sandbox        `toml:"sandbox"`
+	Classification Classification `toml:"classification"`
+	Routing        Routing        `toml:"routing"`
 }
 
 var idRe = regexp.MustCompile(`^[a-z0-9_-]{1,64}$`)
@@ -231,6 +249,7 @@ func Parse(b []byte) (Policy, error) {
 		ID:        r.ID, Version: r.Version, Profile: prof, Providers: r.Providers,
 		Rules: r.Permissions.Rules, Redaction: r.Redaction.Rules,
 		AuditLevel: r.Audit.Level, MCP: r.MCP, Sandbox: r.Sandbox,
+		Classification: r.Classification, Routing: r.Routing,
 	}, nil
 }
 

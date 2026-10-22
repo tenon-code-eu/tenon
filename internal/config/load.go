@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"slices"
 
 	"github.com/BurntSushi/toml"
 
@@ -23,6 +24,10 @@ type projectFile struct {
 	ProviderAllowlist *ProviderAllowlist `toml:"provider_allowlist"`
 	// Sandbox : le projet ne peut que durcir (required, deny_read).
 	Sandbox Sandbox `toml:"sandbox"`
+	// Classification s'ajoute à celle du global ; Routing est refusé (pointeur :
+	// une table vide l'est aussi).
+	Classification Classification `toml:"classification"`
+	Routing        *Routing       `toml:"routing"`
 }
 
 // Load fusionne défauts, configuration globale puis configuration projet.
@@ -82,6 +87,7 @@ func load(globalPath, projectPath string, getenv func(string) string) (Config, e
 		cfg.MCP = g.MCP
 		cfg.Hooks = g.Hooks
 		cfg.Checkpoints = g.Checkpoints
+		cfg.Classification, cfg.Routing = g.Classification, g.Routing
 		if err := checkSandboxMode(g.Sandbox.Mode); err != nil {
 			return Config{}, err
 		}
@@ -130,6 +136,9 @@ func load(globalPath, projectPath string, getenv func(string) string) (Config, e
 				return Config{}, errors.New(`project config: "allow" rules are not allowed`)
 			}
 		}
+		if p.Routing != nil {
+			return Config{}, errors.New("config: routing not allowed in project configuration")
+		}
 		for i := range p.Permissions.Rules {
 			p.Permissions.Rules[i].Project = true
 		}
@@ -161,6 +170,8 @@ func load(globalPath, projectPath string, getenv func(string) string) (Config, e
 		}
 		cfg.Sandbox.Mode = stricterSandbox(cfg.Sandbox.Mode, p.Sandbox.Mode)
 		cfg.Sandbox.DenyRead = append(cfg.Sandbox.DenyRead, pd...)
+		cfg.Classification.Paths = append(slices.Clone(cfg.Classification.Paths), p.Classification.Paths...)
+		cfg.Classification.Markers = append(slices.Clone(cfg.Classification.Markers), p.Classification.Markers...)
 		cfg.Permissions.Rules = append(cfg.Permissions.Rules, p.Permissions.Rules...)
 		cfg.Redaction.Rules = append(cfg.Redaction.Rules, p.Redaction.Rules...)
 	}

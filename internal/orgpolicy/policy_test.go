@@ -228,3 +228,14 @@ func TestParseSandbox(t *testing.T) {
 		t.Fatal("write accepted")
 	}
 }
+
+func TestParseClassificationRouting(t *testing.T) {
+	const hd = "id = \"a\"\nversion = 1\n"
+	p, err := Parse([]byte(hd + "[classification]\npaths = [\"x/**\"]\nmarkers = [\"M\"]\n[routing]\nlocal = \"ollama\"\n"))
+	if err != nil || len(p.Classification.Paths) != 1 || p.Classification.Markers[0] != "M" || p.Routing.Local != "ollama" {
+		t.Fatalf("%v %+v %+v", err, p.Classification, p.Routing)
+	}
+	if _, err := Parse([]byte(hd + "[routing]\nfallback = [\"x\"]\n")); err == nil {
+		t.Fatal("routing.fallback accepted in policy")
+	}
+}

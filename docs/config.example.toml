@@ -231,3 +231,23 @@ disabled = false
 # base_url = "https://llm.example.eu/v1"
 # jurisdiction = "eu"
 # qualifications = ["secnumcloud"]
+
+# Data-sensitivity routing. A session becomes sensitive when it touches a
+# classified path or content carrying a marker; from then on it is sent only
+# to the local provider. The built-in markers (DIFFUSION RESTREINTE,
+# SPECIAL FRANCE, RESTREINT UE, EU RESTRICTED) are always active. Paths use
+# the permission-rule syntax, relative to the project root ("*" inside a
+# segment, "**" across segments) or absolute; markers ignore case, accents
+# and whitespace runs. Lists add up (global, project, organisation policy);
+# a project config can add entries but never remove any.
+# [classification]
+# paths = ["secrets/**", "**/*.pem"]
+# markers = ["INTERNAL ONLY"]
+
+# local: a provider whose jurisdiction is "local" (ollama, vllm, or one you
+# define). fallback: providers tried in order when the current one is
+# unavailable (never for a sensitive session). Global only: refused in
+# .tenon/config.toml. An organisation policy can impose [routing] local.
+# [routing]
+# local = "ollama"
+# fallback = ["scaleway", "ollama"]
