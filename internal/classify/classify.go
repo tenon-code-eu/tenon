@@ -308,7 +308,9 @@ func (r Rules) scanChunk(raw string, keep int, tail *string, spaceEnd *bool) (st
 	}
 	text := f
 	if *tail != "" {
-		first, _ := utf8.DecodeRuneInString(raw)
+		// Marques combinantes ignorées, comme par fold : un bloc peut
+		// commencer par la marque d'une lettre du bloc précédent.
+		first, _ := edgeRune(raw, false)
 		if *spaceEnd || unicode.IsSpace(first) {
 			text = *tail + " " + f
 		} else {
@@ -318,7 +320,8 @@ func (r Rules) scanChunk(raw string, keep int, tail *string, spaceEnd *bool) (st
 	if m, ok := r.find(text, true); ok {
 		return m, true
 	}
-	last, _ := utf8.DecodeLastRuneInString(raw)
+	// f non vide : raw contient une rune hors marque combinante.
+	last, _ := edgeRune(raw, true)
 	*spaceEnd = unicode.IsSpace(last)
 	if len(text) > keep {
 		i := len(text) - keep
@@ -329,6 +332,25 @@ func (r Rules) scanChunk(raw string, keep int, tail *string, spaceEnd *bool) (st
 	}
 	*tail = text
 	return "", false
+}
+
+// edgeRune renvoie la première (ou, si last, la dernière) rune de s qui n'est
+// pas une marque combinante (unicode.Mn) ; ok vaut false s'il n'y en a pas.
+func edgeRune(s string, last bool) (r rune, ok bool) {
+	for s != "" {
+		var size int
+		if last {
+			r, size = utf8.DecodeLastRuneInString(s)
+			s = s[:len(s)-size]
+		} else {
+			r, size = utf8.DecodeRuneInString(s)
+			s = s[size:]
+		}
+		if !unicode.Is(unicode.Mn, r) {
+			return r, true
+		}
+	}
+	return 0, false
 }
 
 // completeRunes renvoie la longueur du plus long préfixe de data qui ne finit

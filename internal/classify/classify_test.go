@@ -146,6 +146,43 @@ func TestFindMarkerReader(t *testing.T) {
 	}
 }
 
+func TestFindMarkerReaderCombiningMarks(t *testing.T) {
+	const acute = "\u0301"
+	marker := "CONFIDENTIALITÉ RENFORCÉE"
+	r := Rules{Markers: []string{marker}}
+	nfd := " CONFIDENTIALITE" + acute + " RENFORCE" + acute + "E y"
+	// Accents décomposés, lecture entière et octet par octet.
+	for name, rd := range map[string]io.Reader{
+		"whole":   strings.NewReader("x" + nfd),
+		"onebyte": iotest.OneByteReader(strings.NewReader("x" + nfd)),
+	} {
+		if m, ok, err := r.FindMarkerReader(rd); err != nil || !ok || m != marker {
+			t.Errorf("%s: got %q, %v, %v", name, m, ok, err)
+		}
+	}
+	pad := func(n int) string { return strings.Repeat("a ", readChunk)[:n] }
+	// Bloc coupé entre E et U+0301, juste avant l'espace : le bloc suivant
+	// commence par la marque combinante.
+	cut := strings.Index(nfd, acute)
+	in := pad(readChunk-cut) + nfd
+	if in[readChunk:readChunk+len(acute)] != acute {
+		t.Fatal("frontière mal placée")
+	}
+	if m, ok, _ := r.FindMarkerReader(strings.NewReader(in)); !ok || m != marker {
+		t.Errorf("mark at boundary: got %q, %v", m, ok)
+	}
+	// Miroir : le bloc finit par espace + marque combinante.
+	mirror := " CONFIDENTIALITE" + acute + " " + acute + "RENFORCE" + acute + "E y"
+	cut = strings.Index(mirror, " "+acute) + 1 + len(acute)
+	in = pad(readChunk-cut) + mirror
+	if in[readChunk-len(acute):readChunk] != acute || in[readChunk-len(acute)-1] != ' ' {
+		t.Fatal("frontière miroir mal placée")
+	}
+	if m, ok, _ := r.FindMarkerReader(strings.NewReader(in)); !ok || m != marker {
+		t.Errorf("space+mark at boundary: got %q, %v", m, ok)
+	}
+}
+
 func TestEmpty(t *testing.T) {
 	if !(Rules{}).Empty() {
 		t.Fatal("empty")
