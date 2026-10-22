@@ -131,22 +131,31 @@ func (t *turn) scanResult(name, callID, content, file string) (string, error) {
 	}
 	if reason == "" {
 		texts := []string{content}
+		var files []string
 		switch name {
 		case "read_file":
 			texts = append(texts, stripLinePrefixes(content, readPrefix))
 			if file != "" {
-				// Au mieux : un fichier illisible n'a pas été lu par l'outil.
-				if b, err := os.ReadFile(file); err == nil {
-					texts = append(texts, string(b))
-				}
+				files = []string{file}
 			}
 		case "grep":
 			texts = append(texts, stripLinePrefixes(content, grepPrefix))
+			// Les fichiers trouvés sont contrôlés en entier : une ligne
+			// trouvée sans le marquage reste un extrait du document marqué.
+			files = grepFiles(d.ProjectRoot, content)
 		}
 		for _, x := range texts {
 			if m, ok := d.Classify.FindMarker(x); ok {
 				reason, marker = "marker", m
 				break
+			}
+		}
+		for _, f := range files {
+			if reason != "" {
+				break
+			}
+			if m, ok := fileMarker(d.Classify, f); ok {
+				reason, marker = "marker", m
 			}
 		}
 	}
@@ -234,6 +243,58 @@ func grepClassified(rules classify.Rules, root, out string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// fileMarker cherche un marquage dans le fichier path, lu par blocs. Au
+// mieux : un fichier illisible n'a pas pu être lu par l'outil non plus.
+func fileMarker(rules classify.Rules, path string) (string, bool) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", false
+	}
+	defer func() { _ = f.Close() }()
+	m, ok, _ := rules.FindMarkerReader(f)
+	return m, ok
+}
+
+// grepFiles renvoie les fichiers distincts (absolus) d'une sortie de grep.
+// Chaque préfixe suivi de « :<chiffres>: » qui désigne un fichier régulier
+// est retenu (un chemin peut contenir « :<n>: » : le sens sûr).
+func grepFiles(root, out string) []string {
+	seen := map[string]bool{}
+	var files []string
+	for _, line := range strings.Split(out, "\n") {
+		for i := 0; i < len(line); i++ {
+			if line[i] != ':' || !lineNumberAt(line, i) {
+				continue
+			}
+			p := filepath.Join(root, filepath.FromSlash(line[:i]))
+			if line[:i] == "" || seen[p] {
+				continue
+			}
+			seen[p] = true
+			if st, err := os.Stat(p); err == nil && st.Mode().IsRegular() {
+				files = append(files, p)
+			}
+		}
+	}
+	return files
+}
+
+// scanHookText contrôle un texte de hook qui entre dans l'historique sans
+// passer par un résultat d'outil (retour d'un hook Stop/SubagentStop,
+// contexte SessionStart de compaction). Avec un fournisseur local, un
+// marquage rend la session sensible (source tool) ; sans, le texte est
+// remplacé par classifiedWithheld.
+func (t *turn) scanHookText(text string) (string, error) {
+	m, ok := t.e.d.Classify.FindMarker(text)
+	if !ok {
+		return text, nil
+	}
+	if !t.e.d.HasLocal {
+		return classifiedWithheld, nil
+	}
+	return text, t.classify("marker", sourceTool, "", "", m)
 }
 
 // readPrefix renvoie la longueur du préfixe « <n>\t » d'une ligne de read_file.

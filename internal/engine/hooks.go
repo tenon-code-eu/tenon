@@ -260,7 +260,12 @@ func (t *turn) stopHook(active bool) (again bool, err error) {
 	if err != nil || t.stopReason != "" || !out.Block {
 		return false, err
 	}
-	msg := stopFeedback + out.Reason
+	// Classification : le retour du hook entre dans l'historique.
+	reason, err := t.scanHookText(out.Reason)
+	if err != nil {
+		return false, err
+	}
+	msg := stopFeedback + reason
 	*t.h = append(*t.h, llm.Message{Role: llm.User, Content: msg})
 	if err := t.emit(event.UserMessage, event.UserMessagePayload{Text: msg, Hook: string(ev)}); err != nil {
 		return false, err

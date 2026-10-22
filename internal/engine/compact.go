@@ -244,7 +244,10 @@ func (t *turn) compact(info llm.ProviderInfo, defs []llm.ToolDef, force bool) (r
 		if err != nil {
 			return t.compactHookErr(err)
 		}
-		hc = out.Context
+		// Classification : le contexte est joint au message de résumé.
+		if hc, err = t.scanHookText(out.Context); err != nil {
+			return "", err
+		}
 	}
 
 	nh := make([]llm.Message, 0, 2+len(conv)-start)

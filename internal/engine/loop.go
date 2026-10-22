@@ -529,15 +529,14 @@ func (t *turn) runTool(c llm.ToolCall) (tools.Result, error) {
 		return tools.Result{}, err
 	}
 	// Classification du résultat complet, avant PostToolUse (un hook prompt
-	// l'enverrait au fournisseur), l'enregistrement et l'historique.
-	if ran {
-		file := ""
-		if c.Name == "read_file" && !res.IsError {
-			file = res.Path
-		}
-		if res.Content, err = t.scanResult(c.Name, c.ID, res.Content, file); err != nil {
-			return tools.Result{}, err
-		}
+	// l'enverrait au fournisseur), l'enregistrement et l'historique. Un appel
+	// non exécuté aussi : la raison d'un refus de hook y est recopiée.
+	file := ""
+	if ran && c.Name == "read_file" && !res.IsError {
+		file = res.Path
+	}
+	if res.Content, err = t.scanResult(c.Name, c.ID, res.Content, file); err != nil {
+		return tools.Result{}, err
 	}
 	// Appel exécuté hors du suivi des copies (shell, MCP write/exec).
 	untracked := false

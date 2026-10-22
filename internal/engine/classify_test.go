@@ -649,3 +649,164 @@ func TestSubAgentTaintsParent(t *testing.T) {
 		}
 	})
 }
+
+func TestGrepMarkedFileOtherLine(t *testing.T) {
+	// La ligne trouvée ne contient pas le marquage ; le fichier, si.
+	script := [][]llm.Chunk{call("c1", "grep", `{"pattern":"Contenu"}`), text("ok")}
+	t.Run("local", func(t *testing.T) {
+		h := newClassifyHarness(t, true, script)
+		evs, err := h.submit(t, "s_1", "go", allowAll)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sc := classified(t, evs)
+		want := event.SessionClassifiedPayload{Reason: "marker", Source: "tool", CallID: "c1", Marker: "DIFFUSION RESTREINTE"}
+		if len(sc) != 1 || sc[0] != want {
+			t.Fatalf("SessionClassified %+v", sc)
+		}
+	})
+	t.Run("no local", func(t *testing.T) {
+		h := newClassifyHarness(t, false, script)
+		evs, err := h.submit(t, "s_1", "go", allowAll)
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertWithheld(t, h, evs, "grep", "Contenu du document")
+	})
+}
+
+func TestLargeMarkedFile(t *testing.T) {
+	big := func(t *testing.T, root string) {
+		t.Helper()
+		var b strings.Builder
+		b.WriteString("Entête du rapport\n")
+		line := strings.Repeat("x", 99) + "\n"
+		for b.Len() < 3<<20 {
+			b.WriteString(line)
+		}
+		b.WriteString("Mention : diffusion\n   restreinte\n")
+		if err := os.WriteFile(filepath.Join(root, "gros.txt"), []byte(b.String()), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, c := range []struct {
+		name, tool, args string
+	}{
+		{"read", "read_file", `{"path":"gros.txt","limit":1}`},
+		{"grep", "grep", `{"pattern":"Entête"}`},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			h := newClassifyHarness(t, false, [][]llm.Chunk{call("c1", c.tool, c.args), text("ok")})
+			big(t, h.root)
+			evs, err := h.submit(t, "s_1", "go", allowAll)
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertWithheld(t, h, evs, c.tool, "Entête")
+		})
+	}
+}
+
+func TestStopHookFeedbackMarker(t *testing.T) {
+	stop := func(t *testing.T) func(*Deps) {
+		flag := filepath.Join(t.TempDir(), "flag")
+		return withHooks(t, hk{"Stop", "", cmd(hookScript(t, "cat >/dev/null\n"+
+			onceFlag(flag, `echo '{"decision":"block","reason":"voir note EU RESTRICTED budget"}'`)))})
+	}
+	script := [][]llm.Chunk{text("first"), text("second")}
+	t.Run("local", func(t *testing.T) {
+		h := newClassifyHarness(t, true, script, stop(t))
+		evs, err := h.submit(t, "s_1", "go", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sc := classified(t, evs)
+		if len(sc) != 1 || sc[0].Reason != "marker" || sc[0].Source != "tool" || sc[0].Marker != "EU RESTRICTED" {
+			t.Fatalf("SessionClassified %+v", sc)
+		}
+	})
+	t.Run("no local", func(t *testing.T) {
+		h := newClassifyHarness(t, false, script, stop(t))
+		evs, err := h.submit(t, "s_1", "go", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n := len(ofType(evs, event.SessionClassified)); n != 0 {
+			t.Fatalf("%d SessionClassified", n)
+		}
+		if h.historyHas(t, "s_1", "budget") || h.requestsHave("budget") {
+			t.Fatal("retour de hook classé dans l'historique")
+		}
+		if !h.historyHas(t, "s_1", stopFeedback+withheldMsg) {
+			t.Fatal("retour retenu absent")
+		}
+	})
+}
+
+func TestCompactHookContextMarker(t *testing.T) {
+	run := func(t *testing.T, local bool) (*harness, []event.Event) {
+		hs := withHooks(t, hk{"SessionStart", "compact", cmd(hookScript(t, "cat >/dev/null\ncat <<'EOF'\n"+
+			ctxOut("SessionStart", "note SPECIAL FRANCE budget")+"\nEOF"))})
+		h := newClassifyHarness(t, local, [][]llm.Chunk{text("LE RÉSUMÉ"), text("ok")}, window(1000), hs)
+		l := &evLog{t: t, sid: "s_1"}
+		for _, m := range longHistory() {
+			if m.Role == llm.User {
+				l.add(event.UserMessage, event.UserMessagePayload{Text: m.Content})
+			} else {
+				l.add(event.AssistantMessage, event.AssistantMessagePayload{Text: m.Content})
+			}
+		}
+		if err := h.eng.Restore("s_1", l.evs); err != nil {
+			t.Fatal(err)
+		}
+		evs, err := h.submit(t, "s_1", "suite", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(ofType(evs, event.ContextCompacted)) != 1 {
+			t.Fatalf("events %v", types(evs))
+		}
+		return h, evs
+	}
+	t.Run("local", func(t *testing.T) {
+		_, evs := run(t, true)
+		sc := classified(t, evs)
+		if len(sc) != 1 || sc[0].Reason != "marker" || sc[0].Marker != "SPÉCIAL FRANCE" {
+			t.Fatalf("SessionClassified %+v", sc)
+		}
+	})
+	t.Run("no local", func(t *testing.T) {
+		h, evs := run(t, false)
+		if h.historyHas(t, "s_1", "budget") || h.requestsHave("budget") {
+			t.Fatal("contexte classé dans l'historique")
+		}
+		p := decode[event.ContextCompactedPayload](t, ofType(evs, event.ContextCompacted)[0])
+		if p.HookContext != withheldMsg {
+			t.Fatalf("ContextCompacted %+v", p)
+		}
+	})
+}
+
+func TestBlockedToolReasonMarker(t *testing.T) {
+	block := `{"decision":"block","reason":"interdit : diffusion restreinte, budget 12"}`
+	script := [][]llm.Chunk{call("c1", "read_file", `{"path":"libre.txt"}`), text("ok")}
+	t.Run("local", func(t *testing.T) {
+		h := newClassifyHarness(t, true, script, withHooks(t, hk{"PreToolUse", "Read", jsonHook(t, block)}))
+		evs, err := h.submit(t, "s_1", "go", allowAll)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sc := classified(t, evs)
+		if len(sc) != 1 || sc[0].Reason != "marker" || sc[0].CallID != "c1" {
+			t.Fatalf("SessionClassified %+v", sc)
+		}
+	})
+	t.Run("no local", func(t *testing.T) {
+		h := newClassifyHarness(t, false, script, withHooks(t, hk{"PreToolUse", "Read", jsonHook(t, block)}))
+		evs, err := h.submit(t, "s_1", "go", allowAll)
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertWithheld(t, h, evs, "read_file", "budget")
+	})
+}

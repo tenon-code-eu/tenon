@@ -3,10 +3,12 @@
 package classify
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/tenon-code-eu/tenon/internal/policy"
 )
@@ -120,7 +122,13 @@ func globMatch(pat, segs []string) bool {
 // des accents ni des espaces multiples, avec frontières de mot. Il rend le
 // marqueur tel que configuré.
 func (r Rules) FindMarker(text string) (string, bool) {
-	ft := fold(text)
+	return r.find(fold(text), false)
+}
+
+// find cherche un marqueur dans ft, texte déjà replié. openEnd : la fin de ft
+// n'est pas la fin du texte, une correspondance qui y finit est écartée (sa
+// frontière de mot dépend de la suite).
+func (r Rules) find(ft string, openEnd bool) (string, bool) {
 	if ft == "" {
 		return "", false
 	}
@@ -135,7 +143,7 @@ func (r Rules) FindMarker(text string) (string, bool) {
 				return false
 			}
 			start, end := from+i, from+i+len(fm)
-			if boundary(ft, start, end) {
+			if (!openEnd || end < len(ft)) && boundary(ft, start, end) {
 				return true
 			}
 			from = start + 1
@@ -236,4 +244,103 @@ func splitWords(cmd string) []string {
 	}
 	flush()
 	return words
+}
+
+// readChunk est la taille d'un bloc de lecture de FindMarkerReader.
+const readChunk = 64 << 10
+
+// FindMarkerReader est FindMarker sur un flux lu par blocs, sans le charger en
+// entier. Chaque bloc est replié puis cherché à la suite de la fin repliée du
+// bloc précédent (au moins la longueur du plus long marqueur replié) : un
+// marqueur à cheval sur deux blocs, coupé par des espaces ou des retours à la
+// ligne, est reconnu. err est une erreur de lecture.
+func (r Rules) FindMarkerReader(rd io.Reader) (marker string, ok bool, err error) {
+	keep := 0
+	for _, m := range r.Markers {
+		keep = max(keep, len(fold(m)))
+	}
+	for _, m := range BuiltinMarkers {
+		keep = max(keep, len(fold(m)))
+	}
+	keep += utf8.UTFMax + 1
+	buf := make([]byte, readChunk)
+	var carry []byte // fin d'une rune coupée par le bloc
+	tail := ""       // fin repliée du texte déjà lu
+	spaceEnd := false
+	for {
+		n, rerr := rd.Read(buf)
+		if n > 0 {
+			data := append(carry, buf[:n]...)
+			cut := completeRunes(data)
+			carry = append([]byte(nil), data[cut:]...)
+			if m, found := r.scanChunk(string(data[:cut]), keep, &tail, &spaceEnd); found {
+				return m, true, nil
+			}
+		}
+		if rerr == io.EOF {
+			break
+		}
+		if rerr != nil {
+			return "", false, rerr
+		}
+	}
+	if len(carry) > 0 {
+		if m, found := r.scanChunk(string(carry), keep, &tail, &spaceEnd); found {
+			return m, true, nil
+		}
+	}
+	// Fin du flux : une correspondance finissant en fin de texte est valable.
+	m, found := r.find(tail, false)
+	return m, found, nil
+}
+
+// scanChunk replie raw, le cherche à la suite de *tail et met à jour *tail et
+// *spaceEnd (le texte lu se termine par un espace). Un marqueur finissant en
+// fin de bloc n'est pas retenu (sa frontière de mot dépend du bloc suivant) :
+// il reste dans *tail pour la recherche suivante.
+func (r Rules) scanChunk(raw string, keep int, tail *string, spaceEnd *bool) (string, bool) {
+	f := fold(raw)
+	if f == "" {
+		if strings.IndexFunc(raw, unicode.IsSpace) >= 0 {
+			*spaceEnd = true
+		}
+		return "", false
+	}
+	text := f
+	if *tail != "" {
+		first, _ := utf8.DecodeRuneInString(raw)
+		if *spaceEnd || unicode.IsSpace(first) {
+			text = *tail + " " + f
+		} else {
+			text = *tail + f
+		}
+	}
+	if m, ok := r.find(text, true); ok {
+		return m, true
+	}
+	last, _ := utf8.DecodeLastRuneInString(raw)
+	*spaceEnd = unicode.IsSpace(last)
+	if len(text) > keep {
+		i := len(text) - keep
+		for i < len(text) && !utf8.RuneStart(text[i]) {
+			i++
+		}
+		text = text[i:]
+	}
+	*tail = text
+	return "", false
+}
+
+// completeRunes renvoie la longueur du plus long préfixe de data qui ne finit
+// pas par une rune UTF-8 incomplète.
+func completeRunes(data []byte) int {
+	for i := len(data) - 1; i >= 0 && i >= len(data)-utf8.UTFMax; i-- {
+		if utf8.RuneStart(data[i]) {
+			if utf8.FullRune(data[i:]) {
+				return len(data)
+			}
+			return i
+		}
+	}
+	return len(data)
 }

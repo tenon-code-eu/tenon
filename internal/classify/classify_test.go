@@ -1,9 +1,12 @@
 package classify
 
 import (
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"testing/iotest"
 )
 
 func tmpRoot(t *testing.T) string {
@@ -111,6 +114,35 @@ func TestCommandPath(t *testing.T) {
 	}
 	if w, ok := r.CommandPath(root, "ls src"); ok || w != "" {
 		t.Fatalf("got %q, %v", w, ok)
+	}
+}
+
+func TestFindMarkerReader(t *testing.T) {
+	r := Rules{Markers: []string{"Note Interne"}}
+	tests := []struct {
+		in, want string
+	}{
+		{"début DIFFUSION \n\n   RESTREINTE fin", "DIFFUSION RESTREINTE"},
+		{"x Spécial France y", "SPÉCIAL FRANCE"},
+		{"une note\tinterne ici", "Note Interne"},
+		{"DIFFUSION RESTREINTES", ""},
+		{"rien", ""},
+	}
+	for _, tt := range tests {
+		for name, rd := range map[string]io.Reader{
+			"whole":   strings.NewReader(tt.in),
+			"onebyte": iotest.OneByteReader(strings.NewReader(tt.in)),
+		} {
+			got, ok, err := r.FindMarkerReader(rd)
+			if err != nil || ok != (tt.want != "") || got != tt.want {
+				t.Errorf("%s %q: got %q, %v, %v", name, tt.in, got, ok, err)
+			}
+		}
+	}
+	// Grand texte : marquage après plusieurs blocs de lecture.
+	big := strings.Repeat("a ", 200000) + "EU\nRESTRICTED"
+	if m, ok, _ := r.FindMarkerReader(strings.NewReader(big)); !ok || m != "EU RESTRICTED" {
+		t.Fatalf("got %q, %v", m, ok)
 	}
 }
 
