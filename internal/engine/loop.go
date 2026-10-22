@@ -370,7 +370,7 @@ func (t *turn) outbound(info llm.ProviderInfo, in []llm.Message) (msgs []llm.Mes
 			return nil, false, nil
 		}
 		p := info
-		r, err := t.ask(event.PermissionRequestedPayload{Kind: "jurisdiction", Provider: &p})
+		r, err := t.ask(event.PermissionRequestedPayload{Kind: "jurisdiction", Provider: &p}, false)
 		if err != nil {
 			return nil, false, err
 		}
@@ -447,8 +447,11 @@ func (t *turn) delta(emit bool, text string) error {
 }
 
 // ask enregistre la demande, émet PermissionRequested, attend Respond ou
-// l'annulation du contexte, puis émet PermissionResolved.
-func (t *turn) ask(p event.PermissionRequestedPayload) (Reply, error) {
+// l'annulation du contexte, puis émet PermissionResolved. ruleNet est le
+// drapeau network de la règle retenue : une acceptation l'accorde aussi. Le
+// Network de la réponse renvoyée est le réseau effectivement accordé (jamais
+// pour une demande hors outil ni pour un refus).
+func (t *turn) ask(p event.PermissionRequestedPayload, ruleNet bool) (Reply, error) {
 	t.s.permN++
 	id := fmt.Sprintf("%s-p%d", t.s.id, t.s.permN)
 	p.PermissionID = id
@@ -485,8 +488,9 @@ func (t *turn) ask(p event.PermissionRequestedPayload) (Reply, error) {
 		}
 		return Reply{}, t.ctx.Err()
 	}
+	r.Network = r.Allow && p.Kind == "tool" && (r.Network || ruleNet)
 	if err := t.emit(event.PermissionResolved, event.PermissionResolvedPayload{
-		PermissionID: id, Allowed: r.Allow, Remember: r.Remember,
+		PermissionID: id, Allowed: r.Allow, Remember: r.Remember, Network: r.Network,
 	}); err != nil {
 		return Reply{}, err
 	}
@@ -540,6 +544,7 @@ func (t *turn) runTool(c llm.ToolCall) (tools.Result, error) {
 		CallID: c.ID, Tool: c.Name, Content: res.Content, IsError: res.IsError,
 		Path: res.Path, HashBefore: res.HashBefore, HashAfter: res.HashAfter,
 		Denied: denied, NoCheckpoint: res.NoCheckpoint, Untracked: untracked,
+		Sandbox: res.Sandbox,
 	}
 	seq, err := t.emitSeq(event.ToolResult, trp)
 	if err != nil {
@@ -638,11 +643,16 @@ func (t *turn) decideAndRun(c llm.ToolCall) (res tools.Result, denied string, ra
 	// Un allow de hook vaut une règle allow globale : il ne lève qu'un Ask
 	// levable (règle ask globale ou défaut), jamais un Deny. Un ask de hook
 	// impose la demande, même si les règles autorisent.
-	dec, liftable := d.Permissions.Decide(policy.Call{Tool: c.Name, Risk: tool.Risk(), Target: target})
-	var prompt bool
+	//
+	// Réseau de l'appel : celui d'une règle allow retenue sans demande, ou
+	// celui accordé par la réponse à la demande. Un Ask levé par un hook ou
+	// par une approbation mémorisée n'ouvre jamais le réseau.
+	dec, liftable, ruleNet := d.Permissions.DecideNet(policy.Call{Tool: c.Name, Risk: tool.Risk(), Target: target})
+	var prompt, network bool
 	switch dec {
 	case policy.Allow:
 		prompt = out.Ask
+		network = ruleNet && !prompt
 	case policy.Ask:
 		prompt = !(out.Allow && liftable && !out.Ask)
 	default:
@@ -655,6 +665,7 @@ func (t *turn) decideAndRun(c llm.ToolCall) (res tools.Result, denied string, ra
 		if out.Ask || !t.s.remembered[key] {
 			p := event.PermissionRequestedPayload{
 				Kind: "tool", Tool: c.Name, Paths: target.Paths, Command: target.Command,
+				Sandboxed: d.ShellSandboxed && c.Name == "shell",
 			}
 			if out.Ask {
 				p.HookReason = out.Reason
@@ -665,16 +676,19 @@ func (t *turn) decideAndRun(c llm.ToolCall) (res tools.Result, denied string, ra
 			if out.UpdatedInput != nil && !sameJSON(args, c.Args) {
 				p.Args = safeArgs(args)
 			}
-			r, err := t.ask(p)
+			r, err := t.ask(p, ruleNet)
 			if err != nil {
 				return tools.Result{}, "", false, nil, err
 			}
 			if !r.Allow {
 				return toolError("action denied by the user"), deniedUser, false, nil, nil
 			}
+			// La clé mémorisée ignore le réseau : un appel ultérieur
+			// approuvé par elle s'exécute sans réseau.
 			if r.Remember && !out.Ask {
 				t.s.remembered[key] = true
 			}
+			network = r.Network
 		}
 	}
 	if _, isAgent := tool.(agentTool); isAgent {
@@ -682,7 +696,7 @@ func (t *turn) decideAndRun(c llm.ToolCall) (res tools.Result, denied string, ra
 		run.Args = args
 		res, err = t.runSubagent(run)
 	} else {
-		res, err = tool.Run(t.ctx, args)
+		res, err = tool.Run(tools.WithNetwork(t.ctx, network), args)
 	}
 	if err != nil {
 		return tools.Result{}, "", false, nil, err

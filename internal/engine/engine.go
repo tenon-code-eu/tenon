@@ -92,10 +92,16 @@ type Deps struct {
 	// Allowlists sont les listes blanches de fournisseurs actives (globale,
 	// projet) ; Outbound en revérifie l'hôte avant chaque envoi.
 	Allowlists []hostmatch.List
+	// ShellSandboxed indique que l'outil shell isole ses commandes : les
+	// demandes qui le concernent portent alors Sandboxed (option « Autoriser
+	// avec réseau »).
+	ShellSandboxed bool
 }
 
-// Reply répond à un PermissionRequested.
-type Reply struct{ Allow, Remember bool }
+// Reply répond à un PermissionRequested. Network accorde le réseau à la
+// commande shell isolée pour cet appel seulement : Remember ne le mémorise
+// jamais.
+type Reply struct{ Allow, Remember, Network bool }
 
 // Engine exécute les tours d'agent. Il est sûr en usage concurrent ; les tours
 // d'une même session sont sérialisés.

@@ -113,6 +113,9 @@ type PermissionRequestedPayload struct {
 	// updatedInput changed them (omitted otherwise): UIs preview these
 	// instead of the model's original arguments.
 	Args json.RawMessage `json:"args,omitempty"`
+	// Sandboxed is true when the shell command will run confined: UIs then
+	// offer "Allow with network" besides "Allow".
+	Sandboxed bool `json:"sandboxed,omitempty"`
 	// ParentCallID is the call_id of the "agent" tool call that produced this
 	// event inside a sub-agent run; empty for the main agent.
 	ParentCallID string `json:"parent_call_id,omitempty"`
@@ -123,6 +126,9 @@ type PermissionResolvedPayload struct {
 	PermissionID string `json:"permission_id"`
 	Allowed      bool   `json:"allowed"`
 	Remember     bool   `json:"remember"`
+	// Network is true when the user allowed the confined command with network
+	// access ("Allow with network"); never remembered.
+	Network bool `json:"network,omitempty"`
 	// ParentCallID is the call_id of the "agent" tool call that produced this
 	// event inside a sub-agent run; empty for the main agent.
 	ParentCallID string `json:"parent_call_id,omitempty"`
@@ -144,9 +150,18 @@ type ToolResultPayload struct {
 	NoCheckpoint bool `json:"no_checkpoint,omitempty"`
 	// Untracked is true when the call may have changed files outside the checkpoint tracking (e.g. bash).
 	Untracked bool `json:"untracked,omitempty"`
+	// Sandbox records how a shell command ran (omitted for other tools).
+	Sandbox *SandboxUse `json:"sandbox,omitempty"`
 	// ParentCallID is the call_id of the "agent" tool call that produced this
 	// event inside a sub-agent run; empty for the main agent.
 	ParentCallID string `json:"parent_call_id,omitempty"`
+}
+
+// SandboxUse records whether a command ran confined by the system sandbox and
+// whether network access was granted to it.
+type SandboxUse struct {
+	Confined bool `json:"confined"`
+	Network  bool `json:"network"`
 }
 
 // McpServerDownPayload reports an MCP server that is unreachable (at start or

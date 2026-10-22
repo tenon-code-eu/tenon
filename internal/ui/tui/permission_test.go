@@ -813,3 +813,49 @@ func TestPermissionSubagentContextControlChars(t *testing.T) {
 		t.Fatalf("panneau %q", out)
 	}
 }
+
+func TestPermissionNetworkOption(t *testing.T) {
+	for _, tc := range []struct {
+		lang      i18n.Lang
+		key       rune
+		shown     string
+		sessionKy rune
+	}{
+		{i18n.EN, 'w', "w: allow with network", 'a'},
+		{i18n.FR, 'r', "r : autoriser avec réseau", 's'},
+	} {
+		t.Run(string(tc.lang), func(t *testing.T) {
+			f := newFake()
+			h := newHarness(t, f, Options{Lang: tc.lang})
+			p := shellPerm("p1")
+			p.Sandboxed = true
+			askPerm(t, h, f, p)
+			v := h.m.View()
+			if !strings.Contains(v, tc.shown) {
+				t.Fatalf("option réseau absente : %q", v)
+			}
+			if strings.Contains(v, i18n.T(tc.lang, "tui.perm.not_sandbox")) {
+				t.Fatalf("« pas de bac à sable » affiché pour une commande isolée : %q", v)
+			}
+			h.send(runeKey(tc.key))
+			wantReply(t, f, "p1", engine.Reply{Allow: true, Network: true})
+
+			// « Toujours » reste sans réseau.
+			p = shellPerm("p2")
+			p.Sandboxed = true
+			askPerm(t, h, f, p)
+			h.send(runeKey(tc.sessionKy))
+			wantReply(t, f, "p2", engine.Reply{Allow: true, Remember: true})
+
+			// Commande non isolée : pas d'option, la touche est ignorée.
+			askPerm(t, h, f, shellPerm("p3"))
+			if v := h.m.View(); strings.Contains(v, tc.shown) {
+				t.Fatalf("option réseau affichée sans isolation : %q", v)
+			}
+			h.send(runeKey(tc.key))
+			if _, ok := f.reply("p3"); ok {
+				t.Fatal("réseau accepté sans isolation")
+			}
+		})
+	}
+}

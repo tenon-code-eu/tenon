@@ -606,7 +606,7 @@ func loadSetup(lang i18n.Lang, getenv func(string) string, wd, globalPath string
 		}
 		// Une règle de la politique se comporte comme une règle projet : ses
 		// ask priment les allow de la configuration.
-		rules = append(rules, policy.Rule{Tool: r.Tool, Match: r.Match, Decision: d, Project: r.Project || r.Policy})
+		rules = append(rules, policy.Rule{Tool: r.Tool, Match: r.Match, Decision: d, Project: r.Project || r.Policy, Network: r.Network})
 	}
 	custom := make([]policy.RedactionRule, 0, len(cfg.Redaction.Rules))
 	for _, r := range cfg.Redaction.Rules {
@@ -1075,7 +1075,7 @@ func startEngine(o engineOptions) (started, error) {
 		fsOpts = append(fsOpts, tools.WithoutCheckpoints())
 	}
 	ts := append(tools.FS(wd, cfg.OutputLimit, fsOpts...),
-		tools.Shell(wd, cfg.ShellTimeout.Duration, cfg.OutputLimit))
+		tools.Shell(wd, cfg.ShellTimeout.Duration, cfg.OutputLimit, tools.ShellOptions{}))
 	// Skills : l'outil skill rejoint les outils internes, avant ceux de MCP.
 	disc := o.skills
 	if disc == nil {
