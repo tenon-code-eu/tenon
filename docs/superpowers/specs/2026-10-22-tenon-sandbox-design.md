@@ -82,7 +82,7 @@ network = true
 - **Réseau** : coupé, sauf `Network`.
 - **Environnement** : celui de tenon moins les variables nommées par `api_key_env` (tous les fournisseurs, presets compris), `bearer_env` et `env_from` (tous les serveurs MCP). Le retrait s'applique aussi en mode `off` et quand l'isolation est indisponible. La variable interne de la spec n'atteint jamais la commande.
 
-Serveurs MCP stdio : isolés selon `risk` déclaré. `network` : réseau ouvert. `write` ou `exec` : projet inscriptible. `read` ou vide : projet en lecture seule. Leur dossier propre reste inscriptible dans tous les cas.
+Serveurs MCP stdio : isolés selon `risk` déclaré. `network` : réseau ouvert. `write` ou `exec` : projet inscriptible. `read` ou vide : projet en lecture seule. Leur dossier de travail (`$HOME`) n'est pas rendu inscriptible : seuls les défauts (temporaires, caches) et `write` le sont.
 
 ## 5. Mécanismes
 
