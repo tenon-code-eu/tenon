@@ -41,3 +41,12 @@ level = "full"
 tool = "shell"
 match = "go test ./..."
 decision = "allow"
+
+# --- Sandbox --------------------------------------------------------------
+#
+# Commands run confined by default (mode = "auto"). On Linux the runner image
+# needs user namespaces for full network isolation; otherwise tenon prints a
+# notice and isolates TCP only. To fail instead of running with a weaker
+# sandbox:
+# [sandbox]
+# mode = "required"

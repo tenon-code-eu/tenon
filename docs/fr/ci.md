@@ -30,8 +30,8 @@ Copiez le modèle de votre forge et la configuration dans `ci/tenon.toml` de vot
 ## Ce que fait le job
 
 1. **Installer.** `TENON_VERSION=<vX.Y.Z> TENON_REQUIRE_SIGNATURE=1 sh install.sh`. L'image contient `minisign` (les modèles l'installent avec `apt-get`) : la signature de la version est vérifiée, pas seulement son empreinte SHA-256.
-2. **Exécuter.** `XDG_DATA_HOME="$PWD/.tenon-data"` garde le journal d'audit dans l'espace de travail. Puis `tenon --config ci/tenon.toml -p "$TENON_TASK" --strict --output json > tenon-events.jsonl`. Le code de sortie du job est celui de tenon.
-3. **Toujours, même en cas d'échec.** `tenon --config ci/tenon.toml audit verify` (intégrité de la chaîne de hachage) et `tenon --config ci/tenon.toml audit export --all-projects --out tenon-audit` (rapport de conformité), avec la même configuration que l'étape d'exécution pour que les racines d'horodatage coïncident, puis le dépôt des artefacts.
+2. **Exécuter.** `tenon --config ci/tenon.toml -p "$TENON_TASK" --strict --output json > tenon-events.jsonl`. Le code de sortie du job est celui de tenon.
+3. **Toujours, même en cas d'échec.** `tenon --config ci/tenon.toml audit verify` (intégrité de la chaîne de hachage) et `tenon --config ci/tenon.toml audit export --all-projects --out tenon-audit` (rapport de conformité), avec la même configuration que l'étape d'exécution pour que les racines d'horodatage coïncident, puis la copie du journal d'audit (`<dossier de données>/tenon/audit/`, par défaut `~/.local/share/tenon/audit/`) dans l'espace de travail (`tenon-audit-log/`) et le dépôt des artefacts. Le dossier de données reste à sa place par défaut, hors de l'espace de travail : l'isolation le interdit aux commandes, et sous Linux un dossier interdit dans le projet bloquerait la création de fichiers à la racine du projet. Ne définissez pas `XDG_DATA_HOME` dans l'espace de travail.
 
 ## Codes de sortie
 
@@ -69,7 +69,7 @@ Chaque modèle a la ligne en commentaire. La signature minisign reste vérifiée
 |---|---|
 | `tenon-events.jsonl` | Un événement JSON par ligne (`--output json`), charge utile masquée. |
 | `tenon-audit/` | Export de conformité : rapport HTML et JSON. |
-| `.tenon-data/tenon/audit/` | Le journal d'audit lui-même (chaîne de hachage) et, si `[audit.timestamp]` est défini, les jetons RFC 3161. |
+| `tenon-audit-log/` | Copie du journal d'audit lui-même (chaîne de hachage) et, si `[audit.timestamp]` est défini, les jetons RFC 3161. |
 
 Voir [Journal d'audit](utilisation.md#journal-daudit), [Horodatage](utilisation.md#horodatage-rfc-3161) et [Export de conformité](utilisation.md#export-de-conformité) pour `audit verify`, `audit export` et `audit timestamp`. Les artefacts sont conservés même si le job échoue.
 
@@ -79,8 +79,10 @@ Voir [Journal d'audit](utilisation.md#journal-daudit), [Horodatage](utilisation.
 
 **La clé n'existe que sur les références protégées (GitLab).** Une variable protégée n'atteint que les pipelines des branches ou étiquettes protégées : la règle de merge request du modèle exige donc une branche source protégée. Retirer la protection exposerait la clé au pipeline de n'importe quelle branche, y compris une branche qui réécrit `ci/tenon.toml` : cela fonctionne, mais ce n'est pas recommandé.
 
-**Gardez les règles `allow` minimales.** En CI personne ne valide rien : chaque règle `allow` est une autorisation permanente donnée au modèle. N'autorisez que les commandes exactes dont la tâche a besoin (`go test ./...`), rien de plus large. Une règle `allow` sur une commande ne couvre pas une commande enchaînée, mais les permissions ne sont pas un bac à sable (voir [Sécurité et limites](securite.md)) : exécutez le job sur un runner qui ne contient rien que vous ne puissiez perdre.
+**Gardez les règles `allow` minimales.** En CI personne ne valide rien : chaque règle `allow` est une autorisation permanente donnée au modèle. N'autorisez que les commandes exactes dont la tâche a besoin (`go test ./...`), rien de plus large. Une règle `allow` sur une commande ne couvre pas une commande enchaînée, mais l'[isolation](utilisation.md#isolation-système) limite les écritures et le réseau sans être complète (voir [Sécurité et limites](securite.md#lisolation-système-et-ses-limites)) : exécutez le job sur un runner qui ne contient rien que vous ne puissiez perdre.
 
 **Ne lancez jamais un job avec des secrets sur les merge requests de forks.** L'auteur d'un fork contrôle le code, `ci/tenon.toml` et la tâche. Les modèles ignorent les pipelines de forks : gardez cette protection.
 
 **Un runner éphémère ne garde rien.** Le journal d'audit, l'export de conformité et les jetons d'horodatage disparaissent avec le runner. Archivez les artefacts, jetons d'horodatage compris, hors du runner (stockage d'artefacts avec une durée de rétention, ou copie vers un espace que vous maîtrisez). Un journal non archivé ne peut pas être vérifié plus tard.
+
+**L'isolation demande des espaces de noms utilisateur pour isoler complètement le réseau.** Sous Linux, l'image du runner doit autoriser les espaces de noms utilisateur non privilégiés (ce n'est pas le cas avec le profil seccomp par défaut de Docker, ni avec la restriction AppArmor d'Ubuntu). Sans eux, tenon se replie sur une isolation TCP seule et affiche `sandbox: network isolation TCP only (user namespaces unavailable)` : UDP reste ouvert. Pour que le job échoue plutôt que de tourner avec une isolation plus faible, définissez `[sandbox] mode = "required"` dans `ci/tenon.toml`.

@@ -25,9 +25,8 @@ func TestCITemplates(t *testing.T) {
 		"TENON_REQUIRE_SIGNATURE=1",
 		"--config ci/tenon.toml audit verify",
 		"--config ci/tenon.toml audit export --all-projects --out tenon-audit",
-		"XDG_DATA_HOME",
 		"tenon-events.jsonl",
-		".tenon-data/tenon/audit",
+		"tenon-audit-log",
 	}
 	for name, always := range files {
 		t.Run(name, func(t *testing.T) {
@@ -43,6 +42,11 @@ func TestCITemplates(t *testing.T) {
 			}
 			if name != "gitlab-ci.yml" && !strings.Contains(s, "include-hidden-files: true") {
 				t.Errorf("%s : include-hidden-files: true absent", name)
+			}
+			// Le journal d'audit reste hors de l'espace de travail (le sandbox
+			// refuse le dossier de données) : il y est copié avant l'archivage.
+			if strings.Contains(s, ".tenon-data") || strings.Contains(s, "XDG_DATA_HOME: ") {
+				t.Errorf("%s : le dossier de données ne doit pas être dans l'espace de travail", name)
 			}
 			if strings.Contains(s, "| TENON_VERSION") {
 				t.Errorf("%s : pas de curl | sh", name)
@@ -89,16 +93,18 @@ func TestCITemplateSequenceE2E(t *testing.T) {
 	if err := os.MkdirAll(home, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	// Dossier de données hors de l'espace de travail, comme dans les modèles.
+	data := t.TempDir()
 	e := &env{
 		t:  t,
 		wd: ws,
 		vars: map[string]string{
 			"XDG_CONFIG_HOME": filepath.Join(ws, "xdg-config"),
-			"XDG_DATA_HOME":   filepath.Join(ws, ".tenon-data"),
+			"XDG_DATA_HOME":   filepath.Join(data, "share"),
 			"HOME":            home,
 			"TEST_KEY":        "cle-de-test",
 		},
-		dataDir: filepath.Join(ws, ".tenon-data", "tenon"),
+		dataDir: filepath.Join(data, "share", "tenon"),
 	}
 	cfg := fmt.Sprintf(`lang = "en"
 default_provider = "test"
@@ -131,6 +137,13 @@ jurisdiction = "eu"
 		if len(m) != 1 {
 			t.Errorf("tenon-audit/*.%s : %v", ext, m)
 		}
+	}
+	// Copie du journal dans l'espace de travail avant l'archivage.
+	if err := os.CopyFS(filepath.Join(ws, "tenon-audit-log"), os.DirFS(filepath.Join(e.dataDir, "audit"))); err != nil {
+		t.Fatal(err)
+	}
+	if m, _ := filepath.Glob(filepath.Join(ws, "tenon-audit-log", "*.jsonl")); len(m) == 0 {
+		t.Error("tenon-audit-log/*.jsonl absent")
 	}
 }
 

@@ -28,7 +28,6 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     env:
       TENON_TASK: ${{ github.event.inputs.task || 'Review the changes of this pull request and run the tests.' }}
-      XDG_DATA_HOME: ${{ github.workspace }}/.tenon-data
     steps:
       # Consider pinning actions by commit SHA for stronger supply-chain guarantees.
       - uses: actions/checkout@v4.2.2
@@ -66,6 +65,11 @@ jobs:
           set -eu
           # The run step already fails the job on a tenon error; verify and
           # export always run to archive the evidence.
+          # The audit log lives in tenon's default data dir, outside the
+          # workspace (the sandbox denies it to commands): copy it into the
+          # workspace so the artifact upload can find it.
+          mkdir -p tenon-audit-log
+          cp -R "${XDG_DATA_HOME:-$HOME/.local/share}/tenon/audit/." tenon-audit-log/ || true
           vrc=0
           tenon --config ci/tenon.toml audit verify || vrc=$?
           tenon --config ci/tenon.toml audit export --all-projects --out tenon-audit
@@ -81,4 +85,4 @@ jobs:
           path: |
             tenon-events.jsonl
             tenon-audit/
-            .tenon-data/tenon/audit/
+            tenon-audit-log/
