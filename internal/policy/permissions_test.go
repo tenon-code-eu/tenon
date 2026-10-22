@@ -193,8 +193,8 @@ func TestMatchWildcard(t *testing.T) {
 		{"a.c", "abc", false},
 	}
 	for _, tt := range tests {
-		if got := matchWildcard(tt.pat, tt.s); got != tt.want {
-			t.Errorf("matchWildcard(%q,%q)=%v want %v", tt.pat, tt.s, got, tt.want)
+		if got := MatchWildcard(tt.pat, tt.s); got != tt.want {
+			t.Errorf("MatchWildcard(%q,%q)=%v want %v", tt.pat, tt.s, got, tt.want)
 		}
 	}
 }

@@ -130,7 +130,7 @@ func (p *Permissions) DecideNet(c Call) (d Decision, liftable, network bool) {
 			if r.Decision == Allow && chainsBeyond(r.Match, c.Target.Command) {
 				return false // allow ne couvre jamais une commande enchaînée
 			}
-			return matchWildcard(r.Match, c.Target.Command)
+			return MatchWildcard(r.Match, c.Target.Command)
 		}
 		pat := r.Match
 		if fold {
@@ -141,7 +141,7 @@ func (p *Permissions) DecideNet(c Call) (d Decision, liftable, network bool) {
 				if fold {
 					cand = strings.ToLower(cand)
 				}
-				if matchWildcard(pat, cand) {
+				if MatchWildcard(pat, cand) {
 					return true
 				}
 			}
