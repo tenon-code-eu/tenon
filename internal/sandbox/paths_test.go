@@ -1,0 +1,138 @@
+package sandbox
+
+import (
+	"os"
+	"path/filepath"
+	"reflect"
+	"slices"
+	"testing"
+)
+
+func envOf(m map[string]string) func(string) string {
+	return func(k string) string { return m[k] }
+}
+
+func TestDefaultWrite(t *testing.T) {
+	common := []string{"/proj", "/tmp", "/dev/null", "/dev/tty", "/dev/zero", "/dev/random", "/dev/urandom"}
+
+	lin := DefaultWrite("/proj", "/h", envOf(map[string]string{"TMPDIR": "/x/tmp"}), "linux")
+	for _, p := range append([]string{"/x/tmp", "/h/.cache"}, common...) {
+		if !slices.Contains(lin, p) {
+			t.Errorf("linux: %q absent de %v", p, lin)
+		}
+	}
+	for _, p := range []string{"/private/tmp", "/private/var/folders", "/h/Library/Caches"} {
+		if slices.Contains(lin, p) {
+			t.Errorf("linux: %q inattendu", p)
+		}
+	}
+
+	dar := DefaultWrite("/proj", "/h", envOf(map[string]string{"TMPDIR": "/x/tmp"}), "darwin")
+	for _, p := range append([]string{"/x/tmp", "/private/tmp", "/private/var/folders", "/h/Library/Caches"}, common...) {
+		if !slices.Contains(dar, p) {
+			t.Errorf("darwin: %q absent de %v", p, dar)
+		}
+	}
+	if slices.Contains(dar, "/h/.cache") {
+		t.Error("darwin: /h/.cache inattendu")
+	}
+
+	xdg := DefaultWrite("/proj", "/h", envOf(map[string]string{"XDG_CACHE_HOME": "/xdg"}), "linux")
+	if !slices.Contains(xdg, "/xdg") || slices.Contains(xdg, "/h/.cache") {
+		t.Errorf("XDG_CACHE_HOME ignoré: %v", xdg)
+	}
+
+	none := DefaultWrite("/proj", "/h", envOf(nil), "linux")
+	if slices.Contains(none, "") {
+		t.Errorf("entrée vide dans %v", none)
+	}
+}
+
+func TestDefaultDenyRead(t *testing.T) {
+	got := DefaultDenyRead("/h", "/cfg", "/data", "/etc/pol.toml")
+	want := []string{
+		"/h/.ssh", "/h/.gnupg", "/h/.aws", "/h/.azure", "/h/.config/gcloud",
+		"/h/.kube", "/h/.docker", "/h/.netrc", "/h/.password-store",
+		"/cfg", "/data", "/etc/pol.toml",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	got = DefaultDenyRead("/h", "", "", "")
+	if len(got) != 9 {
+		t.Errorf("arguments vides non ignorés: %v", got)
+	}
+}
+
+func mkTree(t *testing.T) string {
+	t.Helper()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []string{"a", "b/c", "b/secret", "b/d", "e"} {
+		if err := os.MkdirAll(filepath.Join(root, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return root
+}
+
+func TestSplitAround(t *testing.T) {
+	r := mkTree(t)
+	j := func(p ...string) string { return filepath.Join(append([]string{r}, p...)...) }
+
+	got, err := splitAround(r, []string{j("b", "secret")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{j("a"), j("b", "c"), j("b", "d"), j("e")}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+
+	got, _ = splitAround(r, []string{j("missing")})
+	if !reflect.DeepEqual(got, []string{r}) {
+		t.Errorf("absent: %v", got)
+	}
+	got, _ = splitAround(r, []string{"/definitely/elsewhere"})
+	if !reflect.DeepEqual(got, []string{r}) {
+		t.Errorf("hors racine: %v", got)
+	}
+	got, _ = splitAround(r, []string{r})
+	if len(got) != 0 {
+		t.Errorf("deny = racine: %v", got)
+	}
+}
+
+func TestSplitAroundSymlinkDeny(t *testing.T) {
+	r := mkTree(t)
+	link := filepath.Join(r, "e", "lnk")
+	if err := os.Symlink(filepath.Join(r, "b", "secret"), link); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := splitAround(r, []string{link})
+	for _, p := range got {
+		if p == filepath.Join(r, "b") || p == filepath.Join(r, "b", "secret") {
+			t.Errorf("secret ouvert via lien: %v", got)
+		}
+	}
+}
+
+func TestCanonicalSymlink(t *testing.T) {
+	r, _ := filepath.EvalSymlinks(t.TempDir())
+	q := filepath.Join(r, "q")
+	if err := os.Mkdir(q, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(r, "p")
+	if err := os.Symlink(q, p); err != nil {
+		t.Fatal(err)
+	}
+	miss := filepath.Join(r, "x", "..", "missing")
+	got := Canonical([]string{p, miss, p})
+	want := []string{q, filepath.Join(r, "missing")}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
