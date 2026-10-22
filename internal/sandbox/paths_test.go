@@ -53,13 +53,14 @@ func TestDefaultDenyRead(t *testing.T) {
 	want := []string{
 		"/h/.ssh", "/h/.gnupg", "/h/.aws", "/h/.azure", "/h/.config/gcloud",
 		"/h/.kube", "/h/.docker", "/h/.netrc", "/h/.password-store",
+		"/h/Library/Keychains",
 		"/cfg", "/data", "/etc/pol.toml",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 	got = DefaultDenyRead("/h", "", "", "")
-	if len(got) != 9 {
+	if len(got) != 10 {
 		t.Errorf("arguments vides non ignorés: %v", got)
 	}
 }

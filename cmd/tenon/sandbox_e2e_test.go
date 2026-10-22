@@ -216,11 +216,26 @@ func TestSandboxSecretEnv(t *testing.T) {
 			t.Setenv("K2", "valeur-secrete-k2")
 			t.Setenv("K3", "valeur-secrete-k3")
 			t.Setenv("K_VISIBLE", "visible-ok")
+			// La clé du fournisseur par défaut et celle d'un préréglage
+			// redéfini (R17) sont dans le vrai environnement du processus,
+			// celui que lit environ.
+			t.Setenv("TEST_KEY", "cle-de-test")
+			t.Setenv("MISTRAL_API_KEY", "valeur-secrete-mistral")
+			t.Setenv("SCW_SECRET_KEY", "valeur-secrete-scw")
 			f := newFakeLLM(t, sseCall("shell", `{"command":"env"}`), sseText("fini"))
 			e := newEnvExtra(t, f, "eu", `
 [[providers]]
 id = "autre"
 name = "Autre"
+base_url = "http://127.0.0.1:1"
+api_key_env = "K1"
+model = "m"
+country = "FR"
+jurisdiction = "eu"
+
+[[providers]]
+id = "mistral"
+name = "Mistral redéfini"
 base_url = "http://127.0.0.1:1"
 api_key_env = "K1"
 model = "m"
@@ -252,7 +267,7 @@ disabled = true
 			if len(res) != 1 || !strings.Contains(res[0].Content, "K_VISIBLE=") {
 				t.Fatalf("résultats shell : %+v", res)
 			}
-			for _, k := range []string{"K1=", "K2=", "K3=", "TEST_KEY="} {
+			for _, k := range []string{"K1=", "K2=", "K3=", "TEST_KEY=", "MISTRAL_API_KEY=", "SCW_SECRET_KEY="} {
 				if strings.Contains(res[0].Content, "\n"+k) || strings.HasPrefix(res[0].Content, k) {
 					t.Fatalf("%s présent : %q", k, res[0].Content)
 				}

@@ -41,3 +41,16 @@ func presets() []Provider {
 			Jurisdiction: "local", Detect: "vllm"},
 	}
 }
+
+// PresetKeyEnvs renvoie les variables de clé de tous les préréglages, même
+// redéfinis par la configuration : l'environnement des commandes confinées ne
+// les transmet jamais.
+func PresetKeyEnvs() []string {
+	var out []string
+	for _, p := range presets() {
+		if p.APIKeyEnv != "" {
+			out = append(out, p.APIKeyEnv)
+		}
+	}
+	return out
+}

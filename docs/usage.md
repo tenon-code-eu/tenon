@@ -893,7 +893,7 @@ Permissions decide whether a command runs. The sandbox limits what it can do onc
 
 - **Write**: the project, `$TMPDIR` and `/tmp` (macOS: also `/private/tmp` and `/private/var/folders`), `/dev/null`, `/dev/tty`, `/dev/zero`, `/dev/random`, `/dev/urandom`, the user cache (`$XDG_CACHE_HOME` or `~/.cache`; macOS: `~/Library/Caches`) and the paths of `[sandbox] write`.
 - **Read**: everywhere, except the denied paths below.
-- **Denied for read and write** (this wins over everything, even inside the project): `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.azure`, `~/.config/gcloud`, `~/.kube`, `~/.docker`, `~/.netrc`, `~/.password-store`, the tenon configuration directory, the tenon data directory (audit log, sessions), the organisation policy file and `deny_read` (global, project and policy). A path that does not exist is ignored.
+- **Denied for read and write** (this wins over everything, even inside the project): `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.azure`, `~/.config/gcloud`, `~/.kube`, `~/.docker`, `~/.netrc`, `~/.password-store`, `~/Library/Keychains` (macOS Keychain, where tenon stores provider keys), the tenon configuration directory, the tenon data directory (audit log, sessions), the organisation policy file and `deny_read` (global, project and policy). A path that does not exist is ignored.
 - **Network**: closed, unless the command is granted network (see below).
 - **Environment**: the variables of tenon minus every secret it knows: `api_key_env` of all providers (presets included), `bearer_env` and `env_from` of all MCP servers. `PATH`, `HOME` and `LANG` are never removed. This applies in every mode, `off` and "unavailable" included.
 

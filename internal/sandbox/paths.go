@@ -43,7 +43,9 @@ func DefaultWrite(project, home string, getenv func(string) string, goos string)
 }
 
 // DefaultDenyRead renvoie les chemins interdits en lecture et en écriture : les
-// secrets usuels du dossier personnel, puis les dossiers de tenon et le
+// secrets usuels du dossier personnel (dont le trousseau macOS
+// ~/Library/Keychains, où tenon range les clés des fournisseurs ; absent sous
+// Linux, donc ignoré), puis les dossiers de tenon et le
 // fichier de politique. Les arguments vides sont ignorés.
 func DefaultDenyRead(home, configDir, dataDir, policyPath string) []string {
 	var out []string
@@ -51,6 +53,7 @@ func DefaultDenyRead(home, configDir, dataDir, policyPath string) []string {
 		for _, p := range []string{
 			".ssh", ".gnupg", ".aws", ".azure", ".config/gcloud",
 			".kube", ".docker", ".netrc", ".password-store",
+			"Library/Keychains",
 		} {
 			out = append(out, filepath.Join(home, p))
 		}

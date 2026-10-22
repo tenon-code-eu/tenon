@@ -3,11 +3,13 @@
 package sandbox
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -151,5 +153,44 @@ func TestProbeCached(t *testing.T) {
 	}
 	if a.Available && (a.Mechanism != "sandbox-exec" || a.Network != "full") {
 		t.Fatalf("statut inattendu: %+v", a)
+	}
+}
+
+// R16 : une commande confinée ne lit pas le trousseau de l'utilisateur, où
+// tenon range les clés des fournisseurs (go-keyring passe par
+// /usr/bin/security).
+func TestDarwinKeychainDenied(t *testing.T) {
+	needSandbox(t)
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("dossier personnel inconnu")
+	}
+	kc := filepath.Join(home, "Library", "Keychains")
+	if _, err := os.Stat(kc); err != nil {
+		t.Skip("pas de ~/Library/Keychains")
+	}
+	proj := realTemp(t)
+	s := fakeSpec(t, proj, home)
+	service := fmt.Sprintf("tenon-sandbox-test-%d-%d", os.Getpid(), time.Now().UnixNano())
+	add := exec.Command("/usr/bin/security", "add-generic-password", "-s", service, "-a", "probe", "-w", "secret-test", "-U")
+	if err := add.Run(); err != nil {
+		// Repli : sans élément de test, le dossier du trousseau doit rester illisible.
+		if err := runWrapped(t, s, "/bin/ls", kc); err == nil {
+			t.Fatal("ls ~/Library/Keychains accepté sous le profil")
+		}
+		return
+	}
+	t.Cleanup(func() {
+		_ = exec.Command("/usr/bin/security", "delete-generic-password", "-s", service, "-a", "probe").Run()
+	})
+	find := []string{"find-generic-password", "-s", service, "-a", "probe", "-w"}
+	if out, err := exec.Command("/usr/bin/security", find...).Output(); err != nil || strings.TrimSpace(string(out)) != "secret-test" {
+		t.Skipf("élément de test illisible hors bac à sable (%v) : trousseau verrouillé ?", err)
+	}
+	if err := runWrapped(t, s, "/usr/bin/security", find...); err == nil {
+		t.Fatal("clé lue dans le trousseau sous le profil")
+	}
+	if err := runWrapped(t, s, "/bin/ls", kc); err == nil {
+		t.Fatal("ls ~/Library/Keychains accepté sous le profil")
 	}
 }

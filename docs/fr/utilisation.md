@@ -895,7 +895,7 @@ Les permissions décident si une commande s'exécute. L'isolation limite ce qu'e
 
 - **Écrire** : le projet, `$TMPDIR` et `/tmp` (macOS : aussi `/private/tmp` et `/private/var/folders`), `/dev/null`, `/dev/tty`, `/dev/zero`, `/dev/random`, `/dev/urandom`, le cache utilisateur (`$XDG_CACHE_HOME` ou `~/.cache` ; macOS : `~/Library/Caches`) et les chemins de `[sandbox] write`.
 - **Lire** : partout, sauf les chemins interdits ci-dessous.
-- **Interdit en lecture et en écriture** (prime sur tout le reste, même dans le projet) : `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.azure`, `~/.config/gcloud`, `~/.kube`, `~/.docker`, `~/.netrc`, `~/.password-store`, le dossier de configuration de tenon, le dossier de données de tenon (journal d'audit, sessions), le fichier de politique d'organisation et `deny_read` (global, projet et politique). Un chemin absent est ignoré.
+- **Interdit en lecture et en écriture** (prime sur tout le reste, même dans le projet) : `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.azure`, `~/.config/gcloud`, `~/.kube`, `~/.docker`, `~/.netrc`, `~/.password-store`, `~/Library/Keychains` (trousseau macOS, où tenon range les clés des fournisseurs), le dossier de configuration de tenon, le dossier de données de tenon (journal d'audit, sessions), le fichier de politique d'organisation et `deny_read` (global, projet et politique). Un chemin absent est ignoré.
 - **Réseau** : fermé, sauf si la commande reçoit le réseau (voir plus bas).
 - **Environnement** : les variables de tenon moins tous les secrets qu'il connaît : `api_key_env` de tous les fournisseurs (préréglages compris), `bearer_env` et `env_from` de tous les serveurs MCP. `PATH`, `HOME` et `LANG` ne sont jamais retirés. Cela vaut dans tous les modes, `off` et « indisponible » compris.
 

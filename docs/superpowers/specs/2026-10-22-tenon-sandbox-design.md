@@ -78,7 +78,7 @@ network = true
 - **Dossier** : la racine du projet (shell) ou le dossier propre du serveur (MCP stdio).
 - **Écriture** autorisée : projet ; `$TMPDIR` et `/tmp` (macOS : aussi `/private/tmp`, `/private/var/folders`) ; `/dev/null`, `/dev/tty`, `/dev/zero`, `/dev/random`, `/dev/urandom` ; cache utilisateur (`$XDG_CACHE_HOME` ou `~/.cache` ; macOS : `~/Library/Caches`) ; `write`.
 - **Lecture** : partout.
-- **Interdit en lecture et écriture** (prime sur ce qui précède, même dans le projet) : `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.azure`, `~/.config/gcloud`, `~/.kube`, `~/.docker`, `~/.netrc`, `~/.password-store`, le dossier de configuration de tenon, le dossier de données de tenon (journal d'audit, sessions), le fichier de politique, `deny_read` (global, projet, politique). Chemins absents : ignorés.
+- **Interdit en lecture et écriture** (prime sur ce qui précède, même dans le projet) : `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.azure`, `~/.config/gcloud`, `~/.kube`, `~/.docker`, `~/.netrc`, `~/.password-store`, `~/Library/Keychains` (trousseau macOS, R16), le dossier de configuration de tenon, le dossier de données de tenon (journal d'audit, sessions), le fichier de politique, `deny_read` (global, projet, politique). Chemins absents : ignorés.
 - **Réseau** : coupé, sauf `Network`.
 - **Environnement** : celui de tenon moins les variables nommées par `api_key_env` (tous les fournisseurs, presets compris), `bearer_env` et `env_from` (tous les serveurs MCP). Le retrait s'applique aussi en mode `off` et quand l'isolation est indisponible. La variable interne de la spec n'atteint jamais la commande.
 

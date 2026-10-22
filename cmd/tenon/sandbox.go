@@ -197,7 +197,8 @@ func sandboxLine(lang i18n.Lang, mode string, st sandbox.Status) string {
 var secretEnvKeep = map[string]bool{"PATH": true, "HOME": true, "LANG": true}
 
 // secretEnv renvoie environ sans les variables nommées par un api_key_env
-// (tous les fournisseurs, presets compris), un bearer_env ou un env_from
+// (tous les fournisseurs configurés, et toujours celles de tous les
+// préréglages, même redéfinis), un bearer_env ou un env_from
 // (tous les serveurs MCP). Le résultat n'est jamais nil : l'outil shell
 // n'hérite plus de l'environnement de tenon.
 func secretEnv(cfg config.Config, environ []string) []string {
@@ -209,6 +210,9 @@ func secretEnv(cfg config.Config, environ []string) []string {
 	}
 	for _, p := range cfg.Providers {
 		add(p.APIKeyEnv)
+	}
+	for _, k := range config.PresetKeyEnvs() {
+		add(k)
 	}
 	for _, s := range cfg.MCP.Servers {
 		add(s.BearerEnv)
