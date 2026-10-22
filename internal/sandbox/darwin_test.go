@@ -194,3 +194,38 @@ func TestDarwinKeychainDenied(t *testing.T) {
 		t.Fatal("ls ~/Library/Keychains accepté sous le profil")
 	}
 }
+
+// R19 : sous le profil, .git/config et .git/hooks restent lisibles mais pas
+// inscriptibles ; le reste de .git (objets) l'est ; .git ne peut pas être
+// renommé pour contourner l'interdit.
+func TestDarwinDenyWriteGit(t *testing.T) {
+	needSandbox(t)
+	proj, home := realTemp(t), realTemp(t)
+	git := filepath.Join(proj, ".git")
+	for _, d := range []string{filepath.Join(git, "hooks"), filepath.Join(git, "objects")} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg := filepath.Join(git, "config")
+	if err := os.WriteFile(cfg, []byte("[core]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := fakeSpec(t, proj, home)
+	s.DenyWrite = []string{filepath.Join(git, "hooks"), cfg}
+	if err := runWrapped(t, s, "/bin/sh", "-c", "echo '[core] fsmonitor = x' >> "+cfg); err == nil {
+		t.Fatal("écriture de .git/config acceptée")
+	}
+	if err := runWrapped(t, s, "/bin/cat", cfg); err != nil {
+		t.Fatalf("lecture de .git/config refusée: %v", err)
+	}
+	if err := runWrapped(t, s, "/bin/sh", "-c", "echo x > "+filepath.Join(git, "hooks", "pre-commit")); err == nil {
+		t.Fatal("écriture dans .git/hooks acceptée")
+	}
+	if err := runWrapped(t, s, "/bin/sh", "-c", "echo x > "+filepath.Join(git, "objects", "x")); err != nil {
+		t.Fatalf("écriture dans .git/objects refusée: %v", err)
+	}
+	if err := runWrapped(t, s, "/bin/mv", git, filepath.Join(proj, ".git-old")); err == nil {
+		t.Fatal("renommage de .git accepté")
+	}
+}

@@ -76,11 +76,12 @@ network = true
 `Spec` construite par tenon pour chaque lancement :
 
 - **Dossier** : la racine du projet (shell) ou le dossier propre du serveur (MCP stdio).
-- **Écriture** autorisée : projet ; `$TMPDIR` et `/tmp` (macOS : aussi `/private/tmp`, `/private/var/folders`) ; `/dev/null`, `/dev/tty`, `/dev/zero`, `/dev/random`, `/dev/urandom` ; cache utilisateur (`$XDG_CACHE_HOME` ou `~/.cache` ; macOS : `~/Library/Caches`) ; `write`.
+- **Écriture** autorisée : projet ; `$TMPDIR` et `/tmp` (macOS : aussi `/private/tmp`, `/private/var/folders`) ; `/dev/null`, `/dev/tty`, `/dev/zero`, `/dev/random`, `/dev/urandom` ; cache utilisateur (`$XDG_CACHE_HOME` ou `~/.cache` ; macOS : `~/Library/Caches`) ; `~/.npm` (R20) ; `write`.
+- **Interdit en écriture seule** (`DenyWrite`, macOS seulement, R19) : `<projet>/.git/hooks` et `<projet>/.git/config` s'ils existent (dossier `.git` ordinaire), et chaque dossier parent en `literal` (ni renommage ni suppression). Ignoré par l'assistant Linux (R9).
 - **Lecture** : partout.
 - **Interdit en lecture et écriture** (prime sur ce qui précède, même dans le projet) : `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.azure`, `~/.config/gcloud`, `~/.kube`, `~/.docker`, `~/.netrc`, `~/.password-store`, `~/Library/Keychains` (trousseau macOS, R16), le dossier de configuration de tenon, le dossier de données de tenon (journal d'audit, sessions), le fichier de politique, `deny_read` (global, projet, politique). Chemins absents : ignorés.
 - **Réseau** : coupé, sauf `Network`.
-- **Environnement** : celui de tenon moins les variables nommées par `api_key_env` (tous les fournisseurs, presets compris), `bearer_env` et `env_from` (tous les serveurs MCP). Le retrait s'applique aussi en mode `off` et quand l'isolation est indisponible. La variable interne de la spec n'atteint jamais la commande.
+- **Environnement** : celui de tenon moins les variables nommées par `api_key_env` (tous les fournisseurs, et toujours tous les préréglages, même redéfinis : R17), `bearer_env` et `env_from` (tous les serveurs MCP). Le retrait s'applique aussi en mode `off` et quand l'isolation est indisponible. La variable interne de la spec n'atteint jamais la commande.
 
 Serveurs MCP stdio : isolés selon `risk` déclaré. `network` : réseau ouvert. `write` ou `exec` : projet inscriptible. `read` ou vide : projet en lecture seule. Leur dossier de travail (`$HOME`) n'est pas rendu inscriptible : seuls les défauts (temporaires, caches) et `write` le sont.
 

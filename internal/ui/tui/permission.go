@@ -381,7 +381,7 @@ func (m Model) promptKeys() string {
 		return i18n.T(m.lang, "tui.perm.keys_tool_network", label)
 	}
 	if m.ruleNetwork() && m.prompts[0].p.HookReason == "" {
-		// « Pour la session » ne mémorise jamais le réseau : à préciser.
+		// « Pour la session » garde le réseau de la règle (jamais celui d'une réponse) : à préciser.
 		return i18n.T(m.lang, "tui.perm.keys_tool_rule_network")
 	}
 	return i18n.T(m.lang, m.promptKeysKey())

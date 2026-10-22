@@ -9,7 +9,7 @@ import (
 )
 
 // DefaultWrite renvoie les chemins inscriptibles par défaut : projet,
-// temporaires, périphériques usuels et cache utilisateur. goos vaut "linux" ou
+// temporaires, périphériques usuels, cache utilisateur et ~/.npm. goos vaut "linux" ou
 // "darwin" ; toute autre valeur se comporte comme linux. Les valeurs vides
 // (TMPDIR absent, home inconnu) ne produisent aucune entrée.
 func DefaultWrite(project, home string, getenv func(string) string, goos string) []string {
@@ -38,6 +38,11 @@ func DefaultWrite(project, home string, getenv func(string) string, goos string)
 		}
 	case xdg == "" && home != "":
 		add(filepath.Join(home, ".cache"))
+	}
+	// npm et npx (serveurs MCP stdio courants) écrivent journaux et cache
+	// sous ~/.npm et échouent sans lui.
+	if home != "" {
+		add(filepath.Join(home, ".npm"))
 	}
 	return out
 }

@@ -45,6 +45,7 @@ func Wrap(cmd *exec.Cmd, s Spec) error {
 	}
 	s.Write = Canonical(s.Write)
 	s.DenyRead = Canonical(s.DenyRead)
+	s.DenyWrite = Canonical(s.DenyWrite)
 	args := []string{"sandbox-exec", "-p", seatbeltProfile(s), "--", cmd.Path}
 	if len(cmd.Args) > 1 {
 		args = append(args, cmd.Args[1:]...)

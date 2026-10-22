@@ -70,7 +70,7 @@ Consequences in tenon:
 
 - Shell commands and stdio MCP servers are confined by the system: writes limited to the project, temporary files and caches; a built-in list of secrets unreadable; network closed (Landlock and user namespaces on Linux, `sandbox-exec` on macOS).
 - Modes `auto` (default), `required` and `off`. The effective mode is the strictest of global, project, policy and profile; a project or a policy can never produce `off`. `strict-local` implies `required`.
-- Secret variables (`api_key_env`, `bearer_env`, `env_from`) never reach a command, in every mode.
+- Secret variables (`api_key_env` of the providers and of every preset, `bearer_env`, `env_from`) are not passed on to commands, in every mode (on macOS a command can still read them from another process, see below).
 - How each command ran is in the audit log (`ToolResult.sandbox`) and the compliance export. See [The sandbox and its limits](#the-sandbox-and-its-limits) for what stays open.
 
 ### Compliance profiles
@@ -105,19 +105,23 @@ Consequences in tenon:
 
 Permissions decide whether a command runs. The system sandbox (see [usage.md](usage.md#system-sandbox)) limits what a shell command or a stdio MCP server can do once it runs. It is on by default (`mode = "auto"`).
 
-**Threat model.** Without a sandbox, an approved command, or one covered by a broad `allow` rule (`tool = "shell"`, `match = "*"`), writes anywhere you can, reads your secrets and sends them over the network. The sandbox covers three things: writes outside the project, temporary files and caches; reads of the listed secrets (`~/.ssh`, `~/.aws`, the tenon configuration and data directories, `deny_read`…); the network, closed unless a rule or your answer opens it. Variables that carry secrets known to tenon (`api_key_env`, `bearer_env`, `env_from`) are removed from the environment of commands in every mode.
+**Threat model.** Without a sandbox, an approved command, or one covered by a broad `allow` rule (`tool = "shell"`, `match = "*"`), writes anywhere you can, reads your secrets and sends them over the network. The sandbox covers three things: writes outside the project, temporary files and caches; reads of the listed secrets (`~/.ssh`, `~/.aws`, the macOS Keychain, the tenon configuration and data directories, `deny_read`…); the network, closed unless a rule or your answer opens it. Variables that carry secrets known to tenon (`api_key_env`, `bearer_env`, `env_from`) are not passed on to commands, in every mode.
 
 **What stays open.**
 
 - Reads elsewhere: a command reads everything you can read, except the listed paths. A secret kept in a file that is not listed is readable.
 - If the sandbox is unavailable and the mode is `auto`, commands run unconfined, with a notice. Use `required` to refuse instead; `strict-local` implies it.
 - Linux, Landlock: names inside a denied directory can be listed (the contents cannot be read). A file cannot be created, removed or renamed directly in a directory that contains a denied entry, nor in its ancestors up to the writable root (example: `deny_read = ["<project>/secrets"]` blocks new files directly at the project root; a `--config` file under `/tmp` blocks new files directly in `/tmp`). Entries created after launch in non-writable directories are not readable.
-- Linux, Unix sockets: confined only with Landlock ABI 9 or later. On an older kernel a socket reachable by path (for example `/var/run/docker.sock`) stays connectable; tenon prints `sandbox: Unix sockets not confined (Landlock ABI < 9): <path> reachable`. For a user of the `docker` group, that socket gives root on the host.
+- Linux, Unix sockets: confined only with Landlock ABI 9 or later. On an older kernel a socket reachable by path (for example `/var/run/docker.sock`) stays connectable; tenon prints `sandbox: Unix sockets not confined (Landlock ABI < 9): <path> reachable`. For a user of the `docker` group, that socket gives root on the host. The D-Bus session bus (`$XDG_RUNTIME_DIR/bus`, `/run/user/<uid>/bus`, same notice) lets a command start an unconfined process with `systemd-run --user`, or read secrets from the Secret Service (GNOME Keyring, KWallet), the provider keys stored by tenon included. `required` does not refuse to start for it.
 - Linux, TCP fallback (user namespaces unavailable: Docker default seccomp profile, Ubuntu AppArmor restriction): UDP stays open, so DNS and other UDP traffic can leave. Abstract Unix sockets are scoped (ABI 6 or later). Full isolation needs `CLONE_NEWUSER|CLONE_NEWNET`.
+- Linux, git: `.git/config` and `.git/hooks` of the project stay writable (a write-only exclusion would stop git creating its own files at the root of `.git`). A command can plant a hook or a `core.fsmonitor` that runs unconfined at your next git command. macOS protects these two paths in a plain `.git` directory; a `.git` file (worktree, submodule) points outside the project and is not handled.
 - macOS: `sandbox-exec` is deprecated by Apple, but it works. `(deny network*)` also covers Unix sockets.
+- macOS, environment: removing a variable means it is not passed on, not that it is unreadable. A confined command can read the environment of your other processes, tenon included, with `sysctl` `KERN_PROCARGS2`. Keep provider keys in the Keychain (denied to commands) rather than in the environment.
+- Writable caches (`~/.cache`, `~/Library/Caches`, `~/.npm`, `$TMPDIR`, `write`) can be poisoned: content a confined command leaves there is used later by unconfined runs (hooks, your own commands).
+- A project under `/tmp`, `$TMPDIR` or a cache directory stays writable for every stdio MCP server, `risk = "read"` or empty included: the default write list covers it.
 - Hooks and git marking are not confined.
-- A stdio MCP server is confined by its `risk`; its working directory `$HOME` is not writable. A server declared `risk = "network"` has the network.
-- A command granted network (rule `network = true`, or "Allow with network") can send anything it can read. "Yes for the session" never remembers the network.
+- A stdio MCP server is confined by its `risk`; its working directory `$HOME` is not writable. A server declared `risk = "network"` has the network; a server with no `risk` has no network and a read-only project.
+- A command granted network (rule `network = true`, or "Allow with network") can send anything it can read. "Always for this session" never remembers the network of an answer; it keeps the network of an `ask` rule with `network = true`.
 - An explicit `--config` file outside the project is denied to commands (read and write). Inside the project it is not: it is versioned.
 - Seccomp, resource limits, PID and mount namespaces, a network host filter and Windows are not covered.
 

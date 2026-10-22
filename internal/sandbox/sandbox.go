@@ -18,6 +18,12 @@ type Spec struct {
 	// DenyRead liste les chemins interdits en lecture et en écriture ;
 	// cette interdiction prime sur Write.
 	DenyRead []string `json:"deny_read"`
+	// DenyWrite liste les chemins interdits en écriture seule (lecture
+	// permise), même sous un chemin de Write : .git/config et .git/hooks du
+	// projet. Seul macOS l'applique ; l'assistant Linux l'ignore (une
+	// exclusion d'écriture empêcherait git de créer ses fichiers à la racine
+	// de .git, voir R9).
+	DenyWrite []string `json:"deny_write,omitempty"`
 	// Network ouvre le réseau quand il vaut true ; fermé sinon.
 	Network bool `json:"network"`
 	// TCP demande à l'assistant Linux de refuser connect et bind TCP par

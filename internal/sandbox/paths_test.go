@@ -16,6 +16,8 @@ func TestDefaultWrite(t *testing.T) {
 	common := []string{"/proj", "/tmp", "/dev/null", "/dev/tty", "/dev/zero", "/dev/random", "/dev/urandom"}
 
 	lin := DefaultWrite("/proj", "/h", envOf(map[string]string{"TMPDIR": "/x/tmp"}), "linux")
+	// R20 : ~/.npm (journaux et cache de npm/npx) sur les deux systèmes.
+	common = append(common, "/h/.npm")
 	for _, p := range append([]string{"/x/tmp", "/h/.cache"}, common...) {
 		if !slices.Contains(lin, p) {
 			t.Errorf("linux: %q absent de %v", p, lin)

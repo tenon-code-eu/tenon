@@ -122,13 +122,13 @@ Au-delà, il sort avec le code 1.
 Quand l'agent veut écrire, exécuter une commande ou sortir du projet, un panneau remplace la zone de saisie.
 Il montre l'outil, la commande complète ou les chemins, et un aperçu du changement pour `write_file` et `edit_file`.
 
-| Réponse | Français | Anglais |
+| Réponse | Ligne de touches en français | Ligne de touches en anglais |
 |---|---|---|
-| Oui, une fois | `o` | `y` |
-| Oui pour la session | `s` | `a` |
-| Non | `n` | `n` |
+| Oui, une fois | `o : oui une fois` | `y: yes once` |
+| Oui pour la session | `s : oui pour la session` | `a: always for this session` |
+| Non | `n : non` | `n: no` |
 
-Pour une commande shell qui s'exécutera isolée, le panneau propose aussi « Autoriser avec réseau » (`r` en français, `w` en anglais) ; « Oui pour la session » ne mémorise jamais le réseau. Voir [Isolation système](#isolation-système).
+Pour une commande shell qui s'exécutera isolée avec le réseau isolé, le panneau propose aussi `r : autoriser avec réseau` (`w: allow with network` en anglais) ; `s : oui pour la session (sans réseau)` ne mémorise jamais le réseau d'une réponse. Avec une règle `ask` qui accorde le réseau, la ligne est `o : oui une fois (avec réseau) · s : pour la session (avec réseau) · n : non`. Voir [Isolation système](#isolation-système).
 
 Échap refuse aussi la demande.
 Ctrl+C refuse toutes les demandes en attente, puis agit comme d'habitude.
@@ -893,11 +893,12 @@ Les permissions décident si une commande s'exécute. L'isolation limite ce qu'e
 
 ### Ce que peut faire une commande isolée
 
-- **Écrire** : le projet, `$TMPDIR` et `/tmp` (macOS : aussi `/private/tmp` et `/private/var/folders`), `/dev/null`, `/dev/tty`, `/dev/zero`, `/dev/random`, `/dev/urandom`, le cache utilisateur (`$XDG_CACHE_HOME` ou `~/.cache` ; macOS : `~/Library/Caches`) et les chemins de `[sandbox] write`.
+- **Écrire** : le projet, `$TMPDIR` et `/tmp` (macOS : aussi `/private/tmp` et `/private/var/folders`), `/dev/null`, `/dev/tty`, `/dev/zero`, `/dev/random`, `/dev/urandom`, le cache utilisateur (`$XDG_CACHE_HOME` ou `~/.cache` ; macOS : `~/Library/Caches`), `~/.npm` (journaux et cache de npm et npx) et les chemins de `[sandbox] write`.
 - **Lire** : partout, sauf les chemins interdits ci-dessous.
 - **Interdit en lecture et en écriture** (prime sur tout le reste, même dans le projet) : `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.azure`, `~/.config/gcloud`, `~/.kube`, `~/.docker`, `~/.netrc`, `~/.password-store`, `~/Library/Keychains` (trousseau macOS, où tenon range les clés des fournisseurs), le dossier de configuration de tenon, le dossier de données de tenon (journal d'audit, sessions), le fichier de politique d'organisation et `deny_read` (global, projet et politique). Un chemin absent est ignoré.
+- **Fichiers git protégés** (macOS seulement) : dans un projet qui a un dossier `.git`, `.git/config` et `.git/hooks` restent lisibles mais ne sont pas inscriptibles : une commande ne peut pas y planter un hook ou un `core.fsmonitor` exécuté sans isolation à votre prochaine commande git. Les commandes qui écrivent `.git/config` (`git config`, `git remote add`, `git push -u`, `git submodule init`) échouent sous isolation : lancez-les vous-même. Un fichier `.git` (worktree git, sous-module) n'est pas traité : son dossier git est hors du projet, inscriptible seulement si `write` l'inclut. Sous Linux, ces fichiers ne sont pas protégés (voir [Sécurité et limites](securite.md#lisolation-système-et-ses-limites)).
 - **Réseau** : fermé, sauf si la commande reçoit le réseau (voir plus bas).
-- **Environnement** : les variables de tenon moins tous les secrets qu'il connaît : `api_key_env` de tous les fournisseurs (préréglages compris), `bearer_env` et `env_from` de tous les serveurs MCP. `PATH`, `HOME` et `LANG` ne sont jamais retirés. Cela vaut dans tous les modes, `off` et « indisponible » compris.
+- **Environnement** : les variables de tenon moins tous les secrets qu'il connaît : `api_key_env` de tous les fournisseurs et de tous les préréglages (même redéfinis par une configuration), `bearer_env` et `env_from` de tous les serveurs MCP. `PATH`, `HOME` et `LANG` ne sont jamais retirés. Cela vaut dans tous les modes, `off` et « indisponible » compris.
 
 Les hooks et le marquage git ne sont pas confinés : ce sont vos commandes et tenon lui-même.
 
@@ -931,7 +932,7 @@ deny_read = []     # chemins interdits, en plus de la liste intégrée (absolus 
 | `sandbox: unavailable (<raison>), commands run unconfined` | Mode `auto`, aucun mécanisme : les commandes s'exécutent comme avant. |
 | `sandbox: network isolation TCP only (user namespaces unavailable)` | Repli Linux, voir plus bas. |
 | `sandbox: network not isolated (<raison>)` | Mode `auto` : ni espaces de noms ni Landlock TCP ; les commandes confinées ont encore le réseau. |
-| `sandbox: Unix sockets not confined (Landlock ABI < 9): <chemin> reachable` | Noyau Linux trop ancien pour confiner les sockets Unix, voir plus bas. |
+| `sandbox: Unix sockets not confined (Landlock ABI < 9): <chemin> reachable` | Noyau Linux trop ancien pour confiner les sockets Unix : un socket de runtime de conteneurs ou le bus de session D-Bus est joignable, voir plus bas. Pas un refus, même sous `required`. |
 | `sandbox: required but unavailable (<raison>)` | Mode `required` : tenon ne démarre pas (code 1). |
 | `sandbox: required but network not isolated (<raison>)` | Mode `required` : tenon ne démarre pas (code 1). |
 
@@ -944,7 +945,7 @@ Avec `--lang fr`, ces messages sont traduits. Si l'assistant d'isolation lui-mê
 - Les noms contenus dans un dossier interdit peuvent être listés ; leur contenu ne peut pas être lu.
 - Un fichier ne peut pas être créé, supprimé ni renommé directement dans un dossier qui contient une entrée interdite, ni dans ses ancêtres jusqu'à la racine inscriptible. Exemple : avec `deny_read = ["<projet>/secrets"]`, une commande ne peut pas créer de fichier directement à la racine du projet. Un fichier `--config` sous `/tmp` a le même effet : pas de nouveau fichier directement dans `/tmp`.
 - Les règles sont figées au lancement : une entrée créée ensuite dans un dossier non inscriptible n'est pas lisible par la commande.
-- Les sockets Unix ne sont confinés qu'avec Landlock ABI 9 ou plus (`LANDLOCK_ACCESS_FS_RESOLVE_UNIX`). Sur un noyau plus ancien, un socket accessible par son chemin (par exemple `/var/run/docker.sock`) reste connectable, et tenon affiche la notice ci-dessus pour les sockets de runtime connus. Un utilisateur du groupe `docker` doit savoir que ce socket donne root sur la machine.
+- Les sockets Unix ne sont confinés qu'avec Landlock ABI 9 ou plus (`LANDLOCK_ACCESS_FS_RESOLVE_UNIX`). Sur un noyau plus ancien, un socket accessible par son chemin (par exemple `/var/run/docker.sock`) reste connectable, et tenon affiche la notice ci-dessus pour les sockets de runtime connus et pour le bus de session D-Bus (`$XDG_RUNTIME_DIR/bus`, `/run/user/<uid>/bus`). Un utilisateur du groupe `docker` doit savoir que ce socket donne root sur la machine. Le bus de session permet à une commande de lancer un processus non confiné (`systemd-run --user`) ou de lire des secrets dans le Secret Service (GNOME Keyring, KWallet).
 
 ### macOS (`sandbox-exec`)
 
@@ -963,20 +964,37 @@ decision = "allow"
 network = true
 ```
 
-- Avec une telle règle, un simple « Oui » ouvre le réseau, et le panneau affiche « Réseau accordé par la règle ».
-- Quand une commande isolée demande une validation, le panneau propose « Autoriser », « Autoriser avec réseau », « Oui pour la session » et « Non ». « Oui pour la session » ne mémorise jamais le réseau.
+- Avec une telle règle, un simple « Oui » ouvre le réseau, et le panneau affiche « Réseau accordé par la règle ». Sa ligne de touches est `o : oui une fois (avec réseau) · s : pour la session (avec réseau) · n : non` : une validation pour la session garde le réseau de la règle aux appels suivants (c'est la règle qui l'accorde, pas la réponse).
+- Quand une commande isolée demande une validation, la ligne de touches est `o : oui une fois · r : autoriser avec réseau · s : oui pour la session (sans réseau) · n : non`. « Oui pour la session » ne mémorise jamais le réseau d'une réponse.
+- Le panneau n'annonce « réseau fermé sauf autorisation » et ne propose `r` que si le réseau est isolé. Sans isolation réseau (`sandbox: network not isolated`), une commande confinée a de toute façon le réseau : le panneau affiche la note d'une commande non confinée (« une commande autorisée s'exécute avec vos droits ») et ne propose pas `r`.
 - En mode non interactif, rien n'est demandé : le réseau ne vient que d'une règle, et une règle `ask` avec `network = true` est refusée comme avant (code de sortie 3).
 
 ### Serveurs MCP stdio
 
-Un serveur stdio est confiné selon son `risk` : `network` ouvre le réseau ; `write` ou `exec` rend le projet inscriptible ; `read` ou vide donne un projet en lecture seule. Son dossier de travail (`$HOME`) n'est pas inscriptible : seuls les défauts (temporaires, caches) et `write` le sont.
+Un serveur stdio est confiné selon son `risk` : `network` ouvre le réseau ; `write` ou `exec` rend le projet inscriptible ; `read` ou vide donne un serveur sans réseau et un projet en lecture seule. Son dossier de travail (`$HOME`) n'est pas inscriptible : seuls les défauts (temporaires, caches, `~/.npm`) et `write` le sont. Sous macOS, `.git/config` et `.git/hooks` restent protégés même avec `write` ou `exec`.
+
+Quand un serveur confiné ne démarre pas, son avis se termine par un rappel : `serveur MCP <id> indisponible : <erreur> (confiné : risk "<risk>" ; voir [sandbox] write et risk)`. Déclarez le bon `risk`, ou ajoutez à `[sandbox] write` les dossiers où le serveur écrit.
+
+### Mise à jour vers l'isolation
+
+L'isolation est active par défaut (`mode = "auto"`). Après une mise à jour :
+
+- Un outil qui écrit hors du projet, des dossiers temporaires et des caches échoue désormais. `~/.npm` est inscriptible par défaut (npm et npx, courants pour les serveurs MCP stdio). Ajoutez les autres dossiers dans la configuration globale, par exemple :
+
+```toml
+[sandbox]
+write = ["~/go/pkg/mod", "~/.cargo", "~/.m2"]
+```
+
+- Le `risk` d'un serveur MCP décide aussi de son confinement : un serveur stdio sans `risk` n'a pas de réseau et voit le projet en lecture seule. Déclarez `risk = "network"`, `"write"` ou `"exec"` sur les serveurs qui en ont besoin.
+- `mode = "off"` rétablit le comportement précédent (les variables de secrets sont tout de même retirées).
 
 ### Dans le journal d'audit et l'export
 
 - `SessionStarted.sandbox` : `mode`, `mechanism` (`landlock`, `sandbox-exec`, `none`), `network` (`full`, `tcp`, `none`) et `reason`. Un serveur stdio a `sandbox: {confined, network}` dans `SessionStarted.mcp`.
 - `ToolResult.sandbox` sur les appels shell : `confined` et `network` (la commande avait le réseau : toujours vrai hors isolation).
 - `PermissionResolved.network` consigne une réponse « avec réseau ».
-- L'[export de conformité](#export-de-conformité) a une ligne « Isolation » par session.
+- L'[export de conformité](#export-de-conformité) a une ligne « Isolation » par session (absente avec `audit.level = "metadata"`, voir plus bas).
 
 ## Fournisseurs et juridictions
 
@@ -1330,7 +1348,7 @@ Elle ne modifie pas le journal et ne le verrouille pas.
 - **Permissions** : par outil, demandes, accords (une fois ou pour la session) et refus (par l'utilisateur, par la politique, par un hook).
 - **Fichiers modifiés** : date, session, chemin, outil, empreinte avant et après, auteur (`main` ou le sous-agent), absence éventuelle de point de restauration, et état laissé par un rewind ultérieur.
 - **Commandes** : nombre d'appels shell par session.
-- **Isolation** (`sandbox`, une liste ; omise pour les journaux écrits avant l'isolation) : par session, `mode`, `mechanism`, `network` (comme dans `SessionStarted.sandbox`), `unconfined` (résultats shell exécutés sans confinement) et `with_network` (résultats shell exécutés confinés **avec** réseau). Les deux compteurs ne se recouvrent jamais. La ligne HTML est « Isolation » (`Sandbox` en anglais), une entrée par session.
+- **Isolation** (`sandbox`, une liste ; omise pour les journaux écrits avant l'isolation) : par session, `mode`, `mechanism`, `network` (comme dans `SessionStarted.sandbox`), `unconfined` (résultats shell exécutés sans confinement) et `with_network` (résultats shell exécutés confinés **avec** réseau). Les deux compteurs ne se recouvrent jamais. La ligne HTML est « Isolation » (`Sandbox` en anglais), une entrée par session. Avec `audit.level = "metadata"`, le journal ne garde aucun contenu : la ligne est absente. Une session n'est listée que si son `SessionStarted` est dans la plage : une session reprise dont le `SessionStarted` précède `--since` n'est pas comptée.
 - **Sous-agents, hooks, rewinds** : exécutions de sous-agents, hooks qui ont bloqué, échoué, expiré ou demandé une confirmation, rewinds avec les fichiers restaurés, supprimés, conservés, ignorés, en échec ou inchangés.
 - **Incidents** : erreurs, tours terminés pour une raison notable (bloqué, arrêté par un hook, contexte trop grand, limite d'itérations, incomplet, annulé) et lignes illisibles du journal.
 - **Correspondance réglementaire** : quels éléments du rapport aident à documenter le RGPD, NIS2, DORA et l'AI Act. Elle ne cite aucun article.

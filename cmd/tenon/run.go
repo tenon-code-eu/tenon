@@ -1189,7 +1189,7 @@ func startEngine(o engineOptions) (started, error) {
 		Profile:             cfg.Profile,
 		Policy:              cfg.Policy,
 		Allowlists:          allowlists(cfg),
-		ShellSandboxed:      sbSpec != nil,
+		ShellSandboxed:      shellSandboxed(sbSpec, sbInfo),
 		Sandbox:             &sbInfo,
 	})
 	if o.resume != "" {
@@ -1246,6 +1246,7 @@ func startMCP(o engineOptions, cfg config.Config, red *policy.Redactor, sbSpec *
 		ctx = context.Background()
 	}
 	jurisdiction := map[string]llm.Jurisdiction{}
+	risk := map[string]string{}
 	// Serveurs exclus par le profil ou la politique : ni lancés ni contactés, signalés
 	// indisponibles. Un serveur désactivé n'est pas lancé : pas d'avis.
 	servers := make([]config.MCPServer, 0, len(cfg.MCP.Servers))
@@ -1253,6 +1254,7 @@ func startMCP(o engineOptions, cfg config.Config, red *policy.Redactor, sbSpec *
 	var skippedOrder []string
 	for _, s := range cfg.MCP.Servers {
 		jurisdiction[s.ID] = llm.Jurisdiction(s.Jurisdiction)
+		risk[s.ID] = s.Risk
 		if !s.Disabled {
 			if msg := profileMCPSkip(o.lang, cfg.Profile, s); msg != "" {
 				skipped[s.ID] = msg
@@ -1322,6 +1324,10 @@ func startMCP(o engineOptions, cfg config.Config, red *policy.Redactor, sbSpec *
 		msg := d.Error
 		if d.NonEUSkipped {
 			msg = i18n.T(o.lang, "mcp.non_eu_skipped", d.Server)
+		}
+		// Serveur confiné : l'échec peut venir de l'isolation (risk, write).
+		if d.Confined {
+			msg += " " + i18n.T(o.lang, "mcp.down_confined", risk[d.Server])
 		}
 		unavailable = append(unavailable, event.McpServerDownPayload{Server: d.Server, Error: msg})
 	}

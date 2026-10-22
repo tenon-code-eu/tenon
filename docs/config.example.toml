@@ -106,7 +106,9 @@ decision = "deny"
 # Protecting a directory needs two rules: a path pattern does not apply to
 # the text of a command, so "secrets/*" does not block `cat secrets/k`.
 # Even so, `cd secrets && cat k` or `cat secr*/k` get through: permissions
-# are not a sandbox (see docs/security.md).
+# alone do not confine anything. To block reads at the system level, add the
+# directory's absolute path to [sandbox] deny_read (see the Sandbox section
+# below and docs/security.md).
 [[permissions.rules]]
 tool = "*"              # file tools: paths under secrets/
 match = "secrets/*"

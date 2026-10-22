@@ -42,7 +42,7 @@ Conséquences dans tenon :
 - Chaque appel d'outil passe par le moteur de permissions avant exécution.
 - Par défaut, seule la lecture dans le projet est autorisée sans demande. Lire `.env*`, `*.pem` ou `id_rsa*`, ou accéder hors du projet, demande toujours une validation.
 - Une règle `deny` l'emporte toujours. Sur un chemin, elle s'applique aussi à la forme avant résolution des liens symboliques, sans tenir compte de la casse.
-- Un dépôt ne peut pas assouplir les règles : sa configuration ne peut contenir ni règle `allow`, ni fournisseur, ni serveur MCP, et qu'elle ne peut ni désactiver l'isolation ni accorder le réseau à une règle.
+- Un dépôt ne peut pas assouplir les règles : sa configuration ne peut contenir ni règle `allow`, ni fournisseur, ni serveur MCP, et elle ne peut ni désactiver l'isolation ni accorder le réseau à une règle.
 - En mode non interactif, toute demande de validation devient un refus.
 - Dans l'interface interactive, la validation exige un délai de calme de 500 ms, une commande entière visible et au moins 40 colonnes (voir [utilisation.md](utilisation.md#valider-une-action)).
 
@@ -72,7 +72,7 @@ Conséquences dans tenon :
 
 - Les commandes shell et les serveurs MCP stdio sont confinés par le système : écritures limitées au projet, aux temporaires et aux caches ; liste intégrée de secrets illisibles ; réseau fermé (Landlock et espaces de noms sous Linux, `sandbox-exec` sous macOS).
 - Modes `auto` (défaut), `required` et `off`. Le mode effectif est le plus strict de la configuration globale, du projet, de la politique et du profil ; un projet ou une politique ne peut jamais produire `off`. `strict-local` impose `required`.
-- Les variables de secrets (`api_key_env`, `bearer_env`, `env_from`) n'atteignent jamais une commande, dans tous les modes.
+- Les variables de secrets (`api_key_env` des fournisseurs et de tous les préréglages, `bearer_env`, `env_from`) ne sont pas transmises aux commandes, dans tous les modes (sous macOS, une commande peut encore les lire dans un autre processus, voir plus bas).
 - La façon dont chaque commande s'est exécutée est dans le journal d'audit (`ToolResult.sandbox`) et l'export de conformité. Voir [L'isolation système et ses limites](#lisolation-système-et-ses-limites) pour ce qui reste ouvert.
 
 ### Profils de conformité
@@ -107,19 +107,23 @@ Conséquences dans tenon :
 
 Les permissions décident si une commande s'exécute. L'isolation système (voir [utilisation.md](utilisation.md#isolation-système)) limite ce qu'une commande shell ou un serveur MCP stdio peut faire une fois lancé. Elle est active par défaut (`mode = "auto"`).
 
-**Modèle de menace.** Sans isolation, une commande approuvée, ou couverte par une règle `allow` large (`tool = "shell"`, `match = "*"`), écrit partout où vous le pouvez, lit vos secrets et les envoie par le réseau. L'isolation couvre trois choses : les écritures hors du projet, des temporaires et des caches ; la lecture des secrets listés (`~/.ssh`, `~/.aws`, les dossiers de configuration et de données de tenon, `deny_read`…) ; le réseau, fermé sauf si une règle ou votre réponse l'ouvre. Les variables qui portent des secrets connus de tenon (`api_key_env`, `bearer_env`, `env_from`) sont retirées de l'environnement des commandes dans tous les modes.
+**Modèle de menace.** Sans isolation, une commande approuvée, ou couverte par une règle `allow` large (`tool = "shell"`, `match = "*"`), écrit partout où vous le pouvez, lit vos secrets et les envoie par le réseau. L'isolation couvre trois choses : les écritures hors du projet, des temporaires et des caches ; la lecture des secrets listés (`~/.ssh`, `~/.aws`, le trousseau macOS, les dossiers de configuration et de données de tenon, `deny_read`…) ; le réseau, fermé sauf si une règle ou votre réponse l'ouvre. Les variables qui portent des secrets connus de tenon (`api_key_env`, `bearer_env`, `env_from`) ne sont pas transmises aux commandes, dans tous les modes.
 
 **Ce qui reste ouvert.**
 
 - Les lectures ailleurs : une commande lit tout ce que vous pouvez lire, sauf les chemins listés. Un secret gardé dans un fichier non listé est lisible.
 - Si l'isolation est indisponible et que le mode est `auto`, les commandes s'exécutent sans isolation, avec une notice. Utilisez `required` pour refuser ; `strict-local` l'impose.
 - Linux, Landlock : les noms contenus dans un dossier interdit peuvent être listés (le contenu ne peut pas être lu). Un fichier ne peut pas être créé, supprimé ni renommé directement dans un dossier qui contient une entrée interdite, ni dans ses ancêtres jusqu'à la racine inscriptible (exemple : `deny_read = ["<projet>/secrets"]` bloque les nouveaux fichiers directement à la racine du projet ; un fichier `--config` sous `/tmp` bloque les nouveaux fichiers directement dans `/tmp`). Les entrées créées après le lancement dans des dossiers non inscriptibles ne sont pas lisibles.
-- Linux, sockets Unix : confinés seulement avec Landlock ABI 9 ou plus. Sur un noyau plus ancien, un socket accessible par son chemin (par exemple `/var/run/docker.sock`) reste connectable ; tenon affiche `sandbox: Unix sockets not confined (Landlock ABI < 9): <chemin> reachable`. Pour un utilisateur du groupe `docker`, ce socket donne root sur la machine.
+- Linux, sockets Unix : confinés seulement avec Landlock ABI 9 ou plus. Sur un noyau plus ancien, un socket accessible par son chemin (par exemple `/var/run/docker.sock`) reste connectable ; tenon affiche `sandbox: Unix sockets not confined (Landlock ABI < 9): <chemin> reachable`. Pour un utilisateur du groupe `docker`, ce socket donne root sur la machine. Le bus de session D-Bus (`$XDG_RUNTIME_DIR/bus`, `/run/user/<uid>/bus`, même notice) permet à une commande de lancer un processus non confiné avec `systemd-run --user`, ou de lire des secrets dans le Secret Service (GNOME Keyring, KWallet), clés des fournisseurs rangées par tenon comprises. `required` ne refuse pas de démarrer pour autant.
 - Linux, repli TCP (espaces de noms utilisateur indisponibles : profil seccomp par défaut de Docker, restriction AppArmor d'Ubuntu) : UDP reste ouvert, donc DNS et autre trafic UDP peuvent sortir. Les sockets Unix abstraits sont cloisonnés (ABI 6 ou plus). L'isolation complète exige `CLONE_NEWUSER|CLONE_NEWNET`.
+- Linux, git : `.git/config` et `.git/hooks` du projet restent inscriptibles (une exclusion en écriture seule empêcherait git de créer ses propres fichiers à la racine de `.git`). Une commande peut y planter un hook ou un `core.fsmonitor` exécuté sans isolation à votre prochaine commande git. macOS protège ces deux chemins dans un dossier `.git` ordinaire ; un fichier `.git` (worktree, sous-module) pointe hors du projet et n'est pas traité.
 - macOS : `sandbox-exec` est déprécié par Apple, mais fonctionne. `(deny network*)` couvre aussi les sockets Unix.
+- macOS, environnement : retirer une variable signifie qu'elle n'est pas transmise, pas qu'elle est illisible. Une commande confinée peut lire l'environnement de vos autres processus, tenon compris, avec `sysctl` `KERN_PROCARGS2`. Gardez les clés des fournisseurs dans le trousseau (interdit aux commandes) plutôt que dans l'environnement.
+- Les caches inscriptibles (`~/.cache`, `~/Library/Caches`, `~/.npm`, `$TMPDIR`, `write`) peuvent être empoisonnés : ce qu'une commande confinée y laisse sert ensuite à des exécutions non confinées (hooks, vos propres commandes).
+- Un projet sous `/tmp`, `$TMPDIR` ou un dossier de cache reste inscriptible pour tout serveur MCP stdio, `risk = "read"` ou vide compris : la liste d'écriture par défaut le couvre.
 - Les hooks et le marquage git ne sont pas confinés.
-- Un serveur MCP stdio est confiné selon son `risk` ; son dossier de travail `$HOME` n'est pas inscriptible. Un serveur déclaré `risk = "network"` a le réseau.
-- Une commande qui reçoit le réseau (règle `network = true`, ou « Autoriser avec réseau ») peut envoyer tout ce qu'elle peut lire. « Oui pour la session » ne mémorise jamais le réseau.
+- Un serveur MCP stdio est confiné selon son `risk` ; son dossier de travail `$HOME` n'est pas inscriptible. Un serveur déclaré `risk = "network"` a le réseau ; un serveur sans `risk` n'a pas de réseau et voit le projet en lecture seule.
+- Une commande qui reçoit le réseau (règle `network = true`, ou « Autoriser avec réseau ») peut envoyer tout ce qu'elle peut lire. « Oui pour la session » ne mémorise jamais le réseau d'une réponse ; il garde celui d'une règle `ask` avec `network = true`.
 - Un fichier `--config` explicite hors du projet est interdit aux commandes (lecture et écriture). Dans le projet il ne l'est pas : il est versionné.
 - Seccomp, limites de ressources, espaces de noms PID et montage, filtre d'hôtes réseau et Windows ne sont pas couverts.
 

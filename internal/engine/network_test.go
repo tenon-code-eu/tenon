@@ -181,6 +181,31 @@ func TestRememberNoNetwork(t *testing.T) {
 	}
 }
 
+// R22 : une approbation mémorisée d'une règle ask avec network = true garde
+// le réseau de la règle aux appels suivants (la règle l'accorde, pas la
+// réponse).
+func TestRememberRuleNetwork(t *testing.T) {
+	sh := &netShell{}
+	cmd := `{"command":"curl https://example.eu"}`
+	h := newHarness(t, euInfo, [][]llm.Chunk{
+		call("c1", "shell", cmd),
+		call("c2", "shell", cmd),
+		text("fini"),
+	}, withNetShell(t, sh, policy.Rule{Tool: "shell", Match: "curl *", Decision: policy.Ask, Network: true}))
+	evs, err := h.submit(t, "s_1", "deux fois", func(event.PermissionRequestedPayload) Reply {
+		return Reply{Allow: true, Remember: true}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := len(ofType(evs, event.PermissionRequested)); n != 1 {
+		t.Fatalf("%d demandes, attendu 1", n)
+	}
+	if got := sh.calls(); len(got) != 2 || !got[0] || !got[1] {
+		t.Fatalf("réseau par appel = %v, attendu [true true]", got)
+	}
+}
+
 func TestSandboxedOnlyForShell(t *testing.T) {
 	h := newHarness(t, euInfo, [][]llm.Chunk{
 		call("c1", "write_file", `{"path":"a.txt","content":"x"}`),

@@ -43,6 +43,7 @@ func Shell(root string, timeout time.Duration, limit int, opts ShellOptions) Too
 		spec := *opts.Sandbox
 		spec.Write = append([]string(nil), spec.Write...)
 		spec.DenyRead = append([]string(nil), spec.DenyRead...)
+		spec.DenyWrite = append([]string(nil), spec.DenyWrite...)
 		s.spec = &spec
 	}
 	if opts.Env != nil {

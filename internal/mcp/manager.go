@@ -96,7 +96,15 @@ type Down struct {
 	// NonEUSkipped : serveur hors UE (ou de juridiction inconnue) ni lancé
 	// ni contacté, faute de consentement d'avance (AllowNonEU).
 	NonEUSkipped bool
+	// Confined : serveur stdio lancé confiné, puis injoignable ; l'échec
+	// peut venir du confinement (écriture refusée, réseau coupé).
+	Confined bool
 }
+
+// confinedError marque l'échec d'un serveur stdio lancé confiné.
+type confinedError struct{ error }
+
+func (e confinedError) Unwrap() error { return e.error }
 
 // skipped indique qu'un serveur ne doit pas être contacté : hors UE ou de
 // juridiction inconnue, sans consentement d'avance. Aucun octet ne doit lui
@@ -180,7 +188,8 @@ func Start(ctx context.Context, servers []config.MCPServer, opts Options) (*Mana
 		}
 		r := results[i]
 		if r.err != nil {
-			down = append(down, Down{Server: decl.ID, Error: errText(r.err)})
+			var ce confinedError
+			down = append(down, Down{Server: decl.ID, Error: errText(r.err), Confined: errors.As(r.err, &ce)})
 			continue
 		}
 		m.servers = append(m.servers, r.srv)
@@ -365,10 +374,18 @@ func connect(ctx context.Context, decl config.MCPServer, opts Options) (*server,
 	defer stop()
 
 	client := sdk.NewClient(&sdk.Implementation{Name: "tenon", Version: "1"}, nil)
+	// Échec après un lancement confiné : marqué pour l'avis (Down.Confined).
+	fail := func(err error) error {
+		err = timeoutErr(cctx, err)
+		if srv.use != nil && srv.use.Confined {
+			return confinedError{err}
+		}
+		return err
+	}
 	session, err := client.Connect(cctx, transport, nil)
 	if err != nil {
 		srv.killAfterFailure()
-		return nil, nil, timeoutErr(cctx, err)
+		return nil, nil, fail(err)
 	}
 	srv.session = session
 	var list []*sdk.Tool
@@ -376,7 +393,7 @@ func connect(ctx context.Context, decl config.MCPServer, opts Options) (*server,
 		if err != nil {
 			srv.killAfterFailure()
 			_ = srv.close()
-			return nil, nil, timeoutErr(cctx, err)
+			return nil, nil, fail(err)
 		}
 		list = append(list, t)
 		if len(list) >= maxListed {
@@ -408,6 +425,9 @@ func stdioSpec(base sandbox.Spec, decl config.MCPServer, home, root string) sand
 		Dir:      home,
 		Write:    slices.Clone(base.Write),
 		DenyRead: slices.Clone(base.DenyRead),
+		// .git/hooks et .git/config du projet restent protégés quand le
+		// risk rend le projet inscriptible.
+		DenyWrite: slices.Clone(base.DenyWrite),
 	}
 	switch decl.Risk {
 	case "network":

@@ -46,7 +46,7 @@ func TestStdioSandboxRisk(t *testing.T) {
 			srv, getenv := stdioServer(t, "srv", "", nil)
 			srv.Risk = tc.risk
 			root := t.TempDir()
-			base := &sandbox.Spec{Dir: "/ignore", Write: []string{"/tmp"}, DenyRead: []string{"/secret"}}
+			base := &sandbox.Spec{Dir: "/ignore", Write: []string{"/tmp"}, DenyRead: []string{"/secret"}, DenyWrite: []string{"/p/.git/config"}}
 			m, down := start(t, []config.MCPServer{srv}, Options{Getenv: getenv, Root: root, Sandbox: base, NetworkOpen: tc.netOpen})
 			if len(down) != 0 {
 				t.Fatalf("down %v", down)
@@ -60,7 +60,7 @@ func TestStdioSandboxRisk(t *testing.T) {
 			}
 			// Dossier de travail : HOME, jamais rendu inscriptible.
 			home := getenv("HOME")
-			if s.Dir != home || slices.Contains(s.Write, home) || !slices.Contains(s.Write, "/tmp") || !slices.Equal(s.DenyRead, []string{"/secret"}) {
+			if s.Dir != home || slices.Contains(s.Write, home) || !slices.Contains(s.Write, "/tmp") || !slices.Equal(s.DenyRead, []string{"/secret"}) || !slices.Equal(s.DenyWrite, []string{"/p/.git/config"}) {
 				t.Fatalf("spec %+v", s)
 			}
 			// La Spec de base n'est pas modifiée.
@@ -114,5 +114,23 @@ func TestStdioSandboxReal(t *testing.T) {
 	}
 	if u := m.SandboxUse("srv"); u == nil || !u.Confined {
 		t.Fatalf("SandboxUse %+v", u)
+	}
+}
+
+// R20 : un serveur stdio confiné qui échoue au démarrage est signalé comme
+// tel (Down.Confined) ; sans isolation, non.
+func TestStdioDownConfined(t *testing.T) {
+	for _, confined := range []bool{true, false} {
+		captureWrap(t)
+		srv := config.MCPServer{ID: "ko", Transport: "stdio", Command: []string{"/usr/bin/false"}, Jurisdiction: "local"}
+		vars := map[string]string{"HOME": t.TempDir(), "PATH": "/usr/bin:/bin"}
+		opts := Options{Getenv: func(k string) string { return vars[k] }}
+		if confined {
+			opts.Sandbox = &sandbox.Spec{Write: []string{"/tmp"}}
+		}
+		_, down := start(t, []config.MCPServer{srv}, opts)
+		if len(down) != 1 || down[0].Confined != confined {
+			t.Fatalf("confiné=%v : down %+v", confined, down)
+		}
 	}
 }

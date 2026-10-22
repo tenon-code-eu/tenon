@@ -122,13 +122,13 @@ After that, it exits with code 1.
 When the agent wants to write, run a command or go outside the project, a panel replaces the input area.
 It shows the tool, the full command or the paths, and a preview of the change for `write_file` and `edit_file`.
 
-| Answer | English | French |
+| Answer | English key line | French key line |
 |---|---|---|
-| Yes, once | `y` | `o` |
-| Yes for the session | `a` | `s` |
-| No | `n` | `n` |
+| Yes, once | `y: yes once` | `o : oui une fois` |
+| Yes for the session | `a: always for this session` | `s : oui pour la session` |
+| No | `n: no` | `n : non` |
 
-For a shell command that will run confined, the panel also offers "Allow with network" (`w` in English, `r` in French); "Yes for the session" never remembers the network. See [System sandbox](#system-sandbox).
+For a shell command that will run confined with the network isolated, the panel also offers `w: allow with network` (`r : autoriser avec réseau` in French); `a: always for this session (no network)` never remembers the network of an answer. With an `ask` rule that grants network, the line is `y: yes once (with network) · a: always for this session (with network) · n: no`. See [System sandbox](#system-sandbox).
 
 Esc also denies the request.
 Ctrl+C denies all pending requests, then acts as usual.
@@ -891,11 +891,12 @@ Permissions decide whether a command runs. The sandbox limits what it can do onc
 
 ### What a confined command can do
 
-- **Write**: the project, `$TMPDIR` and `/tmp` (macOS: also `/private/tmp` and `/private/var/folders`), `/dev/null`, `/dev/tty`, `/dev/zero`, `/dev/random`, `/dev/urandom`, the user cache (`$XDG_CACHE_HOME` or `~/.cache`; macOS: `~/Library/Caches`) and the paths of `[sandbox] write`.
+- **Write**: the project, `$TMPDIR` and `/tmp` (macOS: also `/private/tmp` and `/private/var/folders`), `/dev/null`, `/dev/tty`, `/dev/zero`, `/dev/random`, `/dev/urandom`, the user cache (`$XDG_CACHE_HOME` or `~/.cache`; macOS: `~/Library/Caches`), `~/.npm` (npm and npx logs and cache) and the paths of `[sandbox] write`.
 - **Read**: everywhere, except the denied paths below.
 - **Denied for read and write** (this wins over everything, even inside the project): `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.azure`, `~/.config/gcloud`, `~/.kube`, `~/.docker`, `~/.netrc`, `~/.password-store`, `~/Library/Keychains` (macOS Keychain, where tenon stores provider keys), the tenon configuration directory, the tenon data directory (audit log, sessions), the organisation policy file and `deny_read` (global, project and policy). A path that does not exist is ignored.
+- **Protected git files** (macOS only): in a project with a `.git` directory, `.git/config` and `.git/hooks` stay readable but are not writable, so a command cannot plant a hook or a `core.fsmonitor` that would run unconfined at your next git command. Commands that write `.git/config` (`git config`, `git remote add`, `git push -u`, `git submodule init`) fail when confined: run them yourself. A `.git` file (git worktree, submodule) is not handled: its git directory is outside the project, writable only if `write` includes it. On Linux these files are not protected (see [Security and limits](security.md#the-sandbox-and-its-limits)).
 - **Network**: closed, unless the command is granted network (see below).
-- **Environment**: the variables of tenon minus every secret it knows: `api_key_env` of all providers (presets included), `bearer_env` and `env_from` of all MCP servers. `PATH`, `HOME` and `LANG` are never removed. This applies in every mode, `off` and "unavailable" included.
+- **Environment**: the variables of tenon minus every secret it knows: `api_key_env` of all providers and of every preset (even when a configuration redefines it), `bearer_env` and `env_from` of all MCP servers. `PATH`, `HOME` and `LANG` are never removed. This applies in every mode, `off` and "unavailable" included.
 
 Hooks and git marking are not confined: they are your commands and tenon itself.
 
@@ -929,7 +930,7 @@ deny_read = []     # denied paths, in addition to the built-in list (absolute or
 | `sandbox: unavailable (<reason>), commands run unconfined` | Mode `auto`, no mechanism: commands run as before. |
 | `sandbox: network isolation TCP only (user namespaces unavailable)` | Linux fallback, see below. |
 | `sandbox: network not isolated (<reason>)` | Mode `auto`: neither namespaces nor Landlock TCP; confined commands still have the network. |
-| `sandbox: Unix sockets not confined (Landlock ABI < 9): <path> reachable` | Linux kernel too old to confine Unix sockets, see below. |
+| `sandbox: Unix sockets not confined (Landlock ABI < 9): <path> reachable` | Linux kernel too old to confine Unix sockets: a container runtime socket or the D-Bus session bus is reachable, see below. Not a refusal, even under `required`. |
 | `sandbox: required but unavailable (<reason>)` | Mode `required`: tenon does not start (exit code 1). |
 | `sandbox: required but network not isolated (<reason>)` | Mode `required`: tenon does not start (exit code 1). |
 
@@ -942,7 +943,7 @@ If the sandbox helper itself fails, the command is not run: stderr shows `sandbo
 - Names inside a denied directory can be listed; their contents cannot be read.
 - A file cannot be created, removed or renamed directly in a directory that contains a denied entry, nor in its ancestors up to the writable root. Example: with `deny_read = ["<project>/secrets"]`, a command cannot create a file directly at the project root. A `--config` file under `/tmp` has the same effect: no new file directly in `/tmp`.
 - The rules are fixed at launch: an entry created afterwards in a non-writable directory is not readable by the command.
-- Unix sockets are confined only with Landlock ABI 9 or later (`LANDLOCK_ACCESS_FS_RESOLVE_UNIX`). On an older kernel, a socket reachable by path (for example `/var/run/docker.sock`) stays connectable, and tenon prints the notice above for the known runtime sockets. A user of the `docker` group must know that this socket gives root on the host.
+- Unix sockets are confined only with Landlock ABI 9 or later (`LANDLOCK_ACCESS_FS_RESOLVE_UNIX`). On an older kernel, a socket reachable by path (for example `/var/run/docker.sock`) stays connectable, and tenon prints the notice above for the known runtime sockets and for the D-Bus session bus (`$XDG_RUNTIME_DIR/bus`, `/run/user/<uid>/bus`). A user of the `docker` group must know that this socket gives root on the host. The session bus lets a command start an unconfined process (`systemd-run --user`) or read secrets from the Secret Service (GNOME Keyring, KWallet).
 
 ### macOS (`sandbox-exec`)
 
@@ -961,20 +962,37 @@ decision = "allow"
 network = true
 ```
 
-- With such a rule, a plain "Yes" opens the network, and the panel says "Network granted by rule".
-- When a confined command needs approval, the panel offers "Allow", "Allow with network", "Yes for the session" and "No". "Yes for the session" never remembers the network.
+- With such a rule, a plain "Yes" opens the network, and the panel says "Network granted by rule". Its key line is `y: yes once (with network) · a: always for this session (with network) · n: no`: an approval for the session keeps the network of the rule on later calls (the rule grants it, not the answer).
+- When a confined command needs approval, the key line is `y: yes once · w: allow with network · a: always for this session (no network) · n: no`. "Always for this session" never remembers the network of an answer.
+- The panel says "no network unless allowed" and offers `w` only when the network is isolated. Without network isolation (`sandbox: network not isolated`), a confined command has the network anyway: the panel shows the note of an unconfined command ("an approved command runs with your permissions") and offers no `w`.
 - In non-interactive mode, nothing is asked: the network comes only from a rule, and an `ask` rule with `network = true` is denied as before (exit code 3).
 
 ### Stdio MCP servers
 
-A stdio server is confined according to its `risk`: `network` opens the network; `write` or `exec` makes the project writable; `read` or empty gives a read-only project. Its working directory (`$HOME`) is not writable: only the defaults (temporary files, caches) and `write` are.
+A stdio server is confined according to its `risk`: `network` opens the network; `write` or `exec` makes the project writable; `read` or empty gives no network and a read-only project. Its working directory (`$HOME`) is not writable: only the defaults (temporary files, caches, `~/.npm`) and `write` are. On macOS, `.git/config` and `.git/hooks` stay protected even with `write` or `exec`.
+
+When a confined server fails to start, its notice ends with a reminder: `MCP server <id> unavailable: <error> (confined: risk "<risk>"; see [sandbox] write and risk)`. Declare the right `risk`, or add the directories the server writes to `[sandbox] write`.
+
+### Upgrading to the sandbox
+
+The sandbox is on by default (`mode = "auto"`). After an upgrade:
+
+- A tool that writes outside the project, the temporary directories and the caches now fails. `~/.npm` is writable by default (npm and npx, common for stdio MCP servers). Add the other directories to the global configuration, for example:
+
+```toml
+[sandbox]
+write = ["~/go/pkg/mod", "~/.cargo", "~/.m2"]
+```
+
+- The `risk` of an MCP server now also decides its confinement: a stdio server with no `risk` gets no network and a read-only project. Set `risk = "network"`, `"write"` or `"exec"` on the servers that need it.
+- `mode = "off"` restores the previous behaviour (secret variables are still removed).
 
 ### In the audit log and the export
 
 - `SessionStarted.sandbox`: `mode`, `mechanism` (`landlock`, `sandbox-exec`, `none`), `network` (`full`, `tcp`, `none`) and `reason`. A stdio server has `sandbox: {confined, network}` in `SessionStarted.mcp`.
 - `ToolResult.sandbox` on shell calls: `confined` and `network` (the command had network: always true when not confined).
 - `PermissionResolved.network` records an answer "with network".
-- The [compliance export](#compliance-export) has a "Sandbox" row per session.
+- The [compliance export](#compliance-export) has a "Sandbox" row per session (absent at `audit.level = "metadata"`, see below).
 
 ## Providers and jurisdictions
 
@@ -1328,7 +1346,7 @@ It does not modify the log and does not lock it.
 - **Permissions**: per tool, requests, approvals (once or for the session) and denials (by the user, by policy, by a hook).
 - **Modified files**: date, session, path, tool, hash before and after, author (`main` or the sub-agent), whether there was no checkpoint, and the state left by a later rewind.
 - **Commands**: number of shell calls per session.
-- **Sandbox** (`sandbox`, a list; omitted for logs written before the sandbox existed): per session, `mode`, `mechanism`, `network` (as in `SessionStarted.sandbox`), `unconfined` (shell results that ran unconfined) and `with_network` (shell results that ran confined **with** network). The two counters never overlap. The HTML row is `Sandbox` (`Isolation` in French), one entry per session.
+- **Sandbox** (`sandbox`, a list; omitted for logs written before the sandbox existed): per session, `mode`, `mechanism`, `network` (as in `SessionStarted.sandbox`), `unconfined` (shell results that ran unconfined) and `with_network` (shell results that ran confined **with** network). The two counters never overlap. The HTML row is `Sandbox` (`Isolation` in French), one entry per session. At `audit.level = "metadata"` the log keeps no payload, so the row is absent. A session is listed only if its `SessionStarted` is in the range: a resumed session whose `SessionStarted` is before `--since` is not counted.
 - **Sub-agents, hooks, rewinds**: sub-agent runs, hooks that blocked, failed, timed out or asked for confirmation, rewinds with the files restored, deleted, kept, skipped, failed or unchanged.
 - **Incidents**: errors, turns that ended for a notable reason (blocked, stopped by a hook, context too large, iteration limit, incomplete, cancelled) and unreadable log lines.
 - **Regulatory mapping**: which elements of the report help document GDPR, NIS2, DORA and AI Act requirements. It cites no article.

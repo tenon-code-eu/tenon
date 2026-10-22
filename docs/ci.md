@@ -79,7 +79,7 @@ See [Audit log](usage.md#audit-log), [Timestamping](usage.md#timestamping-rfc-31
 
 **The key exists only on protected refs (GitLab).** A protected variable reaches only pipelines on protected branches or tags, so the merge request rule of the template requires a protected source branch. Unprotecting the variable would expose the key to the pipeline of any branch, including one that rewrites `ci/tenon.toml`: this works, but it is not recommended.
 
-**Keep the `allow` rules minimal.** In CI nobody approves anything, so each `allow` rule is a permanent authorisation for the model. Allow the exact commands the task needs (`go test ./...`), nothing broader. An `allow` rule on a command does not cover a chained command, but the [sandbox](usage.md#system-sandbox) limits writes and network but has limits (see [Security and limits](security.md#the-sandbox-and-its-limits)): run the job on a runner that holds nothing you cannot lose.
+**Keep the `allow` rules minimal.** In CI nobody approves anything, so each `allow` rule is a permanent authorisation for the model. Allow the exact commands the task needs (`go test ./...`), nothing broader. An `allow` rule on a command does not cover a chained command, but the [sandbox](usage.md#system-sandbox) limits writes and network without being complete (see [Security and limits](security.md#the-sandbox-and-its-limits)): run the job on a runner that holds nothing you cannot lose.
 
 **Never run a job with secrets on merge requests from forks.** The author of a fork controls the code, `ci/tenon.toml` and the task. The templates skip fork pipelines; keep it that way.
 

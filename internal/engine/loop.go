@@ -645,8 +645,9 @@ func (t *turn) decideAndRun(c llm.ToolCall) (res tools.Result, denied string, ra
 	// impose la demande, même si les règles autorisent.
 	//
 	// Réseau de l'appel : celui d'une règle allow retenue sans demande, ou
-	// celui accordé par la réponse à la demande. Un Ask levé par un hook ou
-	// par une approbation mémorisée n'ouvre jamais le réseau.
+	// celui accordé par la réponse à la demande. Un Ask levé par un hook
+	// n'ouvre jamais le réseau ; une approbation mémorisée n'ouvre que celui
+	// de la règle ask (network = true), jamais celui d'une réponse.
 	dec, liftable, ruleNet := d.Permissions.DecideNet(policy.Call{Tool: c.Name, Risk: tool.Risk(), Target: target})
 	var prompt, network bool
 	switch dec {
@@ -685,12 +686,15 @@ func (t *turn) decideAndRun(c llm.ToolCall) (res tools.Result, denied string, ra
 			if !r.Allow {
 				return toolError("action denied by the user"), deniedUser, false, nil, nil
 			}
-			// La clé mémorisée ignore le réseau : un appel ultérieur
-			// approuvé par elle s'exécute sans réseau.
+			// La clé mémorisée ignore la réponse réseau : un appel ultérieur
+			// approuvé par elle n'a que le réseau de sa règle.
 			if r.Remember && !out.Ask {
 				t.s.remembered[key] = true
 			}
 			network = r.Network
+		} else {
+			// Approbation mémorisée : la règle ask accorde son réseau.
+			network = ruleNet
 		}
 	}
 	if _, isAgent := tool.(agentTool); isAgent {

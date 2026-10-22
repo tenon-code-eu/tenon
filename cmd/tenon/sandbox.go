@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/tenon-code-eu/tenon/internal/config"
@@ -70,12 +71,16 @@ func sandboxRefusal(lang i18n.Lang, mode string, st sandbox.Status) error {
 	return nil
 }
 
-// runtimeSockets sont les sockets d'exécution de conteneurs connus : les
-// atteindre revient à sortir du bac à sable.
+// runtimeSockets sont les sockets d'exécution de conteneurs connus et le bus
+// de session D-Bus : les atteindre revient à sortir du bac à sable
+// (systemd-run --user, Secret Service).
 func runtimeSockets(getenv func(string) string) []string {
 	out := []string{"/var/run/docker.sock", "/run/docker.sock", "/run/containerd/containerd.sock"}
 	if d := getenv("XDG_RUNTIME_DIR"); d != "" {
-		out = append(out, filepath.Join(d, "docker.sock"), filepath.Join(d, "podman", "podman.sock"))
+		out = append(out, filepath.Join(d, "docker.sock"), filepath.Join(d, "podman", "podman.sock"), filepath.Join(d, "bus"))
+	}
+	if bus := filepath.Join("/run/user", strconv.Itoa(os.Getuid()), "bus"); !slices.Contains(out, bus) {
+		out = append(out, bus)
 	}
 	return out
 }
@@ -116,12 +121,34 @@ func sandboxSetup(lang i18n.Lang, cfg config.Config, wd, home, configDir, dataDi
 			Dir:      wd,
 			Write:    append(sandbox.DefaultWrite(wd, home, getenv, runtime.GOOS), cfg.Sandbox.Write...),
 			DenyRead: append(sandbox.DefaultDenyRead(home, configDir, dataDir, policyPath), cfg.Sandbox.DenyRead...),
+			// macOS seulement (l'assistant Linux l'ignore, voir Spec.DenyWrite).
+			DenyWrite: gitDenyWrite(wd),
 		}
 	}
 	if !sandboxNotices {
 		notices = nil
 	}
 	return spec, info, notices, nil
+}
+
+// gitDenyWrite renvoie .git/hooks et .git/config du projet wd, s'ils
+// existent, à interdire en écriture : une commande confinée y planterait un
+// hook ou un core.fsmonitor exécuté hors bac à sable à la prochaine commande
+// git de l'utilisateur. Seul un dossier .git ordinaire est traité ; un
+// fichier .git (worktree, sous-module) pointe vers un gitdir hors du projet,
+// inscriptible seulement si la liste write l'inclut.
+func gitDenyWrite(wd string) []string {
+	git := filepath.Join(wd, ".git")
+	if fi, err := os.Lstat(git); err != nil || !fi.IsDir() {
+		return nil
+	}
+	var out []string
+	for _, name := range []string{"hooks", "config"} {
+		if _, err := os.Lstat(filepath.Join(git, name)); err == nil {
+			out = append(out, filepath.Join(git, name))
+		}
+	}
+	return out
 }
 
 // sandboxPaths renvoie le dossier personnel, le dossier de configuration et
@@ -181,7 +208,15 @@ func mcpSandboxSpec(spec *sandbox.Spec, wd string) *sandbox.Spec {
 	s := *spec
 	s.Write = slices.DeleteFunc(slices.Clone(spec.Write), func(p string) bool { return p == wd })
 	s.DenyRead = slices.Clone(spec.DenyRead)
+	s.DenyWrite = slices.Clone(spec.DenyWrite)
 	return &s
+}
+
+// shellSandboxed indique que les commandes shell sont confinées réseau
+// compris : sans coupure réseau (sonde "none"), la demande ne doit ni dire
+// « sans réseau sauf autorisation » ni proposer « Autoriser avec réseau ».
+func shellSandboxed(spec *sandbox.Spec, info event.SandboxInfo) bool {
+	return spec != nil && info.Network != "none"
 }
 
 // sandboxLine renvoie la ligne « config check » de l'isolation.

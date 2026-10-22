@@ -5,9 +5,12 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/tenon-code-eu/tenon/internal/config"
 	"github.com/tenon-code-eu/tenon/internal/event"
 	"github.com/tenon-code-eu/tenon/internal/sandbox"
 )
@@ -144,12 +147,22 @@ func TestSandboxUnixSocketNotice(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = l.Close() })
+	// R18 : le bus de session D-Bus est signalé comme les sockets de conteneurs.
+	bus := filepath.Join(rt, "bus")
+	lb, err := net.Listen("unix", bus)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = lb.Close() })
 	e := newEnv(t, newFakeLLM(t, sseText("salut")), "eu")
 	e.vars["XDG_RUNTIME_DIR"] = rt
 	code, _, errb := e.run("--lang", "en", "-p", "salut")
 	want := "sandbox: Unix sockets not confined (Landlock ABI < 9): " + sock + " reachable"
 	if code != 0 || !strings.Contains(errb, want) {
 		t.Fatalf("code=%d stderr=%q", code, errb)
+	}
+	if wantBus := "sandbox: Unix sockets not confined (Landlock ABI < 9): " + bus + " reachable"; !strings.Contains(errb, wantBus) {
+		t.Fatalf("bus D-Bus non signalé : %q", errb)
 	}
 	if strings.Contains(errb, filepath.Join(rt, "podman", "podman.sock")) {
 		t.Fatalf("socket absent signalé : %q", errb)
@@ -158,6 +171,38 @@ func TestSandboxUnixSocketNotice(t *testing.T) {
 	withProbe(t, sandbox.Status{Available: true, Mechanism: "landlock", Network: "full", UnixSockets: true})
 	if _, _, errb := e.run("--lang", "en", "-p", "salut"); strings.Contains(errb, "Unix sockets") {
 		t.Fatalf("avis inattendu : %q", errb)
+	}
+}
+
+// R18 : le bus de session D-Bus figure dans la liste, sous XDG_RUNTIME_DIR et
+// sous /run/user/<uid>, sans doublon quand les deux coïncident.
+func TestRuntimeSocketsDBus(t *testing.T) {
+	uidBus := filepath.Join("/run/user", strconv.Itoa(os.Getuid()), "bus")
+	got := runtimeSockets(func(k string) string {
+		if k == "XDG_RUNTIME_DIR" {
+			return "/rt"
+		}
+		return ""
+	})
+	for _, p := range []string{"/rt/bus", uidBus} {
+		if !slices.Contains(got, p) {
+			t.Errorf("%s absent de %v", p, got)
+		}
+	}
+	same := runtimeSockets(func(k string) string {
+		if k == "XDG_RUNTIME_DIR" {
+			return filepath.Dir(uidBus)
+		}
+		return ""
+	})
+	n := 0
+	for _, p := range same {
+		if p == uidBus {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("%s présent %d fois dans %v", uidBus, n, same)
 	}
 }
 
@@ -392,5 +437,92 @@ func TestSandboxRealConfigDeny(t *testing.T) {
 	res := shellResults(t, out)
 	if len(res) != 1 || !res[0].IsError || strings.Contains(res[0].Content, "default_provider") || res[0].Sandbox == nil || !res[0].Sandbox.Confined {
 		t.Fatalf("résultats shell : %+v", res)
+	}
+}
+
+// R19 : .git/hooks et .git/config du projet (dossier .git ordinaire) sont
+// interdits en écriture aux commandes confinées, s'ils existent.
+func TestSandboxGitDenyWrite(t *testing.T) {
+	withProbe(t, sandbox.Status{Available: true, Mechanism: "sandbox-exec", Network: "full", UnixSockets: true})
+	sandboxNotices = false
+	wd := t.TempDir()
+	getenv := func(string) string { return "" }
+	spec, _, _, err := sandboxSetup("en", config.Config{}, wd, "", "", "", "", getenv)
+	if err != nil || spec == nil || len(spec.DenyWrite) != 0 {
+		t.Fatalf("sans .git : spec %+v err %v", spec, err)
+	}
+	git := filepath.Join(wd, ".git")
+	if err := os.MkdirAll(filepath.Join(git, "hooks"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(git, "config"), []byte("[core]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	spec, _, _, err = sandboxSetup("en", config.Config{}, wd, "", "", "", "", getenv)
+	want := []string{filepath.Join(git, "hooks"), filepath.Join(git, "config")}
+	if err != nil || spec == nil || !slices.Equal(spec.DenyWrite, want) {
+		t.Fatalf("spec %+v err %v, DenyWrite attendu %v", spec, err, want)
+	}
+	// Spec MCP dérivée : l'interdit suit (serveurs write ou exec).
+	if m := mcpSandboxSpec(spec, wd); !slices.Equal(m.DenyWrite, want) {
+		t.Fatalf("Spec MCP %+v", m)
+	}
+	// Fichier .git (worktree, sous-module) : non traité.
+	wt := t.TempDir()
+	if err := os.WriteFile(filepath.Join(wt, ".git"), []byte("gitdir: /ailleurs\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	spec, _, _, err = sandboxSetup("en", config.Config{}, wt, "", "", "", "", getenv)
+	if err != nil || spec == nil || len(spec.DenyWrite) != 0 {
+		t.Fatalf("fichier .git : spec %+v err %v", spec, err)
+	}
+}
+
+// R20 : l'avis d'un serveur stdio confiné indisponible rappelle son risk et
+// la liste write ; sans confinement, pas de rappel.
+func TestSandboxMCPDownHint(t *testing.T) {
+	decl := `
+[[mcp.servers]]
+id = "ko"
+transport = "stdio"
+command = ["/usr/bin/false"]
+jurisdiction = "eu"
+`
+	hint := `(confined: risk ""; see [sandbox] write and risk)`
+	for _, mode := range []string{"auto", "off"} {
+		t.Run(mode, func(t *testing.T) {
+			withProbe(t, sandbox.Status{Available: true, Mechanism: "sandbox-exec", Network: "full", UnixSockets: true})
+			e := newEnvExtra(t, newFakeLLM(t, sseText("salut")), "eu", decl+sandboxTOML(mode))
+			e.vars["PATH"] = "/usr/bin:/bin"
+			code, _, errb := e.run("--lang", "en", "-p", "salut")
+			if code != 0 || !strings.Contains(errb, "MCP server ko unavailable") {
+				t.Fatalf("code=%d stderr=%q", code, errb)
+			}
+			if strings.Contains(errb, hint) != (mode == "auto") {
+				t.Fatalf("rappel (mode %s) : %q", mode, errb)
+			}
+		})
+	}
+}
+
+// R21 : sans coupure réseau (sonde "none"), la demande ne prétend pas que la
+// commande est sans réseau : ShellSandboxed reste faux.
+func TestShellSandboxedNetwork(t *testing.T) {
+	for _, tc := range []struct {
+		network string
+		want    bool
+	}{{"full", true}, {"tcp", true}, {"none", false}} {
+		withProbe(t, sandbox.Status{Available: true, Mechanism: "landlock", Network: tc.network, UnixSockets: true})
+		sandboxNotices = false
+		spec, info, _, err := sandboxSetup("en", config.Config{}, t.TempDir(), "", "", "", "", func(string) string { return "" })
+		if err != nil || spec == nil {
+			t.Fatalf("%s : spec %+v err %v", tc.network, spec, err)
+		}
+		if got := shellSandboxed(spec, info); got != tc.want {
+			t.Errorf("réseau %s : ShellSandboxed=%v, attendu %v", tc.network, got, tc.want)
+		}
+	}
+	if shellSandboxed(nil, event.SandboxInfo{Network: "full"}) {
+		t.Error("sans Spec : ShellSandboxed vrai")
 	}
 }
