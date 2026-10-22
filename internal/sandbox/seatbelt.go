@@ -20,8 +20,16 @@ func seatbeltProfile(s Spec) string {
 		b.WriteString(")\n")
 	}
 	if len(s.DenyWrite) > 0 {
+		paths, parents := denyWriteRules(s.DenyWrite)
 		b.WriteString("(deny file-write*")
-		for _, r := range denyWriteRules(s.DenyWrite) {
+		for _, r := range paths {
+			b.WriteString(" " + r)
+		}
+		b.WriteString(")\n")
+		// Parents : ni suppression ni renommage (mv .git ailleurs, modifier,
+		// remettre), mais dates et droits modifiables (touch, tar, rsync).
+		b.WriteString("(deny file-write-unlink")
+		for _, r := range parents {
 			b.WriteString(" " + r)
 		}
 		b.WriteString(")\n")
@@ -54,23 +62,22 @@ func sbplEscape(p string) string {
 	return strings.ReplaceAll(p, `"`, `\"`)
 }
 
-// denyWriteRules renvoie les filtres SBPL des chemins interdits en écriture :
-// un dossier existant en (subpath ...), le reste en (literal ...). Chaque
-// dossier parent, jusqu'à /, est ajouté en (literal ...) : le renommer ou le
-// supprimer contournerait l'interdit (mv .git ailleurs, modifier, remettre).
-// Un (literal ...) sur un dossier ne gêne pas la création de fichiers dedans.
-func denyWriteRules(paths []string) []string {
+// denyWriteRules renvoie les filtres SBPL des chemins interdits en écriture
+// et ceux de leurs dossiers parents. Un fichier existant est en
+// (literal ...) ; un dossier ou un chemin absent en (subpath ...), pour
+// couvrir aussi ce qu'on créerait dessous (mkdir .git/hooks puis un hook).
+// Chaque dossier parent, jusqu'à /, est renvoyé à part en (literal ...).
+func denyWriteRules(paths []string) (rules, parents []string) {
 	seen := map[string]bool{}
-	var rules, parents []string
 	for _, p := range paths {
 		if seen[p] {
 			continue
 		}
 		seen[p] = true
-		if fi, err := os.Stat(p); err == nil && fi.IsDir() {
-			rules = append(rules, `(subpath "`+sbplEscape(p)+`")`)
-		} else {
+		if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
 			rules = append(rules, `(literal "`+sbplEscape(p)+`")`)
+		} else {
+			rules = append(rules, `(subpath "`+sbplEscape(p)+`")`)
 		}
 	}
 	for _, p := range paths {
@@ -82,5 +89,5 @@ func denyWriteRules(paths []string) []string {
 			}
 		}
 	}
-	return append(rules, parents...)
+	return rules, parents
 }

@@ -122,33 +122,13 @@ func sandboxSetup(lang i18n.Lang, cfg config.Config, wd, home, configDir, dataDi
 			Write:    append(sandbox.DefaultWrite(wd, home, getenv, runtime.GOOS), cfg.Sandbox.Write...),
 			DenyRead: append(sandbox.DefaultDenyRead(home, configDir, dataDir, policyPath), cfg.Sandbox.DenyRead...),
 			// macOS seulement (l'assistant Linux l'ignore, voir Spec.DenyWrite).
-			DenyWrite: gitDenyWrite(wd),
+			DenyWrite: sandbox.GitDenyWrite(wd),
 		}
 	}
 	if !sandboxNotices {
 		notices = nil
 	}
 	return spec, info, notices, nil
-}
-
-// gitDenyWrite renvoie .git/hooks et .git/config du projet wd, s'ils
-// existent, à interdire en écriture : une commande confinée y planterait un
-// hook ou un core.fsmonitor exécuté hors bac à sable à la prochaine commande
-// git de l'utilisateur. Seul un dossier .git ordinaire est traité ; un
-// fichier .git (worktree, sous-module) pointe vers un gitdir hors du projet,
-// inscriptible seulement si la liste write l'inclut.
-func gitDenyWrite(wd string) []string {
-	git := filepath.Join(wd, ".git")
-	if fi, err := os.Lstat(git); err != nil || !fi.IsDir() {
-		return nil
-	}
-	var out []string
-	for _, name := range []string{"hooks", "config"} {
-		if _, err := os.Lstat(filepath.Join(git, name)); err == nil {
-			out = append(out, filepath.Join(git, name))
-		}
-	}
-	return out
 }
 
 // sandboxPaths renvoie le dossier personnel, le dossier de configuration et

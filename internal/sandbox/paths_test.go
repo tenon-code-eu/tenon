@@ -206,3 +206,27 @@ func realDir(t *testing.T) string {
 	}
 	return d
 }
+
+// R19 : un dossier .git ordinaire donne toujours hooks, config, commondir et
+// config.worktree, présents ou non ; un fichier .git ou son absence, rien.
+func TestGitDenyWrite(t *testing.T) {
+	proj := t.TempDir()
+	if got := GitDenyWrite(proj); got != nil {
+		t.Fatalf("sans .git : %v", got)
+	}
+	git := filepath.Join(proj, ".git")
+	if err := os.Mkdir(git, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{filepath.Join(git, "hooks"), filepath.Join(git, "config"), filepath.Join(git, "commondir"), filepath.Join(git, "config.worktree")}
+	if got := GitDenyWrite(proj); !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	wt := t.TempDir()
+	if err := os.WriteFile(filepath.Join(wt, ".git"), []byte("gitdir: /ailleurs\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := GitDenyWrite(wt); got != nil {
+		t.Fatalf("fichier .git : %v", got)
+	}
+}

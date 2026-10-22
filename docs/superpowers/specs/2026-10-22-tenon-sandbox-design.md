@@ -77,7 +77,7 @@ network = true
 
 - **Dossier** : la racine du projet (shell) ou le dossier propre du serveur (MCP stdio).
 - **Écriture** autorisée : projet ; `$TMPDIR` et `/tmp` (macOS : aussi `/private/tmp`, `/private/var/folders`) ; `/dev/null`, `/dev/tty`, `/dev/zero`, `/dev/random`, `/dev/urandom` ; cache utilisateur (`$XDG_CACHE_HOME` ou `~/.cache` ; macOS : `~/Library/Caches`) ; `~/.npm` (R20) ; `write`.
-- **Interdit en écriture seule** (`DenyWrite`, macOS seulement, R19) : `<projet>/.git/hooks` et `<projet>/.git/config` s'ils existent (dossier `.git` ordinaire), et chaque dossier parent en `literal` (ni renommage ni suppression). Ignoré par l'assistant Linux (R9).
+- **Interdit en écriture seule** (`DenyWrite`, macOS seulement, R19) : `<projet>/.git/hooks`, `config`, `commondir` et `config.worktree`, présents ou non (dossier `.git` ordinaire ; fichier existant en `literal`, sinon `subpath`), et chaque dossier parent en `(deny file-write-unlink (literal …))` (ni renommage ni suppression ; touch, tar, rsync possibles). Au mieux : `.git/modules/*` et dépôts imbriqués non couverts. Ignoré par l'assistant Linux (R9).
 - **Lecture** : partout.
 - **Interdit en lecture et écriture** (prime sur ce qui précède, même dans le projet) : `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.azure`, `~/.config/gcloud`, `~/.kube`, `~/.docker`, `~/.netrc`, `~/.password-store`, `~/Library/Keychains` (trousseau macOS, R16), le dossier de configuration de tenon, le dossier de données de tenon (journal d'audit, sessions), le fichier de politique, `deny_read` (global, projet, politique). Chemins absents : ignorés.
 - **Réseau** : coupé, sauf `Network`.

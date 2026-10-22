@@ -42,24 +42,26 @@ func TestSeatbeltProfile(t *testing.T) {
 }
 
 // R19 : DenyWrite interdit l'écriture seule, après les autorisations
-// d'écriture : dossier en (subpath ...), fichier en (literal ...), et chaque
-// dossier parent en (literal ...) pour qu'on ne puisse ni le renommer ni le
-// supprimer et contourner l'interdit.
+// d'écriture : fichier existant en (literal ...), dossier ou chemin absent en
+// (subpath ...) (un dossier créé plus tard est couvert). Chaque dossier
+// parent est interdit de suppression et de renommage seulement
+// (file-write-unlink) : touch, tar ou rsync sur la racine restent possibles.
 func TestSeatbeltDenyWrite(t *testing.T) {
 	root := t.TempDir()
 	git := filepath.Join(root, ".git")
-	hooks := filepath.Join(git, "hooks")
-	if err := os.MkdirAll(hooks, 0o755); err != nil {
+	if err := os.MkdirAll(git, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	cfg := filepath.Join(git, "config")
 	if err := os.WriteFile(cfg, []byte("[core]\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	hooks := filepath.Join(git, "hooks")         // absent
+	commondir := filepath.Join(git, "commondir") // absent
 	p := seatbeltProfile(Spec{
 		Dir:       root,
 		Write:     []string{root},
-		DenyWrite: []string{hooks, cfg},
+		DenyWrite: []string{hooks, cfg, commondir},
 		DenyRead:  []string{"/h/.ssh"},
 	})
 	order := []string{
@@ -69,6 +71,8 @@ func TestSeatbeltDenyWrite(t *testing.T) {
 		"(deny file-write*",
 		`(subpath "` + hooks + `")`,
 		`(literal "` + cfg + `")`,
+		`(subpath "` + commondir + `")`,
+		"(deny file-write-unlink",
 		`(literal "` + git + `")`,
 		`(literal "` + root + `")`,
 		"(deny file-read* file-write*",
@@ -85,7 +89,13 @@ func TestSeatbeltDenyWrite(t *testing.T) {
 	if strings.Count(p, `(literal "`+git+`")`) != 1 {
 		t.Errorf("parent en double dans:\n%s", p)
 	}
-	if strings.Contains(seatbeltProfile(Spec{Write: []string{root}}), "(deny file-write* (") {
+	// Les parents ne sont jamais interdits en file-write* entier.
+	for _, line := range strings.Split(p, "\n") {
+		if strings.HasPrefix(line, "(deny file-write* (") && strings.Contains(line, `(literal "`+root+`")`) {
+			t.Errorf("parent sous file-write* : %s", line)
+		}
+	}
+	if q := seatbeltProfile(Spec{Write: []string{root}}); strings.Contains(q, "(deny file-write* (") || strings.Contains(q, "file-write-unlink") {
 		t.Error("règle DenyWrite sans DenyWrite")
 	}
 }

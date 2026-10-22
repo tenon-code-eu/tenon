@@ -19,8 +19,8 @@ type Spec struct {
 	// cette interdiction prime sur Write.
 	DenyRead []string `json:"deny_read"`
 	// DenyWrite liste les chemins interdits en écriture seule (lecture
-	// permise), même sous un chemin de Write : .git/config et .git/hooks du
-	// projet. Seul macOS l'applique ; l'assistant Linux l'ignore (une
+	// permise), même sous un chemin de Write : voir GitDenyWrite. Leurs
+	// dossiers parents ne peuvent être ni supprimés ni renommés. Seul macOS l'applique ; l'assistant Linux l'ignore (une
 	// exclusion d'écriture empêcherait git de créer ses fichiers à la racine
 	// de .git, voir R9).
 	DenyWrite []string `json:"deny_write,omitempty"`

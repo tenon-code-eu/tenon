@@ -190,3 +190,23 @@ func denyAncestors(deny []string) []string {
 	}
 	return out
 }
+
+// GitDenyWrite renvoie les chemins de project/.git à interdire en écriture
+// (Spec.DenyWrite), présents ou non : hooks et config (un hook ou un
+// core.fsmonitor s'exécuterait hors bac à sable à la prochaine commande git
+// de l'utilisateur), commondir (redirigerait git vers une copie piégée de
+// .git) et config.worktree. Seul un dossier .git ordinaire est traité ; un
+// fichier .git (worktree, sous-module) pointe hors du projet. Les dépôts
+// imbriqués et les dossiers git des sous-modules (.git/modules) ne sont pas
+// couverts.
+func GitDenyWrite(project string) []string {
+	git := filepath.Join(project, ".git")
+	if fi, err := os.Lstat(git); err != nil || !fi.IsDir() {
+		return nil
+	}
+	var out []string
+	for _, name := range []string{"hooks", "config", "commondir", "config.worktree"} {
+		out = append(out, filepath.Join(git, name))
+	}
+	return out
+}

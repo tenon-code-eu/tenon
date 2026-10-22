@@ -440,8 +440,9 @@ func TestSandboxRealConfigDeny(t *testing.T) {
 	}
 }
 
-// R19 : .git/hooks et .git/config du projet (dossier .git ordinaire) sont
-// interdits en écriture aux commandes confinées, s'ils existent.
+// R19 : dans un projet avec un dossier .git, hooks, config, commondir et
+// config.worktree sont interdits en écriture aux commandes confinées, même
+// absents.
 func TestSandboxGitDenyWrite(t *testing.T) {
 	withProbe(t, sandbox.Status{Available: true, Mechanism: "sandbox-exec", Network: "full", UnixSockets: true})
 	sandboxNotices = false
@@ -452,29 +453,17 @@ func TestSandboxGitDenyWrite(t *testing.T) {
 		t.Fatalf("sans .git : spec %+v err %v", spec, err)
 	}
 	git := filepath.Join(wd, ".git")
-	if err := os.MkdirAll(filepath.Join(git, "hooks"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(git, "config"), []byte("[core]\n"), 0o644); err != nil {
+	if err := os.Mkdir(git, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	spec, _, _, err = sandboxSetup("en", config.Config{}, wd, "", "", "", "", getenv)
-	want := []string{filepath.Join(git, "hooks"), filepath.Join(git, "config")}
+	want := []string{filepath.Join(git, "hooks"), filepath.Join(git, "config"), filepath.Join(git, "commondir"), filepath.Join(git, "config.worktree")}
 	if err != nil || spec == nil || !slices.Equal(spec.DenyWrite, want) {
 		t.Fatalf("spec %+v err %v, DenyWrite attendu %v", spec, err, want)
 	}
 	// Spec MCP dérivée : l'interdit suit (serveurs write ou exec).
 	if m := mcpSandboxSpec(spec, wd); !slices.Equal(m.DenyWrite, want) {
 		t.Fatalf("Spec MCP %+v", m)
-	}
-	// Fichier .git (worktree, sous-module) : non traité.
-	wt := t.TempDir()
-	if err := os.WriteFile(filepath.Join(wt, ".git"), []byte("gitdir: /ailleurs\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	spec, _, _, err = sandboxSetup("en", config.Config{}, wt, "", "", "", "", getenv)
-	if err != nil || spec == nil || len(spec.DenyWrite) != 0 {
-		t.Fatalf("fichier .git : spec %+v err %v", spec, err)
 	}
 }
 
