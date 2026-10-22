@@ -117,6 +117,29 @@ tool = "shell"          # commands that mention secrets/
 match = "*secrets/*"
 decision = "deny"
 
+# --- Sandbox --------------------------------------------------------------
+#
+# Shell commands run confined: writes limited to the project, temp and cache
+# directories; credentials directories unreadable; network closed.
+#
+# [sandbox]
+# mode = "auto"                # "auto" (default) | "required" | "off"
+# write = ["~/go/pkg"]         # extra writable paths (absolute or ~/); global only
+# deny_read = ["~/private"]    # extra paths denied for read and write
+#
+# A project config can only harden: mode = "required" and deny_read are
+# accepted, mode = "off" and write are refused. profile = "strict-local"
+# forces "required".
+#
+# A shell rule can open the network for matching commands (allow or ask only;
+# refused in project config and in the organization policy):
+#
+# [[permissions.rules]]
+# tool = "shell"
+# match = "go mod download *"
+# decision = "allow"
+# network = true
+
 # --- Redaction ------------------------------------------------------------
 #
 # Added to the built-in rules (keys and tokens, private keys, IBAN, NIR,

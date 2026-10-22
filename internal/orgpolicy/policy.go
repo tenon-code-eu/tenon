@@ -25,7 +25,8 @@ type Policy struct {
 	AuditLevel string          // [audit] level ; "" = non imposé
 	Timestamp  *AuditTimestamp // [audit.timestamp] ; nil = non imposé
 	MCP        MCP
-	KeyID      string // renseigné par Load
+	Sandbox    Sandbox // [sandbox] ; Mode "" = non imposé
+	KeyID      string  // renseigné par Load
 }
 
 // AuditTimestamp : horodatage RFC 3161 imposé. CA : PEM des racines de
@@ -33,6 +34,13 @@ type Policy struct {
 type AuditTimestamp struct {
 	URL string
 	CA  []byte
+}
+
+// Sandbox : confinement imposé. Mode : "auto" ou "required" ("off" refusé).
+// Les chemins sont absolus ou commencent par « ~/ ».
+type Sandbox struct {
+	Mode     string   `toml:"mode"`
+	DenyRead []string `toml:"deny_read"`
 }
 
 // Providers porte la liste blanche et les fournisseurs imposés.
@@ -95,7 +103,8 @@ type raw struct {
 			CA  string `toml:"ca"`
 		} `toml:"timestamp"`
 	} `toml:"audit"`
-	MCP MCP `toml:"mcp"`
+	MCP     MCP     `toml:"mcp"`
+	Sandbox Sandbox `toml:"sandbox"`
 }
 
 var idRe = regexp.MustCompile(`^[a-z0-9_-]{1,64}$`)
@@ -186,6 +195,16 @@ func Parse(b []byte) (Policy, error) {
 	default:
 		return Policy{}, policyErr("unknown audit.level %q", r.Audit.Level)
 	}
+	switch r.Sandbox.Mode {
+	case "", "auto", "required":
+	default:
+		return Policy{}, policyErr("sandbox.mode must be auto or required")
+	}
+	for _, d := range r.Sandbox.DenyRead {
+		if !filepath.IsAbs(d) && !strings.HasPrefix(d, "~/") {
+			return Policy{}, policyErr("sandbox.deny_read: path must be absolute or start with ~/")
+		}
+	}
 	var ts *AuditTimestamp
 	if t := r.Audit.Timestamp; t != nil {
 		if t.URL == "" {
@@ -211,7 +230,7 @@ func Parse(b []byte) (Policy, error) {
 		Timestamp: ts,
 		ID:        r.ID, Version: r.Version, Profile: prof, Providers: r.Providers,
 		Rules: r.Permissions.Rules, Redaction: r.Redaction.Rules,
-		AuditLevel: r.Audit.Level, MCP: r.MCP,
+		AuditLevel: r.Audit.Level, MCP: r.MCP, Sandbox: r.Sandbox,
 	}, nil
 }
 

@@ -103,6 +103,16 @@ func ApplyPolicy(cfg Config, pol *orgpolicy.Policy) (Config, error) {
 		cfg.Audit.Timestamp = ts
 	}
 
+	// Confinement : la politique ne fait que durcir ; deny_read s'ajoute.
+	cfg.Sandbox.Mode = stricterSandbox(cfg.Sandbox.Mode, pol.Sandbox.Mode)
+	pd, err := expandSandboxPaths("deny_read", pol.Sandbox.DenyRead, cfg.home)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.Sandbox.DenyRead = append(slices.Clone(cfg.Sandbox.DenyRead), pd...)
+	// Plancher du profil, connu seulement ici (la politique peut le relever).
+	cfg.Sandbox.Mode = stricterSandbox(cfg.Sandbox.Mode, profile.SandboxMode(cfg.Profile))
+
 	if err := cfg.validate(); err != nil {
 		return Config{}, err
 	}

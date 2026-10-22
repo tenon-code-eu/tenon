@@ -3,6 +3,7 @@ package orgpolicy
 import (
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/tenon-code-eu/tenon/internal/profile"
@@ -205,5 +206,25 @@ func TestParseTimestamp(t *testing.T) {
 	p = mustParse(t, "[audit.timestamp]\nurl=\"https://tsa.eu\"\n")
 	if p.Timestamp == nil || p.Timestamp.CA != nil {
 		t.Fatalf("%+v", p.Timestamp)
+	}
+}
+
+func TestParseSandbox(t *testing.T) {
+	const hd = "id = \"a\"\nversion = 1\n"
+	p, err := Parse([]byte(hd + "[sandbox]\nmode = \"required\"\ndeny_read = [\"/srv/s\", \"~/x\"]\n"))
+	if err != nil || p.Sandbox.Mode != "required" || len(p.Sandbox.DenyRead) != 2 {
+		t.Fatalf("%v %+v", err, p.Sandbox)
+	}
+	for _, m := range []string{"off", "x"} {
+		_, err := Parse([]byte(hd + "[sandbox]\nmode = \"" + m + "\"\n"))
+		if err == nil || !errors.Is(err, ErrPolicy) || !strings.HasSuffix(err.Error(), "sandbox.mode must be auto or required") {
+			t.Fatalf("%s: %v", m, err)
+		}
+	}
+	if _, err := Parse([]byte(hd + "[sandbox]\ndeny_read = [\"rel\"]\n")); err == nil {
+		t.Fatal("relative path accepted")
+	}
+	if _, err := Parse([]byte(hd + "[sandbox]\nwrite = [\"/x\"]\n")); err == nil {
+		t.Fatal("write accepted")
 	}
 }

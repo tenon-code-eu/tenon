@@ -44,6 +44,11 @@ type Config struct {
 	// Checkpoints : copies des fichiers avant écriture (/rewind). Clé globale
 	// uniquement.
 	Checkpoints Checkpoints `toml:"checkpoints"`
+	// Sandbox : confinement des commandes shell. Mode effectif et listes
+	// fusionnées (chemins développés) après Load ; write est global uniquement.
+	Sandbox Sandbox `toml:"sandbox"`
+	// home : $HOME lu au chargement, pour développer « ~/ » de la politique.
+	home string
 	// Profile : profil de conformité effectif après Load (le plus strict du
 	// global et du projet). Le projet peut seulement le durcir.
 	Profile profile.Name `toml:"profile"`
@@ -278,6 +283,62 @@ func (t *AuditTimestamp) validate() error {
 	return nil
 }
 
+// Sandbox : [sandbox]. Mode : "auto" (défaut) | "required" | "off".
+type Sandbox struct {
+	Mode     string   `toml:"mode"`
+	Write    []string `toml:"write"`
+	DenyRead []string `toml:"deny_read"`
+}
+
+// sandboxRank ordonne les modes : off < auto < required ; "" vaut auto.
+func sandboxRank(m string) int {
+	switch m {
+	case "off":
+		return 0
+	case "required":
+		return 2
+	}
+	return 1
+}
+
+// stricterSandbox renvoie le plus strict des deux modes ("" vaut auto).
+func stricterSandbox(a, b string) string {
+	if a == "" {
+		a = "auto"
+	}
+	if b != "" && sandboxRank(b) > sandboxRank(a) {
+		return b
+	}
+	return a
+}
+
+func checkSandboxMode(m string) error {
+	switch m {
+	case "", "auto", "required", "off":
+		return nil
+	}
+	return errors.New("config: sandbox.mode must be auto, required or off")
+}
+
+// expandSandboxPaths valide et développe « ~/ » (avec home) pour la clé key.
+func expandSandboxPaths(key string, paths []string, home string) ([]string, error) {
+	out := make([]string, 0, len(paths))
+	for _, p := range paths {
+		switch {
+		case strings.HasPrefix(p, "~/"):
+			if home == "" {
+				return nil, fmt.Errorf("config: sandbox.%s: HOME not set", key)
+			}
+			p = filepath.Join(home, p[2:])
+		case filepath.IsAbs(p):
+		default:
+			return nil, fmt.Errorf("config: sandbox.%s: path must be absolute or start with ~/", key)
+		}
+		out = append(out, p)
+	}
+	return out, nil
+}
+
 type Permissions struct {
 	Rules []Rule `toml:"rules"`
 }
@@ -335,6 +396,9 @@ type Rule struct {
 	Decision string `toml:"decision"`
 	Project  bool   `toml:"-"`
 	Policy   bool   `toml:"-"` // règle imposée par la politique d'organisation
+	// Network : la commande shell correspondante s'exécute avec réseau
+	// (allow ou ask ; jamais en config projet ni en politique).
+	Network bool `toml:"network"`
 }
 
 type RedactionRule struct {
@@ -365,6 +429,7 @@ func Defaults(getenv func(string) string) Config {
 		OutputLimit:         30000,
 		CompactionThreshold: 0.8,
 		Audit:               Audit{Level: "full"},
+		Sandbox:             Sandbox{Mode: "auto"},
 		Checkpoints:         Checkpoints{RetentionDays: 30},
 		Providers:           presets(),
 	}
@@ -413,6 +478,9 @@ func (c Config) validateFields() error {
 	if err := c.Audit.Timestamp.validate(); err != nil {
 		return err
 	}
+	if err := checkSandboxMode(c.Sandbox.Mode); err != nil {
+		return err
+	}
 	if c.CompactionThreshold <= 0 || c.CompactionThreshold >= 1 {
 		return fmt.Errorf("config: invalid compaction_threshold %v (]0,1[)", c.CompactionThreshold)
 	}
@@ -439,6 +507,14 @@ func (c Config) validateFields() error {
 		case "allow", "ask", "deny":
 		default:
 			return fmt.Errorf("config: invalid decision %q (allow|ask|deny)", r.Decision)
+		}
+		if r.Network {
+			if r.Tool != "shell" {
+				return errors.New("config: network only for tool shell")
+			}
+			if r.Decision == "deny" {
+				return errors.New("config: network only with allow or ask")
+			}
 		}
 	}
 	for _, r := range c.Redaction.Rules {

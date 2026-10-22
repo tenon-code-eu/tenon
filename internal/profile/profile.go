@@ -186,3 +186,12 @@ func IsLocalHost(host string) bool {
 	}
 	return false
 }
+
+// SandboxMode renvoie le mode de confinement imposé par le profil :
+// « required » pour strict-local, "" sinon (aucun plancher).
+func SandboxMode(n Name) string {
+	if n == StrictLocal {
+		return "required"
+	}
+	return ""
+}
