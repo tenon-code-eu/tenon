@@ -111,3 +111,41 @@ func TestEmpty(t *testing.T) {
 		t.Fatal("not empty")
 	}
 }
+
+func TestFoldCombiningMarks(t *testing.T) {
+	r := Rules{}
+	for _, in := range []string{"Spécial France", "dIFFUSION  restreinte", "Diffusion Restreinte", "RESTREINT UE"} {
+		if _, ok := r.FindMarker(in); !ok {
+			t.Errorf("no match for %q", in)
+		}
+	}
+	if m, _ := r.FindMarker("Spécial France"); m != "SPÉCIAL FRANCE" {
+		t.Errorf("got %q", m)
+	}
+	if _, ok := (Rules{Markers: []string{"Résumé interne"}}).FindMarker("résumé interne"); !ok {
+		t.Error("NFD user marker")
+	}
+}
+
+func TestMatchPathFoldAndLexical(t *testing.T) {
+	root := tmpRoot(t)
+	if _, ok := (Rules{Paths: []string{"rh/**"}}).MatchPath(root, "RH/paie.csv"); !ok {
+		t.Error("case")
+	}
+	if _, ok := (Rules{Paths: []string{"Dossiers/Résumé/**"}}).MatchPath(root, "dossiers/résumé/f"); !ok {
+		t.Error("NFD path vs NFC pattern")
+	}
+	if _, ok := (Rules{Paths: []string{"Dossiers/Résumé/**"}}).MatchPath(root, "dossiers/résumé/f"); !ok {
+		t.Error("NFC path vs NFD pattern")
+	}
+	out := tmpRoot(t)
+	if err := os.Symlink(out, filepath.Join(root, "rh")); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := (Rules{Paths: []string{"rh/**"}}).MatchPath(root, filepath.Join(root, "rh", "f")); !ok {
+		t.Error("symlink to outside")
+	}
+	if _, ok := (Rules{Paths: []string{"rh/**"}}).MatchPath(root, "rh/f"); !ok {
+		t.Error("symlink to outside, relative")
+	}
+}

@@ -51,6 +51,9 @@ func fold(s string) string {
 	var b strings.Builder
 	space := false
 	for _, r := range s {
+		if unicode.Is(unicode.Mn, r) {
+			continue // marque combinante (entrée NFD)
+		}
 		if unicode.IsSpace(r) {
 			space = true
 			continue

@@ -57,32 +57,40 @@ func (r Rules) MatchPath(root, path string) (string, bool) {
 		root = real
 	}
 	root = filepath.Clean(root)
-	abs := resolve(root, path)
-	rel, err := filepath.Rel(root, abs)
-	inside := err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+	// Chemin résolu (liens symboliques) et chemin lexical : un lien vers
+	// l'extérieur du projet ne doit pas échapper au motif.
+	lex := path
+	if !filepath.IsAbs(lex) {
+		lex = filepath.Join(root, lex)
+	}
+	cands := []string{resolve(root, path), filepath.Clean(lex)}
 	for _, pat := range r.Paths {
-		if filepath.IsAbs(pat) {
-			if globMatch(splitSegs(filepath.Clean(pat)), splitSegs(abs)) {
+		for _, abs := range cands {
+			if r.matchOne(root, abs, pat) {
 				return pat, true
 			}
-			continue
-		}
-		if !inside {
-			continue
-		}
-		p := strings.TrimPrefix(filepath.ToSlash(pat), "./")
-		if globMatch(splitSegs(p), splitSegs(rel)) {
-			return pat, true
 		}
 	}
 	return "", false
+}
+
+func (r Rules) matchOne(root, abs, pat string) bool {
+	if filepath.IsAbs(pat) {
+		return globMatch(splitSegs(filepath.Clean(pat)), splitSegs(abs))
+	}
+	rel, err := filepath.Rel(root, abs)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return false
+	}
+	return globMatch(splitSegs(strings.TrimPrefix(filepath.ToSlash(pat), "./")), splitSegs(rel))
 }
 
 func splitSegs(p string) []string {
 	var out []string
 	for _, s := range strings.Split(filepath.ToSlash(p), "/") {
 		if s != "" && s != "." {
-			out = append(out, s)
+			// casse et accents repliés : volumes insensibles à la casse, NFC/NFD
+			out = append(out, fold(s))
 		}
 	}
 	return out
