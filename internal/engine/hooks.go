@@ -120,20 +120,15 @@ func (t *turn) evalPrompt(ctx context.Context, prompt string) (string, error) {
 	tc.ctx = ctx
 	tc.noHooks = true // la requête d'un hook prompt ne déclenche aucun hook
 	tc.outer = t.turnCtx()
-	info := d.Provider.Info()
-	msgs, ok, err := tc.outbound(info, []llm.Message{
+	text, _, provErr, err := tc.send(llm.Request{Messages: []llm.Message{
 		{Role: llm.System, Content: i18n.T(d.Lang, "hooks.prompt_system")},
 		{Role: llm.User, Content: prompt},
-	})
+	}}, false)
 	if err != nil {
 		return "", err
 	}
-	if !ok {
+	if errors.Is(provErr, errNotSent) {
 		return "", errors.New("provider not allowed")
-	}
-	text, _, provErr, err := tc.stream(llm.Request{Model: info.Model, Messages: msgs}, false)
-	if err != nil {
-		return "", err
 	}
 	if provErr != nil {
 		return "", provErr

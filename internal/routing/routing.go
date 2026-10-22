@@ -23,6 +23,9 @@ const FirstChunkTimeout = 60 * time.Second
 type Candidate struct {
 	ID       string
 	Provider provider.Provider
+	// Window est la fenêtre de contexte du fournisseur, en jetons estimés
+	// (0 : celle de la session).
+	Window int
 }
 
 // Router ordonne les candidats.

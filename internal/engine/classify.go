@@ -33,6 +33,8 @@ const (
 	sourceShell = "shell"
 	sourceMCP   = "mcp"
 	sourceUser  = "user"
+	// sourceOutbound : marquage trouvé par le contrôle sortant d'une requête.
+	sourceOutbound = "outbound"
 )
 
 // classify rend la session sensible et émet SessionClassified, une seule fois
@@ -103,7 +105,7 @@ func (t *turn) gateClassified(c llm.ToolCall, target tools.Target, args json.Raw
 	if reason == "" {
 		return false, nil
 	}
-	if !d.HasLocal {
+	if !t.e.hasLocal() {
 		return true, nil
 	}
 	return false, t.classify(reason, toolSource(c.Name), c.ID, path, marker)
@@ -162,7 +164,7 @@ func (t *turn) scanResult(name, callID, content, file string) (string, error) {
 	if reason == "" {
 		return content, nil
 	}
-	if !d.HasLocal {
+	if !t.e.hasLocal() {
 		return classifiedWithheld, nil
 	}
 	return content, t.classify(reason, toolSource(name), callID, path, marker)
@@ -180,7 +182,7 @@ func (t *turn) checkUser(texts ...string) (blocked bool, err error) {
 		if !ok {
 			continue
 		}
-		if t.e.d.HasLocal {
+		if t.e.hasLocal() {
 			return false, t.classify("marker", sourceUser, "", "", m)
 		}
 		msg := fmt.Sprintf("classification marker in the message (%s): %s", m, classifiedRefused)
@@ -197,7 +199,7 @@ func (t *turn) checkUser(texts ...string) (blocked bool, err error) {
 // blocked indique que l'envoi doit être refusé.
 func (t *turn) blockSensitive() (blocked bool, err error) {
 	sens, reason := t.s.sensitiveState()
-	if !sens || t.e.d.HasLocal {
+	if !sens || t.e.hasLocal() {
 		return false, nil
 	}
 	msg := fmt.Sprintf("session is sensitive (%s): %s", reason, classifiedRefused)
@@ -291,7 +293,7 @@ func (t *turn) scanHookText(text string) (string, error) {
 	if !ok {
 		return text, nil
 	}
-	if !t.e.d.HasLocal {
+	if !t.e.hasLocal() {
 		return classifiedWithheld, nil
 	}
 	return text, t.classify("marker", sourceTool, "", "", m)

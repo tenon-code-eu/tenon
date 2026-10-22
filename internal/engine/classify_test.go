@@ -11,6 +11,8 @@ import (
 	"github.com/tenon-code-eu/tenon/internal/classify"
 	"github.com/tenon-code-eu/tenon/internal/event"
 	"github.com/tenon-code-eu/tenon/internal/llm"
+	"github.com/tenon-code-eu/tenon/internal/provider"
+	"github.com/tenon-code-eu/tenon/internal/routing"
 	"github.com/tenon-code-eu/tenon/internal/tools"
 )
 
@@ -21,13 +23,28 @@ const (
 	docContent  = "# Note\n\nDIFFUSION\nRESTREINTE\n\nContenu du document.\n"
 )
 
-// withClassify active les règles de classification (rh/**) et indique si un
-// fournisseur local existe.
+// withClassify active les règles de classification (rh/**) et installe un
+// routeur, avec un fournisseur local si local est vrai : localView sur le
+// même fournisseur factice, pour que h.prov enregistre toutes les requêtes.
 func withClassify(local bool) func(*Deps) {
 	return func(d *Deps) {
 		d.Classify = classify.Rules{Paths: []string{"rh/**"}}
-		d.HasLocal = local
+		cur := routing.Candidate{ID: d.Provider.Info().ID, Provider: d.Provider}
+		var lc *routing.Candidate
+		if local {
+			lc = &routing.Candidate{ID: "local", Provider: localView{d.Provider}}
+		}
+		d.Router = routing.New(cur, lc, nil)
 	}
+}
+
+// localView présente un fournisseur comme local (identifiant « local »).
+type localView struct{ provider.Provider }
+
+func (v localView) Info() llm.ProviderInfo {
+	info := v.Provider.Info()
+	info.ID, info.Jurisdiction = "local", llm.Local
+	return info
 }
 
 // newClassifyHarness : outils fichiers et shell, projet avec rh/paie.csv

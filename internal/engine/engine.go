@@ -22,6 +22,7 @@ import (
 	"github.com/tenon-code-eu/tenon/internal/policy"
 	"github.com/tenon-code-eu/tenon/internal/profile"
 	"github.com/tenon-code-eu/tenon/internal/provider"
+	"github.com/tenon-code-eu/tenon/internal/routing"
 	"github.com/tenon-code-eu/tenon/internal/tools"
 )
 
@@ -103,10 +104,12 @@ type Deps struct {
 	// Classify porte les règles de classification (chemins, marquages) ; les
 	// marquages intégrés s'appliquent même avec des règles vides.
 	Classify classify.Rules
-	// HasLocal indique qu'un fournisseur local est disponible : un contenu
-	// classé rend alors la session sensible au lieu d'être refusé ou retenu.
-	// Provisoire : remplacé par le routeur (Router.Local()).
-	HasLocal bool
+	// Router ordonne les fournisseurs candidats de chaque envoi (nil : le
+	// seul Provider, sans repli ni fournisseur local). Avec un fournisseur
+	// local (Router.Local()), un contenu classé rend la session sensible au
+	// lieu d'être refusé ou retenu. Provider reste le fournisseur courant
+	// (SessionStarted).
+	Router *routing.Router
 }
 
 // Reply répond à un PermissionRequested. Network accorde le réseau à la
@@ -118,6 +121,11 @@ type Reply struct{ Allow, Remember, Network bool }
 // d'une même session sont sérialisés.
 type Engine struct {
 	d Deps
+	// router : Deps.Router, ou un routeur sur le seul Deps.Provider.
+	router *routing.Router
+	// firstChunkTimeout : délai avant le premier chunk (routing.FirstChunkTimeout ;
+	// réduit par les tests).
+	firstChunkTimeout time.Duration
 	// tools est le jeu d'outils du tour principal : d.Tools plus agent.
 	tools *tools.Registry
 
@@ -157,6 +165,9 @@ type session struct {
 	// avec les sous-agents, restauré depuis SessionClassified).
 	sensitive       bool
 	sensitiveReason string
+	// provider : identifiant du dernier fournisseur retenu (ProviderSelected),
+	// protégé par classMu.
+	provider string
 }
 
 // isSensitive indique que la session est sensible.
@@ -200,7 +211,34 @@ func New(d Deps) *Engine {
 	if d.Agents != nil {
 		reg = reg.With(agentTool{})
 	}
-	return &Engine{d: d, tools: reg, sessions: map[string]*session{}, pending: map[string]chan Reply{}}
+	router := d.Router
+	if router == nil && d.Provider != nil {
+		router = routing.New(routing.Candidate{ID: d.Provider.Info().ID, Provider: d.Provider}, nil, nil)
+	}
+	return &Engine{
+		d: d, tools: reg, router: router, firstChunkTimeout: routing.FirstChunkTimeout,
+		sessions: map[string]*session{}, pending: map[string]chan Reply{},
+	}
+}
+
+// initialProvider est le fournisseur retenu d'une nouvelle session : sans
+// routage configuré, le fournisseur courant (déjà dans SessionStarted, aucun
+// ProviderSelected tant qu'il ne change pas) ; avec, aucun (ProviderSelected
+// dès le premier envoi).
+func (e *Engine) initialProvider() string {
+	if e.d.Router != nil || e.d.Provider == nil {
+		return ""
+	}
+	return e.d.Provider.Info().ID
+}
+
+// hasLocal indique qu'un fournisseur local est disponible.
+func (e *Engine) hasLocal() bool {
+	if e.router == nil {
+		return false
+	}
+	_, ok := e.router.Local()
+	return ok
 }
 
 // Subscribe renvoie un canal recevant chaque événement émis après l'appel
@@ -310,6 +348,7 @@ func (e *Engine) session(id string) *session {
 	if !ok {
 		s = &session{
 			id:         id,
+			provider:   e.initialProvider(),
 			remembered: map[string]bool{},
 			history:    []llm.Message{{Role: llm.System, Content: e.d.SystemPrompt}},
 		}

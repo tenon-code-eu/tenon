@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/tenon-code-eu/tenon/internal/llm"
 )
 
 func TestNewMarshalsPayload(t *testing.T) {
@@ -247,5 +249,26 @@ func TestSessionClassifiedPayloadJSON(t *testing.T) {
 	}
 	if string(minimal) != `{"reason":"marker","source":"user","marker":"EU RESTRICTED"}` {
 		t.Fatalf("got %s", minimal)
+	}
+}
+
+func TestProviderSelectedPayloadJSON(t *testing.T) {
+	if ProviderSelected != "ProviderSelected" {
+		t.Fatalf("got %q", ProviderSelected)
+	}
+	got, err := json.Marshal(ProviderSelectedPayload{Provider: llm.ProviderInfo{ID: "local"}, Reason: "sensitive"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(got)
+	if !strings.Contains(s, `"provider":{"id":"local"`) || !strings.HasSuffix(s, `,"reason":"sensitive"}`) {
+		t.Fatalf("got %s", s)
+	}
+	got, err = json.Marshal(ProviderSelectedPayload{Provider: llm.ProviderInfo{ID: "r2"}, Reason: "fallback", Error: "provider unavailable"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(string(got), `"reason":"fallback","error":"provider unavailable"}`) {
+		t.Fatalf("got %s", got)
 	}
 }

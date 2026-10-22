@@ -8,7 +8,10 @@ import (
 	"reflect"
 	"regexp"
 	"strings"
+	"sync/atomic"
+	"time"
 
+	"github.com/tenon-code-eu/tenon/internal/classify"
 	"github.com/tenon-code-eu/tenon/internal/event"
 	"github.com/tenon-code-eu/tenon/internal/hooks"
 	"github.com/tenon-code-eu/tenon/internal/llm"
@@ -16,6 +19,7 @@ import (
 	"github.com/tenon-code-eu/tenon/internal/policy"
 	"github.com/tenon-code-eu/tenon/internal/profile"
 	"github.com/tenon-code-eu/tenon/internal/provider"
+	"github.com/tenon-code-eu/tenon/internal/routing"
 	"github.com/tenon-code-eu/tenon/internal/tools"
 )
 
@@ -177,7 +181,6 @@ func (t *turn) hookFailed(err error) error {
 // fatale (audit, annulation du contexte).
 func (t *turn) loop() (loopResult, error) {
 	d := t.e.d
-	info := d.Provider.Info()
 	var last, final string
 	res := func(iter int, reason string) loopResult {
 		return loopResult{Iterations: iter, Reason: reason, Text: last, Final: final}
@@ -189,7 +192,7 @@ func (t *turn) loop() (loopResult, error) {
 		if t.tools != nil {
 			defs = t.tools.Defs()
 		}
-		if stop, reason, err := t.compactOrStop(info, defs, false, iter-1); stop || err != nil {
+		if stop, reason, err := t.compactOrStop(defs, false, iter-1); stop || err != nil {
 			return res(iter-1, reason), err
 		}
 		// continue:false d'un hook de compaction (PreCompact, SessionStart).
@@ -201,23 +204,20 @@ func (t *turn) loop() (loopResult, error) {
 			text      string
 			calls     []llm.ToolCall
 			provErr   error
+			err       error
 			compacted bool
 		)
 		for {
-			msgs, ok, err := t.outbound(info, *t.h)
+			text, calls, provErr, err = t.send(llm.Request{Messages: *t.h, Tools: defs}, t.deltas)
 			if err != nil {
 				return res(iter, ""), err
 			}
-			if !ok {
+			if errors.Is(provErr, errNotSent) {
+				// continue:false d'un hook Notification (demande de juridiction).
+				if t.stopReason != "" {
+					return res(iter-1, t.stopReason), nil
+				}
 				return res(iter-1, "blocked"), nil
-			}
-			// continue:false d'un hook Notification (demande de juridiction).
-			if t.stopReason != "" {
-				return res(iter-1, t.stopReason), nil
-			}
-			text, calls, provErr, err = t.stream(llm.Request{Model: info.Model, Messages: msgs, Tools: defs}, t.deltas)
-			if err != nil {
-				return res(iter, ""), err
 			}
 			// Contexte trop long pour le fournisseur : une compaction forcée,
 			// puis une seule nouvelle tentative.
@@ -225,7 +225,7 @@ func (t *turn) loop() (loopResult, error) {
 				break
 			}
 			compacted = true
-			if stop, reason, err := t.compactOrStop(info, defs, true, iter); stop || err != nil {
+			if stop, reason, err := t.compactOrStop(defs, true, iter); stop || err != nil {
 				return res(iter, reason), err
 			}
 			if t.stopReason != "" {
@@ -326,8 +326,8 @@ func (t *turn) cancelled(iter int) {
 // compactOrStop appelle compact. stop indique que la compaction termine le
 // tour, avec reason ("cancelled", "blocked", "context_too_large"...) ; err est
 // l'erreur à renvoyer. Le tour est clos par l'appelant, avec iter itérations.
-func (t *turn) compactOrStop(info llm.ProviderInfo, defs []llm.ToolDef, force bool, iter int) (stop bool, reason string, err error) {
-	reason, err = t.compact(info, defs, force)
+func (t *turn) compactOrStop(defs []llm.ToolDef, force bool, iter int) (stop bool, reason string, err error) {
+	reason, err = t.compact(defs, force)
 	switch {
 	case reason == reasonCancelled:
 		return true, "cancelled", err
@@ -339,95 +339,270 @@ func (t *turn) compactOrStop(info llm.ProviderInfo, defs []llm.ToolDef, force bo
 	return false, "", nil
 }
 
-// outbound applique le contrôle sortant à in (historique ou requête de
-// résumé) et renvoie la copie masquée à envoyer. ok vaut false si
-// l'utilisateur refuse la juridiction ou si le profil interdit le fournisseur.
-func (t *turn) outbound(info llm.ProviderInfo, in []llm.Message) (msgs []llm.Message, ok bool, err error) {
+// errNotSent : aucune requête n'est partie. Le tour est bloqué (l'événement
+// qui l'explique est déjà émis), ou un hook a demandé l'arrêt (t.stopReason).
+var errNotSent = errors.New("request not sent")
+
+// prepared est une requête préparée pour un candidat : messages masqués et
+// décomptes de masquage, émis seulement si la requête part vers lui. scan,
+// s'il n'est pas nil, remplace msgs pour le contrôle sortant des marquages
+// (messages masqués dont le texte de msgs est tiré, rendu compris).
+type prepared struct {
+	msgs   []llm.Message
+	counts []map[string]int
+	scan   []llm.Message
+}
+
+// prepFunc prépare la requête pour le fournisseur info (contrôle sortant).
+// ok vaut false si le candidat est refusé (événement déjà émis).
+type prepFunc func(info llm.ProviderInfo) (p prepared, ok bool, err error)
+
+// outboundCheck applique les garde-fous d'envoi (profil, politique, liste
+// blanche, accord de juridiction) au fournisseur info et renvoie la copie
+// masquée de in avec ses décomptes. ok vaut false si le fournisseur est
+// refusé : l'événement du refus est émis, le tour n'échoue pas (le candidat
+// suivant est essayé). err est fatale (audit, annulation).
+func (t *turn) outboundCheck(info llm.ProviderInfo, in []llm.Message) (msgs []llm.Message, counts map[string]int, ok bool, err error) {
 	d := t.e.d
-	// Session sensible sans fournisseur local (reprise) : aucun envoi.
-	if blocked, err := t.blockSensitive(); blocked || err != nil {
-		return nil, false, err
-	}
-	var counts map[string]int
 	for asked := false; ; asked = true {
 		msgs, counts, err = d.Outbound.Check(info, in)
 		if err == nil {
-			break
+			return msgs, counts, true, nil
 		}
-		if errors.Is(err, profile.ErrProfile) {
-			// Violation de profil : aucun envoi, tour clos comme un refus.
-			if eerr := t.emit(event.Error, event.ErrorPayload{Code: "profile", Message: err.Error()}); eerr != nil {
-				return nil, false, eerr
-			}
-			return nil, false, nil
+		code := "outbound"
+		switch {
+		case errors.Is(err, profile.ErrProfile):
+			code = "profile"
+		case errors.Is(err, orgpolicy.ErrPolicy):
+			code = "policy"
+		case errors.Is(err, policy.ErrAllowlist):
+			code = "allowlist"
+		case errors.Is(err, policy.ErrJurisdiction):
+			code = ""
 		}
-		if errors.Is(err, orgpolicy.ErrPolicy) {
-			// Hôte refusé par la politique d'organisation : aucun envoi.
-			if eerr := t.emit(event.Error, event.ErrorPayload{Code: "policy", Message: err.Error()}); eerr != nil {
-				return nil, false, eerr
+		if code != "" {
+			// Fournisseur refusé : aucun envoi vers lui.
+			if eerr := t.emit(event.Error, event.ErrorPayload{Code: code, Message: err.Error()}); eerr != nil {
+				return nil, nil, false, eerr
 			}
-			return nil, false, nil
-		}
-		if errors.Is(err, policy.ErrAllowlist) {
-			// Hôte refusé par une liste blanche de fournisseurs : aucun envoi.
-			if eerr := t.emit(event.Error, event.ErrorPayload{Code: "allowlist", Message: err.Error()}); eerr != nil {
-				return nil, false, eerr
-			}
-			return nil, false, nil
-		}
-		if !errors.Is(err, policy.ErrJurisdiction) {
-			if eerr := t.emit(event.Error, event.ErrorPayload{Code: "outbound", Message: err.Error()}); eerr != nil {
-				return nil, false, eerr
-			}
-			return nil, false, err
+			return nil, nil, false, nil
 		}
 		if asked {
-			return nil, false, nil
+			return nil, nil, false, nil
 		}
 		p := info
 		r, err := t.ask(event.PermissionRequestedPayload{Kind: "jurisdiction", Provider: &p}, false)
 		if err != nil {
-			return nil, false, err
+			return nil, nil, false, err
 		}
 		if !r.Allow {
-			return nil, false, nil
+			return nil, nil, false, nil
 		}
 		d.Outbound.Consent(info.ID)
 	}
-	if !t.s.warned && info.Jurisdiction != llm.EU && info.Jurisdiction != llm.Local {
-		if err := t.emit(event.JurisdictionWarning, event.JurisdictionWarningPayload{Provider: info}); err != nil {
-			return nil, false, err
-		}
-		t.s.warned = true
-	}
-	total := 0
-	for _, n := range counts {
-		total += n
-	}
-	if total > 0 {
-		if err := t.emit(event.RedactionApplied, event.RedactionAppliedPayload{Counts: counts}); err != nil {
-			return nil, false, err
-		}
-	}
-	return msgs, true, nil
 }
 
-// stream appelle le fournisseur et draine le flux jusqu'à sa fermeture.
-// provErr est l'erreur du fournisseur ; err une erreur d'émission (fatale).
-// deltas indique s'il faut émettre AssistantDelta (faux pour un résumé).
-func (t *turn) stream(req llm.Request, deltas bool) (text string, calls []llm.ToolCall, provErr, err error) {
+// send envoie req (messages non masqués) au premier candidat du routeur qui
+// l'accepte ; voir sendWith.
+func (t *turn) send(req llm.Request, deltas bool) (text string, calls []llm.ToolCall, provErr, err error) {
+	return t.sendWith(req, deltas, func(info llm.ProviderInfo) (prepared, bool, error) {
+		msgs, counts, ok, err := t.outboundCheck(info, req.Messages)
+		return prepared{msgs: msgs, counts: []map[string]int{counts}}, ok, err
+	})
+}
+
+// sendWith essaie les candidats du routeur dans l'ordre (session sensible :
+// le fournisseur local seul). Pour chacun : préparation par prep (garde-fous,
+// masquage ; un refus passe au suivant), contrôle sortant des marquages avant
+// un fournisseur non local (trouvé : session sensible et nouvelle sélection,
+// ou blocage sans local), puis envoi. Une erreur réessayable reçue avant tout
+// chunk (routing.Retryable, délai du premier chunk) passe au candidat
+// suivant ; jamais après le premier chunk. req.Model est remplacé par le
+// modèle du candidat. provErr vaut errNotSent si rien n'est parti (aucun
+// candidat accepté, ou arrêt demandé par un hook), sinon l'erreur du dernier
+// fournisseur essayé ; err est fatale (audit, annulation).
+func (t *turn) sendWith(req llm.Request, deltas bool, prep prepFunc) (text string, calls []llm.ToolCall, provErr, err error) {
+	if t.e.router == nil {
+		return "", nil, nil, errors.New("no provider")
+	}
+	stop := t.stopReason
+	tried := map[string]bool{}
+	var failed error // dernière erreur réessayable de cet envoi
+	for {
+		sens := t.s.isSensitive()
+		cands := t.e.router.Candidates(sens)
+		if sens && len(cands) == 0 {
+			// Session sensible sans fournisseur local : aucun envoi.
+			if _, err := t.blockSensitive(); err != nil {
+				return "", nil, nil, err
+			}
+			return "", nil, errNotSent, nil
+		}
+		restart := false
+		for i, c := range cands {
+			if tried[c.ID] {
+				continue
+			}
+			info := c.Provider.Info()
+			p, ok, err := prep(info)
+			if err != nil {
+				return "", nil, nil, err
+			}
+			// continue:false d'un hook Notification (demande de juridiction).
+			if t.stopReason != stop {
+				return "", nil, errNotSent, nil
+			}
+			if !ok {
+				tried[c.ID] = true
+				continue
+			}
+			if info.Jurisdiction != llm.Local {
+				scan := p.scan
+				if scan == nil {
+					scan = p.msgs
+				}
+				if m, found := requestMarker(t.e.d.Classify, scan); found {
+					if !t.e.hasLocal() {
+						msg := fmt.Sprintf("classification marker in the request (%s): %s", m, classifiedRefused)
+						if err := t.emit(event.Error, event.ErrorPayload{Code: deniedClassification, Message: msg}); err != nil {
+							return "", nil, nil, err
+						}
+						return "", nil, errNotSent, nil
+					}
+					if err := t.classify("marker", sourceOutbound, "", "", m); err != nil {
+						return "", nil, nil, err
+					}
+					restart = true
+					break
+				}
+			}
+			r := req
+			r.Model = info.Model
+			r.Messages = p.msgs
+			res, err := t.try(c, info, r, p.counts, i > 0, failed, deltas)
+			if err != nil {
+				return "", nil, nil, err
+			}
+			if !res.sent {
+				// La session est devenue sensible entre la sélection et l'envoi.
+				restart = true
+				break
+			}
+			tried[c.ID] = true
+			if res.provErr != nil && !res.started && t.ctx.Err() == nil && routing.Retryable(res.provErr) {
+				failed = res.provErr
+				continue
+			}
+			return res.text, res.calls, res.provErr, nil
+		}
+		if !restart {
+			break
+		}
+	}
+	if failed != nil {
+		return "", nil, failed, nil
+	}
+	return "", nil, errNotSent, nil
+}
+
+// requestMarker cherche un marquage dans le texte de chaque message de la
+// requête (contenu et arguments d'appels d'outils). Les appels glob et leurs
+// résultats sont exclus : des noms de fichiers ne classent jamais la session.
+func requestMarker(rules classify.Rules, msgs []llm.Message) (string, bool) {
+	globs := map[string]bool{}
+	for _, m := range msgs {
+		if m.Role == llm.Tool && globs[m.ToolCallID] {
+			continue
+		}
+		if mk, ok := rules.FindMarker(m.Content); ok {
+			return mk, true
+		}
+		for _, c := range m.ToolCalls {
+			if c.Name == "glob" {
+				globs[c.ID] = true
+				continue
+			}
+			if mk, ok := argsMarker(rules, c.Args); ok {
+				return mk, true
+			}
+		}
+	}
+	return "", false
+}
+
+// tryResult est l'issue d'un envoi à un candidat. sent vaut false si rien
+// n'est parti (la session est devenue sensible et le candidat n'est pas
+// local) ; started indique qu'un chunk utile a été reçu (texte, appels ou fin
+// normale), après quoi aucun repli n'est permis.
+type tryResult struct {
+	text    string
+	calls   []llm.ToolCall
+	provErr error
+	sent    bool
+	started bool
+}
+
+// try envoie req au candidat c et draine le flux. L'état sensible est relu
+// sous classMu, tenu jusqu'au retour de Stream : un SessionClassified émis
+// par un tour concurrent (hook agent) précède la vérification, ou suit
+// l'envoi. ProviderSelected, l'avertissement de juridiction et les
+// décomptes de masquage sont émis juste avant Stream. Sans chunk avant
+// firstChunkTimeout, le flux est annulé et provErr vaut
+// routing.ErrNoFirstChunk. err est une erreur d'émission (fatale).
+func (t *turn) try(c routing.Candidate, info llm.ProviderInfo, req llm.Request, counts []map[string]int, fellBack bool, failed error, deltas bool) (res tryResult, err error) {
 	ctx, cancel := context.WithCancel(t.ctx)
 	defer cancel()
-	ch, perr := t.e.d.Provider.Stream(ctx, req)
+	var timedOut atomic.Bool
+	timer := time.AfterFunc(t.e.firstChunkTimeout, func() {
+		timedOut.Store(true)
+		cancel()
+	})
+	defer timer.Stop()
+
+	s := t.s
+	s.classMu.Lock()
+	if s.sensitive && info.Jurisdiction != llm.Local {
+		s.classMu.Unlock()
+		return res, nil
+	}
+	reason := "default"
+	switch {
+	case s.sensitive:
+		reason = "sensitive"
+	case fellBack:
+		reason = "fallback"
+	}
+	if err := t.selectProvider(info, reason, failed); err != nil {
+		s.classMu.Unlock()
+		return res, err
+	}
+	if err := t.sendNotices(info, counts); err != nil {
+		s.classMu.Unlock()
+		return res, err
+	}
+	ch, perr := c.Provider.Stream(ctx, req)
+	s.classMu.Unlock()
+	res.sent = true
+	noChunk := func(e error) error {
+		if timedOut.Load() && !res.started {
+			return routing.ErrNoFirstChunk
+		}
+		return e
+	}
 	if perr != nil {
-		return "", nil, perr, nil
+		res.provErr = noChunk(perr)
+		return res, nil
 	}
 	var sb strings.Builder
 	final := false
-	for c := range ch {
-		if c.Text != "" {
-			sb.WriteString(c.Text)
-			if err := t.delta(deltas, c.Text); err != nil {
+	for ck := range ch {
+		timer.Stop()
+		if !ck.Done || ck.Err == nil {
+			res.started = true
+		}
+		if ck.Text != "" {
+			sb.WriteString(ck.Text)
+			if err := t.delta(deltas, ck.Text); err != nil {
 				// Annule le flux puis le draine en arrière-plan pour libérer
 				// le goroutine du fournisseur.
 				cancel()
@@ -435,22 +610,62 @@ func (t *turn) stream(req llm.Request, deltas bool) (text string, calls []llm.To
 					for range ch {
 					}
 				}()
-				return "", nil, nil, err
+				return tryResult{sent: true, started: true}, err
 			}
 		}
-		if c.Done {
+		if ck.Done {
 			final = true
-			provErr = c.Err
-			calls = c.ToolCalls
+			res.provErr = ck.Err
+			res.calls = ck.ToolCalls
 		}
 	}
-	if !final && provErr == nil {
-		provErr = provider.ErrIncomplete
+	if !final && res.provErr == nil {
+		res.provErr = noChunk(provider.ErrIncomplete)
 	}
-	if provErr != nil {
-		calls = nil
+	if res.provErr != nil {
+		res.calls = nil
 	}
-	return sb.String(), calls, provErr, nil
+	res.text = sb.String()
+	return res, nil
+}
+
+// selectProvider émet ProviderSelected si le fournisseur retenu change (ou
+// au premier envoi d'une session avec routage). classMu tenu.
+func (t *turn) selectProvider(info llm.ProviderInfo, reason string, failed error) error {
+	s := t.s
+	if s.provider == info.ID {
+		return nil
+	}
+	s.provider = info.ID
+	p := event.ProviderSelectedPayload{Provider: info, Reason: reason}
+	if reason == "fallback" && failed != nil {
+		p.Error = failed.Error()
+	}
+	return t.e.emit(s, event.ProviderSelected, p)
+}
+
+// sendNotices émet, pour le fournisseur effectivement utilisé,
+// l'avertissement de juridiction (une fois par session) et les décomptes de
+// masquage non nuls.
+func (t *turn) sendNotices(info llm.ProviderInfo, counts []map[string]int) error {
+	if !t.s.warned && info.Jurisdiction != llm.EU && info.Jurisdiction != llm.Local {
+		if err := t.emit(event.JurisdictionWarning, event.JurisdictionWarningPayload{Provider: info}); err != nil {
+			return err
+		}
+		t.s.warned = true
+	}
+	for _, c := range counts {
+		total := 0
+		for _, n := range c {
+			total += n
+		}
+		if total > 0 {
+			if err := t.emit(event.RedactionApplied, event.RedactionAppliedPayload{Counts: c}); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // delta émet AssistantDelta si emit est vrai (faux pour un résumé).

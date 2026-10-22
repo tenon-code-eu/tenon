@@ -238,6 +238,18 @@ type SessionClassifiedPayload struct {
 	Marker string `json:"marker,omitempty"`
 }
 
+// ProviderSelectedPayload records a change of the provider that receives the
+// model requests (including the first send of a session with routing).
+// Reason is "default", "fallback" (an earlier candidate failed or was refused
+// during this send) or "sensitive" (the session is sensitive: local provider
+// only). Error is the failure of the previous candidate on a fallback.
+// Emitted before the request is sent. Session-wide: no ParentCallID.
+type ProviderSelectedPayload struct {
+	Provider llm.ProviderInfo `json:"provider"`
+	Reason   string           `json:"reason"`
+	Error    string           `json:"error,omitempty"`
+}
+
 // SubagentStartedPayload opens a sub-agent run launched by the "agent" tool call CallID.
 type SubagentStartedPayload struct {
 	CallID      string `json:"call_id"`
