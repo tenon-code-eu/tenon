@@ -390,12 +390,18 @@ func (t *turn) outboundCheck(info llm.ProviderInfo, in []llm.Message) (msgs []ll
 		if asked {
 			return nil, nil, false, nil
 		}
+		// Accord déjà refusé dans cette session : candidat sauté sans
+		// nouvelle demande.
+		if t.s.consentRefused(info.ID) {
+			return nil, nil, false, nil
+		}
 		p := info
 		r, err := t.ask(event.PermissionRequestedPayload{Kind: "jurisdiction", Provider: &p}, false)
 		if err != nil {
 			return nil, nil, false, err
 		}
 		if !r.Allow {
+			t.s.refuseConsent(info.ID)
 			return nil, nil, false, nil
 		}
 		d.Outbound.Consent(info.ID)
@@ -553,11 +559,6 @@ func (t *turn) try(c routing.Candidate, info llm.ProviderInfo, req llm.Request, 
 	ctx, cancel := context.WithCancel(t.ctx)
 	defer cancel()
 	var timedOut atomic.Bool
-	timer := time.AfterFunc(t.e.firstChunkTimeout, func() {
-		timedOut.Store(true)
-		cancel()
-	})
-	defer timer.Stop()
 
 	s := t.s
 	s.classMu.Lock()
@@ -580,6 +581,13 @@ func (t *turn) try(c routing.Candidate, info llm.ProviderInfo, req llm.Request, 
 		s.classMu.Unlock()
 		return res, err
 	}
+	// Délai armé une fois classMu acquis : l'attente d'un envoi concurrent
+	// n'en fait pas partie.
+	timer := time.AfterFunc(t.e.firstChunkTimeout, func() {
+		timedOut.Store(true)
+		cancel()
+	})
+	defer timer.Stop()
 	ch, perr := c.Provider.Stream(ctx, req)
 	s.classMu.Unlock()
 	res.sent = true
@@ -615,7 +623,10 @@ func (t *turn) try(c routing.Candidate, info llm.ProviderInfo, req llm.Request, 
 		}
 		if ck.Done {
 			final = true
-			res.provErr = ck.Err
+			// Un fournisseur annulé par le délai clôt son flux avec l'erreur
+			// du contexte (OpenAICompat) : c'est un délai avant le premier
+			// chunk, donc un repli possible.
+			res.provErr = noChunk(ck.Err)
 			res.calls = ck.ToolCalls
 		}
 	}

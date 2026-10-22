@@ -390,3 +390,91 @@ func TestTryRechecksSensitive(t *testing.T) {
 		t.Fatalf("send %q %v %v, local %d, remote %d", got, provErr, err, len(local.reqs()), len(h.prov.reqs()))
 	}
 }
+
+// cancelDoneProvider imite OpenAICompat : rien avant l'annulation, puis un
+// chunk final portant l'erreur du contexte.
+type cancelDoneProvider struct {
+	info  llm.ProviderInfo
+	calls int
+}
+
+func (p *cancelDoneProvider) Info() llm.ProviderInfo { return p.info }
+
+func (p *cancelDoneProvider) Stream(ctx context.Context, _ llm.Request) (<-chan llm.Chunk, error) {
+	p.calls++
+	ch := make(chan llm.Chunk, 1)
+	go func() {
+		<-ctx.Done()
+		ch <- llm.Chunk{Done: true, Err: ctx.Err()}
+		close(ch)
+	}()
+	return ch, nil
+}
+
+func TestFirstChunkTimeoutDoneChunk(t *testing.T) {
+	remote2 := fake(remote2Info, text("ok"))
+	slow := &cancelDoneProvider{info: euInfo}
+	h := newHarness(t, euInfo, nil, func(d *Deps) {
+		d.Provider = slow
+		routeOpt(nil, 0, remote2)(d)
+	})
+	h.eng.firstChunkTimeout = 50 * time.Millisecond
+	evs, err := h.submit(t, "s_1", "salut", nil)
+	if err != nil {
+		t.Fatalf("err %v, events %v", err, types(evs))
+	}
+	if slow.calls != 1 || len(remote2.reqs()) != 1 {
+		t.Fatalf("remote %d, remote2 %d requêtes", slow.calls, len(remote2.reqs()))
+	}
+	ps := selected(t, evs)
+	if len(ps) != 2 || ps[1].Error != routing.ErrNoFirstChunk.Error() {
+		t.Fatalf("ProviderSelected %+v", ps)
+	}
+}
+
+// Une attente de classMu (envoi concurrent) ne compte pas dans le délai du
+// premier chunk.
+func TestFirstChunkTimerAfterLock(t *testing.T) {
+	h := newHarness(t, euInfo, [][]llm.Chunk{text("ok")}, routeOpt(nil, 0))
+	h.eng.firstChunkTimeout = 50 * time.Millisecond
+	s := h.eng.session("s_1")
+	tr := &turn{e: h.eng, s: s, ctx: context.Background(), h: &s.history}
+	cur := routing.Candidate{ID: euInfo.ID, Provider: h.prov}
+	s.classMu.Lock()
+	done := make(chan tryResult, 1)
+	go func() {
+		res, err := tr.try(cur, euInfo, llm.Request{Messages: s.history}, nil, false, nil, false)
+		if err != nil {
+			t.Error(err)
+		}
+		done <- res
+	}()
+	time.Sleep(150 * time.Millisecond)
+	s.classMu.Unlock()
+	res := <-done
+	if res.provErr != nil || res.text != "ok" {
+		t.Fatalf("res %+v", res)
+	}
+}
+
+func TestRefusedConsentRemembered(t *testing.T) {
+	remote2 := fake(remote2Info, text("ok"))
+	h := newHarness(t, nonEUInfo, [][]llm.Chunk{text("non")}, routeOpt(nil, 0, remote2))
+	asked := 0
+	refuse := func(event.PermissionRequestedPayload) Reply {
+		asked++
+		return Reply{}
+	}
+	for i := 0; i < 2; i++ {
+		evs, err := h.submit(t, "s_1", "salut", refuse)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if tc := lastTurn(t, evs); tc.Reason != "done" {
+			t.Fatalf("TurnCompleted %+v", tc)
+		}
+	}
+	if asked != 1 || len(h.prov.reqs()) != 0 || len(remote2.reqs()) != 2 {
+		t.Fatalf("demandes %d, remote %d, remote2 %d", asked, len(h.prov.reqs()), len(remote2.reqs()))
+	}
+}

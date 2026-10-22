@@ -168,6 +168,26 @@ type session struct {
 	// provider : identifiant du dernier fournisseur retenu (ProviderSelected),
 	// protégé par classMu.
 	provider string
+	// refused : fournisseurs dont l'accord de juridiction a été refusé dans
+	// la session (plus de demande), protégé par classMu.
+	refused map[string]bool
+}
+
+// consentRefused indique que l'accord de juridiction pour id a été refusé.
+func (s *session) consentRefused(id string) bool {
+	s.classMu.Lock()
+	defer s.classMu.Unlock()
+	return s.refused[id]
+}
+
+// refuseConsent mémorise le refus de l'accord de juridiction pour id.
+func (s *session) refuseConsent(id string) {
+	s.classMu.Lock()
+	defer s.classMu.Unlock()
+	if s.refused == nil {
+		s.refused = map[string]bool{}
+	}
+	s.refused[id] = true
 }
 
 // isSensitive indique que la session est sensible.
