@@ -136,3 +136,31 @@ func TestCanonicalSymlink(t *testing.T) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 }
+
+func TestSplitAroundSkipsSymlinkSiblings(t *testing.T) {
+	r := mkTree(t)
+	outside, _ := filepath.EvalSymlinks(t.TempDir())
+	toDenied := filepath.Join(r, "b", "lnk1")
+	toOutside := filepath.Join(r, "b", "lnk2")
+	if err := os.Symlink(filepath.Join(r, "b", "secret"), toDenied); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, toOutside); err != nil {
+		t.Fatal(err)
+	}
+	got, err := splitAround(r, []string{filepath.Join(r, "b", "secret")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(got, toDenied) || slices.Contains(got, toOutside) {
+		t.Errorf("lien voisin accordé: %v", got)
+	}
+}
+
+func TestSplitAroundRootUnderDeny(t *testing.T) {
+	r := mkTree(t)
+	got, err := splitAround(filepath.Join(r, "b"), []string{r})
+	if err != nil || len(got) != 0 {
+		t.Errorf("racine sous un interdit: %v, %v", got, err)
+	}
+}

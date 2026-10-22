@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -83,8 +84,10 @@ func Canonical(paths []string) []string {
 // splitAround renvoie les entrées à autoriser sous root pour que tout soit
 // couvert sauf deny. On descend de root jusqu'à chaque chemin interdit et on
 // ajoute chaque voisin à chaque niveau, jamais le composant interdit. Un
-// chemin interdit hors de root ou absent est ignoré ; si root lui-même est
-// interdit, le résultat est vide. Le résultat est trié, en chemins absolus.
+// chemin interdit sans rapport avec root ou absent est ignoré ; si root est
+// interdit ou se trouve sous un chemin interdit, le résultat est vide. Les
+// liens symboliques voisins ne sont jamais accordés : une règle ouverte sur un
+// lien viserait sa cible, potentiellement interdite ou hors de root. Le résultat est trié, en chemins absolus.
 func splitAround(root string, deny []string) ([]string, error) {
 	root = Canonical([]string{root})[0]
 	var denied []string
@@ -92,7 +95,7 @@ func splitAround(root string, deny []string) ([]string, error) {
 		if _, err := os.Lstat(d); err != nil {
 			continue
 		}
-		if d == root {
+		if d == root || isUnder(d, root) {
 			return nil, nil
 		}
 		if isUnder(root, d) {
@@ -118,6 +121,9 @@ func expand(dir string, denied []string, out *[]string) error {
 		return fmt.Errorf("read %s: %w", dir, err)
 	}
 	for _, e := range entries {
+		if e.Type()&fs.ModeSymlink != 0 {
+			continue
+		}
 		p := filepath.Join(dir, e.Name())
 		var inside []string
 		skip := false
