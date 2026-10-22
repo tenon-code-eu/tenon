@@ -478,3 +478,58 @@ func TestRefusedConsentRemembered(t *testing.T) {
 		t.Fatalf("demandes %d, remote %d, remote2 %d", asked, len(h.prov.reqs()), len(remote2.reqs()))
 	}
 }
+
+func TestRefusedConsentExplained(t *testing.T) {
+	jurErrors := func(evs []event.Event) []string {
+		var out []string
+		for _, e := range ofType(evs, event.Error) {
+			if p := decode[event.ErrorPayload](t, e); p.Code == "jurisdiction" {
+				out = append(out, p.Message)
+			}
+		}
+		return out
+	}
+	t.Run("no fallback", func(t *testing.T) {
+		h := newHarness(t, nonEUInfo, [][]llm.Chunk{text("non")}, routeOpt(nil, 0))
+		asked := 0
+		refuse := func(event.PermissionRequestedPayload) Reply {
+			asked++
+			return Reply{}
+		}
+		want := []string{
+			"provider openai not used: jurisdiction consent refused",
+			"provider openai not used: jurisdiction consent was refused earlier in this session",
+		}
+		for i, w := range want {
+			evs, err := h.submit(t, "s_1", "salut", refuse)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if asked != 1 {
+				t.Fatalf("tour %d : %d demandes", i+1, asked)
+			}
+			if got := jurErrors(evs); len(got) != 1 || got[0] != w {
+				t.Fatalf("tour %d : Error{jurisdiction} %q", i+1, got)
+			}
+			if tc := lastTurn(t, evs); tc.Reason != "blocked" {
+				t.Fatalf("tour %d : TurnCompleted %+v", i+1, tc)
+			}
+		}
+		if n := len(h.prov.reqs()); n != 0 {
+			t.Fatalf("%d requêtes", n)
+		}
+	})
+	t.Run("fallback", func(t *testing.T) {
+		remote2 := fake(remote2Info, text("ok"))
+		h := newHarness(t, nonEUInfo, [][]llm.Chunk{text("non")}, routeOpt(nil, 0, remote2))
+		for i := 0; i < 2; i++ {
+			evs, err := h.submit(t, "s_1", "salut", func(event.PermissionRequestedPayload) Reply { return Reply{} })
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := jurErrors(evs); len(got) != 0 {
+				t.Fatalf("Error{jurisdiction} %q", got)
+			}
+		}
+	})
+}

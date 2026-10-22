@@ -43,6 +43,9 @@ type turn struct {
 	// après l'outil en cours (ou au prochain point de contrôle de la boucle)
 	// avec cette raison.
 	stopReason string
+	// jurSkipped : messages des candidats sautés faute d'accord de
+	// juridiction pendant l'envoi en cours (remis à zéro par sendWith).
+	jurSkipped []string
 	// agent : nom de l'agent d'un sous-agent (entrée de SubagentStop).
 	agent string
 	// outer : contexte du tour qui exécute le hook, pour la requête d'un hook
@@ -393,6 +396,7 @@ func (t *turn) outboundCheck(info llm.ProviderInfo, in []llm.Message) (msgs []ll
 		// Accord déjà refusé dans cette session : candidat sauté sans
 		// nouvelle demande.
 		if t.s.consentRefused(info.ID) {
+			t.jurSkipped = append(t.jurSkipped, fmt.Sprintf("provider %s not used: jurisdiction consent was refused earlier in this session", info.ID))
 			return nil, nil, false, nil
 		}
 		p := info
@@ -402,6 +406,7 @@ func (t *turn) outboundCheck(info llm.ProviderInfo, in []llm.Message) (msgs []ll
 		}
 		if !r.Allow {
 			t.s.refuseConsent(info.ID)
+			t.jurSkipped = append(t.jurSkipped, fmt.Sprintf("provider %s not used: jurisdiction consent refused", info.ID))
 			return nil, nil, false, nil
 		}
 		d.Outbound.Consent(info.ID)
@@ -432,6 +437,7 @@ func (t *turn) sendWith(req llm.Request, deltas bool, prep prepFunc) (text strin
 		return "", nil, nil, errors.New("no provider")
 	}
 	stop := t.stopReason
+	t.jurSkipped = nil
 	tried := map[string]bool{}
 	var failed error // dernière erreur réessayable de cet envoi
 	for {
@@ -507,6 +513,13 @@ func (t *turn) sendWith(req llm.Request, deltas bool, prep prepFunc) (text strin
 	}
 	if failed != nil {
 		return "", nil, failed, nil
+	}
+	// Aucun envoi : un candidat sauté faute d'accord de juridiction est
+	// expliqué (le refus seul n'émet rien d'autre).
+	for _, msg := range t.jurSkipped {
+		if err := t.emit(event.Error, event.ErrorPayload{Code: "jurisdiction", Message: msg}); err != nil {
+			return "", nil, nil, err
+		}
 	}
 	return "", nil, errNotSent, nil
 }
