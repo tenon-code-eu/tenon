@@ -7,7 +7,7 @@ A version that fails an item is not published.
 ## 1. Before the tag
 
 - [ ] The branch to release is up to date and the CI is green (`make ci`, `make repro-check`).
-- [ ] Go = latest 1.26.x patch release: the release machine and the CI images (`golang:1.26.N` in `.github/workflows/ci.yml`, `.forgejo/workflows/ci.yml` and `.woodpecker.yml`) use the latest published Go 1.26 patch release (≥ 1.26.9 as of 2026-10-15). `govulncheck` reports the standard library vulnerabilities of earlier patch releases.
+- [ ] Go = latest 1.26.x patch release: the release machine and the CI images (`golang:1.26.N` in `.github/workflows/ci.yml`, `.forgejo/workflows/ci.yml` and `.woodpecker.yml`) use the latest published Go 1.26 patch release (≥ 1.26.10 as of 2026-10-22). `govulncheck` reports the standard library vulnerabilities of earlier patch releases.
 - [ ] The package maintainer (`maintainer` in `packaging/nfpm.yaml`) is the real name and a real contact address, not the placeholder value "Projet tenon <noreply@digicactus.com>".
 - [ ] `GOFLAGS=-mod=vendor go test -race ./...` passes locally.
 - [ ] `LICENSE` is the official English text of the EUPL-1.2 published by the European Commission. Source and date of the comparison recorded in the [Verified sources](#verified-sources) section.
@@ -23,7 +23,7 @@ A version that fails an item is not published.
 ## 2. Build
 
 - [ ] Create the annotated tag: `git tag -a vX.Y.Z -m "tenon vX.Y.Z"`. A lightweight tag is refused. For a dry run, create a throwaway annotated tag the same way (`git tag -a v0.0.0-test -m essai`) in a clone, with `ALLOW_VULN=1`.
-- [ ] Run `make release VERSION=vX.Y.Z` from a clean tree, with the latest published Go 1.26 patch release (≥ 1.26.9 as of 2026-10-15). The target first runs `make vuln`: if `govulncheck` fails, the release stops.
+- [ ] Run `make release VERSION=vX.Y.Z` from a clean tree, with the latest published Go 1.26 patch release (≥ 1.26.10 as of 2026-10-22). The target first runs `make vuln`: if `govulncheck` fails, the release stops.
 - [ ] **Never** use `ALLOW_VULN=1` for a real release. This variable is only for local tests: it skips `make vuln`, writes `dist/UNSAFE-DRY-RUN`, and the script then refuses to sign. A `dist/` that contains this file is not published.
 - [ ] Archives: generated with GNU tar if `tar` or `gtar` is GNU, otherwise with bsdtar (macOS) from a staging directory with fixed dates. Both paths are deterministic, but their bytes can differ: publish the archives of a single machine, and redo the reproducibility check with the same tool. gzip implementations also differ: publish from a single documented environment (system, tar and gzip versions).
 - [ ] Check in `dist/`:

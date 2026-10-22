@@ -1,7 +1,7 @@
 # CI Forgejo Actions (Codeberg ou instance auto-hébergée).
 # L'image golang vient de Docker Hub ; un miroir de registre européen peut la
-# remplacer (par exemple registry.example.eu/golang:1.26.9).
-# golang:1.26.9 est épinglée au dernier correctif de Go 1.26 (govulncheck
+# remplacer (par exemple registry.example.eu/golang:1.26.10).
+# golang:1.26.10 est épinglée au dernier correctif de Go 1.26 (govulncheck
 # signale des failles de la bibliothèque standard dans les versions
 # antérieures) : à relever à chaque correctif de Go.
 name: ci
@@ -12,7 +12,7 @@ on:
 jobs:
   build:
     runs-on: docker
-    container: golang:1.26.9 # à relever à chaque correctif de Go
+    container: golang:1.26.10 # à relever à chaque correctif de Go
     env:
       GOPROXY: direct
       GOSUMDB: sum.golang.org

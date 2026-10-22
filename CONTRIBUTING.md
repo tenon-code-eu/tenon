@@ -11,7 +11,7 @@ Contributions are accepted in English or in French.
 
 ## Environment
 
-- Go: latest Go 1.26 patch release (≥ 1.26.9).
+- Go: latest Go 1.26 patch release (≥ 1.26.10).
 - The dependencies are vendored: build with `GOFLAGS=-mod=vendor`.
 - Linux or macOS.
 

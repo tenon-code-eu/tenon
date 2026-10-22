@@ -2,7 +2,7 @@
 # Mêmes étapes que .forgejo/workflows/ci.yml et .woodpecker.yml.
 # Aucune action tierce (`uses:`) : le dépôt est récupéré par git dans le
 # conteneur, avec le jeton du job en lecture seule.
-# L'image golang vient de Docker Hub ; golang:1.26.9 est épinglée au dernier
+# L'image golang vient de Docker Hub ; golang:1.26.10 est épinglée au dernier
 # correctif de Go 1.26 (govulncheck signale des failles de la bibliothèque
 # standard dans les versions antérieures) : à relever à chaque correctif de Go.
 name: ci
@@ -16,7 +16,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-24.04
-    container: golang:1.26.9 # à relever à chaque correctif de Go
+    container: golang:1.26.10 # à relever à chaque correctif de Go
     env:
       GOPROXY: direct
       GOSUMDB: sum.golang.org

@@ -85,7 +85,7 @@ sudo dnf install ./tenon_*.rpm   # Fedora, RHEL
 
 ### From source
 
-You need Go 1.26 or later. Use the latest Go 1.26 patch release (≥ 1.26.9 as of 2026-10-15): earlier ones have known vulnerabilities in the standard library.
+You need Go 1.26 or later. Use the latest Go 1.26 patch release (≥ 1.26.10 as of 2026-10-22): earlier ones have known vulnerabilities in the standard library.
 The dependencies are included in the repository: no module proxy is contacted.
 
 ```
