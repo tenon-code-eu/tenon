@@ -334,3 +334,48 @@ func TestSandboxStrictLocalRequired(t *testing.T) {
 		t.Fatalf("%d requête(s)", n)
 	}
 }
+
+// R14 : un --config explicite hors du projet est interdit (le fichier seul) ;
+// dans le projet, ou au chemin par défaut, il ne l'est pas.
+func TestSandboxConfigDeny(t *testing.T) {
+	wd := t.TempDir()
+	getenv := func(k string) string { return map[string]string{"XDG_CONFIG_HOME": "/x"}[k] }
+	out := filepath.Join(t.TempDir(), "ci.toml")
+	if got := configDeny(out, wd, getenv); len(got) != 1 || got[0] != out {
+		t.Fatalf("hors projet : %v", got)
+	}
+	for _, p := range []string{filepath.Join(wd, "ci", "tenon.toml"), "/x/tenon/config.toml", ""} {
+		if got := configDeny(p, wd, getenv); got != nil {
+			t.Fatalf("%q : %v", p, got)
+		}
+	}
+	// Chemin du projet par un lien symbolique : comparaison canonique.
+	link := filepath.Join(t.TempDir(), "lien")
+	if err := os.Symlink(wd, link); err != nil {
+		t.Fatal(err)
+	}
+	if got := configDeny(filepath.Join(link, "ci.toml"), wd, getenv); got != nil {
+		t.Fatalf("lien : %v", got)
+	}
+}
+
+// Isolation réelle : le fichier --config hors du projet n'est pas lisible.
+func TestSandboxRealConfigDeny(t *testing.T) {
+	if st := sandbox.Probe(); !st.Available {
+		t.Skipf("isolation indisponible : %s", st.Reason)
+	}
+	withProbe(t, sandbox.Probe())
+	sandboxNotices = false
+	e := newEnv(t, nil, "eu")
+	f := newFakeLLM(t, nil, sseText("fini"))
+	p := altConfig(e, f, allowRule("shell"))
+	f.script[0] = sseCall("shell", `{"command":"cat `+p+`"}`)
+	code, out, errb := e.run("--config", p, "-p", "lis", "--output", "json")
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, errb)
+	}
+	res := shellResults(t, out)
+	if len(res) != 1 || !res[0].IsError || strings.Contains(res[0].Content, "default_provider") || res[0].Sandbox == nil || !res[0].Sandbox.Confined {
+		t.Fatalf("résultats shell : %+v", res)
+	}
+}

@@ -951,6 +951,11 @@ func startEngine(o engineOptions) (started, error) {
 		return started{}, err
 	}
 	startNotices = append(startNotices, sbNotices...)
+	if sbSpec != nil {
+		// --config hors du projet : une commande confinée ne doit ni le lire
+		// ni le réécrire (mode off au lancement suivant).
+		sbSpec.DenyRead = append(sbSpec.DenyRead, configDeny(o.globalPath, wd, getenv)...)
+	}
 	// Isolation sans coupure réseau : le journal déclare le réseau ouvert.
 	sbNetOpen := sbSpec != nil && sbInfo.Network == "none"
 	pc, detectNotices, err := detectLocal(o.ctx, lang, pc, providerNoProxy(cfg.Profile, pc))

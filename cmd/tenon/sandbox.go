@@ -134,6 +134,44 @@ func sandboxPaths(getenv func(string) string) (home, configDir, dataDir, policyP
 	return getenv("HOME"), filepath.Dir(config.GlobalPath(getenv)), config.DataDir(getenv), policyPath
 }
 
+// configDeny renvoie le fichier de configuration explicite (--config)
+// globalPath à interdire aux commandes : seulement s'il diffère du chemin par
+// défaut (dont le dossier est déjà interdit) et se trouve hors du projet wd
+// (chemins canoniques). Un fichier du projet est versionné ; l'interdire
+// bloquerait sous Linux la création de fichiers dans ses dossiers parents.
+// Le fichier seul est interdit, jamais son dossier.
+func configDeny(globalPath, wd string, getenv func(string) string) []string {
+	if globalPath == "" || globalPath == config.GlobalPath(getenv) {
+		return nil
+	}
+	abs, err := filepath.Abs(globalPath)
+	if err != nil {
+		return nil
+	}
+	if rel, err := filepath.Rel(canonicalPath(wd), canonicalPath(abs)); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return nil
+	}
+	return []string{abs}
+}
+
+// canonicalPath résout les liens symboliques du plus long préfixe existant de
+// p (absolu) : un fichier encore absent garde le chemin réel de ses parents.
+func canonicalPath(p string) string {
+	p = filepath.Clean(p)
+	var rest []string
+	for {
+		if r, err := filepath.EvalSymlinks(p); err == nil {
+			return filepath.Join(append([]string{r}, rest...)...)
+		}
+		parent := filepath.Dir(p)
+		if parent == p {
+			return filepath.Join(append([]string{p}, rest...)...)
+		}
+		rest = append([]string{filepath.Base(p)}, rest...)
+		p = parent
+	}
+}
+
 // mcpSandboxSpec dérive de la Spec du shell celle de base des serveurs MCP
 // stdio : sans le projet, rendu inscriptible selon le risk de chaque serveur.
 func mcpSandboxSpec(spec *sandbox.Spec, wd string) *sandbox.Spec {
