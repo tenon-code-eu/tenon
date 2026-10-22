@@ -42,7 +42,7 @@ Conséquences dans tenon :
 - Chaque appel d'outil passe par le moteur de permissions avant exécution.
 - Par défaut, seule la lecture dans le projet est autorisée sans demande. Lire `.env*`, `*.pem` ou `id_rsa*`, ou accéder hors du projet, demande toujours une validation.
 - Une règle `deny` l'emporte toujours. Sur un chemin, elle s'applique aussi à la forme avant résolution des liens symboliques, sans tenir compte de la casse.
-- Un dépôt ne peut pas assouplir les règles : sa configuration ne peut contenir ni règle `allow`, ni fournisseur, ni serveur MCP.
+- Un dépôt ne peut pas assouplir les règles : sa configuration ne peut contenir ni règle `allow`, ni fournisseur, ni serveur MCP, et qu'elle ne peut ni désactiver l'isolation ni accorder le réseau à une règle.
 - En mode non interactif, toute demande de validation devient un refus.
 - Dans l'interface interactive, la validation exige un délai de calme de 500 ms, une commande entière visible et au moins 40 colonnes (voir [utilisation.md](utilisation.md#valider-une-action)).
 
@@ -68,6 +68,13 @@ Conséquences dans tenon :
 - Avec `--details`, les fichiers contiennent des données de conversation (prompts et commandes en entier ; réponses, arguments et résultats d'outils coupés à 500 caractères). Conservez-les et partagez-les comme le journal lui-même. Le HTML affiche un bandeau quand elles sont incluses.
 - `report_id` et `html_sha256` détectent une modification accidentelle ; ils n'arrêtent pas qui réécrit les deux fichiers. Voir [utilisation.md](utilisation.md#vérifier-lintégrité-dun-rapport).
 
+### Isolation système
+
+- Les commandes shell et les serveurs MCP stdio sont confinés par le système : écritures limitées au projet, aux temporaires et aux caches ; liste intégrée de secrets illisibles ; réseau fermé (Landlock et espaces de noms sous Linux, `sandbox-exec` sous macOS).
+- Modes `auto` (défaut), `required` et `off`. Le mode effectif est le plus strict de la configuration globale, du projet, de la politique et du profil ; un projet ou une politique ne peut jamais produire `off`. `strict-local` impose `required`.
+- Les variables de secrets (`api_key_env`, `bearer_env`, `env_from`) n'atteignent jamais une commande, dans tous les modes.
+- La façon dont chaque commande s'est exécutée est dans le journal d'audit (`ToolResult.sandbox`) et l'export de conformité. Voir [L'isolation système et ses limites](#lisolation-système-et-ses-limites) pour ce qui reste ouvert.
+
 ### Profils de conformité
 
 - Avec `profile = "eu-only"`, `"secnumcloud"` ou `"strict-local"` (configuration globale ; un projet ne peut que le durcir), le fournisseur sélectionné et les serveurs MCP doivent respecter le profil, et `--allow-non-eu` est refusé.
@@ -75,14 +82,14 @@ Conséquences dans tenon :
 - Le profil est enregistré dans `SessionStarted` et listé dans l'export de conformité.
 - Sous `strict-local`, les requêtes au fournisseur (détection du modèle local comprise) et aux serveurs MCP `http` ignorent les variables d'environnement de proxy (`HTTP_PROXY`, `HTTPS_PROXY`) : une adresse privée acceptée par le profil ne passe jamais par un proxy. Sous `secnumcloud`, il en va de même pour un fournisseur local (détection du modèle local comprise) ; le gestionnaire MCP ignore les variables de proxy sous `strict-local` et `secnumcloud`.
 - `secnumcloud` accepte un destinataire local, ou un destinataire `eu` **déclaré** qualifié `secnumcloud`. tenon ne vérifie jamais une qualification : la qualification SecNumCloud est une certification ANSSI d'un service, pas une propriété technique. tenon trace qui l'a déclarée (`qualifications` dans `SessionStarted.provider` et dans l'export de conformité). Les préréglages n'en déclarent aucune.
-- Un profil borne les données envoyées au modèle et aux serveurs MCP. Il ne restreint **pas** les commandes shell ni les programmes MCP stdio, qui peuvent toujours accéder au réseau, et il ne change ni les permissions, ni le niveau d'audit, ni les hooks. Voir [utilisation.md](utilisation.md#profils-de-conformité).
+- Un profil borne les données envoyées au modèle et aux serveurs MCP. Il ne restreint **pas** ce que les commandes shell et les programmes MCP stdio envoient par le réseau (l'[isolation](#lisolation-système-et-ses-limites) le ferme par défaut, et `strict-local` la rend obligatoire), et il ne change ni les permissions, ni le niveau d'audit, ni les hooks. Voir [utilisation.md](utilisation.md#profils-de-conformité).
 
 ### Liste blanche de fournisseurs
 
 - `[provider_allowlist]` (`hosts`, `local`) dans la configuration globale, et éventuellement dans `.tenon/config.toml`, restreint les hôtes qu'un fournisseur peut utiliser, pour qui n'a pas de politique d'organisation. Toutes les listes présentes (politique, globale, projet) doivent accepter l'hôte du fournisseur : un projet ne peut que restreindre.
 - Elle est contrôlée au démarrage, avant tout contact, puis avant chaque envoi (événement `Error`, `code: "allowlist"`, tour `blocked`). `--allow-non-eu` ne la lève pas.
 - Message au démarrage : `fournisseur « <id> » (hôte « <h> ») absent de provider_allowlist (<globale|projet>)` (code de sortie 1).
-- Elle ne s'applique pas aux serveurs MCP, et ne restreint ni les commandes shell ni les programmes MCP stdio. Voir [utilisation.md](utilisation.md#liste-blanche-de-fournisseurs).
+- Elle ne s'applique pas aux serveurs MCP, et ne restreint ni les commandes shell ni les programmes MCP stdio (l'[isolation](#lisolation-système-et-ses-limites) ferme leur réseau par défaut). Voir [utilisation.md](utilisation.md#liste-blanche-de-fournisseurs).
 
 ### Politique d'organisation
 
@@ -92,17 +99,29 @@ Conséquences dans tenon :
 - La politique (id, version, identifiant de clé) est enregistrée dans `SessionStarted` et listée dans l'export de conformité.
 - Les qualifications déclarées dans la configuration utilisateur (fournisseurs et serveurs MCP) sont ignorées sous une politique, avec un avis ; seules celles de `providers.define` comptent : un utilisateur ne peut pas s'auto-qualifier pour franchir un profil `secnumcloud`.
 - `TENON_POLICY_DIR` n'est lue que sans politique système : elle ne peut ni en retirer ni en remplacer une. Un utilisateur qui peut y écrire ne peut qu'ajouter une politique signée par une clé qu'il fournit, ce qui le restreint davantage.
-- Les règles de permissions s'appliquent aux commandes shell, mais la liste blanche d'hôtes des fournisseurs ne restreint pas les accès réseau faits par les commandes shell ou les programmes MCP stdio, et un administrateur de la machine peut la retirer. Voir [politique.md](politique.md).
+- Les règles de permissions s'appliquent aux commandes shell, mais la liste blanche d'hôtes des fournisseurs ne restreint pas les accès réseau faits par les commandes shell ou les programmes MCP stdio (la politique peut exiger l'isolation, qui le ferme par défaut), et un administrateur de la machine peut la retirer. Voir [politique.md](politique.md).
 
 ## Limites connues
 
-### Les permissions ne sont pas un bac à sable
+### L'isolation système et ses limites
 
-Une commande shell autorisée s'exécute **avec vos droits**, dans le dossier du projet.
-Elle peut lire, modifier ou envoyer tout ce que vous pouvez lire, modifier ou envoyer.
-Une règle `allow` large (`tool = "shell"`, `match = "*"`) donne ce pouvoir au modèle sans validation.
-Il en va de même pour un serveur MCP stdio : c'est un programme lancé avec vos droits.
-L'isolation système n'existe pas dans cette version.
+Les permissions décident si une commande s'exécute. L'isolation système (voir [utilisation.md](utilisation.md#isolation-système)) limite ce qu'une commande shell ou un serveur MCP stdio peut faire une fois lancé. Elle est active par défaut (`mode = "auto"`).
+
+**Modèle de menace.** Sans isolation, une commande approuvée, ou couverte par une règle `allow` large (`tool = "shell"`, `match = "*"`), écrit partout où vous le pouvez, lit vos secrets et les envoie par le réseau. L'isolation couvre trois choses : les écritures hors du projet, des temporaires et des caches ; la lecture des secrets listés (`~/.ssh`, `~/.aws`, les dossiers de configuration et de données de tenon, `deny_read`…) ; le réseau, fermé sauf si une règle ou votre réponse l'ouvre. Les variables qui portent des secrets connus de tenon (`api_key_env`, `bearer_env`, `env_from`) sont retirées de l'environnement des commandes dans tous les modes.
+
+**Ce qui reste ouvert.**
+
+- Les lectures ailleurs : une commande lit tout ce que vous pouvez lire, sauf les chemins listés. Un secret gardé dans un fichier non listé est lisible.
+- Si l'isolation est indisponible et que le mode est `auto`, les commandes s'exécutent sans isolation, avec une notice. Utilisez `required` pour refuser ; `strict-local` l'impose.
+- Linux, Landlock : les noms contenus dans un dossier interdit peuvent être listés (le contenu ne peut pas être lu). Un fichier ne peut pas être créé, supprimé ni renommé directement dans un dossier qui contient une entrée interdite, ni dans ses ancêtres jusqu'à la racine inscriptible (exemple : `deny_read = ["<projet>/secrets"]` bloque les nouveaux fichiers directement à la racine du projet ; un fichier `--config` sous `/tmp` bloque les nouveaux fichiers directement dans `/tmp`). Les entrées créées après le lancement dans des dossiers non inscriptibles ne sont pas lisibles.
+- Linux, sockets Unix : confinés seulement avec Landlock ABI 9 ou plus. Sur un noyau plus ancien, un socket accessible par son chemin (par exemple `/var/run/docker.sock`) reste connectable ; tenon affiche `sandbox: Unix sockets not confined (Landlock ABI < 9): <chemin> reachable`. Pour un utilisateur du groupe `docker`, ce socket donne root sur la machine.
+- Linux, repli TCP (espaces de noms utilisateur indisponibles : profil seccomp par défaut de Docker, restriction AppArmor d'Ubuntu) : UDP reste ouvert, donc DNS et autre trafic UDP peuvent sortir. Les sockets Unix abstraits sont cloisonnés (ABI 6 ou plus). L'isolation complète exige `CLONE_NEWUSER|CLONE_NEWNET`.
+- macOS : `sandbox-exec` est déprécié par Apple, mais fonctionne. `(deny network*)` couvre aussi les sockets Unix.
+- Les hooks et le marquage git ne sont pas confinés.
+- Un serveur MCP stdio est confiné selon son `risk` ; son dossier de travail `$HOME` n'est pas inscriptible. Un serveur déclaré `risk = "network"` a le réseau.
+- Une commande qui reçoit le réseau (règle `network = true`, ou « Autoriser avec réseau ») peut envoyer tout ce qu'elle peut lire. « Oui pour la session » ne mémorise jamais le réseau.
+- Un fichier `--config` explicite hors du projet est interdit aux commandes (lecture et écriture). Dans le projet il ne l'est pas : il est versionné.
+- Seccomp, limites de ressources, espaces de noms PID et montage, filtre d'hôtes réseau et Windows ne sont pas couverts.
 
 ### Les skills de projet ne sont pas dignes de confiance
 

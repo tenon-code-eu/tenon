@@ -824,3 +824,45 @@ func TestBuildTimestamps(t *testing.T) {
 		t.Fatalf("got %+v want %+v", got, want)
 	}
 }
+
+func TestExportSandbox(t *testing.T) {
+	b := newLog(t)
+	b.add("s1", event.SessionStarted, event.SessionStartedPayload{
+		Provider: provEU, ProjectRoot: "/p",
+		Sandbox: &event.SandboxInfo{Mode: "auto", Mechanism: "landlock", Network: "tcp"},
+	})
+	for _, u := range []event.SandboxUse{{Confined: true, Network: false}, {Confined: true, Network: true}, {Confined: false, Network: true}} {
+		u := u
+		b.add("s1", event.ToolResult, event.ToolResultPayload{Tool: "shell", Content: "ok", Sandbox: &u})
+	}
+	// Un autre outil ou une session sans sandbox ne comptent pas.
+	b.add("s1", event.ToolResult, event.ToolResultPayload{Tool: "read", Content: "ok"})
+	b.start("s2", provEU)
+	b.add("s2", event.ToolResult, event.ToolResultPayload{Tool: "shell", Content: "ok", Sandbox: &event.SandboxUse{Confined: false, Network: true}})
+	r := Build(b.dataset(), opts())
+	want := []SessionSandbox{{Session: "s1", Mode: "auto", Mechanism: "landlock", Network: "tcp", Unconfined: 1, WithNetwork: 1}}
+	if !reflect.DeepEqual(r.Sandbox, want) {
+		t.Fatalf("sandbox %+v", r.Sandbox)
+	}
+	out, err := json.Marshal(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), `"sandbox":[{"session":"s1","mode":"auto","mechanism":"landlock","network":"tcp","unconfined":1,"with_network":1}]`) {
+		t.Fatalf("JSON: %s", out)
+	}
+}
+
+func TestExportSandboxAbsent(t *testing.T) {
+	b := newLog(t)
+	b.start("s", provEU)
+	b.add("s", event.ToolResult, event.ToolResultPayload{Tool: "shell", Content: "ok"})
+	r := Build(b.dataset(), opts())
+	out, err := json.Marshal(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Sandbox) != 0 || strings.Contains(string(out), `"sandbox"`) {
+		t.Fatalf("sandbox %+v / %s", r.Sandbox, out)
+	}
+}

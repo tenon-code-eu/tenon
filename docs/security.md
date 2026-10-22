@@ -40,7 +40,7 @@ Consequences in tenon:
 - Each tool call goes through the permission engine before it runs.
 - By default, only reads inside the project are allowed without a request. Reading `.env*`, `*.pem` or `id_rsa*`, or any access outside the project, always requests an approval.
 - A `deny` rule always wins. On a path, it also applies to the form before symbolic links are resolved, and it ignores case.
-- A repository cannot relax the rules: its configuration can contain no `allow` rule, no provider and no MCP server.
+- A repository cannot relax the rules: its configuration can contain no `allow` rule, no provider and no MCP server, and it cannot turn the sandbox off or grant network to a rule.
 - In non-interactive mode, every approval request becomes a denial.
 - In the interactive interface, approval requires a quiet period of 500 ms, a fully visible command and at least 40 columns (see [usage.md](usage.md#approve-an-action)).
 
@@ -66,6 +66,13 @@ Consequences in tenon:
 - With `--details`, the files contain conversation data (prompts and commands in full; responses, tool arguments and tool results cut to 500 characters). Store and share them like the log itself. The HTML shows a banner when they are included.
 - `report_id` and `html_sha256` detect an accidental change; they do not stop someone who rewrites both files. See [usage.md](usage.md#check-the-integrity-of-a-report).
 
+### System sandbox
+
+- Shell commands and stdio MCP servers are confined by the system: writes limited to the project, temporary files and caches; a built-in list of secrets unreadable; network closed (Landlock and user namespaces on Linux, `sandbox-exec` on macOS).
+- Modes `auto` (default), `required` and `off`. The effective mode is the strictest of global, project, policy and profile; a project or a policy can never produce `off`. `strict-local` implies `required`.
+- Secret variables (`api_key_env`, `bearer_env`, `env_from`) never reach a command, in every mode.
+- How each command ran is in the audit log (`ToolResult.sandbox`) and the compliance export. See [The sandbox and its limits](#the-sandbox-and-its-limits) for what stays open.
+
 ### Compliance profiles
 
 - With `profile = "eu-only"`, `"secnumcloud"` or `"strict-local"` (global configuration; a project can only tighten it), the selected provider and the MCP servers must meet the profile, and `--allow-non-eu` is refused.
@@ -73,14 +80,14 @@ Consequences in tenon:
 - The profile is recorded in `SessionStarted` and listed in the compliance export.
 - Under `strict-local`, the requests to the provider (local model detection included) and to the MCP `http` servers ignore the proxy environment variables (`HTTP_PROXY`, `HTTPS_PROXY`): a private address accepted by the profile never goes through a proxy. Under `secnumcloud`, the same holds for a local provider (local model detection included); the MCP manager ignores the proxy variables under `strict-local` and `secnumcloud`.
 - `secnumcloud` accepts a local recipient, or an `eu` recipient **declared** `secnumcloud`-qualified. tenon never verifies a qualification: a SecNumCloud qualification is an ANSSI certification of a service, not a technical property. tenon records who declared it (`qualifications` in `SessionStarted.provider` and in the compliance export). Presets declare none.
-- A profile bounds the data sent to the model and to MCP servers. It does **not** restrict shell commands or stdio MCP programs, which can still reach the network, and it does not change permissions, audit level or hooks. See [usage.md](usage.md#compliance-profiles).
+- A profile bounds the data sent to the model and to MCP servers. It does **not** restrict what shell commands or stdio MCP programs send over the network (the [sandbox](#the-sandbox-and-its-limits) closes their network by default, and `strict-local` makes it mandatory), and it does not change permissions, audit level or hooks. See [usage.md](usage.md#compliance-profiles).
 
 ### Provider allowlist
 
 - `[provider_allowlist]` (`hosts`, `local`) in the global configuration, and optionally in `.tenon/config.toml`, restricts the hosts a provider may use, for users without an organisation policy. Every list present (policy, global, project) must accept the provider host: a project can only restrict further.
 - It is checked at startup, before anything is contacted, and again before each send (`Error` event, `code: "allowlist"`, turn `blocked`). `--allow-non-eu` does not lift it.
 - Startup message: `provider "<id>" (host "<h>") not in provider_allowlist (<global|project>)` (exit code 1).
-- It does not apply to MCP servers, and it does not restrict shell commands or stdio MCP programs. See [usage.md](usage.md#provider-allowlist).
+- It does not apply to MCP servers, and it does not restrict shell commands or stdio MCP programs (the [sandbox](#the-sandbox-and-its-limits) closes their network by default). See [usage.md](usage.md#provider-allowlist).
 
 ### Organisation policy
 
@@ -90,17 +97,29 @@ Consequences in tenon:
 - The policy (id, version, key id) is recorded in `SessionStarted` and listed in the compliance export.
 - Qualifications declared in user configuration (providers and MCP servers) are ignored under a policy, with a notice; only those of `providers.define` count, so a user cannot self-qualify to get past a `secnumcloud` profile.
 - `TENON_POLICY_DIR` is read only when no system policy exists: it cannot remove or replace one. A user who can write there can only add a policy signed by a key they provide, which restricts them further.
-- Permission rules apply to shell commands, but the provider host allowlist does not restrict the network access made by shell commands or stdio MCP programs, and an administrator of the machine can remove it. See [policy.md](policy.md).
+- Permission rules apply to shell commands, but the provider host allowlist does not restrict the network access made by shell commands or stdio MCP programs (the policy can require the sandbox, which closes it by default), and an administrator of the machine can remove it. See [policy.md](policy.md).
 
 ## Known limits
 
-### Permissions are not a sandbox
+### The sandbox and its limits
 
-An approved shell command runs **with your permissions**, in the project directory.
-It can read, modify or send everything that you can read, modify or send.
-A broad `allow` rule (`tool = "shell"`, `match = "*"`) gives this power to the model without approval.
-The same applies to a stdio MCP server: it is a program that runs with your permissions.
-This version has no system isolation.
+Permissions decide whether a command runs. The system sandbox (see [usage.md](usage.md#system-sandbox)) limits what a shell command or a stdio MCP server can do once it runs. It is on by default (`mode = "auto"`).
+
+**Threat model.** Without a sandbox, an approved command, or one covered by a broad `allow` rule (`tool = "shell"`, `match = "*"`), writes anywhere you can, reads your secrets and sends them over the network. The sandbox covers three things: writes outside the project, temporary files and caches; reads of the listed secrets (`~/.ssh`, `~/.aws`, the tenon configuration and data directories, `deny_read`…); the network, closed unless a rule or your answer opens it. Variables that carry secrets known to tenon (`api_key_env`, `bearer_env`, `env_from`) are removed from the environment of commands in every mode.
+
+**What stays open.**
+
+- Reads elsewhere: a command reads everything you can read, except the listed paths. A secret kept in a file that is not listed is readable.
+- If the sandbox is unavailable and the mode is `auto`, commands run unconfined, with a notice. Use `required` to refuse instead; `strict-local` implies it.
+- Linux, Landlock: names inside a denied directory can be listed (the contents cannot be read). A file cannot be created, removed or renamed directly in a directory that contains a denied entry, nor in its ancestors up to the writable root (example: `deny_read = ["<project>/secrets"]` blocks new files directly at the project root; a `--config` file under `/tmp` blocks new files directly in `/tmp`). Entries created after launch in non-writable directories are not readable.
+- Linux, Unix sockets: confined only with Landlock ABI 9 or later. On an older kernel a socket reachable by path (for example `/var/run/docker.sock`) stays connectable; tenon prints `sandbox: Unix sockets not confined (Landlock ABI < 9): <path> reachable`. For a user of the `docker` group, that socket gives root on the host.
+- Linux, TCP fallback (user namespaces unavailable: Docker default seccomp profile, Ubuntu AppArmor restriction): UDP stays open, so DNS and other UDP traffic can leave. Abstract Unix sockets are scoped (ABI 6 or later). Full isolation needs `CLONE_NEWUSER|CLONE_NEWNET`.
+- macOS: `sandbox-exec` is deprecated by Apple, but it works. `(deny network*)` also covers Unix sockets.
+- Hooks and git marking are not confined.
+- A stdio MCP server is confined by its `risk`; its working directory `$HOME` is not writable. A server declared `risk = "network"` has the network.
+- A command granted network (rule `network = true`, or "Allow with network") can send anything it can read. "Yes for the session" never remembers the network.
+- An explicit `--config` file outside the project is denied to commands (read and write). Inside the project it is not: it is versioned.
+- Seccomp, resource limits, PID and mount namespaces, a network host filter and Windows are not covered.
 
 ### Project skills are untrusted content
 

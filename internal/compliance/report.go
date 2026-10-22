@@ -63,6 +63,22 @@ type Report struct {
 	Mapping                  []MappingRow      `json:"regulatory_mapping"`
 	GitHint                  string            `json:"git_marking_hint"`
 	Timeline                 []SessionTimeline `json:"timeline,omitempty"`
+	// Sandbox : isolation des commandes par session ; omis si aucun journal
+	// de la plage n'en porte (journaux antérieurs au sandbox).
+	Sandbox []SessionSandbox `json:"sandbox,omitempty"`
+}
+
+// SessionSandbox résume l'isolation des commandes shell d'une session.
+// Unconfined compte les résultats shell non confinés ; WithNetwork compte les
+// résultats shell confinés qui avaient le réseau (les deux compteurs ne se
+// recouvrent donc jamais).
+type SessionSandbox struct {
+	Session     string `json:"session"`
+	Mode        string `json:"mode"`
+	Mechanism   string `json:"mechanism"`
+	Network     string `json:"network"`
+	Unconfined  int    `json:"unconfined"`
+	WithNetwork int    `json:"with_network"`
 }
 
 // Period est la période couverte, bornes incluses, au format YYYY-MM-DD.

@@ -18,6 +18,7 @@ Pour un exemple de configuration commenté, voir [config.example.toml](../config
 - [Sous-agents](#sous-agents)
 - [Hooks](#hooks)
 - [Points de restauration](#points-de-restauration)
+- [Isolation système](#isolation-système)
 - [Fournisseurs et juridictions](#fournisseurs-et-juridictions)
 - [Profils de conformité](#profils-de-conformité)
 - [Clés d'API et trousseau](#clés-dapi-et-trousseau)
@@ -127,6 +128,8 @@ Il montre l'outil, la commande complète ou les chemins, et un aperçu du change
 | Oui pour la session | `s` | `a` |
 | Non | `n` | `n` |
 
+Pour une commande shell qui s'exécutera isolée, le panneau propose aussi « Autoriser avec réseau » (`r` en français, `w` en anglais) ; « Oui pour la session » ne mémorise jamais le réseau. Voir [Isolation système](#isolation-système).
+
 Échap refuse aussi la demande.
 Ctrl+C refuse toutes les demandes en attente, puis agit comme d'habitude.
 
@@ -154,7 +157,7 @@ La commande et les chemins sont affichés de façon à ce qu'aucun caractère ne
 - Un `[` suivi de `U+` ou `0x` dans le texte d'origine est écrit `[U+005B]`.
 - Une suite d'au moins 3 lignes vides devient `⏎ × N` quand la commande ne tient pas à l'écran ; la demande ne peut alors pas être acceptée.
 
-Pour une commande shell, le panneau rappelle qu'une commande autorisée s'exécute avec vos droits, sans bac à sable.
+Pour une commande shell, le panneau indique si la commande s'exécute isolée ou, sans isolation active, rappelle qu'une commande autorisée s'exécute avec vos droits.
 Si la commande contient un caractère non ASCII, un avertissement s'affiche.
 Pour un outil MCP, le panneau indique le serveur, son pays et sa juridiction.
 
@@ -254,7 +257,8 @@ Un dépôt peut être hostile. Sa configuration est donc limitée à :
 - `lang` ;
 - des règles de permission `deny` et `ask` ;
 - des règles de masquage `[[redaction.rules]]` ;
-- `profile` et `provider_allowlist` : tous deux en restriction seule (le projet peut relever le profil ou réduire la liste blanche, jamais les assouplir).
+- `profile` et `provider_allowlist` : tous deux en restriction seule (le projet peut relever le profil ou réduire la liste blanche, jamais les assouplir) ;
+- `[sandbox]` : seulement `mode = "required"` et `deny_read` (voir [Isolation système](#isolation-système)).
 
 Les erreurs du fichier projet sont préfixées par `project config:`.
 
@@ -263,7 +267,8 @@ Elle **ne peut pas** :
 - ajouter une règle `allow` (le chargement échoue) ;
 - choisir ou déclarer un fournisseur ;
 - déclarer un serveur MCP ;
-- changer le niveau d'audit, les délais ou les limites.
+- changer le niveau d'audit, les délais ou les limites ;
+- désactiver l'isolation, ajouter des chemins inscriptibles (`write`) ou accorder le réseau à une règle (`network = true`).
 
 Les règles du projet s'ajoutent aux règles globales.
 Une règle `deny` du projet bloque toujours l'appel.
@@ -313,7 +318,7 @@ match = "*secrets/*"    # toute commande qui cite secrets/
 decision = "deny"
 ```
 
-Même ainsi, `cd secrets && cat k` ou `cat secr*/k` passent : les permissions filtrent des appels, elles ne sont pas un bac à sable (voir [securite.md](securite.md#les-permissions-ne-sont-pas-un-bac-à-sable)).
+Même ainsi, `cd secrets && cat k` ou `cat secr*/k` passent : les permissions filtrent des appels. L'[isolation système](#isolation-système) limite ce qu'une commande peut écrire, lire et atteindre, mais elle n'est pas complète (voir [securite.md](securite.md#lisolation-système-et-ses-limites)).
 
 Une règle `allow` sur une commande ne couvre jamais une commande enchaînée : `go test *` n'autorise pas `go test ./... ; rm x`.
 `grep` et `glob` ne montrent que les fichiers que `read_file` lirait sans demande.
@@ -882,6 +887,97 @@ Un rewind ne réécrit jamais la session ni le [journal d'audit](#journal-daudit
 `ToolResult` gagne deux champs facultatifs : `no_checkpoint` (écrit sans copie) et `untracked` (un appel `shell` ou MCP non annulable).
 `--resume` applique `Rewound` : la conversation reconstruite est coupée comme en direct, et une note `code seul` en attente est gardée pour le message suivant. `--output json` inclut les événements `Rewound` d'une session reprise.
 
+## Isolation système
+
+Les permissions décident si une commande s'exécute. L'isolation limite ce qu'elle peut faire une fois lancée. Les commandes shell et les serveurs MCP stdio sont confinés avec les mécanismes du système : Landlock et espaces de noms sous Linux, `sandbox-exec` sous macOS. Elle est active par défaut.
+
+### Ce que peut faire une commande isolée
+
+- **Écrire** : le projet, `$TMPDIR` et `/tmp` (macOS : aussi `/private/tmp` et `/private/var/folders`), `/dev/null`, `/dev/tty`, `/dev/zero`, `/dev/random`, `/dev/urandom`, le cache utilisateur (`$XDG_CACHE_HOME` ou `~/.cache` ; macOS : `~/Library/Caches`) et les chemins de `[sandbox] write`.
+- **Lire** : partout, sauf les chemins interdits ci-dessous.
+- **Interdit en lecture et en écriture** (prime sur tout le reste, même dans le projet) : `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.azure`, `~/.config/gcloud`, `~/.kube`, `~/.docker`, `~/.netrc`, `~/.password-store`, le dossier de configuration de tenon, le dossier de données de tenon (journal d'audit, sessions), le fichier de politique d'organisation et `deny_read` (global, projet et politique). Un chemin absent est ignoré.
+- **Réseau** : fermé, sauf si la commande reçoit le réseau (voir plus bas).
+- **Environnement** : les variables de tenon moins tous les secrets qu'il connaît : `api_key_env` de tous les fournisseurs (préréglages compris), `bearer_env` et `env_from` de tous les serveurs MCP. `PATH`, `HOME` et `LANG` ne sont jamais retirés. Cela vaut dans tous les modes, `off` et « indisponible » compris.
+
+Les hooks et le marquage git ne sont pas confinés : ce sont vos commandes et tenon lui-même.
+
+### Configuration
+
+```toml
+[sandbox]
+mode = "auto"      # "auto" (défaut) | "required" | "off"
+write = []         # chemins inscriptibles, en plus des défauts (absolus ou ~/)
+deny_read = []     # chemins interdits, en plus de la liste intégrée (absolus ou ~/)
+```
+
+| Mode | Effet |
+|---|---|
+| `auto` | Confine quand c'est possible. Si l'isolation est indisponible, une notice s'affiche et les commandes s'exécutent sans isolation. |
+| `required` | tenon refuse de démarrer (code de sortie 1) si l'isolation, ou l'isolation réseau, est indisponible. |
+| `off` | Aucun confinement (les variables de secrets sont tout de même retirées). |
+
+- Le mode effectif est le plus strict de la configuration globale, de la configuration du projet, de la politique d'organisation et du profil. `off` < `auto` < `required`. Un projet ou une politique ne peut jamais produire `off`.
+- `profile = "strict-local"` impose `required` : le profil promet que rien ne quitte la machine.
+- La configuration d'un projet ne peut que durcir : `mode = "required"` et `deny_read` sont acceptés ; `mode = "off"` et `write` sont refusés (`config: sandbox.<clé> not allowed in project configuration`).
+- `write` et `deny_read` acceptent des chemins absolus ou commençant par `~/` (`config: sandbox.<clé>: path must be absolute or start with ~/`).
+- La politique d'organisation peut fixer `mode` (`auto` ou `required`) et `deny_read` (voir [politique.md](politique.md#contenu)).
+
+`tenon config check` affiche l'état : `sandbox: auto (landlock, network full)` ou `sandbox: auto (unavailable: <raison>)`. Sous `required`, il sort avec le code 1 quand l'isolation est indisponible.
+
+### Notices et refus
+
+| Message | Sens |
+|---|---|
+| `sandbox: unavailable (<raison>), commands run unconfined` | Mode `auto`, aucun mécanisme : les commandes s'exécutent comme avant. |
+| `sandbox: network isolation TCP only (user namespaces unavailable)` | Repli Linux, voir plus bas. |
+| `sandbox: network not isolated (<raison>)` | Mode `auto` : ni espaces de noms ni Landlock TCP ; les commandes confinées ont encore le réseau. |
+| `sandbox: Unix sockets not confined (Landlock ABI < 9): <chemin> reachable` | Noyau Linux trop ancien pour confiner les sockets Unix, voir plus bas. |
+| `sandbox: required but unavailable (<raison>)` | Mode `required` : tenon ne démarre pas (code 1). |
+| `sandbox: required but network not isolated (<raison>)` | Mode `required` : tenon ne démarre pas (code 1). |
+
+Avec `--lang fr`, ces messages sont traduits. Si l'assistant d'isolation lui-même échoue, la commande n'est pas lancée : stderr affiche `sandbox: <raison>` et le code de sortie est 126.
+
+### Linux (Landlock)
+
+- Il faut Landlock (noyau 5.13 ou plus, LSM chargé). Sans lui, l'isolation est indisponible.
+- Réseau : les espaces de noms utilisateur (`CLONE_NEWUSER|CLONE_NEWNET`) donnent à la commande un réseau vide (boucle locale seulement, sans route), qui ferme TCP, UDP et DNS. Si les espaces de noms utilisateur sont indisponibles (profil seccomp par défaut de Docker, restriction AppArmor d'Ubuntu sur les espaces de noms non privilégiés), tenon se replie sur Landlock TCP (noyau 6.7 ou plus) : `connect` et `bind` en TCP sont refusés, **UDP reste ouvert**. Les sockets Unix abstraits sont cloisonnés (ABI 6 ou plus). Sans l'un ni l'autre, le réseau n'est pas isolé.
+- Les noms contenus dans un dossier interdit peuvent être listés ; leur contenu ne peut pas être lu.
+- Un fichier ne peut pas être créé, supprimé ni renommé directement dans un dossier qui contient une entrée interdite, ni dans ses ancêtres jusqu'à la racine inscriptible. Exemple : avec `deny_read = ["<projet>/secrets"]`, une commande ne peut pas créer de fichier directement à la racine du projet. Un fichier `--config` sous `/tmp` a le même effet : pas de nouveau fichier directement dans `/tmp`.
+- Les règles sont figées au lancement : une entrée créée ensuite dans un dossier non inscriptible n'est pas lisible par la commande.
+- Les sockets Unix ne sont confinés qu'avec Landlock ABI 9 ou plus (`LANDLOCK_ACCESS_FS_RESOLVE_UNIX`). Sur un noyau plus ancien, un socket accessible par son chemin (par exemple `/var/run/docker.sock`) reste connectable, et tenon affiche la notice ci-dessus pour les sockets de runtime connus. Un utilisateur du groupe `docker` doit savoir que ce socket donne root sur la machine.
+
+### macOS (`sandbox-exec`)
+
+- tenon génère un profil et lance `/usr/bin/sandbox-exec -p <profil> -- <commande>`. `(deny network*)` couvre aussi les sockets Unix.
+- Apple déclare `sandbox-exec` déprécié, mais il fonctionne encore. Si un futur macOS le retire, l'isolation devient indisponible et les modes ci-dessus s'appliquent.
+
+### Réseau pour une commande
+
+- Une règle shell peut accorder le réseau : `network = true` avec `decision = "allow"` ou `"ask"` (refusé avec `deny`, sur un autre outil, dans la configuration du projet et dans la politique).
+
+```toml
+[[permissions.rules]]
+tool = "shell"
+match = "go mod download *"
+decision = "allow"
+network = true
+```
+
+- Avec une telle règle, un simple « Oui » ouvre le réseau, et le panneau affiche « Réseau accordé par la règle ».
+- Quand une commande isolée demande une validation, le panneau propose « Autoriser », « Autoriser avec réseau », « Oui pour la session » et « Non ». « Oui pour la session » ne mémorise jamais le réseau.
+- En mode non interactif, rien n'est demandé : le réseau ne vient que d'une règle, et une règle `ask` avec `network = true` est refusée comme avant (code de sortie 3).
+
+### Serveurs MCP stdio
+
+Un serveur stdio est confiné selon son `risk` : `network` ouvre le réseau ; `write` ou `exec` rend le projet inscriptible ; `read` ou vide donne un projet en lecture seule. Son dossier de travail (`$HOME`) n'est pas inscriptible : seuls les défauts (temporaires, caches) et `write` le sont.
+
+### Dans le journal d'audit et l'export
+
+- `SessionStarted.sandbox` : `mode`, `mechanism` (`landlock`, `sandbox-exec`, `none`), `network` (`full`, `tcp`, `none`) et `reason`. Un serveur stdio a `sandbox: {confined, network}` dans `SessionStarted.mcp`.
+- `ToolResult.sandbox` sur les appels shell : `confined` et `network` (la commande avait le réseau : toujours vrai hors isolation).
+- `PermissionResolved.network` consigne une réponse « avec réseau ».
+- L'[export de conformité](#export-de-conformité) a une ligne « Isolation » par session.
+
 ## Fournisseurs et juridictions
 
 Tout point d'accès compatible OpenAI est utilisable.
@@ -1043,7 +1139,7 @@ Un appel dont les arguments contiennent un marqueur de masquage (`[SECRET_1]`…
 ### Serveur stdio
 
 - La commande est un chemin absolu, ou un nom nu cherché dans les dossiers absolus du `PATH`. Un chemin relatif est refusé.
-- Le serveur est lancé **depuis votre dossier personnel (`HOME`)**, jamais depuis le projet.
+- Le serveur est lancé **depuis votre dossier personnel (`HOME`)**, jamais depuis le projet. Il est confiné par l'[isolation système](#isolation-système) selon son `risk`.
 - La racine du projet lui est transmise par la variable `TENON_PROJECT_ROOT`.
 - Son environnement est réduit à `PATH`, `HOME`, `LANG`, `TENON_PROJECT_ROOT` et les variables listées dans `env_from`.
 - Sans `jurisdiction`, il vaut `local`.
@@ -1234,6 +1330,7 @@ Elle ne modifie pas le journal et ne le verrouille pas.
 - **Permissions** : par outil, demandes, accords (une fois ou pour la session) et refus (par l'utilisateur, par la politique, par un hook).
 - **Fichiers modifiés** : date, session, chemin, outil, empreinte avant et après, auteur (`main` ou le sous-agent), absence éventuelle de point de restauration, et état laissé par un rewind ultérieur.
 - **Commandes** : nombre d'appels shell par session.
+- **Isolation** (`sandbox`, une liste ; omise pour les journaux écrits avant l'isolation) : par session, `mode`, `mechanism`, `network` (comme dans `SessionStarted.sandbox`), `unconfined` (résultats shell exécutés sans confinement) et `with_network` (résultats shell exécutés confinés **avec** réseau). Les deux compteurs ne se recouvrent jamais. La ligne HTML est « Isolation » (`Sandbox` en anglais), une entrée par session.
 - **Sous-agents, hooks, rewinds** : exécutions de sous-agents, hooks qui ont bloqué, échoué, expiré ou demandé une confirmation, rewinds avec les fichiers restaurés, supprimés, conservés, ignorés, en échec ou inchangés.
 - **Incidents** : erreurs, tours terminés pour une raison notable (bloqué, arrêté par un hook, contexte trop grand, limite d'itérations, incomplet, annulé) et lignes illisibles du journal.
 - **Correspondance réglementaire** : quels éléments du rapport aident à documenter le RGPD, NIS2, DORA et l'AI Act. Elle ne cite aucun article.

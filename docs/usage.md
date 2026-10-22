@@ -16,6 +16,7 @@ For a commented configuration example, see [config.example.toml](config.example.
 - [Sub-agents](#sub-agents)
 - [Hooks](#hooks)
 - [Checkpoints and rewind](#checkpoints-and-rewind)
+- [System sandbox](#system-sandbox)
 - [Providers and jurisdictions](#providers-and-jurisdictions)
 - [Compliance profiles](#compliance-profiles)
 - [API keys and keyring](#api-keys-and-keyring)
@@ -127,6 +128,8 @@ It shows the tool, the full command or the paths, and a preview of the change fo
 | Yes for the session | `a` | `s` |
 | No | `n` | `n` |
 
+For a shell command that will run confined, the panel also offers "Allow with network" (`w` in English, `r` in French); "Yes for the session" never remembers the network. See [System sandbox](#system-sandbox).
+
 Esc also denies the request.
 Ctrl+C denies all pending requests, then acts as usual.
 
@@ -154,7 +157,7 @@ The command and the paths are shown so that no character is hidden:
 - A `[` followed by `U+` or `0x` in the original text is written `[U+005B]`.
 - A sequence of at least 3 empty lines becomes `⏎ × N` when the command does not fit on the screen. In that case, the request cannot be approved.
 
-For a shell command, the panel reminds you that an approved command runs with your permissions, without a sandbox.
+For a shell command, the panel says whether the command runs sandboxed or, when no sandbox is active, reminds you that an approved command runs with your permissions.
 If the command contains a non-ASCII character, a warning appears.
 For an MCP tool, the panel shows the server, its country and its jurisdiction.
 
@@ -254,7 +257,8 @@ A repository can be hostile. For this reason, its configuration is limited to:
 - `lang`;
 - `deny` and `ask` permission rules;
 - `[[redaction.rules]]` redaction rules;
-- `profile` and `provider_allowlist`: both restrict-only (the project can raise the profile or narrow the allowlist, never relax them).
+- `profile` and `provider_allowlist`: both restrict-only (the project can raise the profile or narrow the allowlist, never relax them);
+- `[sandbox]`: only `mode = "required"` and `deny_read` (see [System sandbox](#system-sandbox)).
 
 Errors in the project file are reported with the prefix `project config:`.
 
@@ -263,7 +267,8 @@ It **cannot**:
 - add an `allow` rule (loading fails);
 - choose or declare a provider;
 - declare an MCP server;
-- change the audit level, the timeouts or the limits.
+- change the audit level, the timeouts or the limits;
+- turn the sandbox off, add writable paths (`write`) or grant network to a rule (`network = true`).
 
 Project rules are added to global rules.
 A project `deny` rule always blocks the call.
@@ -313,7 +318,7 @@ match = "*secrets/*"    # any command that mentions secrets/
 decision = "deny"
 ```
 
-Even so, `cd secrets && cat k` or `cat secr*/k` get through: permissions filter calls, they are not a sandbox (see [security.md](security.md#permissions-are-not-a-sandbox)).
+Even so, `cd secrets && cat k` or `cat secr*/k` get through: permissions filter calls. The [system sandbox](#system-sandbox) limits what a command can write, read and reach, but it is not complete (see [security.md](security.md#the-sandbox-and-its-limits)).
 
 An `allow` rule on a command never covers a chained command: `go test *` does not allow `go test ./... ; rm x`.
 `grep` and `glob` show only the files that `read_file` would read without a request.
@@ -880,6 +885,97 @@ A rewind never rewrites the session or the [audit log](#audit-log). It adds one 
 `ToolResult` gains two optional fields: `no_checkpoint` (written without a copy) and `untracked` (a `shell` or MCP call that cannot be undone).
 `--resume` applies `Rewound`: the rebuilt conversation is cut as it was live, and a pending `code only` note is kept for the next message. `--output json` includes the `Rewound` events of a resumed session.
 
+## System sandbox
+
+Permissions decide whether a command runs. The sandbox limits what it can do once it runs. Shell commands, and stdio MCP servers, are confined with the mechanisms of the system: Landlock and user namespaces on Linux, `sandbox-exec` on macOS. It is on by default.
+
+### What a confined command can do
+
+- **Write**: the project, `$TMPDIR` and `/tmp` (macOS: also `/private/tmp` and `/private/var/folders`), `/dev/null`, `/dev/tty`, `/dev/zero`, `/dev/random`, `/dev/urandom`, the user cache (`$XDG_CACHE_HOME` or `~/.cache`; macOS: `~/Library/Caches`) and the paths of `[sandbox] write`.
+- **Read**: everywhere, except the denied paths below.
+- **Denied for read and write** (this wins over everything, even inside the project): `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.azure`, `~/.config/gcloud`, `~/.kube`, `~/.docker`, `~/.netrc`, `~/.password-store`, the tenon configuration directory, the tenon data directory (audit log, sessions), the organisation policy file and `deny_read` (global, project and policy). A path that does not exist is ignored.
+- **Network**: closed, unless the command is granted network (see below).
+- **Environment**: the variables of tenon minus every secret it knows: `api_key_env` of all providers (presets included), `bearer_env` and `env_from` of all MCP servers. `PATH`, `HOME` and `LANG` are never removed. This applies in every mode, `off` and "unavailable" included.
+
+Hooks and git marking are not confined: they are your commands and tenon itself.
+
+### Configuration
+
+```toml
+[sandbox]
+mode = "auto"      # "auto" (default) | "required" | "off"
+write = []         # writable paths, in addition to the defaults (absolute or ~/)
+deny_read = []     # denied paths, in addition to the built-in list (absolute or ~/)
+```
+
+| Mode | Effect |
+|---|---|
+| `auto` | Confine when possible. If the sandbox is unavailable, a notice is printed and commands run unconfined. |
+| `required` | tenon refuses to start (exit code 1) if the sandbox, or the network isolation, is unavailable. |
+| `off` | No confinement (secret variables are still removed). |
+
+- The effective mode is the strictest of the global configuration, the project configuration, the organisation policy and the profile. `off` < `auto` < `required`. A project or a policy can never produce `off`.
+- `profile = "strict-local"` implies `required`: the profile promises that nothing leaves the machine.
+- A project configuration can only tighten: `mode = "required"` and `deny_read` are accepted; `mode = "off"` and `write` are refused (`config: sandbox.<key> not allowed in project configuration`).
+- `write` and `deny_read` accept absolute paths or paths starting with `~/` (`config: sandbox.<key>: path must be absolute or start with ~/`).
+- The organisation policy can set `mode` (`auto` or `required`) and `deny_read` (see [policy.md](policy.md#content)).
+
+`tenon config check` prints the state: `sandbox: auto (landlock, network full)` or `sandbox: auto (unavailable: <reason>)`. Under `required`, it exits with code 1 when the sandbox is unavailable.
+
+### Notices and refusals
+
+| Message | Meaning |
+|---|---|
+| `sandbox: unavailable (<reason>), commands run unconfined` | Mode `auto`, no mechanism: commands run as before. |
+| `sandbox: network isolation TCP only (user namespaces unavailable)` | Linux fallback, see below. |
+| `sandbox: network not isolated (<reason>)` | Mode `auto`: neither namespaces nor Landlock TCP; confined commands still have the network. |
+| `sandbox: Unix sockets not confined (Landlock ABI < 9): <path> reachable` | Linux kernel too old to confine Unix sockets, see below. |
+| `sandbox: required but unavailable (<reason>)` | Mode `required`: tenon does not start (exit code 1). |
+| `sandbox: required but network not isolated (<reason>)` | Mode `required`: tenon does not start (exit code 1). |
+
+If the sandbox helper itself fails, the command is not run: stderr shows `sandbox: <reason>` and the exit code is 126.
+
+### Linux (Landlock)
+
+- Needs Landlock (kernel 5.13 or later, with the LSM loaded). Without it the sandbox is unavailable.
+- Network: user namespaces (`CLONE_NEWUSER|CLONE_NEWNET`) give the command an empty network (loopback only, no route), which closes TCP, UDP and DNS. If user namespaces are unavailable (Docker default seccomp profile, Ubuntu AppArmor restriction on unprivileged user namespaces), tenon falls back to Landlock TCP (kernel 6.7 or later): `connect` and `bind` in TCP are refused, **UDP stays open**. Abstract Unix sockets are scoped (ABI 6 or later). Without either, the network is not isolated.
+- Names inside a denied directory can be listed; their contents cannot be read.
+- A file cannot be created, removed or renamed directly in a directory that contains a denied entry, nor in its ancestors up to the writable root. Example: with `deny_read = ["<project>/secrets"]`, a command cannot create a file directly at the project root. A `--config` file under `/tmp` has the same effect: no new file directly in `/tmp`.
+- The rules are fixed at launch: an entry created afterwards in a non-writable directory is not readable by the command.
+- Unix sockets are confined only with Landlock ABI 9 or later (`LANDLOCK_ACCESS_FS_RESOLVE_UNIX`). On an older kernel, a socket reachable by path (for example `/var/run/docker.sock`) stays connectable, and tenon prints the notice above for the known runtime sockets. A user of the `docker` group must know that this socket gives root on the host.
+
+### macOS (`sandbox-exec`)
+
+- tenon generates a profile and runs `/usr/bin/sandbox-exec -p <profile> -- <command>`. `(deny network*)` also covers Unix sockets.
+- Apple marks `sandbox-exec` as deprecated, but it still works. If a future macOS removes it, the sandbox becomes unavailable and the modes above apply.
+
+### Network for one command
+
+- A shell rule can grant network: `network = true` with `decision = "allow"` or `"ask"` (refused with `deny`, on another tool, in the project configuration and in the policy).
+
+```toml
+[[permissions.rules]]
+tool = "shell"
+match = "go mod download *"
+decision = "allow"
+network = true
+```
+
+- With such a rule, a plain "Yes" opens the network, and the panel says "Network granted by rule".
+- When a confined command needs approval, the panel offers "Allow", "Allow with network", "Yes for the session" and "No". "Yes for the session" never remembers the network.
+- In non-interactive mode, nothing is asked: the network comes only from a rule, and an `ask` rule with `network = true` is denied as before (exit code 3).
+
+### Stdio MCP servers
+
+A stdio server is confined according to its `risk`: `network` opens the network; `write` or `exec` makes the project writable; `read` or empty gives a read-only project. Its working directory (`$HOME`) is not writable: only the defaults (temporary files, caches) and `write` are.
+
+### In the audit log and the export
+
+- `SessionStarted.sandbox`: `mode`, `mechanism` (`landlock`, `sandbox-exec`, `none`), `network` (`full`, `tcp`, `none`) and `reason`. A stdio server has `sandbox: {confined, network}` in `SessionStarted.mcp`.
+- `ToolResult.sandbox` on shell calls: `confined` and `network` (the command had network: always true when not confined).
+- `PermissionResolved.network` records an answer "with network".
+- The [compliance export](#compliance-export) has a "Sandbox" row per session.
+
 ## Providers and jurisdictions
 
 You can use any OpenAI-compatible endpoint.
@@ -1041,7 +1137,7 @@ A call whose arguments contain a redaction marker (`[SECRET_1]`…) is denied.
 ### Stdio server
 
 - The command is an absolute path, or a bare name looked up in the absolute directories of `PATH`. A relative path is refused.
-- The server starts **from your home directory (`HOME`)**, never from the project.
+- The server starts **from your home directory (`HOME`)**, never from the project. It is confined by the [system sandbox](#system-sandbox) according to its `risk`.
 - It receives the project root in the `TENON_PROJECT_ROOT` variable.
 - Its environment is reduced to `PATH`, `HOME`, `LANG`, `TENON_PROJECT_ROOT` and the variables listed in `env_from`.
 - Without `jurisdiction`, it is `local`.
@@ -1232,6 +1328,7 @@ It does not modify the log and does not lock it.
 - **Permissions**: per tool, requests, approvals (once or for the session) and denials (by the user, by policy, by a hook).
 - **Modified files**: date, session, path, tool, hash before and after, author (`main` or the sub-agent), whether there was no checkpoint, and the state left by a later rewind.
 - **Commands**: number of shell calls per session.
+- **Sandbox** (`sandbox`, a list; omitted for logs written before the sandbox existed): per session, `mode`, `mechanism`, `network` (as in `SessionStarted.sandbox`), `unconfined` (shell results that ran unconfined) and `with_network` (shell results that ran confined **with** network). The two counters never overlap. The HTML row is `Sandbox` (`Isolation` in French), one entry per session.
 - **Sub-agents, hooks, rewinds**: sub-agent runs, hooks that blocked, failed, timed out or asked for confirmation, rewinds with the files restored, deleted, kept, skipped, failed or unchanged.
 - **Incidents**: errors, turns that ended for a notable reason (blocked, stopped by a hook, context too large, iteration limit, incomplete, cancelled) and unreadable log lines.
 - **Regulatory mapping**: which elements of the report help document GDPR, NIS2, DORA and AI Act requirements. It cites no article.

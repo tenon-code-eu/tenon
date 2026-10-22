@@ -444,3 +444,23 @@ func TestRenderHTMLTimestamps(t *testing.T) {
 		}
 	}
 }
+
+func TestExportSandboxHTML(t *testing.T) {
+	for _, c := range []struct {
+		l          i18n.Lang
+		label, row string
+	}{
+		{i18n.FR, "Isolation", "s1 : auto, landlock, réseau tcp, 1 commandes hors isolation, 1 avec réseau"},
+		{i18n.EN, "Sandbox", "s1: auto, landlock, network tcp, 1 unconfined commands, 1 with network"},
+	} {
+		r := richReport(false)
+		r.Sandbox = []SessionSandbox{{Session: "s1", Mode: "auto", Mechanism: "landlock", Network: "tcp", Unconfined: 1, WithNetwork: 1}}
+		out := render(t, r, c.l)
+		if !strings.Contains(out, "<dt>"+c.label+"</dt><dd>"+c.row+"</dd>") {
+			t.Errorf("%s: sandbox row missing", c.l)
+		}
+		if out = render(t, richReport(false), c.l); strings.Contains(out, "<dt>"+c.label+"</dt>") {
+			t.Errorf("%s: sandbox row without data", c.l)
+		}
+	}
+}

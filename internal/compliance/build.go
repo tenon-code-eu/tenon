@@ -53,8 +53,9 @@ type builder struct {
 	agents    map[sessKey]string // appel "agent" → nom du sous-agent
 	warned    map[string]bool
 	commands  map[string]*SessionCommands
-	filePaths []string        // session et chemin bruts de chaque r.Files, pour les rewinds
-	subagents map[sessKey]int // appel "agent" → indice dans r.Subagents
+	filePaths []string                   // session et chemin bruts de chaque r.Files, pour les rewinds
+	subagents map[sessKey]int            // appel "agent" → indice dans r.Subagents
+	sandbox   map[string]*SessionSandbox // résumé sandbox par session
 }
 
 // mapping est la table de correspondance réglementaire, fixe et sans numéro d'article.
@@ -214,6 +215,7 @@ func Build(ds Dataset, o Options) Report {
 		warned:    map[string]bool{},
 		commands:  map[string]*SessionCommands{},
 		subagents: map[sessKey]int{},
+		sandbox:   map[string]*SessionSandbox{},
 	}
 	for _, l := range ds.Lines {
 		if IsMetadataPayload(l.Payload) {
@@ -223,6 +225,7 @@ func Build(ds Dataset, o Options) Report {
 	}
 	b.finish()
 	b.providers()
+	b.sandboxes()
 	r.Profiles = profilesOf(ds, o)
 	r.Policies = policiesOf(ds, o)
 	if o.Details {
@@ -440,6 +443,11 @@ func (b *builder) line(l audit.Line) {
 				r.Consents.Denied++
 			}
 		}
+	case event.SessionStarted:
+		var p event.SessionStartedPayload
+		if decode(l, &p) && p.Sandbox != nil {
+			b.sessionSandbox(l.Session).setInfo(*p.Sandbox, o)
+		}
 	case event.ToolResult:
 		var p event.ToolResultPayload
 		if decode(l, &p) {
@@ -509,6 +517,17 @@ func (b *builder) shell(session string, args json.RawMessage) {
 }
 
 func (b *builder) toolResult(l audit.Line, p event.ToolResultPayload) {
+	if p.Tool == "shell" && p.Sandbox != nil {
+		// Sans SessionStarted portant le sandbox, la session n'est pas listée.
+		if s := b.sandbox[l.Session]; s != nil {
+			switch {
+			case !p.Sandbox.Confined:
+				s.Unconfined++
+			case p.Sandbox.Network:
+				s.WithNetwork++
+			}
+		}
+	}
 	switch p.Denied {
 	case "user":
 		b.r.Summary.Denials++
@@ -785,4 +804,27 @@ func timelineEntry(l audit.Line, o Options, resolved map[sessKey]bool) (Timeline
 		}
 	}
 	return TimelineEntry{}, false
+}
+
+// sessionSandbox renvoie (en le créant) le résumé sandbox d'une session.
+func (b *builder) sessionSandbox(sid string) *SessionSandbox {
+	s := b.sandbox[sid]
+	if s == nil {
+		s = &SessionSandbox{Session: b.o.clean(sid)}
+		b.sandbox[sid] = s
+	}
+	return s
+}
+
+// setInfo retient l'isolation annoncée ; une reprise remplace la précédente.
+func (s *SessionSandbox) setInfo(i event.SandboxInfo, o Options) {
+	s.Mode, s.Mechanism, s.Network = o.clean(i.Mode), o.clean(i.Mechanism), o.clean(i.Network)
+}
+
+// sandboxes publie les résumés triés par session ; rien si aucun.
+func (b *builder) sandboxes() {
+	for _, s := range b.sandbox {
+		b.r.Sandbox = append(b.r.Sandbox, *s)
+	}
+	sort.Slice(b.r.Sandbox, func(i, j int) bool { return b.r.Sandbox[i].Session < b.r.Sandbox[j].Session })
 }
