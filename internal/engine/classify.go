@@ -119,8 +119,9 @@ func (t *turn) gateClassified(c llm.ToolCall, target tools.Target, args json.Raw
 // vide, est le fichier lu par read_file : il est contrôlé en entier (une
 // lecture partielle d'un document marqué en reste un extrait). Sans
 // fournisseur local, le contenu est remplacé par classifiedWithheld et la
-// session ne devient pas sensible.
-func (t *turn) scanResult(name, callID, content, file string) (string, error) {
+// session ne devient pas sensible. full, s'il n'est pas vide, est le texte
+// complet d'un résultat tronqué (tools.Result.Untruncated), contrôlé lui aussi.
+func (t *turn) scanResult(name, callID, content, full, file string) (string, error) {
 	if name == "glob" {
 		return content, nil
 	}
@@ -133,6 +134,9 @@ func (t *turn) scanResult(name, callID, content, file string) (string, error) {
 	}
 	if reason == "" {
 		texts := []string{content}
+		if full != "" {
+			texts = append(texts, full)
+		}
 		var files []string
 		switch name {
 		case "read_file":
@@ -289,6 +293,12 @@ func grepFiles(root, out string) []string {
 // marquage rend la session sensible (source tool) ; sans, le texte est
 // remplacé par classifiedWithheld.
 func (t *turn) scanHookText(text string) (string, error) {
+	return t.scanHookTextFrom(text, sourceTool)
+}
+
+// scanHookTextFrom est scanHookText avec la source SessionClassified donnée
+// (sourceUser pour le contexte joint au prompt).
+func (t *turn) scanHookTextFrom(text, source string) (string, error) {
 	m, ok := t.e.d.Classify.FindMarker(text)
 	if !ok {
 		return text, nil
@@ -296,7 +306,7 @@ func (t *turn) scanHookText(text string) (string, error) {
 	if !t.e.hasLocal() {
 		return classifiedWithheld, nil
 	}
-	return text, t.classify("marker", sourceTool, "", "", m)
+	return text, t.classify("marker", source, "", "", m)
 }
 
 // readPrefix renvoie la longueur du préfixe « <n>\t » d'une ligne de read_file.

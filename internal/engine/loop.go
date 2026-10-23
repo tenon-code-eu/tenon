@@ -45,6 +45,9 @@ type turn struct {
 	// jurSkipped : messages des candidats sautés faute d'accord de
 	// juridiction pendant l'envoi en cours (remis à zéro par sendWith).
 	jurSkipped []string
+	// remote : la dernière réponse reçue par sendWith vient d'un fournisseur
+	// non local (llm.Message.Remote des messages qu'elle produit).
+	remote bool
 	// agent : nom de l'agent d'un sous-agent (entrée de SubagentStop).
 	agent string
 	// outer : contexte du tour qui exécute le hook, pour la requête d'un hook
@@ -132,13 +135,14 @@ func (t *turn) run(in Input) error {
 		}
 		return t.done(0, "blocked_by_hook")
 	}
-	um.HookContext = joinContext(t.s.startCtx, out.Context)
 	// Contexte des hooks (SessionStart, UserPromptSubmit) joint au message :
-	// contrôlé comme lui ; un blocage l'abandonne.
-	if blocked, err := t.checkUser(um.HookContext); blocked || err != nil {
-		t.s.startCtx = ""
+	// un marquage rend la session sensible avec un fournisseur local ; sans,
+	// le contexte seul est retenu (classifiedWithheld) et le prompt part.
+	hc, err := t.scanHookTextFrom(joinContext(t.s.startCtx, out.Context), sourceUser)
+	if err != nil {
 		return err
 	}
+	um.HookContext = hc
 	t.s.startCtx = ""
 	histLen := len(*t.h)
 	*t.h = append(*t.h, llm.Message{Role: llm.User, Content: withHookContext(in.Text, um.HookContext)})
@@ -240,7 +244,7 @@ func (t *turn) loop() (loopResult, error) {
 			}
 			if errors.Is(provErr, provider.ErrIncomplete) {
 				if text != "" {
-					*t.h = append(*t.h, llm.Message{Role: llm.Assistant, Content: text})
+					*t.h = append(*t.h, llm.Message{Role: llm.Assistant, Content: text, Remote: t.remote})
 					last = text
 				}
 				if err := t.emit(event.AssistantMessage, event.AssistantMessagePayload{Text: text, Incomplete: true}); err != nil {
@@ -256,7 +260,7 @@ func (t *turn) loop() (loopResult, error) {
 			return r, nil
 		}
 
-		*t.h = append(*t.h, llm.Message{Role: llm.Assistant, Content: text, ToolCalls: calls})
+		*t.h = append(*t.h, llm.Message{Role: llm.Assistant, Content: text, ToolCalls: calls, Remote: t.remote})
 		if text != "" {
 			last = text
 		}
@@ -348,11 +352,14 @@ var errNotSent = errors.New("request not sent")
 // prepared est une requête préparée pour un candidat : messages masqués et
 // décomptes de masquage, émis seulement si la requête part vers lui. scan,
 // s'il n'est pas nil, remplace msgs pour le contrôle sortant des marquages
-// (messages masqués dont le texte de msgs est tiré, rendu compris).
+// (messages masqués dont le texte de msgs est tiré, rendu compris). raw sont
+// les mêmes messages avant masquage, contrôlés eux aussi (un masquage peut
+// couper un marquage).
 type prepared struct {
 	msgs   []llm.Message
 	counts []map[string]int
 	scan   []llm.Message
+	raw    []llm.Message
 }
 
 // prepFunc prépare la requête pour le fournisseur info (contrôle sortant).
@@ -417,7 +424,7 @@ func (t *turn) outboundCheck(info llm.ProviderInfo, in []llm.Message) (msgs []ll
 func (t *turn) send(req llm.Request, deltas bool) (text string, calls []llm.ToolCall, provErr, err error) {
 	return t.sendWith(req, deltas, func(info llm.ProviderInfo) (prepared, bool, error) {
 		msgs, counts, ok, err := t.outboundCheck(info, req.Messages)
-		return prepared{msgs: msgs, counts: []map[string]int{counts}}, ok, err
+		return prepared{msgs: msgs, counts: []map[string]int{counts}, raw: req.Messages}, ok, err
 	})
 }
 
@@ -473,9 +480,13 @@ func (t *turn) sendWith(req llm.Request, deltas bool, prep prepFunc) (text strin
 				if scan == nil {
 					scan = p.msgs
 				}
-				if m, found := requestMarker(t.e.d.Classify, scan); found {
+				m, found := requestMarker(t.e.d.Classify, p.raw)
+				if !found {
+					m, found = requestMarker(t.e.d.Classify, scan)
+				}
+				if found {
 					if !t.e.hasLocal() {
-						msg := fmt.Sprintf("classification marker in the request (%s): %s", m, classifiedRefused)
+						msg := fmt.Sprintf("classification marker in the request (%s): %s; use /rewind to remove it from the conversation", m, classifiedRefused)
 						if err := t.emit(event.Error, event.ErrorPayload{Code: deniedClassification, Message: msg}); err != nil {
 							return "", nil, nil, err
 						}
@@ -505,6 +516,7 @@ func (t *turn) sendWith(req llm.Request, deltas bool, prep prepFunc) (text strin
 				failed = res.provErr
 				continue
 			}
+			t.remote = info.Jurisdiction != llm.Local
 			return res.text, res.calls, res.provErr, nil
 		}
 		if !restart {
@@ -538,10 +550,23 @@ func laterCandidate(rest []routing.Candidate, tried map[string]bool) bool {
 // requestMarker cherche un marquage dans le texte de chaque message de la
 // requête (contenu et arguments d'appels d'outils). Les appels glob et leurs
 // résultats sont exclus : des noms de fichiers ne classent jamais la session.
+// Les messages produits par un fournisseur non local (llm.Message.Remote :
+// réponses, arguments de leurs appels, résumés) sont exclus aussi : ce texte
+// vient du fournisseur distant, le lui renvoyer ne divulgue rien (sans quoi
+// un marquage qu'il écrit lui-même bloquerait la session). Les résultats
+// d'outils et messages utilisateur restent contrôlés.
 func requestMarker(rules classify.Rules, msgs []llm.Message) (string, bool) {
 	globs := map[string]bool{}
 	for _, m := range msgs {
 		if m.Role == llm.Tool && globs[m.ToolCallID] {
+			continue
+		}
+		for _, c := range m.ToolCalls {
+			if c.Name == "glob" {
+				globs[c.ID] = true
+			}
+		}
+		if m.Remote {
 			continue
 		}
 		if mk, ok := rules.FindMarker(m.Content); ok {
@@ -549,7 +574,6 @@ func requestMarker(rules classify.Rules, msgs []llm.Message) (string, bool) {
 		}
 		for _, c := range m.ToolCalls {
 			if c.Name == "glob" {
-				globs[c.ID] = true
 				continue
 			}
 			if mk, ok := argsMarker(rules, c.Args); ok {
@@ -816,9 +840,10 @@ func (t *turn) runTool(c llm.ToolCall) (tools.Result, error) {
 	if ran && c.Name == "read_file" && !res.IsError {
 		file = res.Path
 	}
-	if res.Content, err = t.scanResult(c.Name, c.ID, res.Content, file); err != nil {
+	if res.Content, err = t.scanResult(c.Name, c.ID, res.Content, res.Untruncated, file); err != nil {
 		return tools.Result{}, err
 	}
+	res.Untruncated = ""
 	// Appel exécuté hors du suivi des copies (shell, MCP write/exec).
 	untracked := false
 	if ran && res.Denied == "" && t.tools != nil {
@@ -847,7 +872,7 @@ func (t *turn) runTool(c llm.ToolCall) (tools.Result, error) {
 		}
 		// Ajouts des hooks : contrôlés à leur tour.
 		if out.Block || out.Context != "" {
-			if res.Content, err = t.scanResult(c.Name, c.ID, res.Content, ""); err != nil {
+			if res.Content, err = t.scanResult(c.Name, c.ID, res.Content, "", ""); err != nil {
 				return tools.Result{}, err
 			}
 		}

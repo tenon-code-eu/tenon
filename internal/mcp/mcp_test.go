@@ -245,6 +245,10 @@ func TestNonTextContentSummarised(t *testing.T) {
 	if !strings.HasPrefix(res.Content, "déb\n[… output truncated") {
 		t.Fatalf("troncature %q", res.Content)
 	}
+	// Texte complet gardé pour le contrôle de classification.
+	if res.Untruncated != want {
+		t.Fatalf("texte complet %q", res.Untruncated)
+	}
 }
 
 func TestConsentDenied(t *testing.T) {

@@ -19,6 +19,10 @@ type Message struct {
 	Content    string     `json:"content,omitempty"`
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string     `json:"tool_call_id,omitempty"`
+	// Remote : message d'assistant (ou résumé de compaction) produit par un
+	// fournisseur non local. Jamais envoyé ni sérialisé ; le contrôle sortant
+	// des marquages l'ignore (le fournisseur distant a déjà ce texte).
+	Remote bool `json:"-"`
 }
 
 // ToolCall is a model request to run a tool.

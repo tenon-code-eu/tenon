@@ -142,10 +142,14 @@ func (t *mcpTool) Run(ctx context.Context, args json.RawMessage) (tools.Result, 
 		}
 		return r, nil
 	}
-	return tools.Result{
-		Content: tools.Truncate(render(res), t.opts.OutputLimit),
-		IsError: res.IsError,
-	}, nil
+	// Le texte complet est gardé pour le contrôle de classification du
+	// moteur : un marquage au-delà de la troncature reste reconnu.
+	full := render(res)
+	r := tools.Result{Content: tools.Truncate(full, t.opts.OutputLimit), IsError: res.IsError}
+	if r.Content != full {
+		r.Untruncated = full
+	}
+	return r, nil
 }
 
 // callGrace est le délai laissé à un appel pour rendre la main après

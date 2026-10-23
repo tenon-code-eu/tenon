@@ -215,7 +215,8 @@ func (t *turn) compact(defs []llm.ToolDef, force bool) (reason string, err error
 		// Le contrôle des marquages porte sur les messages structurés dont le
 		// texte rendu est tiré (même texte, résultats glob exclus).
 		scan := append([]llm.Message{{Role: llm.System, Content: summaryPrompt}}, old...)
-		return prepared{msgs: msgs, counts: []map[string]int{c1, c2}, scan: scan}, ok, err
+		raw := append([]llm.Message{{Role: llm.System, Content: summaryPrompt}}, conv[:start]...)
+		return prepared{msgs: msgs, counts: []map[string]int{c1, c2}, scan: scan, raw: raw}, ok, err
 	}
 	stop := t.stopReason
 	summary, _, provErr, err := t.sendWith(llm.Request{}, false, prep)
@@ -259,7 +260,11 @@ func (t *turn) compact(defs []llm.ToolDef, force bool) (reason string, err error
 	}
 
 	nh := make([]llm.Message, 0, 2+len(conv)-start)
-	nh = append(nh, h[0], summaryMessage(summary, hc))
+	// Résumé produit par un fournisseur non local : exclu du contrôle
+	// sortant comme ses réponses (hc a été contrôlé par scanHookText).
+	sm := summaryMessage(summary, hc)
+	sm.Remote = t.remote
+	nh = append(nh, h[0], sm)
 	nh = append(nh, conv[start:]...)
 	if err := t.emit(event.ContextCompacted, event.ContextCompactedPayload{
 		Summary: summary, Replaced: start, TokensBefore: before, TokensAfter: estimate(nh, defs),

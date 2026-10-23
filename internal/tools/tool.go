@@ -49,6 +49,10 @@ type Result struct {
 	// Sandbox indique comment la commande shell s'est exécutée (isolée ou
 	// non, réseau accordé ou non) ; nil pour les autres outils.
 	Sandbox *event.SandboxUse
+	// Untruncated est le texte complet avant troncature (résultat MCP), pour
+	// le seul contrôle de classification ; jamais enregistré ni envoyé.
+	// Vide : Content est complet.
+	Untruncated string
 }
 
 // networkKey est la clé de contexte du drapeau réseau d'un appel.

@@ -413,7 +413,7 @@ func TestGlobNeverTaints(t *testing.T) {
 }
 
 // mcpTool est un outil MCP factice (préfixe de serveur) au résultat fixe.
-type mcpTool struct{ content string }
+type mcpTool struct{ content, full string }
 
 func (mcpTool) Name() string            { return "mcp__docs__fetch" }
 func (mcpTool) Description() string     { return "outil MCP factice" }
@@ -423,7 +423,21 @@ func (mcpTool) Target(json.RawMessage) (tools.Target, error) {
 	return tools.Target{}, nil
 }
 func (m mcpTool) Run(context.Context, json.RawMessage) (tools.Result, error) {
-	return tools.Result{Content: m.content}, nil
+	return tools.Result{Content: m.content, Untruncated: m.full}, nil
+}
+
+// Un marquage au-delà de la troncature d'un résultat MCP est reconnu.
+func TestMCPResultMarkerBeyondTruncation(t *testing.T) {
+	withMCP := func(d *Deps) {
+		d.Tools = tools.NewRegistry(mcpTool{content: "Rapport\n[… output truncated to 7 characters]", full: "Rapport — Restreint UE — budget 12 M€"})
+	}
+	script := [][]llm.Chunk{call("c1", "mcp__docs__fetch", `{}`), text("ok")}
+	h := newClassifyHarness(t, false, script, withMCP)
+	evs, err := h.submit(t, "s_1", "go", allowAll)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertWithheld(t, h, evs, "mcp__docs__fetch", "Rapport")
 }
 
 func TestMCPResultMarker(t *testing.T) {
@@ -825,5 +839,46 @@ func TestBlockedToolReasonMarker(t *testing.T) {
 			t.Fatal(err)
 		}
 		assertWithheld(t, h, evs, "read_file", "budget")
+	})
+}
+
+// Un marquage dans le contexte d'un hook UserPromptSubmit : sans local, le
+// contexte est retenu (remplacé) et le prompt part ; avec local, la session
+// devient sensible.
+func TestPromptHookContextMarker(t *testing.T) {
+	run := func(t *testing.T, local bool) (*harness, []event.Event) {
+		hs := withHooks(t, hk{"UserPromptSubmit", "", cmd(hookScript(t, "cat >/dev/null\ncat <<'EOF'\n"+
+			ctxOut("UserPromptSubmit", "note SPECIAL FRANCE budget")+"\nEOF"))})
+		h := newClassifyHarness(t, local, [][]llm.Chunk{text("ok")}, hs)
+		evs, err := h.submit(t, "s_1", "bonjour", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if tc := lastTurn(t, evs); tc.Reason != "done" {
+			t.Fatalf("TurnCompleted %+v, events %v", tc, types(evs))
+		}
+		return h, evs
+	}
+	t.Run("no local", func(t *testing.T) {
+		h, evs := run(t, false)
+		if h.historyHas(t, "s_1", "budget") || h.requestsHave("budget") {
+			t.Fatal("contexte classé envoyé")
+		}
+		if !h.requestsHave("bonjour") {
+			t.Fatal("prompt non envoyé")
+		}
+		um := decode[event.UserMessagePayload](t, ofType(evs, event.UserMessage)[0])
+		if um.HookContext != withheldMsg || um.Text != "bonjour" {
+			t.Fatalf("UserMessage %+v", um)
+		}
+		if n := len(ofType(evs, event.Error)); n != 0 {
+			t.Fatalf("events %v", types(evs))
+		}
+	})
+	t.Run("local", func(t *testing.T) {
+		_, evs := run(t, true)
+		if sc := classified(t, evs); len(sc) != 1 || sc[0].Marker != "SPÉCIAL FRANCE" {
+			t.Fatalf("SessionClassified %+v", sc)
+		}
 	})
 }

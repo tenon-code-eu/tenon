@@ -724,3 +724,133 @@ func TestTimerRaceKeepsHealthyStream(t *testing.T) {
 		}
 	}
 }
+
+// Un marquage produit par le fournisseur distant lui-même (texte de réponse,
+// arguments d'appel d'outil) ne bloque pas les tours suivants sans
+// fournisseur local : le distant a déjà ce texte.
+func TestRemoteReplyMarkerNotRescanned(t *testing.T) {
+	h := newHarness(t, euInfo, [][]llm.Chunk{
+		text("La note porte la mention EU RESTRICTED."),
+		call("c1", "nope", `{"x":"EU RESTRICTED"}`),
+		text("fin"),
+	}, routeOpt(nil, 0))
+	if _, err := h.submit(t, "s_1", "résume", nil); err != nil {
+		t.Fatal(err)
+	}
+	evs, err := h.submit(t, "s_1", "suite", nil)
+	if err != nil {
+		t.Fatalf("err %v, events %v", err, types(evs))
+	}
+	if n := len(h.prov.reqs()); n != 3 {
+		t.Fatalf("remote : %d requêtes, events %v", n, types(evs))
+	}
+	if n := len(ofType(evs, event.Error)); n != 0 {
+		t.Fatalf("events %v", types(evs))
+	}
+	if tc := lastTurn(t, evs); tc.Reason != "done" {
+		t.Fatalf("TurnCompleted %+v", tc)
+	}
+}
+
+// Session reprise : les réponses d'un fournisseur non local (SessionStarted,
+// ProviderSelected) restent exclues du contrôle sortant ; celles d'un
+// fournisseur local y sont soumises.
+func TestRestoredRemoteReplyMarkerNotRescanned(t *testing.T) {
+	journal := func(t *testing.T, gen llm.ProviderInfo) []event.Event {
+		l := &evLog{t: t, sid: "s_1"}
+		l.add(event.SessionStarted, event.SessionStartedPayload{Provider: euInfo})
+		if gen.ID != euInfo.ID {
+			l.add(event.ProviderSelected, event.ProviderSelectedPayload{Provider: gen, Reason: "default"})
+		}
+		l.add(event.UserMessage, event.UserMessagePayload{Text: "résume"}).
+			add(event.AssistantMessage, event.AssistantMessagePayload{Text: "mention EU RESTRICTED"})
+		return l.evs
+	}
+	t.Run("remote", func(t *testing.T) {
+		h := newHarness(t, euInfo, [][]llm.Chunk{text("ok")}, routeOpt(nil, 0))
+		if err := h.eng.Restore("s_1", journal(t, euInfo)); err != nil {
+			t.Fatal(err)
+		}
+		evs, err := h.submit(t, "s_1", "suite", nil)
+		if err != nil || len(h.prov.reqs()) != 1 || lastTurn(t, evs).Reason != "done" {
+			t.Fatalf("err %v, %d requêtes, events %v", err, len(h.prov.reqs()), types(evs))
+		}
+	})
+	t.Run("local generated", func(t *testing.T) {
+		h := newHarness(t, euInfo, [][]llm.Chunk{text("non")}, routeOpt(nil, 0))
+		if err := h.eng.Restore("s_1", journal(t, localInfo)); err != nil {
+			t.Fatal(err)
+		}
+		evs, err := h.submit(t, "s_1", "suite", nil)
+		if err != nil || len(h.prov.reqs()) != 0 || lastTurn(t, evs).Reason != "blocked" {
+			t.Fatalf("err %v, %d requêtes, events %v", err, len(h.prov.reqs()), types(evs))
+		}
+	})
+}
+
+// Un marquage dans un résultat d'outil reste contrôlé : blocage sans local
+// (message qui indique /rewind), session sensible avec local.
+func TestToolResultMarkerStillScanned(t *testing.T) {
+	marked := []llm.Message{
+		{Role: llm.User, Content: "lis"},
+		{Role: llm.Assistant, ToolCalls: []llm.ToolCall{{ID: "c1", Name: "nope", Args: []byte(`{}`)}}},
+		{Role: llm.Tool, ToolCallID: "c1", Content: "en-tête : EU RESTRICTED"},
+	}
+	seedRemote := func(t *testing.T, h *harness) {
+		l := &evLog{t: t, sid: "s_1"}
+		l.add(event.SessionStarted, event.SessionStartedPayload{Provider: euInfo})
+		for _, m := range marked {
+			switch m.Role {
+			case llm.User:
+				l.add(event.UserMessage, event.UserMessagePayload{Text: m.Content})
+			case llm.Assistant:
+				l.add(event.AssistantMessage, event.AssistantMessagePayload{ToolCalls: m.ToolCalls})
+			case llm.Tool:
+				l.add(event.ToolResult, event.ToolResultPayload{CallID: m.ToolCallID, Content: m.Content})
+			}
+		}
+		if err := h.eng.Restore("s_1", l.evs); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Run("no local", func(t *testing.T) {
+		h := newHarness(t, euInfo, [][]llm.Chunk{text("non")}, routeOpt(nil, 0))
+		seedRemote(t, h)
+		evs, err := h.submit(t, "s_1", "suite", nil)
+		if err != nil || len(h.prov.reqs()) != 0 {
+			t.Fatalf("err %v, %d requêtes", err, len(h.prov.reqs()))
+		}
+		errs := ofType(evs, event.Error)
+		if len(errs) != 1 {
+			t.Fatalf("events %v", types(evs))
+		}
+		if p := decode[event.ErrorPayload](t, errs[0]); p.Code != "classification" || !strings.Contains(p.Message, "/rewind") {
+			t.Fatalf("Error %+v", p)
+		}
+	})
+	t.Run("local", func(t *testing.T) {
+		local := fake(localInfo, text("ok"))
+		h := newHarness(t, euInfo, [][]llm.Chunk{text("non")}, routeOpt(local, 0))
+		seedRemote(t, h)
+		evs, err := h.submit(t, "s_1", "suite", nil)
+		if err != nil || len(h.prov.reqs()) != 0 || len(local.reqs()) != 1 || len(classified(t, evs)) != 1 {
+			t.Fatalf("err %v, remote %d, local %d, events %v", err, len(h.prov.reqs()), len(local.reqs()), types(evs))
+		}
+	})
+}
+
+// Le contrôle sortant porte aussi sur les messages avant masquage : un
+// marquage que le masquage efface (ici une adresse électronique) bloque.
+func TestOutboundScanUnredacted(t *testing.T) {
+	h := newHarness(t, euInfo, [][]llm.Chunk{text("non")}, routeOpt(nil, 0), func(d *Deps) {
+		d.Classify = classify.Rules{Markers: []string{"dpo@corp.example"}}
+	})
+	seed(t, h, "s_1",
+		llm.Message{Role: llm.User, Content: "lis"},
+		llm.Message{Role: llm.Assistant, ToolCalls: []llm.ToolCall{{ID: "c1", Name: "nope", Args: []byte(`{}`)}}},
+		llm.Message{Role: llm.Tool, ToolCallID: "c1", Content: "diffusion : dpo@corp.example"})
+	evs, err := h.submit(t, "s_1", "suite", nil)
+	if err != nil || len(h.prov.reqs()) != 0 || lastTurn(t, evs).Reason != "blocked" {
+		t.Fatalf("err %v, %d requêtes, events %v", err, len(h.prov.reqs()), types(evs))
+	}
+}
