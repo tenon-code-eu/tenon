@@ -40,8 +40,15 @@ func Probe() Status {
 // Cancel et WaitDelay restent intacts. Les chemins de la Spec sont
 // canonisés ici : le profil SBPL ne suit pas les liens symboliques.
 func Wrap(cmd *exec.Cmd, s Spec) error {
+	// exec.Command n'a pas trouvé le programme : rien à isoler.
+	if cmd.Err != nil {
+		return cmd.Err
+	}
 	if cmd.Path == "" {
 		return fmt.Errorf("sandbox: empty command path")
+	}
+	if err := checkPaths(s); err != nil {
+		return err
 	}
 	s.Write = Canonical(s.Write)
 	s.DenyRead = Canonical(s.DenyRead)

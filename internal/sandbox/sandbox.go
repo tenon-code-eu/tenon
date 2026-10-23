@@ -5,6 +5,11 @@
 // (sandbox-exec) et Linux (Landlock) s'appuient dessus.
 package sandbox
 
+import (
+	"fmt"
+	"strings"
+)
+
 // SpecEnv est la variable d'environnement qui porte la Spec (JSON) jusqu'à
 // l'assistant interne `tenon __sandbox`. L'assistant la retire avant execve.
 const SpecEnv = "TENON_SANDBOX_SPEC"
@@ -20,9 +25,9 @@ type Spec struct {
 	DenyRead []string `json:"deny_read"`
 	// DenyWrite liste les chemins interdits en écriture seule (lecture
 	// permise), même sous un chemin de Write : voir GitDenyWrite. Leurs
-	// dossiers parents ne peuvent être ni supprimés ni renommés. Seul macOS l'applique ; l'assistant Linux l'ignore (une
-	// exclusion d'écriture empêcherait git de créer ses fichiers à la racine
-	// de .git, voir R9).
+	// dossiers parents ne peuvent être ni supprimés ni renommés. Seul macOS
+	// l'applique ; l'assistant Linux l'ignore (une exclusion d'écriture
+	// empêcherait git de créer ses fichiers à la racine de .git, voir R9).
 	DenyWrite []string `json:"deny_write,omitempty"`
 	// Network ouvre le réseau quand il vaut true ; fermé sinon.
 	Network bool `json:"network"`
@@ -45,4 +50,19 @@ type Status struct {
 	// UnixSockets indique que les connexions aux sockets Unix sont
 	// confinées : Linux, ABI Landlock ≥ 9 ; macOS, (deny network*) les couvre.
 	UnixSockets bool
+}
+
+// checkPaths refuse une Spec dont un chemin contient un caractère de
+// contrôle (saut de ligne, NUL…) : un tel chemin casserait le profil SBPL ou
+// ferait sauter une interdiction ; on échoue fermé plutôt que de l'ignorer.
+func checkPaths(s Spec) error {
+	lists := [][]string{{s.Dir}, s.Write, s.DenyRead, s.DenyWrite}
+	for _, l := range lists {
+		for _, p := range l {
+			if strings.IndexFunc(p, func(r rune) bool { return r < 0x20 || r == 0x7f }) >= 0 {
+				return fmt.Errorf("sandbox: path with control characters: %q", p)
+			}
+		}
+	}
+	return nil
 }

@@ -134,8 +134,13 @@ func TestWrapKeepsCmd(t *testing.T) {
 	cmd.Env = []string{"A=1"}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.WaitDelay = 3 * time.Second
+	cancelled := false
+	cmd.Cancel = func() error { cancelled = true; return nil }
 	if err := Wrap(cmd, Spec{Dir: proj, Write: []string{proj}}); err != nil {
 		t.Fatal(err)
+	}
+	if cmd.Cancel == nil || cmd.Cancel() != nil || !cancelled {
+		t.Fatal("Cancel perdu par Wrap")
 	}
 	if cmd.Dir != proj || len(cmd.Env) != 1 || cmd.Env[0] != "A=1" || cmd.SysProcAttr == nil || !cmd.SysProcAttr.Setpgid || cmd.WaitDelay != 3*time.Second {
 		t.Fatalf("champs modifiés: %+v", cmd)
@@ -253,5 +258,22 @@ func TestDarwinDenyWriteGit(t *testing.T) {
 		if err := sh(c); err != nil {
 			t.Errorf("refusé sous le profil : %s (%v)", c, err)
 		}
+	}
+}
+
+func TestWrapRefusesControlChars(t *testing.T) {
+	cmd := exec.Command("/bin/echo")
+	if err := Wrap(cmd, Spec{Dir: "/p", DenyRead: []string{"/h/.ssh\n(allow default)"}}); err == nil {
+		t.Fatal("chemin avec saut de ligne accepté")
+	}
+	if cmd.Path != "/bin/echo" {
+		t.Fatalf("commande réécrite malgré le refus: %q", cmd.Path)
+	}
+}
+
+func TestWrapKeepsLookupError(t *testing.T) {
+	cmd := exec.Command("tenon-no-such-binary-xyz")
+	if err := Wrap(cmd, Spec{Dir: "/p"}); err == nil || err != cmd.Err {
+		t.Fatalf("err = %v, cmd.Err = %v", err, cmd.Err)
 	}
 }

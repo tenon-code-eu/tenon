@@ -47,10 +47,13 @@ func seatbeltProfile(s Spec) string {
 	return b.String()
 }
 
-// sbplPath formate un chemin inscriptible : fichier de périphérique en
-// (literal ...), le reste en (subpath ...).
+// devFiles sont les fichiers de périphérique inscriptibles par défaut :
+// (literal ...) pour eux seuls ; un dossier comme /dev/shm reste en (subpath ...).
+var devFiles = map[string]bool{"/dev/null": true, "/dev/tty": true, "/dev/zero": true, "/dev/random": true, "/dev/urandom": true}
+
+// sbplPath formate un chemin inscriptible.
 func sbplPath(p string) string {
-	if strings.HasPrefix(p, "/dev/") {
+	if devFiles[p] {
 		return `(literal "` + sbplEscape(p) + `")`
 	}
 	return `(subpath "` + sbplEscape(p) + `")`

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -94,15 +95,21 @@ func TestSplitAround(t *testing.T) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 
-	got, _ = splitAround(r, []string{j("missing")})
+	if got, err = splitAround(r, []string{j("missing")}); err != nil {
+		t.Fatal(err)
+	}
 	if !reflect.DeepEqual(got, []string{r}) {
 		t.Errorf("absent: %v", got)
 	}
-	got, _ = splitAround(r, []string{"/definitely/elsewhere"})
+	if got, err = splitAround(r, []string{"/definitely/elsewhere"}); err != nil {
+		t.Fatal(err)
+	}
 	if !reflect.DeepEqual(got, []string{r}) {
 		t.Errorf("hors racine: %v", got)
 	}
-	got, _ = splitAround(r, []string{r})
+	if got, err = splitAround(r, []string{r}); err != nil {
+		t.Fatal(err)
+	}
 	if len(got) != 0 {
 		t.Errorf("deny = racine: %v", got)
 	}
@@ -114,7 +121,10 @@ func TestSplitAroundSymlinkDeny(t *testing.T) {
 	if err := os.Symlink(filepath.Join(r, "b", "secret"), link); err != nil {
 		t.Fatal(err)
 	}
-	got, _ := splitAround(r, []string{link})
+	got, err := splitAround(r, []string{link})
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, p := range got {
 		if p == filepath.Join(r, "b") || p == filepath.Join(r, "b", "secret") {
 			t.Errorf("secret ouvert via lien: %v", got)
@@ -228,5 +238,27 @@ func TestGitDenyWrite(t *testing.T) {
 	}
 	if got := GitDenyWrite(wt); got != nil {
 		t.Fatalf("fichier .git : %v", got)
+	}
+}
+
+func TestDenyAncestorsRoot(t *testing.T) {
+	if got := denyAncestors([]string{"/"}); len(got) != 0 {
+		t.Fatalf("interdire / ne doit lister aucun ancêtre: %v", got)
+	}
+}
+
+func TestCheckPathsControlChars(t *testing.T) {
+	for _, s := range []Spec{
+		{Dir: "/p", Write: []string{"/p\nq"}},
+		{Dir: "/p", DenyRead: []string{"/h/.ssh\x00"}},
+		{Dir: "/p", DenyWrite: []string{"/p/.git/hooks\x7f"}},
+		{Dir: "/p\rx"},
+	} {
+		if err := checkPaths(s); err == nil || !strings.HasPrefix(err.Error(), "sandbox: path with control characters") {
+			t.Errorf("%+v: err = %v", s, err)
+		}
+	}
+	if err := checkPaths(Spec{Dir: "/p", Write: []string{"/p", "/tmp"}, DenyRead: []string{"/h/.ssh"}}); err != nil {
+		t.Fatal(err)
 	}
 }

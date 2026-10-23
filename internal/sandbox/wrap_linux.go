@@ -5,6 +5,7 @@ package sandbox
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -51,10 +52,10 @@ func probe() Status {
 		st.Network = "full"
 	case abi >= 4:
 		st.Network = "tcp"
-		st.Reason = "user namespaces unavailable: " + nsErr.Error()
+		st.Reason = "user namespaces unavailable (" + shortReason(nsErr) + ")"
 	default:
 		st.Network = "none"
-		st.Reason = fmt.Sprintf("user namespaces unavailable (%v) and landlock ABI %d has no TCP control", nsErr, abi)
+		st.Reason = fmt.Sprintf("user namespaces unavailable (%s) and landlock ABI %d has no TCP control", shortReason(nsErr), abi)
 	}
 	return st
 }
@@ -74,8 +75,15 @@ func addNamespaces(attr *syscall.SysProcAttr) {
 // SysProcAttr restent intacts. Réseau fermé : espaces de noms si la sonde
 // les a validés, sinon repli Landlock TCP (Spec.TCP) si l'ABI le permet.
 func Wrap(cmd *exec.Cmd, s Spec) error {
+	// exec.Command n'a pas trouvé le programme : rien à isoler.
+	if cmd.Err != nil {
+		return cmd.Err
+	}
 	if cmd.Path == "" {
 		return fmt.Errorf("sandbox: empty command path")
+	}
+	if err := checkPaths(s); err != nil {
+		return err
 	}
 	exe, err := os.Executable()
 	if err != nil {
@@ -117,4 +125,20 @@ func Wrap(cmd *exec.Cmd, s Spec) error {
 	cmd.Path = exe
 	cmd.Args = args
 	return nil
+}
+
+// shortReason réduit l'échec de la sonde à sa cause (errno, délai, code de
+// sortie), sans le chemin du binaire temporaire qu'emporte l'erreur de fork.
+func shortReason(err error) string {
+	var errno syscall.Errno
+	var exit *exec.ExitError
+	switch {
+	case errors.As(err, &errno):
+		return errno.Error()
+	case errors.Is(err, context.DeadlineExceeded):
+		return "probe timed out"
+	case errors.As(err, &exit):
+		return fmt.Sprintf("probe exited with code %d", exit.ExitCode())
+	}
+	return "probe failed"
 }
