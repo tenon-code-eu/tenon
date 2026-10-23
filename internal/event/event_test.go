@@ -272,3 +272,28 @@ func TestProviderSelectedPayloadJSON(t *testing.T) {
 		t.Fatalf("got %s", got)
 	}
 }
+
+func TestCRAPayloadsJSON(t *testing.T) {
+	if CRAScan != "CRAScan" || CRAReport != "CRAReport" {
+		t.Fatalf("types %q %q", CRAScan, CRAReport)
+	}
+	got, err := json.Marshal(CRAScanPayload{SBOMs: 1, Components: 2, Open: 3, ToVerify: 4, NotAffected: 5, Fixed: 6, DBDate: "2026-10-20T10:00:00Z"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `{"sboms":1,"components":2,"open":3,"to_verify":4,"not_affected":5,"fixed":6,"db_date":"2026-10-20T10:00:00Z"}`; string(got) != want {
+		t.Errorf("CRAScan : %s", got)
+	}
+	got, _ = json.Marshal(CRAReportPayload{ID: "2026-10-23-1", Kind: "incident", Step: "open", At: "2026-10-23T08:00:00Z"})
+	if want := `{"id":"2026-10-23-1","kind":"incident","step":"open","at":"2026-10-23T08:00:00Z"}`; string(got) != want {
+		t.Errorf("CRAReport : %s", got)
+	}
+	got, _ = json.Marshal(SessionStartedPayload{Kind: "cra"})
+	if !strings.Contains(string(got), `"kind":"cra"`) {
+		t.Errorf("SessionStarted : %s", got)
+	}
+	got, _ = json.Marshal(SessionStartedPayload{})
+	if strings.Contains(string(got), `"kind"`) {
+		t.Errorf("kind non omis : %s", got)
+	}
+}

@@ -196,3 +196,20 @@ func TestScanUnchecked(t *testing.T) {
 		t.Fatalf("%+v %v", r, err)
 	}
 }
+
+func TestResultJSON(t *testing.T) {
+	db := mkDB(t, map[string][]string{"npm": {npmDoc}})
+	res, err := Run(dossier.Dossier{}, []sbom.BOM{bom("pkg:npm/left@1.0.0")}, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := json.Marshal(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []string{`"sboms":1`, `"open":1`, `"to_verify":0`, `"db_date":"2026-10-20T10:00:00Z"`, `"id":"GHSA-1"`, `"status":"open"`, `"purl":"pkg:npm/left@1.0.0"`, `"unchecked_components":`} {
+		if !bytes.Contains(b, []byte(k)) {
+			t.Errorf("%s absent : %s", k, b)
+		}
+	}
+}

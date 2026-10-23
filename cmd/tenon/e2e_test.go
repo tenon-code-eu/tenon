@@ -350,7 +350,7 @@ func TestSecretNeverInAuditOrRequest(t *testing.T) {
 
 func TestConfigCheckRejectsProjectAllow(t *testing.T) {
 	e := newEnv(t, nil, "eu")
-	if code, out, errb := e.runCheck(); code != 0 || out != routingCheckFR+sandboxCheckFR+"OK\n" {
+	if code, out, errb := e.runCheck(); code != 0 || out != routingCheckFR+sandboxCheckFR+craCheck+"OK\n" {
 		t.Fatalf("config saine : code=%d stdout=%q stderr=%q", code, out, errb)
 	}
 	e.writeFile(filepath.Join(e.wd, ".tenon", "config.toml"), `

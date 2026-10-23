@@ -32,6 +32,8 @@ const (
 	Rewound             Type = "Rewound"
 	SessionClassified   Type = "SessionClassified"
 	ProviderSelected    Type = "ProviderSelected"
+	CRAScan             Type = "CRAScan"
+	CRAReport           Type = "CRAReport"
 )
 
 // Event is one entry of a session log.

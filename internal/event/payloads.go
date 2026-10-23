@@ -24,6 +24,31 @@ type SessionStartedPayload struct {
 	Sandbox *SandboxInfo `json:"sandbox,omitempty"`
 	// Routing décrit le routage configuré ([routing]) : omis sans lui.
 	Routing *RoutingInfo `json:"routing,omitempty"`
+	// Kind distingue les sessions courtes hors conversation (« cra ») ; omis
+	// pour une conversation.
+	Kind string `json:"kind,omitempty"`
+}
+
+// CRAScanPayload résume un scan CRA (tenon cra scan) : SBOM, composants et
+// constats par statut VEX ; DBDate est la date (RFC 3339) de la base OSV.
+type CRAScanPayload struct {
+	SBOMs       int    `json:"sboms"`
+	Components  int    `json:"components"`
+	Open        int    `json:"open"`
+	ToVerify    int    `json:"to_verify"`
+	NotAffected int    `json:"not_affected"`
+	Fixed       int    `json:"fixed"`
+	DBDate      string `json:"db_date"`
+}
+
+// CRAReportPayload enregistre une étape d'un signalement CRA : Step vaut
+// open, early-warning, notification, final ou fix-available ; At est la
+// date-heure (RFC 3339, UTC) de l'étape.
+type CRAReportPayload struct {
+	ID   string `json:"id"`
+	Kind string `json:"kind"`
+	Step string `json:"step"`
+	At   string `json:"at"`
 }
 
 // RoutingInfo décrit le routage de la session : fournisseur local des

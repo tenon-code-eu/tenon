@@ -10,7 +10,10 @@ import (
 
 // Component est un composant logiciel d'un SBOM.
 type Component struct {
-	Name, Version, PURL, BOMRef string
+	Name    string `json:"name"`
+	Version string `json:"version"`
+	PURL    string `json:"purl"`
+	BOMRef  string `json:"bom_ref,omitempty"`
 }
 
 // BOM est un SBOM CycloneDX aplati.

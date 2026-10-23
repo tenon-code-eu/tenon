@@ -288,3 +288,20 @@ func TestSaveReportExclusive(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestLoadReport(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "cra/reports/2026-10-21-1.toml", "kind = \"incident\"\nsummary = \"x\"\naware_at = 2026-10-21T08:00:00+02:00\n")
+	r, err := LoadReport(root, "2026-10-21-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.ID != "2026-10-21-1" || r.Kind != "incident" || r.AwareAt == nil || !r.AwareAt.Equal(time.Date(2026, 10, 21, 6, 0, 0, 0, time.UTC)) {
+		t.Fatalf("%+v", r)
+	}
+	for _, id := range []string{"2026-10-21-2", "../x", "bogus"} {
+		if _, err := LoadReport(root, id); err == nil || err.Error() != "cra: report "+id+" not found" {
+			t.Errorf("%s : %v", id, err)
+		}
+	}
+}

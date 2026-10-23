@@ -149,6 +149,8 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		return auditTimestamp(ctx, lang, stdout, stderr, getenv, wd, globalPath)
 	case len(rest) >= 2 && rest[0] == "audit" && rest[1] == "export":
 		return auditExport(rest[2:], *langFlag, stdout, stderr, getenv, wd, globalPath)
+	case len(rest) >= 1 && rest[0] == "cra":
+		return craCommand(ctx, lang, rest[1:], stdout, stderr, getenv, wd, globalPath)
 	case len(rest) >= 2 && rest[0] == "policy" && rest[1] == "check":
 		return policyCheck(lang, rest[2:], stdout, stderr)
 	case len(rest) == 2 && rest[0] == "config" && rest[1] == "check":
@@ -217,6 +219,9 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 			fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", err))
 			return 1
 		}
+		// CRA : état du dossier du projet et date de la base OSV locale
+		// (information seule, sans effet sur le code de sortie).
+		fmt.Fprintln(stdout, craConfigLine(lang, getenv, wd))
 		fmt.Fprintln(stdout, i18n.T(lang, "config.ok"))
 		return 0
 	case len(rest) >= 1 && rest[0] == "sessions":

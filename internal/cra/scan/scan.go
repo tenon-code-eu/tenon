@@ -22,9 +22,9 @@ const (
 // Finding est un constat OSV avec son statut VEX.
 type Finding struct {
 	osv.Finding
-	Status string
+	Status string `json:"status"`
 	// Conflict : le VEX dit « fixed » alors qu'OSV classe la version exacte du SBOM comme affectée.
-	Conflict bool
+	Conflict bool `json:"conflict,omitempty"`
 }
 
 // ConflictMessage décrit le conflit VEX/OSV pour l'affichage.
@@ -33,14 +33,20 @@ func (f Finding) ConflictMessage() string {
 }
 
 // Result est le résultat d'un scan.
+// Les noms JSON (snake_case) sont stables : sortie de « tenon cra scan --json ».
 type Result struct {
-	SBOMs, Components                  int
-	Findings                           []Finding
-	Open, ToVerify, NotAffected, Fixed int
-	DBDate                             time.Time
-	Conflicts, Unchecked               int
+	SBOMs       int       `json:"sboms"`
+	Components  int       `json:"components"`
+	Findings    []Finding `json:"findings"`
+	Open        int       `json:"open"`
+	ToVerify    int       `json:"to_verify"`
+	NotAffected int       `json:"not_affected"`
+	Fixed       int       `json:"fixed"`
+	DBDate      time.Time `json:"db_date"`
+	Conflicts   int       `json:"conflicts"`
+	Unchecked   int       `json:"unchecked"`
 	// UncheckedComponents : composants sans purl exploitable ou de type non pris en charge.
-	UncheckedComponents []sbom.Component
+	UncheckedComponents []sbom.Component `json:"unchecked_components"`
 }
 
 // NoDBError signale qu'aucune archive OSV n'existe pour un écosystème des SBOM :

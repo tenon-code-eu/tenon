@@ -17,11 +17,11 @@ const (
 
 // Finding est une vulnérabilité OSV rapprochée d'un composant.
 type Finding struct {
-	ID        string
-	Aliases   []string
-	Summary   string
-	Component sbom.Component
-	State     string
+	ID        string         `json:"id"`
+	Aliases   []string       `json:"aliases,omitempty"`
+	Summary   string         `json:"summary"`
+	Component sbom.Component `json:"component"`
+	State     string         `json:"state"`
 }
 
 // verdict d'un affected : rang croissant de gravité pour la fusion.

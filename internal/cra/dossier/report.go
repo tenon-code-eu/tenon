@@ -123,6 +123,24 @@ func loadReport(path, id string) (Report, error) {
 	return r, nil
 }
 
+// LoadReport lit le signalement <id> sans charger le reste du dossier (report
+// mark doit rester possible avec un product.toml incomplet). Un identifiant
+// mal formé ou absent donne « cra: report <id> not found ».
+func LoadReport(root, id string) (Report, error) {
+	notFound := fmt.Errorf("cra: report %s not found", id)
+	if !reportIDRe.MatchString(id) {
+		return Report{}, notFound
+	}
+	path := filepath.Join(root, "cra", "reports", id+".toml")
+	if _, err := os.Stat(path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return Report{}, notFound
+		}
+		return Report{}, fmt.Errorf("cra: %w", err)
+	}
+	return loadReport(path, id)
+}
+
 // NewReportID renvoie le prochain identifiant libre AAAA-MM-JJ-<n> (date UTC de now).
 func NewReportID(root string, now time.Time) string {
 	day := now.UTC().Format("2006-01-02")

@@ -369,6 +369,8 @@ func TestSandboxRealDenyRead(t *testing.T) {
 const (
 	sandboxCheckEN = "sandbox: auto (unavailable: test)\n"
 	sandboxCheckFR = "sandbox : auto (indisponible : test)\n"
+	// craCheck : ligne CRA sans dossier ni base OSV (identique en FR et EN).
+	craCheck = "cra: dossier absent, osv db absent\n"
 )
 
 // sandboxReady déclare l'isolation disponible (réseau complet, sockets Unix
