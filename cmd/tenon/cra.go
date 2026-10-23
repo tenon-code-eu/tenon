@@ -742,7 +742,10 @@ func (c craEnv) export(args []string) int {
 		return c.fail(err)
 	}
 	var res *scan.Result
-	if _, err := d.SBOMPaths(); err == nil {
+	notice := "cra: export without vulnerability scan (run tenon cra db update)"
+	if _, err := d.SBOMPaths(); err != nil {
+		notice = "cra: export without vulnerability scan (no SBOM found)"
+	} else {
 		boms, err := readBOMs(d)
 		if err != nil {
 			return c.fail(err)
@@ -762,7 +765,7 @@ func (c craEnv) export(args []string) int {
 		}
 	}
 	if res == nil {
-		fmt.Fprintln(c.stderr, "cra: export without vulnerability scan (run tenon cra db update)")
+		fmt.Fprintln(c.stderr, notice)
 	}
 	now := exportNow().UTC()
 	dos, err := report.Build(d, res, now)

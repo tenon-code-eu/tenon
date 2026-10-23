@@ -699,3 +699,13 @@ func TestCRAExportNoDB(t *testing.T) {
 		t.Fatalf("sans dossier : code %d, stderr %q", code, errb)
 	}
 }
+
+func TestCRAExportNoSBOMNotice(t *testing.T) {
+	e := newEnv(t, nil, "eu")
+	e.craDossier("pkg:npm/left@1.0.0")
+	os.Remove(filepath.Join(e.wd, "cra", "sbom.cdx.json"))
+	code, _, errb := e.run("cra", "export", "--out", filepath.Join(e.t.TempDir(), "d"), "--lang", "en")
+	if code != 0 || !strings.Contains(errb, "cra: export without vulnerability scan (no SBOM found)") || strings.Contains(errb, "db update") {
+		t.Fatalf("code %d, stderr %q", code, errb)
+	}
+}

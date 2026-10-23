@@ -57,6 +57,9 @@ func funcs(lang i18n.Lang) template.FuncMap {
 			}
 			for _, s := range c.Reports {
 				line := i18n.T(lang, "report.cra_report", s.ID, s.Kind, s.Step)
+				if s.DeadlinesUnknown {
+					line += ", " + i18n.T(lang, "report.cra_unknown")
+				}
 				if s.Overdue {
 					line += ", " + i18n.T(lang, "report.cra_overdue") + " (" + strings.Join(s.OverdueSteps, ", ") + ")"
 				}

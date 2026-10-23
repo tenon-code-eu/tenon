@@ -171,6 +171,7 @@ func (o Options) cleanLeaves(raw json.RawMessage) string {
 // Build construit le rapport à partir du journal chargé. Pure : ne lit rien
 // d'autre que ds. Les tranches ne sont jamais nil, la carte non plus.
 func Build(ds Dataset, o Options) Report {
+	ds.cra = craSessions(ds)
 	r := Report{
 		Generator:   o.Generator,
 		GeneratedAt: o.Now.UTC(),

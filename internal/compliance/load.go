@@ -53,16 +53,22 @@ type SessionInfo struct {
 
 // Dataset est le journal vérifié et filtré.
 type Dataset struct {
-	Filter                   Filter
-	Chain                    Chain
-	Lines                    []audit.Line
-	Unreadable               []Unreadable
-	Sessions                 map[string]SessionInfo
-	Level                    string
+	Filter     Filter
+	Chain      Chain
+	Lines      []audit.Line
+	Unreadable []Unreadable
+	Sessions   map[string]SessionInfo
+	Level      string
+	// CRALines : événements CRAReport de tout le journal (période ignorée),
+	// dans le périmètre projet/session : les échéances de signalement ne
+	// dépendent pas de la période exportée.
+	CRALines                 []audit.Line
 	ExcludedMetadataSessions int
 	// Timestamps résume les jetons RFC 3161 ; calculé seulement si la chaîne
 	// est intacte (zéro sinon).
 	Timestamps audit.TimestampSummary
+	// cra : sessions « cra » (voir craSessions), calculé par Build.
+	cra map[string]bool
 }
 
 // errVerifiedEnd arrête la lecture après la dernière ligne vérifiée.
@@ -118,7 +124,7 @@ func Load(dir string, f Filter, roots *x509.CertPool) (Dataset, error) {
 	end := f.Until.AddDate(0, 0, 1)
 	metaStart := map[string]bool{} // session dont le premier SessionStarted est réduit
 	seen := map[string]bool{}      // session dont le premier SessionStarted est vu
-	var cands []audit.Line
+	var cands, craAll []audit.Line
 
 	// Chaîne intacte : la lecture s'arrête après les ds.Chain.Lines lignes
 	// vérifiées (ReadLines et Verify parcourent les fichiers dans le même
@@ -152,6 +158,9 @@ func Load(dir string, f Filter, roots *x509.CertPool) (Dataset, error) {
 				}
 			}
 		}
+		if l.Type == event.CRAReport && (f.Session == "" || l.Session == f.Session) {
+			craAll = append(craAll, l)
+		}
 		t := ts.UTC()
 		if t.Before(f.Since) || !t.Before(end) {
 			return nil
@@ -174,6 +183,11 @@ func Load(dir string, f Filter, roots *x509.CertPool) (Dataset, error) {
 		ds.Lines = append(ds.Lines, l)
 	}
 	ds.ExcludedMetadataSessions = len(excluded)
+	for _, l := range craAll {
+		if keep(f, ds.Sessions[l.Session], l.Session, metaStart, map[string]bool{}) {
+			ds.CRALines = append(ds.CRALines, l)
+		}
+	}
 
 	var full, meta bool
 	for _, l := range ds.Lines {

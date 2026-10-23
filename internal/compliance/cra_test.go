@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/tenon-code-eu/tenon/internal/audit"
 	"github.com/tenon-code-eu/tenon/internal/event"
 	"github.com/tenon-code-eu/tenon/internal/i18n"
 )
@@ -111,5 +112,83 @@ func TestExportCRAHTML(t *testing.T) {
 		if out = render(t, richReport(false), c.l); strings.Contains(out, "<dt>CRA</dt>") {
 			t.Errorf("%s : ligne CRA sans données", c.l)
 		}
+	}
+}
+
+// loadFrom charge le journal sur une période qui commence un jour après les événements.
+func loadLater(t *testing.T, b *logb) Dataset {
+	t.Helper()
+	dir := writeLog(t, audit.Full, b.evs...)
+	ds, err := Load(dir, Filter{Since: since.AddDate(0, 0, 1), Until: until, AllProjects: true}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ds
+}
+
+func TestExportCRADeadlinesIgnorePeriod(t *testing.T) {
+	b := newLog(t)
+	b.start("s", provEU)
+	craStart(b, "c1", "/p")
+	b.add("c1", event.CRAReport, event.CRAReportPayload{ID: "2026-01-08-1", Kind: "vulnerability", Step: "open", At: "2026-01-08T00:00:00Z"})
+	ds := loadLater(t, b)
+	if len(ds.Lines) != 0 {
+		t.Fatalf("lignes dans la période : %d", len(ds.Lines))
+	}
+	r := Build(ds, opts())
+	if r.CRA == nil || len(r.CRA.Reports) != 1 {
+		t.Fatalf("cra %+v", r.CRA)
+	}
+	s := r.CRA.Reports[0]
+	if !s.Overdue || s.DeadlinesUnknown || !reflect.DeepEqual(s.OverdueSteps, []string{"early-warning", "notification"}) {
+		t.Fatalf("report %+v", s)
+	}
+	if r.Summary.Sessions != 0 || r.Summary.UnknownProviderSessions != 0 {
+		t.Fatalf("stats %+v", r.Summary)
+	}
+}
+
+func TestExportCRAFinalReportOutOfPeriodNotListed(t *testing.T) {
+	b := newLog(t)
+	craStart(b, "c1", "/p")
+	b.add("c1", event.CRAReport, event.CRAReportPayload{ID: "2026-01-08-1", Kind: "incident", Step: "open", At: "2026-01-08T00:00:00Z"})
+	b.add("c1", event.CRAReport, event.CRAReportPayload{ID: "2026-01-08-1", Kind: "incident", Step: "final", At: "2026-01-09T00:00:00Z"})
+	if r := Build(loadLater(t, b), opts()); r.CRA != nil {
+		t.Fatalf("rapport clos hors période listé : %+v", r.CRA)
+	}
+}
+
+func TestExportCRADeadlinesUnknownWithoutOpen(t *testing.T) {
+	b := newLog(t)
+	craStart(b, "c1", "/p")
+	b.add("c1", event.CRAReport, event.CRAReportPayload{ID: "2026-01-08-1", Kind: "vulnerability", Step: "early-warning", At: "2026-01-09T00:00:00Z"})
+	r := Build(b.dataset(), opts())
+	if r.CRA == nil || !r.CRA.Reports[0].DeadlinesUnknown || r.CRA.Reports[0].Overdue {
+		t.Fatalf("%+v", r.CRA)
+	}
+	for _, l := range []i18n.Lang{i18n.EN, i18n.FR} {
+		rr := richReport(false)
+		rr.CRA = r.CRA
+		if out := render(t, rr, l); !strings.Contains(out, i18n.T(l, "report.cra_unknown")) {
+			t.Errorf("%s : marqueur absent", l)
+		}
+	}
+}
+
+func TestExportCRASessionStartedBeforePeriod(t *testing.T) {
+	b := newLog(t)
+	craStart(b, "c1", "/p")
+	b.add("c1", event.CRAScan, event.CRAScanPayload{Open: 2})
+	// Décaler le scan dans la période : l'événement tardif seul est dans la plage.
+	dir := writeLog(t, audit.Full, b.evs...)
+	ds, err := Load(dir, Filter{Since: since, Until: until, AllProjects: true}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ds.Lines = ds.Lines[1:] // plus de SessionStarted dans la plage
+	ds.Sessions["c1"] = SessionInfo{}
+	r := Build(ds, opts())
+	if r.Summary.Sessions != 0 || r.Summary.UnknownProviderSessions != 0 || r.CRA == nil || r.CRA.Open != 2 {
+		t.Fatalf("%+v %+v", r.Summary, r.CRA)
 	}
 }
