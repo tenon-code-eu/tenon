@@ -170,7 +170,7 @@ func TestWelcomeCounts(t *testing.T) {
 	}
 	o.Hooks = set
 	v := welcomeView(t, o, 100)
-	if !strings.Contains(v, "skills: 2 · agents: 0 · hooks: 1") {
+	if !strings.Contains(v, "skills: 6 · agents: 0 · hooks: 1") {
 		t.Errorf("compteurs absents :\n%s", v)
 	}
 	if v := welcomeView(t, welcomeOpts(i18n.FR), 100); !strings.Contains(v, "skills : 0 · agents : 0 · hooks : 0") {

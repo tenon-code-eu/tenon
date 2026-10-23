@@ -39,7 +39,7 @@ func TestSkillsListCommand(t *testing.T) {
 		t.Fatalf("skill projet absent : %q", out)
 	}
 	e2 := newEnv(t, nil, "eu")
-	if code, out, _ := e2.run("skills", "--lang", "en"); code != 0 || strings.TrimSpace(out) != "no skills" {
+	if code, out, _ := e2.run("skills", "--lang", "en"); code != 0 || !strings.Contains(out, "cra-sbom  builtin  ") {
 		t.Fatalf("code=%d out=%q", code, out)
 	}
 }

@@ -14,6 +14,7 @@ func TestPromptSection(t *testing.T) {
 	writeSkill(t, r, "review", "name: review\ndescription: Review code", "b")
 	writeSkill(t, r, "hidden", "name: hidden\ndescription: Nope\ndisable-model-invocation: true", "b")
 	c, _ := Discover([]Dir{{r, User}})
+	c = stripBuiltin(c)
 	s, dropped := c.PromptSection(i18n.EN, 8000)
 	want := i18n.T(i18n.EN, "skills.prompt_header") + "\n- review: Review code"
 	if s != want || dropped != 0 {
@@ -22,6 +23,7 @@ func TestPromptSection(t *testing.T) {
 	r2 := t.TempDir()
 	writeSkill(t, r2, "hidden", "name: hidden\ndescription: Nope\ndisable-model-invocation: true", "b")
 	c2, _ := Discover([]Dir{{r2, User}})
+	c2 = stripBuiltin(c2)
 	if s, d := c2.PromptSection(i18n.EN, 8000); s != "" || d != 0 {
 		t.Fatalf("%q %d", s, d)
 	}
@@ -34,6 +36,7 @@ func TestPromptBudget(t *testing.T) {
 		writeSkill(t, r, n, "name: "+n+"\ndescription: "+strings.Repeat("x", 1000), "b")
 	}
 	c, _ := Discover([]Dir{{r, User}})
+	c = stripBuiltin(c)
 	s, dropped := c.PromptSection(i18n.EN, 8000)
 	if len(s) > 8000 || dropped == 0 {
 		t.Fatalf("len %d dropped %d", len(s), dropped)
@@ -122,6 +125,7 @@ func TestPromptSectionEmptyWhenNoneListed(t *testing.T) {
 	r := t.TempDir()
 	writeSkill(t, r, "review", "name: review\ndescription: "+strings.Repeat("d", 300), "b")
 	c, _ := Discover([]Dir{{r, User}})
+	c = stripBuiltin(c)
 	// Budget plus petit que l'en-tête : plus aucun skill ne tient.
 	s, dropped := c.PromptSection(i18n.EN, 5)
 	if s != "" || dropped != 1 {

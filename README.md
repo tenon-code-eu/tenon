@@ -22,6 +22,7 @@ It is designed for Europe:
 - signed organisation policy (minisign): an administrator imposes a floor (profile, allowed provider hosts, permission and redaction rules, audit level, MCP servers) that users cannot loosen; it is verified at every startup and recorded in the audit log ([docs/policy.md](docs/policy.md));
 - RFC 3161 timestamping of the audit log: `[audit.timestamp]` has a timestamp authority sign the head hash, so a log rewritten afterwards is detected by `tenon audit verify` and by the export (no authority is built in, none is called unless you configure one);
 - `tenon audit export`: an HTML and JSON compliance report built from the audit log (providers, consents, permissions, modified files, incidents), with no conversation data unless you ask for it;
+- Cyber Resilience Act assistant: `tenon cra` keeps an SBOM, a VEX, reporting deadlines (article 14) and an exportable technical dossier in the repository, with an offline OSV vulnerability scan usable in CI (`tenon cra scan --fail-on open`) and four built-in skills; nothing is sent to ENISA ([docs/cra.md](docs/cra.md));
 - checkpoints: each prompt is a restore point, and `/rewind` (or Esc twice) restores the files an agent wrote, the conversation, or both, never overwriting a file you changed without asking.
 
 Any OpenAI-compatible endpoint works.
@@ -124,6 +125,7 @@ tenon git install-hook
 
 - [Usage guide](docs/usage.md): keys, approval, non-interactive mode, sessions, configuration, providers, MCP, git marking, audit, compliance export.
 - [tenon in CI](docs/ci.md): templates for GitLab CI, Forgejo/Gitea and GitHub Actions, `--strict`, `--config`, `TENON_DOWNLOAD_BASE` mirror install.
+- [Cyber Resilience Act assistant](docs/cra.md): dossier, offline OSV scan, deadlines, built-in skills.
 - [Organisation policy](docs/policy.md): signed floor imposed by an administrator.
 - [Security and limits](docs/security.md): sovereignty criteria, guarantees, known limits, recovery.
 - [Example configuration](docs/config.example.toml): commented file, without secrets.
@@ -152,6 +154,7 @@ L'isolation système confine les commandes shell et les serveurs MCP stdio (Land
 Le routage par sensibilité des données classe une session comme sensible (chemins et marquages comme `DIFFUSION RESTREINTE`, `EU RESTRICTED` ou les vôtres) : elle n'est alors envoyée qu'à un modèle local, avec une bascule ordonnée vers d'autres fournisseurs pour le reste ; le journal d'audit prouve chaque décision et l'export signale toute violation ([utilisation](docs/fr/utilisation.md#routage-par-sensibilité-des-données), [limites](docs/fr/securite.md#le-routage-par-sensibilité-et-ses-limites)).
 Une politique d'organisation signée (minisign) permet à un administrateur d'imposer un socle (profil, hôtes de fournisseurs autorisés, règles de permissions et de masquage, niveau d'audit, serveurs MCP) que les utilisateurs ne peuvent pas assouplir ; elle est vérifiée à chaque démarrage et tracée dans le journal d'audit ([politique](docs/fr/politique.md)).
 `tenon audit export` produit un rapport de conformité HTML et JSON tiré du journal d'audit (fournisseurs, consentements, permissions, fichiers modifiés, incidents), sans données de conversation sauf si vous les demandez.
+L'assistant Cyber Resilience Act (`tenon cra`) tient dans le dépôt une SBOM, un VEX, les échéances de signalement (article 14) et un dossier technique exportable, avec un scan de vulnérabilités OSV hors ligne utilisable en CI (`tenon cra scan --fail-on open`) et quatre skills intégrés ; rien n'est envoyé à l'ENISA ([assistant CRA](docs/fr/cra.md)).
 L'interface est en anglais par défaut : lancez `tenon --lang fr` ou mettez `lang = "fr"` dans la configuration.
 
-Documentation en français : [guide d'utilisation](docs/fr/utilisation.md), [sécurité et limites](docs/fr/securite.md), [politique d'organisation](docs/fr/politique.md), [tenon en CI](docs/fr/ci.md).
+Documentation en français : [guide d'utilisation](docs/fr/utilisation.md), [sécurité et limites](docs/fr/securite.md), [politique d'organisation](docs/fr/politique.md), [tenon en CI](docs/fr/ci.md), [assistant CRA](docs/fr/cra.md).

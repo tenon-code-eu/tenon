@@ -99,13 +99,13 @@ func TestSkillsCommand(t *testing.T) {
 	h := newHarness(t, f, Options{Lang: i18n.EN, Skills: skillCatalog(t, "review")})
 	typeText(h, "/skills")
 	enter(h)
-	if n := notices(h); n != "/review (user) — Desc review" {
+	if n := notices(h); !strings.HasPrefix(n, "/review (user) — Desc review\n/cra-docs (builtin)") {
 		t.Fatalf("avis %q", n)
 	}
 	h2 := newHarness(t, newFake(), Options{Lang: i18n.EN})
 	typeText(h2, "/skills")
 	enter(h2)
-	if n := notices(h2); n != "no skills" {
+	if n := notices(h2); n != "no skills" && !strings.HasPrefix(n, "/cra-docs (builtin)") {
 		t.Fatalf("avis %q", n)
 	}
 }

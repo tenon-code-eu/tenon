@@ -40,6 +40,7 @@ tenon key set|delete <provider>
 tenon audit verify [--tsa-ca <pem>]
 tenon audit timestamp
 tenon audit export [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--project <path> | --all-projects | --session <id>] [--details] [--tsa-ca <pem>] [--out <dir>] [--lang fr|en]
+tenon cra init|db update|scan|status|report|export   # see cra.md
 tenon config check
 tenon git install-hook [--force]
 tenon git mark <message-file>
@@ -343,11 +344,13 @@ A skill is a subfolder `<name>/` with a `SKILL.md` file in it.
 tenon looks in these folders, from the highest priority to the lowest:
 
 1. user: `$XDG_CONFIG_HOME/tenon/skills` (else `~/.config/tenon/skills`), `~/.claude/skills`, `~/.agents/skills`;
-2. project, at the project root only: `.tenon/skills`, `.claude/skills`, `.agents/skills`.
+2. project, at the project root only: `.tenon/skills`, `.claude/skills`, `.agents/skills`;
+3. built-in: skills embedded in the binary, with the lowest priority (see below).
 
 When two skills have the same name, the first one found wins. The other is ignored and a notice reports it.
 So a user skill always shadows a project skill of the same name.
 A missing folder is ignored without a notice.
+The built-in skills are `cra-sbom`, `cra-triage`, `cra-report` and `cra-docs`, for the [Cyber Resilience Act assistant](cra.md#built-in-skills). A user or project skill with the same name wins, silently, with no notice. Their source is `builtin` and they have no folder on disk, so they have no annex files.
 `~/.claude/skills` and `~/.agents/skills` are ignored when `HOME` is empty or is not an absolute path.
 An empty or relative `XDG_CONFIG_HOME` is replaced by `$HOME/.config`. If neither is absolute, the user tenon folder is ignored too.
 
@@ -437,9 +440,9 @@ An unknown `/x` stops with exit code 1 before any session or audit entry is crea
 tenon skills [--lang fr|en]
 ```
 
-One line per skill: name, source (`user` or `project`), absolute folder, description, and `allowed-tools: ...` when the skill has it.
-Discovery notices follow. Without skills, tenon prints `no skills`.
-At startup, the banner adds `skills: N (project: M)` when there is at least one skill.
+One line per skill: name, source (`user`, `project` or `builtin`), absolute folder, description, and `allowed-tools: ...` when the skill has it.
+Discovery notices follow. The four built-in skills are always listed unless a skill of the same name replaces them.
+At startup, the banner adds `skills: N (project: M)` when there is at least one user or project skill (built-in skills are not counted).
 Names, descriptions and notices are shown with control characters replaced by spaces, because project skills are not trusted.
 
 ### Session and audit

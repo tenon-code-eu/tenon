@@ -42,6 +42,7 @@ tenon key set|delete <fournisseur>
 tenon audit verify [--tsa-ca <pem>]
 tenon audit timestamp
 tenon audit export [--since AAAA-MM-JJ] [--until AAAA-MM-JJ] [--project <chemin> | --all-projects | --session <id>] [--details] [--tsa-ca <pem>] [--out <dossier>] [--lang fr|en]
+tenon cra init|db update|scan|status|report|export   # voir cra.md
 tenon config check
 tenon git install-hook [--force]
 tenon git mark <fichier-message>
@@ -343,11 +344,13 @@ Un skill est un sous-dossier `<nom>/` contenant un fichier `SKILL.md`.
 tenon parcourt ces dossiers, du plus prioritaire au moins prioritaire :
 
 1. utilisateur : `$XDG_CONFIG_HOME/tenon/skills` (sinon `~/.config/tenon/skills`), `~/.claude/skills`, `~/.agents/skills` ;
-2. projet, à la racine uniquement : `.tenon/skills`, `.claude/skills`, `.agents/skills`.
+2. projet, à la racine uniquement : `.tenon/skills`, `.claude/skills`, `.agents/skills` ;
+3. intégrés : skills embarqués dans le binaire, de priorité la plus basse (voir ci-dessous).
 
 Quand deux skills portent le même nom, le premier trouvé l'emporte. L'autre est ignoré et un avis le signale.
 Un skill utilisateur masque donc toujours un skill de projet du même nom.
 Un dossier absent est ignoré sans avis.
+Les skills intégrés sont `cra-sbom`, `cra-triage`, `cra-report` et `cra-docs`, pour l'[assistant Cyber Resilience Act](cra.md#skills-intégrés). Un skill utilisateur ou projet de même nom l'emporte, sans avertissement ni avis. Leur source est `builtin` et ils n'ont pas de dossier sur disque, donc pas de fichiers annexes.
 `~/.claude/skills` et `~/.agents/skills` sont ignorés quand `HOME` est vide ou n'est pas un chemin absolu.
 Un `XDG_CONFIG_HOME` vide ou relatif est remplacé par `$HOME/.config`. Si aucun des deux n'est absolu, le dossier utilisateur de tenon est ignoré aussi.
 
@@ -438,9 +441,9 @@ Un `/x` inconnu s'arrête avec le code de sortie 1 avant la création de toute s
 tenon skills [--lang fr|en]
 ```
 
-Une ligne par skill : nom, source (`user` ou `project`), dossier absolu, description, et `allowed-tools: ...` si le skill en a.
-Les avis de découverte suivent. Sans skill, tenon affiche `aucun skill`.
-Au démarrage, la bannière ajoute `skills : N (projet : M)` quand il y a au moins un skill.
+Une ligne par skill : nom, source (`user`, `project` ou `builtin`), dossier absolu, description, et `allowed-tools: ...` si le skill en a.
+Les avis de découverte suivent. Les quatre skills intégrés sont toujours listés, sauf si un skill de même nom les remplace.
+Au démarrage, la bannière ajoute `skills : N (projet : M)` quand il y a au moins un skill utilisateur ou projet (les skills intégrés ne sont pas comptés).
 Noms, descriptions et avis sont affichés avec les caractères de contrôle remplacés par des espaces, car les skills de projet ne sont pas dignes de confiance.
 
 ### Session et audit

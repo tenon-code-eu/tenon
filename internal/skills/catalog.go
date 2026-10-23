@@ -34,6 +34,8 @@ type Source string
 const (
 	User    Source = "user"
 	Project Source = "project"
+	// Builtin désigne les skills embarqués dans le binaire (priorité la plus basse).
+	Builtin Source = "builtin"
 )
 
 // Dir est un répertoire de skills et son origine.
@@ -151,6 +153,7 @@ func Discover(dirs []Dir) (*Catalog, []Notice) {
 			})
 		}
 	}
+	notices = append(notices, c.addBuiltin()...)
 	return c, notices
 }
 
@@ -188,8 +191,15 @@ func (c *Catalog) Load(name string) (body string, sha256hex string, truncated bo
 	if !ok {
 		return "", "", false, fmt.Errorf("unknown skill %q", name)
 	}
-	data, trunc, ok, err := readSkillFile(s.Dir)
-	if err != nil {
+	var data []byte
+	var trunc bool
+	if s.Source == Builtin {
+		data, err = readBuiltin(s.Dir)
+		ok = err == nil
+	} else {
+		data, trunc, ok, err = readSkillFile(s.Dir)
+	}
+	if err != nil && s.Source != Builtin {
 		return "", "", false, err
 	}
 	if !ok {

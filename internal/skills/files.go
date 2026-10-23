@@ -25,6 +25,9 @@ const (
 	maxReadBytesUnlimited = 1 << 20
 )
 
+// errBuiltinFiles : un skill intégré n'a pas de dossier sur disque.
+var errBuiltinFiles = errors.New("built-in skill has no annex files")
+
 func refused(reason string) error {
 	return fmt.Errorf("skill file refused: %s", reason)
 }
@@ -35,6 +38,9 @@ func (c *Catalog) skillDir(name string) (string, error) {
 	s, ok := c.Get(name)
 	if !ok {
 		return "", fmt.Errorf("unknown skill %q", name)
+	}
+	if s.Source == Builtin {
+		return "", errBuiltinFiles
 	}
 	fi, err := os.Lstat(s.Dir)
 	if err != nil {
@@ -115,6 +121,9 @@ func (c *Catalog) ReadFile(name, rel string, limit int) (content string, abs str
 // liste a été coupée.
 func (c *Catalog) Files(name string) ([]string, bool, error) {
 	dir, err := c.skillDir(name)
+	if errors.Is(err, errBuiltinFiles) {
+		return []string{skillFile}, false, nil
+	}
 	if err != nil {
 		return nil, false, err
 	}

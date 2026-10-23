@@ -25,6 +25,27 @@ func writeSkill(t *testing.T, root, name, fm, body string) string {
 
 func valid(name string) string { return "name: " + name + "\ndescription: desc " + name }
 
+// userOnly renvoie les skills non intégrés ; stripBuiltin renvoie un
+// catalogue sans eux (les anciens tests ne portent que sur les dossiers).
+func userOnly(c *Catalog) []Skill {
+	var out []Skill
+	for _, s := range c.List() {
+		if s.Source != Builtin {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func stripBuiltin(c *Catalog) *Catalog {
+	n := &Catalog{byName: map[string]int{}}
+	for _, s := range userOnly(c) {
+		n.byName[s.Name] = len(n.skills)
+		n.skills = append(n.skills, s)
+	}
+	return n
+}
+
 func TestDiscoverPriority(t *testing.T) {
 	u, p, ut, uc := t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir()
 	writeSkill(t, u, "review", valid("review"), "user")
@@ -57,7 +78,7 @@ func TestDiscoverInvalid(t *testing.T) {
 	}
 	os.WriteFile(filepath.Join(r, "broken", "SKILL.md"), []byte("no frontmatter"), 0o644)
 	c, notices := Discover([]Dir{{r, User}})
-	if l := c.List(); len(l) != 1 || l[0].Name != "ok" || !l[0].ModelInvocable {
+	if l := userOnly(c); len(l) != 1 || l[0].Name != "ok" || !l[0].ModelInvocable {
 		t.Fatalf("list: %+v", l)
 	}
 	if len(notices) != 4 {
@@ -84,7 +105,7 @@ func TestDiscoverUnsafe(t *testing.T) {
 	go func() { c, _ := Discover([]Dir{{r, Project}}); done <- c }()
 	select {
 	case c := <-done:
-		if l := c.List(); len(l) != 0 {
+		if l := userOnly(c); len(l) != 0 {
 			t.Fatalf("list: %+v", l)
 		}
 	case <-time.After(3 * time.Second):
@@ -193,8 +214,8 @@ func TestDiscoverSkipsSymlinkedBase(t *testing.T) {
 		t.Fatal(err)
 	}
 	c, notices := Discover([]Dir{{filepath.Join(proj, "skills"), Project}})
-	if len(c.List()) != 0 {
-		t.Fatalf("list: %+v", c.List())
+	if len(userOnly(c)) != 0 {
+		t.Fatalf("list: %+v", userOnly(c))
 	}
 	if len(notices) != 1 || !strings.Contains(string(notices[0]), "symbolic link") {
 		t.Fatalf("notices: %v", notices)
@@ -211,5 +232,56 @@ func TestDiscoverFollowsSymlinkedUserBase(t *testing.T) {
 	c, notices := Discover([]Dir{{filepath.Join(home, "skills"), User}})
 	if s, ok := c.Get("x"); !ok || s.Source != User || len(notices) != 0 {
 		t.Fatalf("skill %+v ok=%v notices %v", s, ok, notices)
+	}
+}
+
+func TestBuiltinSkillsPresent(t *testing.T) {
+	c, notices := Discover(nil)
+	if len(notices) != 0 {
+		t.Fatalf("notices: %v", notices)
+	}
+	for _, n := range []string{"cra-sbom", "cra-triage", "cra-report", "cra-docs"} {
+		s, ok := c.Get(n)
+		if !ok || s.Source != Builtin || s.Description == "" {
+			t.Fatalf("%s: %+v ok=%v", n, s, ok)
+		}
+		body, sum, trunc, err := c.Load(n)
+		if err != nil || strings.TrimSpace(body) == "" || len(sum) != 64 || trunc {
+			t.Fatalf("%s: err=%v sum=%q trunc=%v", n, err, sum, trunc)
+		}
+		if !strings.Contains(body, "tenon cra") {
+			t.Fatalf("%s: no tenon cra command", n)
+		}
+		if files, _, err := c.Files(n); err != nil || len(files) != 1 || files[0] != "SKILL.md" {
+			t.Fatalf("%s: files %v err %v", n, files, err)
+		}
+		if _, _, _, err := c.ReadFile(n, "other.md", 0); err == nil {
+			t.Fatalf("%s: annex read must fail", n)
+		}
+	}
+}
+
+func TestBuiltinOverridden(t *testing.T) {
+	u := t.TempDir()
+	writeSkill(t, u, "cra-triage", valid("cra-triage"), "mine")
+	c, notices := Discover([]Dir{{u, User}})
+	if len(notices) != 0 {
+		t.Fatalf("notices: %v", notices)
+	}
+	s, _ := c.Get("cra-triage")
+	if s.Source != User {
+		t.Fatalf("got %+v", s)
+	}
+	n := 0
+	for _, s := range c.List() {
+		if s.Name == "cra-triage" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("listed %d times", n)
+	}
+	if body, _, _, err := c.Load("cra-triage"); err != nil || !strings.Contains(body, "mine") {
+		t.Fatalf("body %q err %v", body, err)
 	}
 }

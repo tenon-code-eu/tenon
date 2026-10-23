@@ -44,14 +44,20 @@ func discoverSkills(lang i18n.Lang, getenv func(string) string, wd string) disco
 		notices = append(notices, clean(string(n)))
 	}
 	list := cat.List()
-	if len(list) > 0 {
-		project := 0
-		for _, s := range list {
-			if s.Source == skills.Project {
-				project++
-			}
+	// Le bandeau ne compte que les skills du dépôt ou de l'utilisateur : les
+	// skills intégrés sont toujours présents.
+	project, total := 0, 0
+	for _, s := range list {
+		if s.Source == skills.Builtin {
+			continue
 		}
-		notices = append(notices, i18n.T(lang, "skills.banner", len(list), project))
+		total++
+		if s.Source == skills.Project {
+			project++
+		}
+	}
+	if total > 0 {
+		notices = append(notices, i18n.T(lang, "skills.banner", total, project))
 	}
 	section, dropped := cat.PromptSection(lang, promptBudget)
 	if dropped > 0 {
