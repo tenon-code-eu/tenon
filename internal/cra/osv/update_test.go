@@ -209,7 +209,7 @@ func TestUpdateTooLarge(t *testing.T) {
 }
 
 func TestUpdateRedirectHTTP(t *testing.T) {
-	c := Client(true)
+	c := Client(true, false)
 	req := func(raw string) *http.Request {
 		u, _ := url.Parse(raw)
 		return &http.Request{URL: u}
@@ -245,7 +245,7 @@ func TestUpdateRedirectRefusedEndToEnd(t *testing.T) {
 	}))
 	defer srv.Close()
 	dir, archive, index := previous(t)
-	err := Update(context.Background(), Client(true), srv.URL, []string{"PyPI"}, dir, fixedNow)
+	err := Update(context.Background(), Client(true, false), srv.URL, []string{"PyPI"}, dir, fixedNow)
 	if err == nil {
 		t.Fatal("redirection refusée attendue")
 	}
@@ -307,5 +307,34 @@ func TestUpdateBadEcosystem(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "invalid ecosystem") {
 			t.Errorf("%q : %v", eco, err)
 		}
+	}
+}
+
+func TestClientLocalOnlyRedirect(t *testing.T) {
+	c := Client(true, true)
+	req := func(raw string) *http.Request {
+		u, _ := url.Parse(raw)
+		return &http.Request{URL: u}
+	}
+	cases := []struct {
+		via, to string
+		ok      bool
+	}{
+		{"https://127.0.0.1:1/x", "https://localhost:2/y", true},
+		{"https://127.0.0.1:1/x", "https://10.0.0.5/y", true},
+		{"https://127.0.0.1:1/x", "https://storage.googleapis.com/y", false},
+		{"https://localhost/x", "https://evil.example/y", false},
+		{"http://127.0.0.1:1/x", "http://localhost:2/y", true},
+		{"http://127.0.0.1:1/x", "https://evil.example/y", false},
+	}
+	for _, tc := range cases {
+		err := c.CheckRedirect(req(tc.to), []*http.Request{req(tc.via)})
+		if (err == nil) != tc.ok {
+			t.Errorf("%s -> %s : err=%v, ok attendu=%v", tc.via, tc.to, err, tc.ok)
+		}
+	}
+	// Hors strict-local, une redirection https vers un hôte distant reste permise.
+	if err := Client(false, false).CheckRedirect(req("https://storage.googleapis.com/y"), []*http.Request{req("https://127.0.0.1/x")}); err != nil {
+		t.Errorf("localOnly=false : %v", err)
 	}
 }

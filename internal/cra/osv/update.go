@@ -56,9 +56,11 @@ func CheckBase(base string) error {
 
 // Client renvoie un client HTTP pour le téléchargement : redirections bornées,
 // jamais vers du http en clair, et jamais hors d'un hôte local quand la
-// requête initiale était en http. noProxy ignore les proxys d'environnement
-// (profils strict-local et secnumcloud). http.DefaultTransport reste intact.
-func Client(noProxy bool) *http.Client {
+// requête initiale était en http. noProxy ignore les proxys d'environnement ;
+// localOnly refuse toute redirection vers un hôte non local, avant toute
+// connexion. Les deux valent pour le profil strict-local seulement.
+// http.DefaultTransport reste intact.
+func Client(noProxy, localOnly bool) *http.Client {
 	tr := http.DefaultTransport.(*http.Transport).Clone()
 	if noProxy {
 		tr.Proxy = nil
@@ -69,6 +71,10 @@ func Client(noProxy bool) *http.Client {
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= maxRedirects {
 				return errors.New("cra: osv: too many redirects")
+			}
+			// strict-local : aucune redirection ne quitte les hôtes locaux.
+			if localOnly && !profile.IsLocalHost(req.URL.Hostname()) {
+				return errors.New("cra: osv: redirect off local host refused")
 			}
 			if len(via) > 0 && via[0].URL.Scheme == "http" {
 				// Base en http (hôte local) : on ne la quitte pas.

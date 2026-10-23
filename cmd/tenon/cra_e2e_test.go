@@ -3,12 +3,14 @@ package main
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -333,11 +335,14 @@ func TestCRAScanFailOn(t *testing.T) {
 	if code != 7 {
 		t.Fatalf("--fail-on open : code %d, stdout %q, stderr %q", code, out, errb)
 	}
-	code, out, errb = e.run("cra", "scan")
+	code, out, errb = e.run("--lang", "en", "cra", "scan")
 	if code != 0 {
 		t.Fatalf("code %d, stderr %q", code, errb)
 	}
-	for _, w := range []string{"GHSA-1 pkg:npm/left@1.0.0 prototype pollution", "unchecked: nopurl2@1 (no purl)"} {
+	if !strings.Contains(errb, "cra: 1 components not checked, 0 VEX conflicts (see below)") {
+		t.Errorf("avis absent : %q", errb)
+	}
+	for _, w := range []string{"1 open, 0 to verify, 0 not affected, 0 fixed, 0 conflicts, 1 unchecked", "GHSA-1 pkg:npm/left@1.0.0 prototype pollution", "unchecked: nopurl2@1 (no purl)"} {
 		if !strings.Contains(out, w) {
 			t.Errorf("stdout sans %q :\n%s", w, out)
 		}
@@ -426,8 +431,8 @@ func mirror(t *testing.T, ecos ...string) (*httptest.Server, *hitLog) {
 	pool := x509.NewCertPool()
 	pool.AddCert(srv.Certificate())
 	prev := craHTTPClient
-	craHTTPClient = func(noProxy bool) *http.Client {
-		c := osv.Client(noProxy)
+	craHTTPClient = func(noProxy, localOnly bool) *http.Client {
+		c := osv.Client(noProxy, localOnly)
 		c.Transport.(*http.Transport).TLSClientConfig = &tls.Config{RootCAs: pool}
 		return c
 	}
@@ -548,5 +553,83 @@ func TestCRAStatusMetadataLevel(t *testing.T) {
 	_, out, _ := e.run("--lang", "en", "cra", "status")
 	if !strings.Contains(out, "last scan: 20") || strings.Contains(out, "open 1") {
 		t.Fatalf("stdout :\n%s", out)
+	}
+}
+
+func TestCRAScanUnsupportedOnly(t *testing.T) {
+	e := newEnv(t, nil, "eu")
+	e.craDossier("pkg:deb/debian/openssl@3.0.0", "pkg:deb/debian/curl@8.0.0")
+	e.craDB(time.Now(), map[string][]string{"npm": {craLeftDoc}})
+	code, out, errb := e.run("--lang", "en", "cra", "scan", "--fail-on", "open")
+	if code != 0 {
+		t.Fatalf("code %d, stderr %q", code, errb)
+	}
+	for _, w := range []string{"0 open, 0 to verify, 0 not affected, 0 fixed, 0 conflicts, 2 unchecked", "unchecked: c0@1 (unsupported type deb)"} {
+		if !strings.Contains(out, w) {
+			t.Errorf("stdout sans %q :\n%s", w, out)
+		}
+	}
+	if !strings.Contains(errb, "cra: 2 components not checked, 0 VEX conflicts (see below)") {
+		t.Errorf("avis absent : %q", errb)
+	}
+	_, out, errb = e.run("cra", "scan")
+	if !strings.Contains(out, "0 conflits, 2 non vérifiés") || !strings.Contains(errb, "cra : 2 composants non vérifiés, 0 conflits VEX (voir ci-dessous)") {
+		t.Errorf("FR : stdout %q, stderr %q", out, errb)
+	}
+}
+
+func TestCRAScanConflictNotice(t *testing.T) {
+	e := newEnv(t, nil, "eu")
+	e.craDossier("pkg:npm/left@1.0.0")
+	e.writeFile(filepath.Join(e.wd, "cra", "vex.cdx.json"), `{"bomFormat":"CycloneDX","specVersion":"1.5","vulnerabilities":[{"id":"GHSA-1","analysis":{"state":"resolved"},"affects":[{"ref":"pkg:npm/left@1.0.0"}]}]}`)
+	e.craDB(time.Now(), map[string][]string{"npm": {craLeftDoc}})
+	code, out, errb := e.run("--lang", "en", "cra", "scan", "--fail-on", "open")
+	if code != 0 {
+		t.Fatalf("code %d, stderr %q", code, errb)
+	}
+	if !strings.Contains(out, "1 fixed, 1 conflicts, 0 unchecked") || !strings.Contains(out, "fixed per VEX but pkg:npm/left@1.0.0 is listed as affected by GHSA-1") {
+		t.Errorf("stdout :\n%s", out)
+	}
+	if !strings.Contains(errb, "cra: 0 components not checked, 1 VEX conflicts (see below)") {
+		t.Errorf("avis absent : %q", errb)
+	}
+}
+
+// TestCRADBUpdateStrictLocalRedirect : sous strict-local, un miroir local qui
+// redirige vers un hôte distant est refusé avant toute connexion à cet hôte.
+func TestCRADBUpdateStrictLocalRedirect(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "https://storage.googleapis.com/osv-vulnerabilities"+r.URL.Path, http.StatusFound)
+	}))
+	t.Cleanup(srv.Close)
+	pool := x509.NewCertPool()
+	pool.AddCert(srv.Certificate())
+	var dials hitLog
+	prev := craHTTPClient
+	craHTTPClient = func(noProxy, localOnly bool) *http.Client {
+		c := osv.Client(noProxy, localOnly)
+		tr := c.Transport.(*http.Transport)
+		tr.TLSClientConfig = &tls.Config{RootCAs: pool}
+		var d net.Dialer
+		tr.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+			dials.add(addr)
+			return d.DialContext(ctx, network, addr)
+		}
+		return c
+	}
+	t.Cleanup(func() { craHTTPClient = prev })
+	e := newEnv(t, nil, "eu")
+	e.editGlobal("profile = \"strict-local\"\n")
+	code, _, errb := e.run("cra", "db", "update", "--mirror", srv.URL, "--ecosystem", "npm")
+	if code != 1 || !strings.Contains(errb, "redirect off local host refused") {
+		t.Fatalf("code %d, stderr %q", code, errb)
+	}
+	for _, a := range dials.take() {
+		if strings.Contains(a, "googleapis") {
+			t.Fatalf("hôte distant contacté : %s", a)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(e.dataDir, "cra", "osv", "npm", "all.zip")); err == nil {
+		t.Fatal("archive écrite malgré le refus")
 	}
 }

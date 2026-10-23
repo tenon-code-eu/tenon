@@ -234,7 +234,8 @@ func (c craEnv) dbUpdate(args []string) int {
 	}
 	dir := craOSVDir(c.getenv)
 	before := corruptIndexes(dir)
-	client := craHTTPClient(s.cfg.Profile == profile.StrictLocal)
+	strict := s.cfg.Profile == profile.StrictLocal
+	client := craHTTPClient(strict, strict)
 	uerr := osv.Update(c.ctx, client, base, list, dir, time.Now)
 	// Un index illisible a été mis de côté : avis, même si la suite échoue.
 	for _, f := range sortedKeys(corruptIndexes(dir)) {
@@ -366,6 +367,11 @@ func (c craEnv) scan(args []string) int {
 	if age := time.Since(dbDate); !dbDate.IsZero() && age > craOldDB {
 		fmt.Fprintf(c.stderr, "cra: vulnerability database is %d days old\n", int(age.Hours()/24))
 	}
+	// Composants non vérifiés ou conflits VEX : un résultat « sans ouverte »
+	// n'est pas un résultat propre (le code de sortie ne change pas).
+	if res.Unchecked > 0 || res.Conflicts > 0 {
+		fmt.Fprintln(c.stderr, i18n.T(c.lang, "cra.scan_attention", res.Unchecked, res.Conflicts))
+	}
 	if *asJSON {
 		if res.Findings == nil {
 			res.Findings = []scan.Finding{}
@@ -403,7 +409,7 @@ func (c craEnv) printScan(res scan.Result, dbDate time.Time) {
 	if !dbDate.IsZero() {
 		date = dbDate.UTC().Format("2006-01-02")
 	}
-	fmt.Fprintln(c.stdout, i18n.T(c.lang, "cra.scan_summary", res.SBOMs, res.Components, res.Open, res.ToVerify, res.NotAffected, res.Fixed, date))
+	fmt.Fprintln(c.stdout, i18n.T(c.lang, "cra.scan_summary", res.SBOMs, res.Components, res.Open, res.ToVerify, res.NotAffected, res.Fixed, res.Conflicts, res.Unchecked, date))
 	line := func(f scan.Finding) string {
 		return stripControl(f.ID + " " + f.Component.PURL + " " + f.Summary)
 	}
