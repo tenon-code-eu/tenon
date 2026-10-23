@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -30,6 +31,9 @@ var maxArchive int64 = MaxArchive
 
 // maxRedirects borne les redirections suivies.
 const maxRedirects = 5
+
+// ecoName : liste blanche des noms d'écosystème (composant de chemin sûr).
+var ecoName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9.+_-]*$`)
 
 var errBase = errors.New("cra: osv mirror must be https (http only for local hosts)")
 
@@ -94,7 +98,7 @@ func Update(ctx context.Context, c *http.Client, base string, ecos []string, dir
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("cra: osv: %w", err)
 	}
-	idx, err := readIndexFile(dir)
+	idx, err := readIndexFile(dir, now())
 	if err != nil {
 		return err
 	}
@@ -106,7 +110,11 @@ func Update(ctx context.Context, c *http.Client, base string, ecos []string, dir
 	return nil
 }
 
-func readIndexFile(dir string) (map[string]indexEntry, error) {
+// readIndexFile lit index.json. Un index illisible est mis de côté sous
+// index.json.corrupt-<horodatage UTC> et remplacé par un index vide : db update
+// est le seul moyen de réparer. Les archives sans entrée d'index restent
+// illisibles tant qu'elles ne sont pas mises à jour (échec fermé).
+func readIndexFile(dir string, now time.Time) (map[string]indexEntry, error) {
 	idx := map[string]indexEntry{}
 	b, err := os.ReadFile(filepath.Join(dir, "index.json"))
 	if errors.Is(err, os.ErrNotExist) {
@@ -115,14 +123,18 @@ func readIndexFile(dir string) (map[string]indexEntry, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cra: osv: %w", err)
 	}
-	if err := json.Unmarshal(b, &idx); err != nil {
-		return nil, fmt.Errorf("cra: osv: index.json: %w", err)
+	if err := json.Unmarshal(b, &idx); err != nil || idx == nil {
+		aside := filepath.Join(dir, "index.json.corrupt-"+now.UTC().Format("20060102T150405Z"))
+		if err := os.Rename(filepath.Join(dir, "index.json"), aside); err != nil {
+			return nil, fmt.Errorf("cra: osv: index.json: %w", err)
+		}
+		return map[string]indexEntry{}, nil
 	}
 	return idx, nil
 }
 
 func updateOne(ctx context.Context, c *http.Client, base, eco, dir string, now time.Time, idx map[string]indexEntry) error {
-	if eco == "" || strings.ContainsAny(eco, `/\`) || strings.Contains(eco, "..") {
+	if !ecoName.MatchString(eco) {
 		return errors.New("invalid ecosystem name")
 	}
 	ecoDir := filepath.Join(dir, eco)

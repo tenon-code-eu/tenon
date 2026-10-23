@@ -279,3 +279,33 @@ func TestCheckBase(t *testing.T) {
 		}
 	}
 }
+
+func TestUpdateCorruptIndex(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(zipBytes(t, "A.json"))
+	}))
+	defer srv.Close()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "index.json"), []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := Update(context.Background(), srv.Client(), srv.URL, []string{"PyPI"}, dir, fixedNow); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(filepath.Join(dir, "index.json.corrupt-20261023T083000Z"))
+	if err != nil || string(b) != "{not json" {
+		t.Fatalf("fichier corrompu non mis de côté : %v", err)
+	}
+	if _, ok := readIndex(t, dir)["PyPI"]; !ok {
+		t.Fatal("nouvel index sans PyPI")
+	}
+}
+
+func TestUpdateBadEcosystem(t *testing.T) {
+	for _, eco := range []string{".", "..", "a/b", "", "-x", `a\b`, "../x"} {
+		err := Update(context.Background(), http.DefaultClient, "https://x.example", []string{eco}, t.TempDir(), fixedNow)
+		if err == nil || !strings.Contains(err.Error(), "invalid ecosystem") {
+			t.Errorf("%q : %v", eco, err)
+		}
+	}
+}
