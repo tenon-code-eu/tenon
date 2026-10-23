@@ -1,18 +1,21 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 
 	"github.com/tenon-code-eu/tenon/internal/config"
 	"github.com/tenon-code-eu/tenon/internal/event"
 	"github.com/tenon-code-eu/tenon/internal/i18n"
+	"github.com/tenon-code-eu/tenon/internal/llm"
 	"github.com/tenon-code-eu/tenon/internal/orgpolicy"
 	"github.com/tenon-code-eu/tenon/internal/provider"
 )
@@ -344,3 +347,116 @@ const (
 	routingCheckEN = "classification: 0 paths, 0 markers\nrouting: none\n"
 	routingCheckFR = "classification : 0 chemins, 0 marquages\nroutage : aucun\n"
 )
+
+// proxySpy remplace newProvider et la détection Ollama : il retient, par
+// fournisseur, si le fournisseur ignore les proxys d'environnement et si la
+// détection a reçu un client sans proxy.
+type proxySpy struct {
+	mu       sync.Mutex
+	noProxy  map[string]bool
+	detected map[string]bool
+}
+
+func spyProxies(t *testing.T) *proxySpy {
+	t.Helper()
+	s := &proxySpy{noProxy: map[string]bool{}, detected: map[string]bool{}}
+	oldNew, oldDetect := newProvider, detectFuncs["ollama"]
+	t.Cleanup(func() { newProvider, detectFuncs["ollama"] = oldNew, oldDetect })
+	newProvider = func(info llm.ProviderInfo, key string, noProxy bool) provider.Provider {
+		s.mu.Lock()
+		s.noProxy[info.ID] = noProxy
+		s.mu.Unlock()
+		return oldNew(info, key, noProxy)
+	}
+	detectFuncs["ollama"] = func(_ context.Context, c *http.Client, base, _ string) (provider.Detected, error) {
+		tr, ok := (*http.Transport)(nil), false
+		if c != nil {
+			tr, ok = c.Transport.(*http.Transport)
+		}
+		s.mu.Lock()
+		s.detected[base] = ok && tr.Proxy == nil
+		s.mu.Unlock()
+		return provider.Detected{Model: "llama", ContextWindow: 64000}, nil
+	}
+	return s
+}
+
+// Ruling R14 : le fournisseur local du routage n'emprunte jamais un proxy
+// d'environnement, quel que soit le profil (profil par défaut ici), même
+// sur un hôte non local admis par R5.
+func TestRoutingLocalNeverProxied(t *testing.T) {
+	s := spyProxies(t)
+	remote := newFakeLLM(t, sseText("bonjour"))
+	e := newEnvExtra(t, remote, "eu", `
+[[providers]]
+id = "gpu"
+base_url = "http://gpu.lan:11434/v1"
+detect = "ollama"
+jurisdiction = "local"
+
+[routing]
+local = "gpu"
+`)
+	code, _, errb := e.run("--lang", "en", "-p", "salut")
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, errb)
+	}
+	if !s.noProxy["gpu"] || !s.detected["http://gpu.lan:11434/v1"] {
+		t.Fatalf("local par proxy : fournisseur sans proxy=%v, détection sans proxy=%v", s.noProxy["gpu"], s.detected["http://gpu.lan:11434/v1"])
+	}
+	// Le fournisseur distant garde le comportement d'avant.
+	if s.noProxy["test"] {
+		t.Fatal("fournisseur distant sans proxy")
+	}
+}
+
+// Review Focus 3 + R14 : un fournisseur courant local, fournisseur local du
+// routeur, est construit et détecté sans proxy.
+func TestRoutingCurrentLocalNeverProxied(t *testing.T) {
+	s := spyProxies(t)
+	local := newFakeLLM(t, sseText("bonjour local"))
+	e := newEnvExtra(t, nil, "eu", fmt.Sprintf(`
+[[providers]]
+id = "ollama"
+base_url = %q
+jurisdiction = "local"
+`, local.srv.URL))
+	code, out, errb := e.run("--lang", "en", "--provider", "ollama", "-p", "salut")
+	if code != 0 || !strings.Contains(out, "bonjour local") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errb)
+	}
+	if !s.noProxy["ollama"] || !s.detected[local.srv.URL] {
+		t.Fatalf("courant local par proxy : %v %v", s.noProxy, s.detected)
+	}
+}
+
+// Ruling R15 : SessionStarted.routing.local est le fournisseur local
+// effectif, vide quand il est indisponible.
+func TestRoutingLocalUnavailable(t *testing.T) {
+	remote := newFakeLLM(t, sseCall("read_file", `{"path":"rh/paie.csv"}`), sseText("refus compris"))
+	e := newEnvExtra(t, remote, "eu", `
+[[providers]]
+id = "gpu"
+base_url = "http://127.0.0.1:1/v1"
+detect = "ollama"
+jurisdiction = "local"
+
+[classification]
+paths = ["rh/**"]
+
+[routing]
+local = "gpu"
+`)
+	e.writeFile(filepath.Join(e.wd, "rh", "paie.csv"), paie)
+	code, _, errb := e.run("--lang", "en", "-p", "lis rh/paie.csv")
+	if code != 3 || !strings.Contains(errb, `routing: local provider "gpu" unavailable (`) {
+		t.Fatalf("code=%d stderr=%q", code, errb)
+	}
+	if strings.Contains(strings.Join(remote.requests(), ""), "48213") {
+		t.Fatal("contenu classé envoyé au distant")
+	}
+	st := payloadsOf[event.SessionStartedPayload](t, e.journalEvents(), event.SessionStarted)
+	if len(st) != 1 || st[0].Routing == nil || st[0].Routing.Local != "" {
+		t.Fatalf("SessionStarted.routing : %+v", st)
+	}
+}

@@ -35,7 +35,6 @@ import (
 	"github.com/tenon-code-eu/tenon/internal/orgpolicy"
 	"github.com/tenon-code-eu/tenon/internal/policy"
 	"github.com/tenon-code-eu/tenon/internal/profile"
-	"github.com/tenon-code-eu/tenon/internal/provider"
 	"github.com/tenon-code-eu/tenon/internal/sandbox"
 	"github.com/tenon-code-eu/tenon/internal/secrets"
 	"github.com/tenon-code-eu/tenon/internal/session"
@@ -968,7 +967,10 @@ func startEngine(o engineOptions) (started, error) {
 	}
 	// Isolation sans coupure réseau : le journal déclare le réseau ouvert.
 	sbNetOpen := sbSpec != nil && sbInfo.Network == "none"
-	pc, detectNotices, err := detectLocal(o.ctx, lang, pc, providerNoProxy(cfg.Profile, pc))
+	// Sans proxy d'environnement : profil (providerNoProxy), ou fournisseur
+	// local du routeur (ruling R14, quel que soit le profil).
+	curNoProxy := providerNoProxy(cfg.Profile, pc) || routesLocal(cfg, pc)
+	pc, detectNotices, err := detectLocal(o.ctx, lang, pc, curNoProxy)
 	if err != nil {
 		return started{}, err
 	}
@@ -1005,16 +1007,10 @@ func startEngine(o engineOptions) (started, error) {
 		return started{}, errors.New(i18n.T(lang, "err.missing_env", pc.APIKeyEnv))
 	}
 
-	// strict-local, ou secnumcloud avec un fournisseur local : le
-	// fournisseur ignore les variables de proxy (voir providerNoProxy).
-	var provOpts []provider.Option
-	if providerNoProxy(cfg.Profile, pc) {
-		provOpts = append(provOpts, provider.WithoutProxy())
-	}
 	// Routage : fournisseur local (routing.local, ou le courant s'il est
 	// local) et replis, construits après les refus et la détection du
 	// fournisseur courant, avant toute session ou serveur MCP.
-	curProv := provider.NewOpenAICompat(info, apiKey, provOpts...)
+	curProv := newProvider(info, apiKey, curNoProxy)
 	router, routingInfo, routingNotices, err := buildRouter(cfg, pc, curProv, routerDeps{ctx: o.ctx, lang: lang, keys: keys})
 	if err != nil {
 		return started{}, err

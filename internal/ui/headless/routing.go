@@ -17,14 +17,15 @@ type Routing struct {
 	Sensitive bool
 }
 
-// Started intègre SessionStarted : fournisseur courant, et fournisseur local
-// (routing.local, sinon le courant s'il est local) s'il n'est pas déjà connu.
+// Started intègre SessionStarted : fournisseur courant, et fournisseur local.
+// Avec routing, son local effectif fait foi, même vide (indisponible) ;
+// sans, le courant s'il est local, si aucun local n'est déjà connu.
 func (r *Routing) Started(p event.SessionStartedPayload) {
 	if r.Current == "" {
 		r.Current = p.Provider.ID
 	}
 	switch {
-	case p.Routing != nil && p.Routing.Local != "":
+	case p.Routing != nil:
 		r.Local = p.Routing.Local
 	case r.Local == "" && p.Provider.Jurisdiction == llm.Local:
 		r.Local = p.Provider.ID

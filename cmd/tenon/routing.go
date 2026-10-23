@@ -15,6 +15,16 @@ import (
 	"github.com/tenon-code-eu/tenon/internal/routing"
 )
 
+// newProvider construit un fournisseur compatible OpenAI ; noProxy : sans
+// proxy d'environnement. Remplacée dans les tests.
+var newProvider = func(info llm.ProviderInfo, key string, noProxy bool) provider.Provider {
+	var opts []provider.Option
+	if noProxy {
+		opts = append(opts, provider.WithoutProxy())
+	}
+	return provider.NewOpenAICompat(info, key, opts...)
+}
+
 // routerDeps regroupe ce dont buildRouter a besoin pour construire un
 // fournisseur candidat.
 type routerDeps struct {
@@ -45,7 +55,8 @@ func buildRouter(cfg config.Config, current config.Provider, curProv provider.Pr
 		}
 		return nil, nil, nil, nil
 	}
-	info := &event.RoutingInfo{Local: rt.Local}
+	// Local : le fournisseur local effectif (vide s'il est indisponible).
+	info := &event.RoutingInfo{}
 	var notices []string
 	built := map[string]routing.Candidate{current.ID: cur}
 
@@ -65,7 +76,8 @@ func buildRouter(cfg config.Config, current config.Provider, curProv provider.Pr
 		if !ok {
 			var n []string
 			var err error
-			c, n, err = routeCandidate(cfg, pc, d)
+			// Ruling R14 : jamais de proxy pour le fournisseur local.
+			c, n, err = routeCandidate(cfg, pc, d, true)
 			notices = append(notices, n...)
 			if err != nil {
 				// Sans fournisseur local, un contenu classé est refusé.
@@ -93,7 +105,7 @@ func buildRouter(cfg config.Config, current config.Provider, curProv provider.Pr
 			}
 			var n []string
 			var err error
-			c, n, err = routeCandidate(cfg, pc, d)
+			c, n, err = routeCandidate(cfg, pc, d, providerNoProxy(cfg.Profile, pc))
 			notices = append(notices, n...)
 			if err != nil {
 				notices = append(notices, i18n.T(d.lang, "routing.fallback_skipped", id, err))
@@ -104,6 +116,9 @@ func buildRouter(cfg config.Config, current config.Provider, curProv provider.Pr
 		fallback = append(fallback, c)
 		info.Fallback = append(info.Fallback, id)
 	}
+	if local != nil {
+		info.Local = local.ID
+	}
 	return routing.New(cur, local, fallback), info, notices, nil
 }
 
@@ -111,7 +126,8 @@ func buildRouter(cfg config.Config, current config.Provider, curProv provider.Pr
 // fournisseur courant, la détection d'un modèle local ne contacte l'hôte
 // qu'après les contrôles du profil et des listes blanches ; un candidat
 // refusé est construit sans détection (l'engine le refusera à l'envoi).
-func routeCandidate(cfg config.Config, pc config.Provider, d routerDeps) (routing.Candidate, []string, error) {
+// noProxy : fournisseur et détection sans proxy d'environnement.
+func routeCandidate(cfg config.Config, pc config.Provider, d routerDeps, noProxy bool) (routing.Candidate, []string, error) {
 	key := d.keys[pc.ID]
 	if key == "" && pc.Jurisdiction != string(llm.Local) {
 		if pc.APIKeyEnv == "" {
@@ -119,7 +135,6 @@ func routeCandidate(cfg config.Config, pc config.Provider, d routerDeps) (routin
 		}
 		return routing.Candidate{}, nil, errors.New(i18n.T(d.lang, "err.missing_env", pc.APIKeyEnv))
 	}
-	noProxy := providerNoProxy(cfg.Profile, pc)
 	var notices []string
 	if providerErr(d.lang, cfg, pc) == nil {
 		var err error
@@ -128,12 +143,14 @@ func routeCandidate(cfg config.Config, pc config.Provider, d routerDeps) (routin
 			return routing.Candidate{}, nil, err
 		}
 	}
-	var opts []provider.Option
-	if noProxy {
-		opts = append(opts, provider.WithoutProxy())
-	}
-	p := provider.NewOpenAICompat(providerInfo(pc), key, opts...)
+	p := newProvider(providerInfo(pc), key, noProxy)
 	return routing.Candidate{ID: pc.ID, Provider: p, Window: pc.Window()}, notices, nil
+}
+
+// routesLocal dit si le fournisseur courant pc est le fournisseur local du
+// routeur : local, et routing.local vide ou égal à pc.
+func routesLocal(cfg config.Config, pc config.Provider) bool {
+	return pc.Jurisdiction == string(llm.Local) && (cfg.Routing.Local == "" || cfg.Routing.Local == pc.ID)
 }
 
 // routingLocal renvoie l'identifiant du fournisseur local du routeur r (""
