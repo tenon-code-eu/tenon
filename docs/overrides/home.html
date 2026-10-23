@@ -23,14 +23,14 @@
   'script_note': 'Le script vérifie le hash SHA-256, et la signature minisign si elle est installée.' if fr else 'The script checks the SHA-256 hash, and the minisign signature when minisign is installed.',
   'read_script': 'Lire le script' if fr else 'Read the script',
   'stage_hint': 'Cliquez un composant · glissez pour tourner' if fr else 'Click a component · drag to orbit',
-  'stage_label': "Maquette 3D du harness tenon vue de haut : douze composants reliés par des pistes de données. Flèches gauche et droite pour passer d'un composant à l'autre, Échap pour la vue d'ensemble." if fr else 'A 3D top-down model of the tenon harness: twelve components linked by data traces. Left and right arrows move between components, Escape returns to the overview.',
+  'stage_label': "Maquette 3D du harness tenon vue de haut : quatorze composants reliés par des pistes de données. Flèches gauche et droite pour passer d'un composant à l'autre, Échap pour la vue d'ensemble." if fr else 'A 3D top-down model of the tenon harness: fourteen components linked by data traces. Left and right arrows move between components, Escape returns to the overview.',
   'prev': 'Composant précédent' if fr else 'Previous component',
   'next': 'Composant suivant' if fr else 'Next component',
   'tour': 'Visite' if fr else 'Tour',
   'pause': 'Pause' if fr else 'Pause',
   'overview': "Vue d'ensemble" if fr else 'Overview',
   'overview_name': 'Le harness tenon' if fr else 'The tenon harness',
-  'overview_desc': "Douze composants, une seule règle : rien ne sort sans passer par vos permissions, votre masquage et votre journal." if fr else 'Twelve components, one rule: nothing leaves without going through your permissions, your masking and your log.',
+  'overview_desc': "Quatorze composants, une seule règle : rien ne sort sans passer par vos permissions, votre masquage et votre journal." if fr else 'Fourteen components, one rule: nothing leaves without going through your permissions, your masking and your log.',
   'map_title': 'Où partent vos données' if fr else 'Where your data goes',
   'map_lede': "Avant chaque envoi, tenon masque les secrets et applique vos règles. La destination dépend de votre configuration, et elle est inscrite au journal." if fr else 'Before each send, tenon masks secrets and applies your rules. The destination depends on your configuration, and it is written to the audit log.',
   'node_project': 'Votre projet' if fr else 'Your project',
@@ -38,6 +38,7 @@
   'gate_mask': 'Masquage des secrets et de données personnelles' if fr else 'Secrets and personal data masked',
   'gate_perm': 'Écritures, commandes et appels MCP soumis à votre accord' if fr else 'Writes, commands and MCP calls wait for you',
   'gate_log': 'Journal chaîné par hachage, horodatable (RFC 3161)' if fr else 'Hash-chained log, timestampable (RFC 3161)',
+  'gate_route': "Contenu classé : modèle local seulement" if fr else 'Classified content: local model only',
   'dest_local': 'Sur votre machine' if fr else 'On your machine',
   'dest_eu': 'Fournisseurs européens' if fr else 'European providers',
   'dest_out': 'Hors UE' if fr else 'Outside the EU',
@@ -78,9 +79,11 @@
 } %}
 {% set parts = [
   {'id': 'tools', 'name': 'Outils', 'desc': 'Lire, écrire, chercher, lancer une commande : chaque outil reste ancré à la racine du projet.'},
+  {'id': 'sandbox', 'name': 'Isolation système', 'desc': "Commandes shell et serveurs MCP stdio confinés par le système (Landlock, sandbox-exec) : écriture dans le projet seulement, réseau fermé sauf accord."},
   {'id': 'permissions', 'name': 'Permissions', 'desc': 'Écritures, commandes et appels MCP attendent votre accord. Un dépôt ne peut rien assouplir.'},
   {'id': 'engine', 'name': 'Moteur', 'desc': "La boucle d'agent : lire, proposer, exécuter, tour après tour, chaque événement émis vers le journal."},
   {'id': 'redaction', 'name': 'Masquage', 'desc': 'Secrets et certaines données personnelles masqués avant que la requête ne quitte la machine.'},
+  {'id': 'routing', 'name': 'Routage par sensibilité', 'desc': "Chemins et marquages comme DIFFUSION RESTREINTE rendent la session sensible : elle ne part plus qu'au modèle local, et chaque décision entre au journal."},
   {'id': 'providers', 'name': 'Fournisseurs', 'desc': 'Mistral AI, Codestral, Scaleway, OVHcloud, Albert API, ou local avec Ollama et vLLM. Hors UE : votre consentement.'},
   {'id': 'audit', 'name': "Journal d'audit", 'desc': "Chaque ligne scelle la précédente par hachage. tenon audit verify le prouve, l'horodatage RFC 3161 le date."},
   {'id': 'skills', 'name': 'Skills', 'desc': "Des SKILL.md au format Agent Skills, chargés à la demande, incapables d'élargir les permissions."},
@@ -91,9 +94,11 @@
   {'id': 'policy', 'name': "Politique d'organisation", 'desc': 'Un plancher signé avec minisign, vérifié à chaque démarrage, que personne ne peut desserrer.'}
 ] if fr else [
   {'id': 'tools', 'name': 'Tools', 'desc': 'Read, write, search, run a command: every tool stays anchored to the project root.'},
+  {'id': 'sandbox', 'name': 'System sandbox', 'desc': 'Shell commands and stdio MCP servers confined by the OS (Landlock, sandbox-exec): writes only in the project, network closed unless you allow it.'},
   {'id': 'permissions', 'name': 'Permissions', 'desc': 'Writes, commands and MCP calls wait for your approval. A repository cannot loosen anything.'},
   {'id': 'engine', 'name': 'Engine', 'desc': 'The agent loop: read, propose, run, turn after turn, every event sent to the log.'},
   {'id': 'redaction', 'name': 'Masking', 'desc': 'Secrets and some personal data masked before the request leaves the machine.'},
+  {'id': 'routing', 'name': 'Sensitivity routing', 'desc': 'Paths and markers such as EU RESTRICTED make the session sensitive: from then on it goes only to the local model, and every decision is logged.'},
   {'id': 'providers', 'name': 'Providers', 'desc': 'Mistral AI, Codestral, Scaleway, OVHcloud, Albert API, or local with Ollama and vLLM. Outside the EU: your consent.'},
   {'id': 'audit', 'name': 'Audit log', 'desc': 'Each line seals the previous one by hash. tenon audit verify proves it, RFC 3161 timestamps date it.'},
   {'id': 'skills', 'name': 'Skills', 'desc': 'SKILL.md files in the Agent Skills format, loaded on demand, unable to widen permissions.'},
@@ -210,6 +215,7 @@
             <li>{{ T.gate_mask }}</li>
             <li>{{ T.gate_perm }}</li>
             <li>{{ T.gate_log }}</li>
+            <li>{{ T.gate_route }}</li>
           </ul>
         </li>
         <li class="h-flow__dests">

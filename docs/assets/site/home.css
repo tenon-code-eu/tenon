@@ -134,7 +134,7 @@ body:has(.h-page) { background: var(--color-paper); color: var(--color-ink-2);
 .h-pin.is-hidden { opacity: 0; pointer-events: none; }
 
 .h-stage__panel { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-md); align-items: start;
-  min-height: 6.5rem; padding: var(--space-md); border: var(--rule-hair) solid var(--color-night-rule);
+  min-height: 8rem; padding: var(--space-md); border: var(--rule-hair) solid var(--color-night-rule);
   border-left: 3px solid var(--color-gold); border-radius: var(--radius-sm); background: var(--color-night-2); }
 .h-stage__num { font: 500 var(--text-2xl)/1 var(--font-mono); color: var(--color-gold); font-variant-numeric: tabular-nums; }
 .h-stage__name { margin: 0 0 var(--space-2xs); font-family: var(--font-display); font-weight: 700; font-size: var(--text-lg);
