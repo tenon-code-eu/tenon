@@ -1161,7 +1161,7 @@ La barre d'état de la TUI affiche `sensible → <local>` une fois la session se
 - `ProviderSelected` : `provider` (avec sa juridiction), `reason` (`default`, `fallback`, `sensitive`) et `error` lors d'une bascule. Il est émis quand le fournisseur effectif change, premier envoi compris, et seulement quand le routage est actif.
 - `SessionStarted.routing` : `local` (vide si le fournisseur local était indisponible) et `fallback` ; omis sans `[routing]`.
 - `Error` avec `code: "classification"` ou `"jurisdiction"`, et résultats d'outils avec `denied: "classification"`.
-- L'[export de conformité](#export-de-conformité) a une ligne « Routage » (`Routing` en anglais) et une liste `routing`. Une **violation** est un `ProviderSelected` vers un fournisseur non local après le `SessionClassified` de la même session ; une session classée, jamais routée et démarrée sur un fournisseur non local est aussi signalée. Toute violation fait sortir `tenon audit export` avec le code 2.
+- L'[export de conformité](#export-de-conformité) a une ligne « Routage » (`Routing` en anglais) et une liste `routing`. Une **violation** est un `ProviderSelected` vers un fournisseur non local après le `SessionClassified` de la même session ; une session classée, jamais routée, démarrée sur un fournisseur non local et qui a reçu une réponse du modèle (`AssistantMessage`) après son classement est aussi signalée (sans réponse, rien n'est parti : prompt bloqué par un hook, tour annulé avant l'envoi). Les appels refusés par la classification comptent dans les refus du résumé et dans la colonne `denied_classification` du tableau des permissions. Toute violation fait sortir `tenon audit export` avec le code 2.
 
 ## Profils de conformité
 
@@ -1559,7 +1559,7 @@ Enveloppe :
 | `mcp_servers` | liste | `id`, `jurisdiction`, `country` (chaînes), `sessions` (nombre) |
 | `mcp_failures` | liste | `session`, `server`, `error` (chaînes), `ts` (date) |
 | `redactions` | objet | nom de catégorie vers nombre d'éléments masqués |
-| `permissions` | liste | `tool` (chaîne), `requested`, `allowed_once`, `allowed_session`, `denied_user`, `denied_policy`, `denied_hook` (nombres) |
+| `permissions` | liste | `tool` (chaîne), `requested`, `allowed_once`, `allowed_session`, `denied_user`, `denied_policy`, `denied_hook`, `denied_classification` (nombres) |
 | `files` | liste | `ts`, `session`, `path`, `tool`, `hash_before`, `hash_after`, `author`, `no_checkpoint` (booléen), `rewind_status` (omis si aucun rewind ne concerne le fichier) |
 | `commands` | liste | `session`, `count` ; `commands` (liste de chaînes) seulement avec `--details` |
 | `routing` | liste | omise si aucune session n'a de données de routage : `session` (chaîne), `sensitive` (booléen), `reason` (chaîne, omise si non sensible), `providers` (liste de chaînes), `fallbacks` (nombre), `violation` (booléen) |

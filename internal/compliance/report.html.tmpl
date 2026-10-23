@@ -116,8 +116,8 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
 <section id="permissions">
 <h2>{{t "report.sec.permissions"}}</h2>
 {{if .ContentAvailable}}{{with .Permissions}}<table>
-<thead><tr><th>{{t "report.col.tool"}}</th><th>{{t "report.col.requested"}}</th><th>{{t "report.col.allowed_once"}}</th><th>{{t "report.col.allowed_session"}}</th><th>{{t "report.col.denied_user"}}</th><th>{{t "report.col.denied_policy"}}</th><th>{{t "report.col.denied_hook"}}</th></tr></thead>
-{{range .}}<tr><td>{{.Tool}}</td><td>{{.Requested}}</td><td>{{.AllowedOnce}}</td><td>{{.AllowedSession}}</td><td>{{.DeniedUser}}</td><td>{{.DeniedPolicy}}</td><td>{{.DeniedHook}}</td></tr>
+<thead><tr><th>{{t "report.col.tool"}}</th><th>{{t "report.col.requested"}}</th><th>{{t "report.col.allowed_once"}}</th><th>{{t "report.col.allowed_session"}}</th><th>{{t "report.col.denied_user"}}</th><th>{{t "report.col.denied_policy"}}</th><th>{{t "report.col.denied_hook"}}</th><th>{{t "report.col.denied_classification"}}</th></tr></thead>
+{{range .}}<tr><td>{{.Tool}}</td><td>{{.Requested}}</td><td>{{.AllowedOnce}}</td><td>{{.AllowedSession}}</td><td>{{.DeniedUser}}</td><td>{{.DeniedPolicy}}</td><td>{{.DeniedHook}}</td><td>{{.DeniedClassification}}</td></tr>
 {{end}}</table>{{else}}{{template "none"}}{{end}}{{else}}{{template "na"}}{{end}}
 </section>
 

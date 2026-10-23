@@ -1159,7 +1159,7 @@ The TUI status bar shows `sensitive → <local>` once the session is sensitive.
 - `ProviderSelected`: `provider` (with its jurisdiction), `reason` (`default`, `fallback`, `sensitive`) and `error` on a fallback. It is emitted when the effective provider changes, including the first send, and only when routing is active.
 - `SessionStarted.routing`: `local` (empty when the local provider was unavailable) and `fallback`; omitted without `[routing]`.
 - `Error` with `code: "classification"` or `"jurisdiction"`, and tool results with `denied: "classification"`.
-- The [compliance export](#compliance-export) has a `Routing` row (`Routage` in French) and a `routing` list. A **violation** is a `ProviderSelected` towards a non-local provider after the `SessionClassified` of the same session; a session that is classified, never routed, and started on a non-local provider is also flagged. Any violation makes `tenon audit export` exit with code 2.
+- The [compliance export](#compliance-export) has a `Routing` row (`Routage` in French) and a `routing` list. A **violation** is a `ProviderSelected` towards a non-local provider after the `SessionClassified` of the same session; a session that is classified, never routed, started on a non-local provider, and that received a model reply (`AssistantMessage`) after its classification is also flagged (without a reply, nothing was sent: a prompt blocked by a hook, a turn cancelled before the send). Tool calls refused by classification are counted in the summary's denials and in the `denied_classification` column of the permissions table. Any violation makes `tenon audit export` exit with code 2.
 
 ## Compliance profiles
 
@@ -1557,7 +1557,7 @@ Envelope:
 | `mcp_servers` | list | `id`, `jurisdiction`, `country` (strings), `sessions` (number) |
 | `mcp_failures` | list | `session`, `server`, `error` (strings), `ts` (date) |
 | `redactions` | object | category name to number of masked items |
-| `permissions` | list | `tool` (string), `requested`, `allowed_once`, `allowed_session`, `denied_user`, `denied_policy`, `denied_hook` (numbers) |
+| `permissions` | list | `tool` (string), `requested`, `allowed_once`, `allowed_session`, `denied_user`, `denied_policy`, `denied_hook`, `denied_classification` (numbers) |
 | `files` | list | `ts`, `session`, `path`, `tool`, `hash_before`, `hash_after`, `author`, `no_checkpoint` (boolean), `rewind_status` (omitted when no rewind concerns the file) |
 | `commands` | list | `session`, `count`; `commands` (list of strings) only with `--details` |
 | `routing` | list | omitted when no session has routing data: `session` (string), `sensitive` (boolean), `reason` (string, omitted when not sensitive), `providers` (list of strings), `fallbacks` (number), `violation` (boolean) |

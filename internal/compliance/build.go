@@ -67,6 +67,9 @@ type routingState struct {
 	startRemote bool // le fournisseur de départ n'est pas local
 	selected    bool // au moins un ProviderSelected
 	hasRouting  bool // [routing] déclaré au démarrage
+	// sentAfter : une réponse du modèle (AssistantMessage) suit le
+	// classement, preuve d'un envoi de la session sensible.
+	sentAfter bool
 }
 
 // mapping est la table de correspondance réglementaire, fixe et sans numéro d'article.
@@ -489,6 +492,10 @@ func (b *builder) line(l audit.Line) {
 				rs.Violation = true
 			}
 		}
+	case event.AssistantMessage:
+		if rs := b.routing[l.Session]; rs != nil && rs.Sensitive {
+			rs.sentAfter = true
+		}
 	case event.ToolResult:
 		var p event.ToolResultPayload
 		if decode(l, &p) {
@@ -579,6 +586,9 @@ func (b *builder) toolResult(l audit.Line, p event.ToolResultPayload) {
 	case "hook":
 		b.r.Summary.Denials++
 		b.perm(p.Tool).DeniedHook++
+	case "classification":
+		b.r.Summary.Denials++
+		b.perm(p.Tool).DeniedClassification++
 	}
 	if p.Path == "" || p.HashAfter == "" {
 		return
@@ -897,9 +907,11 @@ func (b *builder) routings() {
 		if !s.Sensitive && !s.hasRouting && !s.selected {
 			continue
 		}
-		// Session sensible démarrée à distance et jamais routée : impossible
-		// en fonctionnement normal, donc signalée.
-		if s.Sensitive && !s.selected && s.started && s.startRemote {
+		// Session sensible démarrée à distance, jamais routée, et qui a reçu
+		// une réponse après son classement : impossible en fonctionnement
+		// normal, donc signalée. Sans réponse (prompt bloqué par un hook,
+		// annulation avant l'envoi, local refusé), rien n'est parti.
+		if s.Sensitive && !s.selected && s.started && s.startRemote && s.sentAfter {
 			s.Violation = true
 		}
 		b.r.Routing = append(b.r.Routing, s.SessionRouting)

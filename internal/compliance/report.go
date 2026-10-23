@@ -207,6 +207,9 @@ type ToolPermissions struct {
 	DeniedUser     int    `json:"denied_user"`
 	DeniedPolicy   int    `json:"denied_policy"`
 	DeniedHook     int    `json:"denied_hook"`
+	// DeniedClassification : appels refusés par la classification (donnée
+	// classée sans fournisseur local).
+	DeniedClassification int `json:"denied_classification"`
 }
 
 // FileChange est une modification de fichier (ToolResult avec path et hash_after).

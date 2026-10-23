@@ -920,9 +920,36 @@ func TestExportRoutingViolation(t *testing.T) {
 	// Session sensible sans aucun routage, démarrée à distance.
 	b.start("t", provUS)
 	b.add("t", event.SessionClassified, event.SessionClassifiedPayload{Reason: "marker", Source: "tool"})
+	b.add("t", event.AssistantMessage, event.AssistantMessagePayload{Text: "ok"})
 	r := Build(b.dataset(), opts())
 	if len(r.Routing) != 2 || !r.Routing[0].Violation || !r.Routing[1].Violation || !r.RoutingViolation() {
 		t.Fatalf("routing %+v", r.Routing)
+	}
+}
+
+// Session classée puis rien envoyé (hook UserPromptSubmit bloquant, Ctrl-C
+// avant l'envoi, local refusé) : aucune violation sans réponse du modèle
+// après le classement.
+func TestExportRoutingClassifiedNoSend(t *testing.T) {
+	b := newLog(t)
+	b.start("t", provUS)
+	b.add("t", event.AssistantMessage, event.AssistantMessagePayload{Text: "avant"})
+	b.add("t", event.SessionClassified, event.SessionClassifiedPayload{Reason: "marker", Source: "user"})
+	b.add("t", event.TurnCompleted, event.TurnCompletedPayload{Reason: "blocked_by_hook"})
+	r := Build(b.dataset(), opts())
+	if len(r.Routing) != 1 || r.Routing[0].Violation || r.RoutingViolation() {
+		t.Fatalf("routing %+v", r.Routing)
+	}
+}
+
+// Un refus de classification compte parmi les refus.
+func TestExportDeniedClassification(t *testing.T) {
+	b := newLog(t)
+	b.start("s", provEU)
+	b.add("s", event.ToolResult, event.ToolResultPayload{CallID: "c1", Tool: "read_file", IsError: true, Denied: "classification"})
+	r := Build(b.dataset(), opts())
+	if r.Summary.Denials != 1 || len(r.Permissions) != 1 || r.Permissions[0].DeniedClassification != 1 {
+		t.Fatalf("refus %d, permissions %+v", r.Summary.Denials, r.Permissions)
 	}
 }
 
