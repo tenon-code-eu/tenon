@@ -411,3 +411,78 @@ func TestOpenIndex(t *testing.T) {
 		t.Fatalf("date invalide : %v", err)
 	}
 }
+
+func TestMatchUnsortedEvents(t *testing.T) {
+	doc := `{"id":"X-U","affected":[{"package":{"ecosystem":"npm","name":"u"},
+	 "ranges":[{"type":"SEMVER","events":[{"introduced":"2.0.0"},{"fixed":"2.5.0"},{"introduced":"0"},{"fixed":"1.0.0"}]}]}]}`
+	doc2 := `{"id":"X-R","affected":[{"package":{"ecosystem":"npm","name":"r"},
+	 "ranges":[{"type":"SEMVER","events":[{"fixed":"1.2.0"},{"introduced":"0"}]}]}]}`
+	db := open(t, map[string][]string{"npm": {doc, doc2}})
+	cases := map[string]bool{"0.5.0": true, "1.5.0": false, "2.2.0": true, "2.5.0": false}
+	for v, want := range cases {
+		if got := states(t, db, comp("pkg:npm/u@"+v))["X-U"] == StateAffected; got != want {
+			t.Fatalf("u %s : affecté=%v, attendu %v", v, got, want)
+		}
+	}
+	if m := states(t, db, comp("pkg:npm/r@1.5.0")); len(m) != 0 {
+		t.Fatalf("r 1.5.0 : %v", m)
+	}
+	if m := states(t, db, comp("pkg:npm/r@1.1.0")); m["X-R"] != StateAffected {
+		t.Fatalf("r 1.1.0 : %v", m)
+	}
+	// Événement invalide rencontré au tri : à vérifier.
+	bad := `{"id":"X-B","affected":[{"package":{"ecosystem":"npm","name":"b"},
+	 "ranges":[{"type":"SEMVER","events":[{"introduced":"bogus"},{"introduced":"0"},{"fixed":"1.0.0"}]}]}]}`
+	db = open(t, map[string][]string{"npm": {bad}})
+	if m := states(t, db, comp("pkg:npm/b@2.0.0")); m["X-B"] != StateToVerify {
+		t.Fatalf("tri en erreur : %v", m)
+	}
+}
+
+func TestMatchNuGetCaseInsensitive(t *testing.T) {
+	doc := `{"id":"GHSA-nuget","affected":[{"package":{"ecosystem":"NuGet","name":"Newtonsoft.Json"},"versions":["12.0.1"]}]}`
+	db := open(t, map[string][]string{"NuGet": {doc}})
+	if m := states(t, db, comp("pkg:nuget/newtonsoft.json@12.0.1")); m["GHSA-nuget"] != StateAffected {
+		t.Fatalf("NuGet casse : %v", m)
+	}
+}
+
+func TestMatchVersionsOnlyNoComparator(t *testing.T) {
+	// OSV : affecté = union de `versions` et des plages ; une liste seule est
+	// complète, une version non listée n'est pas affectée.
+	only := `{"id":"GHSA-only","affected":[{"package":{"ecosystem":"Maven","name":"org.example:lib"},"versions":["1.0.0"]}]}`
+	withRange := `{"id":"GHSA-range","affected":[{"package":{"ecosystem":"Maven","name":"org.example:lib"},
+	 "ranges":[{"type":"ECOSYSTEM","events":[{"introduced":"0"},{"fixed":"2.0.0"}]}]}]}`
+	db := open(t, map[string][]string{"Maven": {only, withRange}})
+	m := states(t, db, comp("pkg:maven/org.example/lib@1.5.0"))
+	if _, ok := m["GHSA-only"]; ok || m["GHSA-range"] != StateToVerify || len(m) != 1 {
+		t.Fatalf("Maven : %v", m)
+	}
+}
+
+func TestMatchMalformedRange(t *testing.T) {
+	noEvents := `{"id":"GO-E","affected":[{"package":{"ecosystem":"Go","name":"example.com/m"},
+	 "ranges":[{"type":"SEMVER","events":[]}]}]}`
+	noIntro := `{"id":"GO-I","affected":[{"package":{"ecosystem":"Go","name":"example.com/m"},
+	 "ranges":[{"type":"SEMVER","events":[{"fixed":"2.0.0"}]}]}]}`
+	db := open(t, map[string][]string{"Go": {noEvents, noIntro}})
+	m := states(t, db, comp("pkg:golang/example.com/m@v1.0.0"))
+	if m["GO-E"] != StateToVerify || m["GO-I"] != StateToVerify {
+		t.Fatalf("plages mal formées : %v", m)
+	}
+}
+
+func TestMatchGoStdlibPrefix(t *testing.T) {
+	doc := `{"id":"GO-STD","affected":[
+	 {"package":{"ecosystem":"Go","name":"stdlib"},"ranges":[{"type":"SEMVER","events":[{"introduced":"0"},{"fixed":"1.22.2"}]}]},
+	 {"package":{"ecosystem":"Go","name":"toolchain"},"ranges":[{"type":"SEMVER","events":[{"introduced":"0"},{"fixed":"1.22.2"}]}]}]}`
+	db := open(t, map[string][]string{"Go": {doc}})
+	for _, p := range []string{"pkg:golang/stdlib@go1.22.1", "pkg:golang/toolchain@go1.22.1"} {
+		if m := states(t, db, comp(p)); m["GO-STD"] != StateAffected {
+			t.Fatalf("%s : %v", p, m)
+		}
+	}
+	if m := states(t, db, comp("pkg:golang/stdlib@go1.22.2")); len(m) != 0 {
+		t.Fatalf("stdlib corrigée : %v", m)
+	}
+}

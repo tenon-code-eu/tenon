@@ -212,10 +212,14 @@ func readEntry(zf *zip.File) (*entry, error) {
 
 var pypiSep = regexp.MustCompile(`[-_.]+`)
 
-// normName normalise un nom de paquet OSV comme sbom.PURL.OSVName (PEP 503 pour PyPI).
+// normName normalise un nom de paquet OSV comme sbom.PURL.OSVName (PEP 503
+// pour PyPI, minuscules pour NuGet).
 func normName(eco, name string) string {
-	if eco == "PyPI" {
+	switch eco {
+	case "PyPI":
 		return pypiSep.ReplaceAllString(strings.ToLower(name), "-")
+	case "NuGet":
+		return strings.ToLower(name)
 	}
 	return name
 }

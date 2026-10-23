@@ -84,6 +84,7 @@ func TestParsePURL(t *testing.T) {
 		{"pkg:cargo/serde@1.0.0", "cargo", "", "serde", "1.0.0", "serde"},
 		{"pkg:NPM/lodash@4.17.20#sub/path", "npm", "", "lodash", "4.17.20", "lodash"},
 		{"pkg:npm/lodash", "npm", "", "lodash", "", "lodash"},
+		{"pkg:nuget/Newtonsoft.Json@13.0.1", "nuget", "", "Newtonsoft.Json", "13.0.1", "newtonsoft.json"},
 	}
 	for _, c := range cases {
 		p, err := ParsePURL(c.in)

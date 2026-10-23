@@ -86,6 +86,9 @@ func (p PURL) OSVName() string {
 	case "pypi":
 		// Normalisation PEP 503.
 		return pypiSep.ReplaceAllString(strings.ToLower(p.Name), "-")
+	case "nuget":
+		// Les identifiants NuGet ne distinguent pas la casse.
+		return strings.ToLower(p.Name)
 	}
 	if p.Namespace == "" {
 		return p.Name

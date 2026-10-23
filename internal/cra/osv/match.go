@@ -1,6 +1,7 @@
 package osv
 
 import (
+	"errors"
 	"sort"
 	"strings"
 
@@ -53,6 +54,10 @@ func (db *DB) Match(c sbom.Component) ([]Finding, error) {
 	}
 	cmp, hasCmp := version.For(eco)
 	name := p.OSVName()
+	// OSV indexe stdlib et toolchain Go sans le préfixe « go » (go1.22.1 → 1.22.1).
+	if eco == "Go" && (name == "stdlib" || name == "toolchain") {
+		ver = strings.TrimPrefix(ver, "go")
+	}
 	var out []Finding
 	for _, e := range ix.byName[name] {
 		v := notAffected
@@ -142,6 +147,10 @@ func evalAffected(a affected, ver string, cmp version.Comparator, hasCmp bool) v
 	if listed(a.Versions, ver, cmp, hasCmp) {
 		return isAffected
 	}
+	// OSV : l'ensemble affecté est l'union de `versions` et des plages. Une
+	// liste `versions` sans plage évaluable est complète : une version non
+	// listée n'est pas affectée. to_verify ne vaut que pour des plages
+	// SEMVER/ECOSYSTEM que le comparateur ne sait pas évaluer.
 	if len(ranges) == 0 {
 		return notAffected
 	}
@@ -178,38 +187,75 @@ func listed(versions []string, ver string, cmp version.Comparator, hasCmp bool) 
 	return false
 }
 
-// inRange suit les événements dans l'ordre donné : introduced ouvre (« 0 » =
-// depuis l'origine), fixed ferme à partir de sa version, last_affected ferme
-// après sa version ; limit est ignoré.
+// inRange trie les événements par version (« introduced: 0 » en tête, tri
+// stable pour les égalités) comme l'algorithme de référence OSV, puis les
+// parcourt : introduced ouvre, fixed ferme à partir de sa version,
+// last_affected ferme après sa version ; limit est ignoré. Une plage sans
+// événement ou sans introduced est mal formée : erreur, donc à vérifier.
 func inRange(events []event, ver string, cmp version.Comparator) (bool, error) {
-	in := false
-	for _, ev := range events {
+	type ev struct {
+		kind byte // 'i', 'f' ou 'l'
+		v    string
+	}
+	var evs []ev
+	hasIntro := false
+	for _, e := range events {
 		switch {
-		case ev.Introduced != "":
-			if ev.Introduced == "0" {
-				in = true
-				continue
-			}
-			c, err := cmp.Compare(ver, ev.Introduced)
+		case e.Introduced != "":
+			evs = append(evs, ev{'i', e.Introduced})
+			hasIntro = true
+		case e.Fixed != "":
+			evs = append(evs, ev{'f', e.Fixed})
+		case e.LastAffected != "":
+			evs = append(evs, ev{'l', e.LastAffected})
+		}
+	}
+	if !hasIntro {
+		return false, errMalformedRange
+	}
+	// Tri par insertion (stable) ; la moindre erreur de comparaison l'emporte.
+	less := func(a, b ev) (bool, error) {
+		if b.kind == 'i' && b.v == "0" {
+			return false, nil
+		}
+		if a.kind == 'i' && a.v == "0" {
+			return true, nil
+		}
+		c, err := cmp.Compare(a.v, b.v)
+		return c < 0, err
+	}
+	for i := 1; i < len(evs); i++ {
+		for j := i; j > 0; j-- {
+			l, err := less(evs[j], evs[j-1])
 			if err != nil {
 				return false, err
 			}
+			if !l {
+				break
+			}
+			evs[j], evs[j-1] = evs[j-1], evs[j]
+		}
+	}
+	in := false
+	for _, e := range evs {
+		if e.kind == 'i' && e.v == "0" {
+			in = true
+			continue
+		}
+		c, err := cmp.Compare(ver, e.v)
+		if err != nil {
+			return false, err
+		}
+		switch e.kind {
+		case 'i':
 			if c >= 0 {
 				in = true
 			}
-		case ev.Fixed != "":
-			c, err := cmp.Compare(ver, ev.Fixed)
-			if err != nil {
-				return false, err
-			}
+		case 'f':
 			if c >= 0 {
 				in = false
 			}
-		case ev.LastAffected != "":
-			c, err := cmp.Compare(ver, ev.LastAffected)
-			if err != nil {
-				return false, err
-			}
+		case 'l':
 			if c > 0 {
 				in = false
 			}
@@ -217,3 +263,5 @@ func inRange(events []event, ver string, cmp version.Comparator) (bool, error) {
 	}
 	return in, nil
 }
+
+var errMalformedRange = errors.New("osv: range without introduced event")
