@@ -339,7 +339,7 @@ id = "absent"
 transport = "stdio"
 command = ["/nonexistent/tenon-mcp-server"]
 `)
-	if code, out, errb := e.runCheck(); code != 0 || out != sandboxCheckFR+"OK\n" {
+	if code, out, errb := e.runCheck(); code != 0 || out != routingCheckFR+sandboxCheckFR+"OK\n" {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errb)
 	}
 }

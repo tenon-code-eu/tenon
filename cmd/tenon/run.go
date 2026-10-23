@@ -191,6 +191,9 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 				return 1
 			}
 		}
+		// Classification et routage : nombre de règles, fournisseur local et replis.
+		fmt.Fprintln(stdout, classificationLine(lang, cs.cfg))
+		fmt.Fprintln(stdout, routingLine(lang, cs.cfg))
 		// Horodatage : URL et origine des racines, puis contrôle du profil.
 		l, err := timestampLine(lang, cs.cfg)
 		if err == nil {
@@ -316,6 +319,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		Redact:     func(s string) string { out, _ := red.RedactJSON(s); return out },
 		RedactText: redactText(red),
 		Strict:     *strict,
+		Local:      st.local,
 	}, stdout, stderr)
 	// Les sinks sont encore ouverts : les événements du hook SessionEnd y
 	// sont écrits.
@@ -380,6 +384,7 @@ func runInteractive(ctx context.Context, fs *flag.FlagSet, lang i18n.Lang, o eng
 		Version:       version,
 		Profile:       string(st.profile),
 		Policy:        st.policy,
+		Local:         st.local,
 		Redact:        redactText(st.redactor),
 		Skills:        st.skills,
 		Agents:        st.agents,
@@ -692,6 +697,8 @@ type started struct {
 	// policy est la ligne de la politique d'organisation, déjà traduite
 	// (écran de bienvenue ; "" sans politique).
 	policy string
+	// local est le fournisseur local du routage ("" : aucun).
+	local string
 }
 
 // providerInfo décrit le fournisseur configuré pc.
@@ -874,6 +881,9 @@ func policyNotices(lang i18n.Lang, cfg config.Config) []string {
 	if ids := cfg.PolicyStrippedQualifications; len(ids) > 0 {
 		out = append(out, i18n.T(lang, "policy.qualifications_stripped", pol.ID, strings.Join(ids, ", ")))
 	}
+	if cfg.PolicyRoutingLocal != "" {
+		out = append(out, i18n.T(lang, "policy.routing_imposed", pol.ID, cfg.PolicyRoutingLocal))
+	}
 	if cfg.PolicyTimestampImposed {
 		out = append(out, i18n.T(lang, "policy.timestamp_imposed", pol.ID, timestampURL(cfg)))
 	}
@@ -970,10 +980,15 @@ func startEngine(o engineOptions) (started, error) {
 	// leur forme décodée et sous les formes encodées de go-keyring.
 	var apiKey string
 	var keyErr error
+	// Clés lisibles de chaque fournisseur : candidats du routage.
+	keys := map[string]string{}
 	for _, p := range cfg.Providers {
 		v, source, err := providerKey(p, getenv)
 		if p.ID == pc.ID {
 			apiKey, keyErr = v, err
+		}
+		if err == nil && v != "" {
+			keys[p.ID] = v
 		}
 		if err == nil && source == "keyring" {
 			s.redactor.AddKeyringSecret(v)
@@ -988,6 +1003,21 @@ func startEngine(o engineOptions) (started, error) {
 			return started{}, errors.New(i18n.T(lang, "err.no_api_key_env", pc.ID))
 		}
 		return started{}, errors.New(i18n.T(lang, "err.missing_env", pc.APIKeyEnv))
+	}
+
+	// strict-local, ou secnumcloud avec un fournisseur local : le
+	// fournisseur ignore les variables de proxy (voir providerNoProxy).
+	var provOpts []provider.Option
+	if providerNoProxy(cfg.Profile, pc) {
+		provOpts = append(provOpts, provider.WithoutProxy())
+	}
+	// Routage : fournisseur local (routing.local, ou le courant s'il est
+	// local) et replis, construits après les refus et la détection du
+	// fournisseur courant, avant toute session ou serveur MCP.
+	curProv := provider.NewOpenAICompat(info, apiKey, provOpts...)
+	router, routingInfo, routingNotices, err := buildRouter(cfg, pc, curProv, routerDeps{ctx: o.ctx, lang: lang, keys: keys})
+	if err != nil {
+		return started{}, err
 	}
 
 	files, err := instructions.Load(wd)
@@ -1077,6 +1107,12 @@ func startEngine(o engineOptions) (started, error) {
 	out := policy.NewOutbound(s.redactor)
 	if o.allowNonEU {
 		out.Consent(info.ID)
+		// --allow-non-eu vaut aussi pour chaque fournisseur de repli.
+		if router != nil {
+			for _, c := range router.Candidates(false) {
+				out.Consent(c.ID)
+			}
+		}
 	}
 
 	// grep et glob ne révèlent que les fichiers que read_file pourrait lire
@@ -1156,15 +1192,11 @@ func startEngine(o engineOptions) (started, error) {
 	// masquer aucun outil interne.
 	ts = append(ts, mgr.Tools()...)
 
-	// strict-local, ou secnumcloud avec un fournisseur local : le
-	// fournisseur ignore les variables de proxy (voir providerNoProxy).
-	var provOpts []provider.Option
-	if providerNoProxy(cfg.Profile, pc) {
-		provOpts = append(provOpts, provider.WithoutProxy())
-	}
-
 	eng := engine.New(engine.Deps{
-		Provider:            provider.NewOpenAICompat(info, apiKey, provOpts...),
+		Provider:            curProv,
+		Router:              router,
+		Routing:             routingInfo,
+		Classify:            cfg.ClassifyRules(),
 		Tools:               tools.NewRegistry(ts...),
 		Permissions:         perm,
 		Outbound:            out,
@@ -1205,9 +1237,10 @@ func startEngine(o engineOptions) (started, error) {
 		anchorAtEnd(lang, cfg, config.DataDir(getenv), redactText(red), o.stderr)
 	}
 	return started{
-		eng: eng, redactor: red, sessionID: sid, close: closeAndAnchor, notices: slices.Concat(startNotices, detectNotices, skillNotices, ad.notices, hookNotices, ckNotices, notices), skills: cat, agents: ad.cat, hooks: hookSet,
+		eng: eng, redactor: red, sessionID: sid, close: closeAndAnchor, notices: slices.Concat(startNotices, detectNotices, routingNotices, skillNotices, ad.notices, hookNotices, ckNotices, notices), skills: cat, agents: ad.cat, hooks: hookSet,
 		downNotices: downNotices(o.lang, unavailable, red),
 		provider:    info, contextWindow: pc.Window(), profile: cfg.Profile,
+		local:  routingLocal(router),
 		policy: policyLine(lang, "tui.welcome.policy", cfg.Policy),
 	}, nil
 }

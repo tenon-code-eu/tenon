@@ -22,6 +22,15 @@ type SessionStartedPayload struct {
 	Policy *PolicyRef `json:"policy,omitempty"`
 	// Sandbox décrit l'isolation des commandes de la session (omis si inconnue).
 	Sandbox *SandboxInfo `json:"sandbox,omitempty"`
+	// Routing décrit le routage configuré ([routing]) : omis sans lui.
+	Routing *RoutingInfo `json:"routing,omitempty"`
+}
+
+// RoutingInfo décrit le routage de la session : fournisseur local des
+// contenus classés et fournisseurs de repli, dans l'ordre d'essai.
+type RoutingInfo struct {
+	Local    string   `json:"local,omitempty"`
+	Fallback []string `json:"fallback,omitempty"`
 }
 
 // SandboxInfo décrit l'isolation des commandes : mode effectif ("auto",

@@ -241,10 +241,10 @@ jurisdiction = "eu"
 func TestConfigCheckAllowlistE2E(t *testing.T) {
 	e := newEnvExtra(t, nil, "eu", "\n[provider_allowlist]\nhosts = [\"127.0.0.1\"]\nlocal = true\n")
 	code, out, errb := e.runCheck("--lang", "en")
-	if code != 0 || out != "provider_allowlist: global 1 hosts + local, project - hosts\n"+sandboxCheckEN+"OK\n" {
+	if code != 0 || out != "provider_allowlist: global 1 hosts + local, project - hosts\n"+routingCheckEN+sandboxCheckEN+"OK\n" {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errb)
 	}
-	if _, out, _ = e.runCheck(); out != "provider_allowlist : globale 1 hôtes + local, projet - hôtes\n"+sandboxCheckFR+"OK\n" {
+	if _, out, _ = e.runCheck(); out != "provider_allowlist : globale 1 hôtes + local, projet - hôtes\n"+routingCheckFR+sandboxCheckFR+"OK\n" {
 		t.Fatalf("fr : %q", out)
 	}
 	// Liste projet qui refuse l'hôte du fournisseur sélectionné.

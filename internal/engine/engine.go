@@ -110,6 +110,9 @@ type Deps struct {
 	// lieu d'être refusé ou retenu. Provider reste le fournisseur courant
 	// (SessionStarted).
 	Router *routing.Router
+	// Routing décrit le routage configuré, recopié dans SessionStarted
+	// (nil : omis).
+	Routing *event.RoutingInfo
 }
 
 // Reply répond à un PermissionRequested. Network accorde le réseau à la
