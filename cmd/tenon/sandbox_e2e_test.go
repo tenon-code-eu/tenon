@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -513,5 +514,56 @@ func TestShellSandboxedNetwork(t *testing.T) {
 	}
 	if shellSandboxed(nil, event.SandboxInfo{Network: "full"}) {
 		t.Error("sans Spec : ShellSandboxed vrai")
+	}
+}
+
+// R22 : préfixes littéraux des motifs de classification, résolus contre la
+// racine, existants seulement ; jamais la racine elle-même ; macOS seulement.
+func TestClassifiedDenyRead(t *testing.T) {
+	wd := t.TempDir()
+	for _, d := range []string{"rh/a", "docs/x", "ops"} {
+		if err := os.MkdirAll(filepath.Join(wd, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(wd, "secret.txt"), []byte("s"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	abs := t.TempDir()
+	pats := []string{"rh/", "./docs/x/*.md", "ops/**", "secret.txt", "absent/**", "**/*.dr.md", "*.d", ".", abs + "/**", "/nonexistent-tenon/x"}
+	got := classifiedDenyRead(pats, wd, "darwin")
+	want := []string{filepath.Join(wd, "rh"), filepath.Join(wd, "docs", "x"), filepath.Join(wd, "ops"), filepath.Join(wd, "secret.txt"), abs}
+	if !slices.Equal(got, want) {
+		t.Fatalf("darwin : %v, attendu %v", got, want)
+	}
+	if got := classifiedDenyRead(pats, wd, "linux"); got != nil {
+		t.Fatalf("linux : %v", got)
+	}
+}
+
+// R22 : isolation réelle sous macOS, une lecture récursive ou par motif
+// shell d'un dossier classé (sans le nommer) est refusée.
+func TestSandboxRealClassifiedDenyRead(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("macOS seulement (R22)")
+	}
+	if st := sandbox.Probe(); !st.Available {
+		t.Skipf("isolation indisponible : %s", st.Reason)
+	}
+	withProbe(t, sandbox.Probe())
+	sandboxNotices = false
+	f := newFakeLLM(t, sseCall("shell", `{"command":"cat */paie.txt"}`), sseText("fini"))
+	e := newEnvExtra(t, f, "eu", allowRule("shell")+"\n[classification]\npaths = [\"rh/\"]\n")
+	e.writeFile(filepath.Join(e.wd, "rh", "paie.txt"), "SALAIRE-48213\n")
+	code, out, errb := e.run("-p", "lis", "--output", "json")
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, errb)
+	}
+	res := shellResults(t, out)
+	if len(res) != 1 || !res[0].IsError || strings.Contains(res[0].Content, "48213") || res[0].Sandbox == nil || !res[0].Sandbox.Confined {
+		t.Fatalf("résultats shell : %+v", res)
+	}
+	if strings.Contains(strings.Join(f.requests(), ""), "48213") {
+		t.Fatal("contenu classé envoyé")
 	}
 }

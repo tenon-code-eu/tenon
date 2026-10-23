@@ -179,6 +179,64 @@ func canonicalPath(p string) string {
 	}
 }
 
+// classifiedDenyRead renvoie, sous macOS (goos "darwin"), les chemins
+// existants désignés par les préfixes littéraux des motifs de
+// classification : segments jusqu'au premier joker (`*`), résolus contre la
+// racine du projet root (motif absolu : tel quel). Ajoutés au DenyRead de
+// l'outil shell (ruling R22), ils empêchent une commande récursive ou un
+// motif shell (`grep -r`, `cat */x`) de lire un dossier classé sans le
+// nommer, fournisseur local ou non. Un motif sans préfixe littéral
+// (`**/*.md`, `*.d`) ou réduit à la racine n'ajoute rien. Sous Linux, rien :
+// interdire un chemin du projet y bloquerait la création de fichiers dans ses
+// dossiers parents (plan 16, R9) ; limite documentée.
+func classifiedDenyRead(patterns []string, root, goos string) []string {
+	if goos != "darwin" {
+		return nil
+	}
+	var out []string
+	for _, pat := range patterns {
+		var lit []string
+		for _, seg := range strings.Split(filepath.ToSlash(pat), "/") {
+			if strings.Contains(seg, "*") {
+				break
+			}
+			if seg != "" && seg != "." {
+				lit = append(lit, seg)
+			}
+		}
+		if len(lit) == 0 {
+			continue
+		}
+		var p string
+		if filepath.IsAbs(pat) {
+			p = filepath.Join(append([]string{string(filepath.Separator)}, lit...)...)
+		} else {
+			p = filepath.Join(append([]string{root}, lit...)...)
+			// Un motif relatif qui sort du projet (`..`) ne s'y applique pas.
+			if rel, err := filepath.Rel(root, p); err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				continue
+			}
+		}
+		if _, err := os.Lstat(p); err != nil || slices.Contains(out, p) {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+// shellSpec renvoie la Spec de l'outil shell : spec complétée par les
+// chemins de extra en DenyRead (copie : celle des serveurs MCP n'en dépend
+// pas). nil si spec est nil.
+func shellSpec(spec *sandbox.Spec, extra []string) *sandbox.Spec {
+	if spec == nil || len(extra) == 0 {
+		return spec
+	}
+	s := *spec
+	s.DenyRead = append(slices.Clone(spec.DenyRead), extra...)
+	return &s
+}
+
 // mcpSandboxSpec dérive de la Spec du shell celle de base des serveurs MCP
 // stdio : sans le projet, rendu inscriptible selon le risk de chaque serveur.
 func mcpSandboxSpec(spec *sandbox.Spec, wd string) *sandbox.Spec {

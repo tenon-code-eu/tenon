@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -1135,7 +1136,8 @@ func startEngine(o engineOptions) (started, error) {
 		// Environnement des commandes : celui de tenon sans les secrets
 		// configurés, dans tous les modes, isolation active ou non.
 		tools.Shell(wd, cfg.ShellTimeout.Duration, cfg.OutputLimit, tools.ShellOptions{
-			Sandbox:     sbSpec,
+			// Dossiers classés interdits aux commandes confinées (macOS, R22).
+			Sandbox:     shellSpec(sbSpec, classifiedDenyRead(cfg.Classification.Paths, wd, runtime.GOOS)),
 			Env:         secretEnv(cfg, environ()),
 			NetworkOpen: sbNetOpen,
 		}))
