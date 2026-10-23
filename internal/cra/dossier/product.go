@@ -20,10 +20,15 @@ const DefaultSBOMGlob = "cra/sbom*.cdx.json"
 var ErrNoDossier = errors.New("cra: no dossier (cra/ directory not found)")
 
 // Product décrit le produit couvert par le dossier.
+// Les balises JSON (snake_case) forment le schéma du dossier exporté.
 type Product struct {
-	Name, Version, Manufacturer, SecurityContact, Category string
-	SupportEnd                                             time.Time
-	SBOMs                                                  []string
+	Name            string    `json:"name"`
+	Version         string    `json:"version"`
+	Manufacturer    string    `json:"manufacturer"`
+	SecurityContact string    `json:"security_contact"`
+	Category        string    `json:"category"`
+	SupportEnd      time.Time `json:"support_end"`
+	SBOMs           []string  `json:"sboms"`
 }
 
 // Report est un signalement (vulnérabilité exploitée ou incident grave).

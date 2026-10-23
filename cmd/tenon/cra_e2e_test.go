@@ -633,3 +633,69 @@ func TestCRADBUpdateStrictLocalRedirect(t *testing.T) {
 		t.Fatal("archive écrite malgré le refus")
 	}
 }
+
+func TestCRAExport(t *testing.T) {
+	e := newEnv(t, nil, "eu")
+	e.craDossier("pkg:npm/left@1.0.0")
+	e.writeFile(filepath.Join(e.wd, "cra", "docs", "arch.md"), "# <b>Design</b>\n")
+	e.craDB(time.Now(), map[string][]string{"npm": {craLeftDoc}})
+	out := filepath.Join(e.t.TempDir(), "dossier")
+	code, stdout, errb := e.run("cra", "export", "--out", out, "--lang", "en")
+	if code != 0 {
+		t.Fatalf("code %d, stderr %q", code, errb)
+	}
+	if !strings.Contains(stdout, "cra-dossier.html") {
+		t.Fatalf("stdout %q", stdout)
+	}
+	data, err := os.ReadFile(filepath.Join(out, "cra-dossier.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var d struct {
+		Product struct{ Name string } `json:"product"`
+		Scan    *struct {
+			Open int `json:"open"`
+		} `json:"scan"`
+		Docs []struct{ Name string } `json:"docs"`
+	}
+	if err := json.Unmarshal(data, &d); err != nil {
+		t.Fatal(err)
+	}
+	if d.Product.Name != "P" || d.Scan == nil || d.Scan.Open != 1 || len(d.Docs) != 1 {
+		t.Fatalf("dossier %s", data)
+	}
+	html, err := os.ReadFile(filepath.Join(out, "cra-dossier.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(html), "CRA technical dossier") || !strings.Contains(string(html), "&lt;b&gt;Design&lt;/b&gt;") {
+		t.Fatalf("html %s", html)
+	}
+	// Français.
+	out2 := filepath.Join(e.t.TempDir(), "fr")
+	if code, _, errb := e.run("cra", "export", "--out", out2, "--lang", "fr"); code != 0 {
+		t.Fatalf("fr : code %d, stderr %q", code, errb)
+	}
+	if h, _ := os.ReadFile(filepath.Join(out2, "cra-dossier.html")); !strings.Contains(string(h), "Dossier technique CRA") {
+		t.Fatal("html français")
+	}
+}
+
+func TestCRAExportNoDB(t *testing.T) {
+	e := newEnv(t, nil, "eu")
+	e.craDossier("pkg:npm/left@1.0.0")
+	out := filepath.Join(e.t.TempDir(), "d")
+	code, _, errb := e.run("cra", "export", "--out", out, "--lang", "en")
+	if code != 0 || !strings.Contains(errb, "cra: export without vulnerability scan (run tenon cra db update)") {
+		t.Fatalf("code %d, stderr %q", code, errb)
+	}
+	data, err := os.ReadFile(filepath.Join(out, "cra-dossier.json"))
+	if err != nil || !strings.Contains(string(data), `"scan": null`) {
+		t.Fatalf("%v %s", err, data)
+	}
+	// Dossier absent : code 1.
+	e2 := newEnv(t, nil, "eu")
+	if code, _, errb := e2.run("cra", "export", "--out", filepath.Join(t.TempDir(), "x")); code != 1 || !strings.Contains(errb, "cra: no dossier") {
+		t.Fatalf("sans dossier : code %d, stderr %q", code, errb)
+	}
+}

@@ -49,6 +49,21 @@ func funcs(lang i18n.Lang) template.FuncMap {
 			}
 			return out
 		},
+		// cra résume la section CRA en une ligne.
+		"cra": func(c CRA) string {
+			parts := []string{}
+			if c.LastScan != "" {
+				parts = append(parts, i18n.T(lang, "report.cra_scan", c.LastScan, c.Open, c.ToVerify))
+			}
+			for _, s := range c.Reports {
+				line := i18n.T(lang, "report.cra_report", s.ID, s.Kind, s.Step)
+				if s.Overdue {
+					line += ", " + i18n.T(lang, "report.cra_overdue") + " (" + strings.Join(s.OverdueSteps, ", ") + ")"
+				}
+				parts = append(parts, line)
+			}
+			return strings.Join(parts, "; ")
+		},
 		"date": func(t time.Time) string { return t.UTC().Format("2006-01-02 15:04") + " UTC" },
 		"day":  func(t time.Time) string { return t.UTC().Format("2006-01-02") },
 	}

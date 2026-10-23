@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dossier technique CRA Widget &lt;1&gt; 1.2.0</title>
+<style>
+body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: #1a1a1a; background: #fff; margin: 2rem auto; max-width: 64rem; padding: 0 1rem; line-height: 1.45; font-size: 14px; }
+h1 { font-size: 1.6rem; margin-bottom: .5rem; }
+h2 { font-size: 1.2rem; border-bottom: 1px solid #ccc; padding-bottom: .2rem; margin-top: 2rem; }
+h3 { font-size: 1rem; margin-top: 1.2rem; }
+dl.meta { display: grid; grid-template-columns: max-content 1fr; gap: .2rem 1rem; }
+dl.meta dt { font-weight: 600; }
+dl.meta dd { margin: 0; overflow-wrap: anywhere; }
+table { border-collapse: collapse; width: 100%; margin: .5rem 0; }
+th, td { border: 1px solid #ccc; padding: .25rem .4rem; text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+th { background: #f3f3f3; }
+code, .mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .9em; }
+.banner { padding: .6rem .8rem; margin: .6rem 0; border-radius: 4px; border: 1px solid; }
+.banner.warn { background: #fff6e0; border-color: #c88a00; }
+.banner.info { background: #e8f0fd; border-color: #1e5ac8; }
+.disclaimer { font-style: italic; color: #444; }
+.muted { color: #666; }
+.overdue { color: #8a1010; font-weight: 600; }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
+@media print {
+  body { margin: 0; max-width: none; font-size: 11px; }
+  tr, .banner { break-inside: avoid; page-break-inside: avoid; }
+  thead { display: table-header-group; }
+  h2, h3 { break-after: avoid; page-break-after: avoid; }
+}
+</style>
+</head>
+<body>
+<header>
+<h1>Dossier technique CRA</h1>
+<dl class="meta">
+<dt>Produit</dt><dd>Widget &lt;1&gt;</dd>
+<dt>Version</dt><dd>1.2.0</dd>
+<dt>Fabricant</dt><dd>Acme SAS</dd>
+<dt>Contact sécurité</dt><dd>security@acme.eu</dd>
+<dt>Catégorie</dt><dd>important-1</dd>
+<dt>Fin de la période de support</dt><dd>2031-12-31</dd>
+<dt>Généré le</dt><dd>2026-10-23 12:00 UTC</dd>
+</dl>
+<p class="disclaimer">Ce dossier est tiré du dépôt par tenon. Il ne constitue pas un avis juridique et ne certifie pas la conformité.</p>
+</header>
+
+<section id="sboms">
+<h2>SBOM</h2>
+<table>
+<thead><tr><th>Fichier</th><th>Version CycloneDX</th><th>Générateur</th><th>Date</th><th>Composants</th></tr></thead>
+<tr><td class="mono">cra/sbom.cdx.json</td><td>1.5</td><td>syft 1.0</td><td>2026-10-01 09:00 UTC</td><td>3</td></tr>
+</table>
+</section>
+
+<section id="scan">
+<h2>Vulnérabilités (dernier scan, avec VEX)</h2>
+<p>1 SBOM, 3 composants : 1 ouvertes, 1 à vérifier, 0 non affectées, 1 corrigées, 1 conflits, 1 non vérifiés (base osv 2026-10-22)</p>
+<table>
+<thead><tr><th>Identifiant</th><th>Composant</th><th>Statut</th><th>Résumé</th></tr></thead>
+<tr><td class="mono">GHSA-1</td><td class="mono">pkg:npm/left@1.0.0</td><td>ouverte</td><td>prototype &lt;pollution&gt;</td></tr>
+<tr><td class="mono">GHSA-2</td><td class="mono">pkg:npm/right@1.0.0</td><td>corrigée — conflit VEX/OSV</td><td>old bug</td></tr>
+</table>
+<h3>Composants non vérifiés</h3>
+<ul><li class="mono">nopurl@1</li></ul>
+
+</section>
+
+<section id="reports">
+<h2>Signalements et délais</h2>
+<h3><span class="mono">2026-10-20-1</span> (vulnérabilité) — exploited flaw</h3>
+<table>
+<thead><tr><th>Étape</th><th>Échéance</th><th>Fait le</th><th>Statut</th></tr></thead>
+<tr><td>alerte précoce</td><td>2026-10-21 08:00 UTC</td><td>2026-10-20 10:00 UTC</td><td>fait</td></tr>
+<tr><td>notification</td><td>2026-10-23 08:00 UTC</td><td>—</td><td class="overdue">en retard</td></tr>
+<tr><td>rapport final</td><td>—</td><td>—</td><td>inconnue</td></tr>
+</table>
+
+</section>
+
+<section id="docs">
+<h2>Documentation</h2>
+<h3 class="mono">architecture.md</h3>
+<pre># Design
+&lt;script&gt;alert(1)&lt;/script&gt;
+</pre>
+
+</section>
+
+</body>
+</html>

@@ -69,6 +69,10 @@ type Report struct {
 	// Routing : routage par sensibilité des données, par session ; omis si
 	// aucun journal de la plage n'en porte.
 	Routing []SessionRouting `json:"routing,omitempty"`
+	// CRA : suivi du Cyber Resilience Act (scans et signalements) ; omis
+	// sans événement CRA. Les échéances dépassées sont signalées sans
+	// changer le code de sortie.
+	CRA *CRA `json:"cra,omitempty"`
 }
 
 // SessionRouting résume le routage d'une session : sensible ou non, motif du

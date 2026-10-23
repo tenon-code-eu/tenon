@@ -18,6 +18,7 @@ import (
 	"github.com/tenon-code-eu/tenon/internal/config"
 	"github.com/tenon-code-eu/tenon/internal/cra/dossier"
 	"github.com/tenon-code-eu/tenon/internal/cra/osv"
+	"github.com/tenon-code-eu/tenon/internal/cra/report"
 	"github.com/tenon-code-eu/tenon/internal/cra/sbom"
 	"github.com/tenon-code-eu/tenon/internal/cra/scan"
 	"github.com/tenon-code-eu/tenon/internal/event"
@@ -82,6 +83,8 @@ func craCommand(ctx context.Context, lang i18n.Lang, args []string, stdout, stde
 		return c.reportOpen(args[2:])
 	case args[0] == "report" && len(args) >= 2 && args[1] == "mark":
 		return c.reportMark(args[2:])
+	case args[0] == "export":
+		return c.export(args[1:])
 	}
 	fmt.Fprintln(stderr, i18n.T(lang, "err.unexpected_args", args[0]))
 	fmt.Fprintln(stderr, i18n.T(lang, "cra.usage"))
@@ -714,6 +717,67 @@ func (c craEnv) lastScanLine() string {
 		return i18n.T(c.lang, "cra.status_scan_date", date)
 	}
 	return i18n.T(c.lang, "cra.status_scan", date, p.Open, p.ToVerify)
+}
+
+// export écrit le dossier technique (HTML et JSON). Le scan est joint quand la
+// base OSV est disponible ; sinon l'export se fait sans scan, avec un avis.
+func (c craEnv) export(args []string) int {
+	fs := c.flags("export")
+	out := fs.String("out", "", i18n.T(c.lang, "flag.export_out"))
+	langOpt := fs.String("lang", "", i18n.T(c.lang, "flag.lang"))
+	if _, code, ok := c.parse(fs, args, 0); !ok {
+		return code
+	}
+	lang := c.lang
+	if *langOpt != "" {
+		l, ok := uiLang(*langOpt, c.getenv, c.wd, c.globalPath)
+		if !ok {
+			fmt.Fprintln(c.stderr, i18n.T(c.lang, "err.prefix", i18n.T(c.lang, "err.bad_lang", *langOpt)))
+			return 1
+		}
+		lang = l
+	}
+	d, err := dossier.Load(c.wd)
+	if err != nil {
+		return c.fail(err)
+	}
+	var res *scan.Result
+	if _, err := d.SBOMPaths(); err == nil {
+		boms, err := readBOMs(d)
+		if err != nil {
+			return c.fail(err)
+		}
+		db, err := openDB(c.getenv)
+		if err == nil {
+			var r scan.Result
+			r, err = scan.Run(d, boms, db)
+			res = &r
+		}
+		var noDB *scan.NoDBError
+		if errors.As(err, &noDB) {
+			res, err = nil, nil
+		}
+		if err != nil {
+			return c.fail(err)
+		}
+	}
+	if res == nil {
+		fmt.Fprintln(c.stderr, "cra: export without vulnerability scan (run tenon cra db update)")
+	}
+	now := exportNow().UTC()
+	dos, err := report.Build(d, res, now)
+	if err != nil {
+		return c.fail(err)
+	}
+	outDir := c.wd
+	if *out != "" {
+		outDir = resolveFrom(c.wd, *out)
+	}
+	if err := report.Write(outDir, dos, lang); err != nil {
+		return c.fail(err)
+	}
+	fmt.Fprintln(c.stdout, i18n.T(lang, "cra.export_ok", filepath.Join(outDir, "cra-dossier.html"), filepath.Join(outDir, "cra-dossier.json")))
+	return 0
 }
 
 // craConfigLine renvoie la ligne « config check » du CRA.

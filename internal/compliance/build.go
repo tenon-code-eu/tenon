@@ -213,7 +213,10 @@ func Build(ds Dataset, o Options) Report {
 
 	sessions := map[string]bool{}
 	for _, l := range ds.Lines {
-		sessions[l.Session] = true
+		// Les sessions « cra » (sans fournisseur) ne sont pas des conversations.
+		if !isCRASession(ds, l.Session) {
+			sessions[l.Session] = true
+		}
 	}
 	r.Summary.Sessions = len(sessions)
 	if !r.ContentAvailable {
@@ -233,7 +236,7 @@ func Build(ds Dataset, o Options) Report {
 		routing:   map[string]*routingState{},
 	}
 	for _, l := range ds.Lines {
-		if IsMetadataPayload(l.Payload) {
+		if IsMetadataPayload(l.Payload) || isCRASession(ds, l.Session) {
 			continue
 		}
 		b.line(l)
@@ -242,6 +245,7 @@ func Build(ds Dataset, o Options) Report {
 	b.providers()
 	b.sandboxes()
 	b.routings()
+	r.CRA = craSection(ds, o)
 	r.Profiles = profilesOf(ds, o)
 	r.Policies = policiesOf(ds, o)
 	if o.Details {
@@ -700,6 +704,9 @@ func (b *builder) providers() {
 	juris := map[string]bool{}
 	o := b.o
 	for _, sid := range order {
+		if isCRASession(b.ds, sid) {
+			continue
+		}
 		st := b.ds.Sessions[sid].Started
 		if st == nil {
 			b.r.Summary.UnknownProviderSessions++
@@ -788,6 +795,9 @@ func timeline(ds Dataset, o Options) []SessionTimeline {
 	out := []SessionTimeline{}
 	index := map[string]int{}
 	for _, l := range ds.Lines {
+		if isCRASession(ds, l.Session) {
+			continue
+		}
 		i, ok := index[l.Session]
 		if !ok {
 			i = len(out)

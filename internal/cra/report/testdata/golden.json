@@ -1,0 +1,104 @@
+{
+  "product": {
+    "name": "Widget \u003c1\u003e",
+    "version": "1.2.0",
+    "manufacturer": "Acme SAS",
+    "security_contact": "security@acme.eu",
+    "category": "important-1",
+    "support_end": "2031-12-31T00:00:00Z",
+    "sboms": [
+      "cra/sbom*.cdx.json"
+    ]
+  },
+  "boms": [
+    {
+      "file": "cra/sbom.cdx.json",
+      "spec_version": "1.5",
+      "generator": "syft 1.0",
+      "timestamp": "2026-10-01T09:00:00Z",
+      "components": 3
+    }
+  ],
+  "scan": {
+    "sboms": 1,
+    "components": 3,
+    "findings": [
+      {
+        "id": "GHSA-1",
+        "summary": "prototype \u003cpollution\u003e",
+        "component": {
+          "name": "left",
+          "version": "1.0.0",
+          "purl": "pkg:npm/left@1.0.0"
+        },
+        "state": "",
+        "status": "open"
+      },
+      {
+        "id": "GHSA-2",
+        "summary": "old bug",
+        "component": {
+          "name": "right",
+          "version": "1.0.0",
+          "purl": "pkg:npm/right@1.0.0"
+        },
+        "state": "",
+        "status": "fixed",
+        "conflict": true
+      }
+    ],
+    "open": 1,
+    "to_verify": 1,
+    "not_affected": 0,
+    "fixed": 1,
+    "db_date": "2026-10-22T00:00:00Z",
+    "conflicts": 1,
+    "unchecked": 1,
+    "unchecked_components": [
+      {
+        "name": "nopurl",
+        "version": "1",
+        "purl": ""
+      }
+    ]
+  },
+  "reports": [
+    {
+      "id": "2026-10-20-1",
+      "kind": "vulnerability",
+      "summary": "exploited flaw",
+      "aware_at": "2026-10-20T08:00:00Z",
+      "fix_available_at": null,
+      "early_warning_at": "2026-10-20T10:00:00Z",
+      "notification_at": null,
+      "final_at": null,
+      "deadlines": [
+        {
+          "step": "early-warning",
+          "due": "2026-10-21T08:00:00Z",
+          "done": "2026-10-20T10:00:00Z",
+          "status": "done"
+        },
+        {
+          "step": "notification",
+          "due": "2026-10-23T08:00:00Z",
+          "done": null,
+          "status": "overdue"
+        },
+        {
+          "step": "final",
+          "due": null,
+          "done": null,
+          "status": "unknown"
+        }
+      ]
+    }
+  ],
+  "docs": [
+    {
+      "name": "architecture.md",
+      "content": "# Design\n\u003cscript\u003ealert(1)\u003c/script\u003e\n"
+    }
+  ],
+  "generated_at": "2026-10-23T12:00:00Z"
+}
