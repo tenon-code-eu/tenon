@@ -15,7 +15,7 @@ func TestPromptSection(t *testing.T) {
 	writeSkill(t, r, "hidden", "name: hidden\ndescription: Nope\ndisable-model-invocation: true", "b")
 	c, _ := Discover([]Dir{{r, User}})
 	c = stripBuiltin(c)
-	s, dropped := c.PromptSection(i18n.EN, 8000)
+	s, dropped := c.PromptSection(i18n.EN, 8000, false)
 	want := i18n.T(i18n.EN, "skills.prompt_header") + "\n- review: Review code"
 	if s != want || dropped != 0 {
 		t.Fatalf("%q %d", s, dropped)
@@ -24,7 +24,7 @@ func TestPromptSection(t *testing.T) {
 	writeSkill(t, r2, "hidden", "name: hidden\ndescription: Nope\ndisable-model-invocation: true", "b")
 	c2, _ := Discover([]Dir{{r2, User}})
 	c2 = stripBuiltin(c2)
-	if s, d := c2.PromptSection(i18n.EN, 8000); s != "" || d != 0 {
+	if s, d := c2.PromptSection(i18n.EN, 8000, false); s != "" || d != 0 {
 		t.Fatalf("%q %d", s, d)
 	}
 }
@@ -37,7 +37,7 @@ func TestPromptBudget(t *testing.T) {
 	}
 	c, _ := Discover([]Dir{{r, User}})
 	c = stripBuiltin(c)
-	s, dropped := c.PromptSection(i18n.EN, 8000)
+	s, dropped := c.PromptSection(i18n.EN, 8000, false)
 	if len(s) > 8000 || dropped == 0 {
 		t.Fatalf("len %d dropped %d", len(s), dropped)
 	}
@@ -106,7 +106,7 @@ func TestPromptSectionFR(t *testing.T) {
 	r := t.TempDir()
 	writeSkill(t, r, "review", "name: review\ndescription: Review code", "b")
 	c, _ := Discover([]Dir{{r, User}})
-	s, _ := c.PromptSection(i18n.FR, 8000)
+	s, _ := c.PromptSection(i18n.FR, 8000, false)
 	if !strings.HasPrefix(s, "## Skills disponibles\n") {
 		t.Fatalf("%q", s)
 	}
@@ -127,7 +127,7 @@ func TestPromptSectionEmptyWhenNoneListed(t *testing.T) {
 	c, _ := Discover([]Dir{{r, User}})
 	c = stripBuiltin(c)
 	// Budget plus petit que l'en-tête : plus aucun skill ne tient.
-	s, dropped := c.PromptSection(i18n.EN, 5)
+	s, dropped := c.PromptSection(i18n.EN, 5, false)
 	if s != "" || dropped != 1 {
 		t.Fatalf("section %q dropped %d, attendu \"\" et 1", s, dropped)
 	}
@@ -141,5 +141,20 @@ func TestBuiltinsSingleSource(t *testing.T) {
 	}
 	if len(Builtins) != 6 {
 		t.Fatalf("Builtins %v", Builtins)
+	}
+}
+
+func TestPromptSectionBuiltinOnlyForCRA(t *testing.T) {
+	c, _ := Discover(nil)
+	if s, d := c.PromptSection(i18n.EN, 8000, false); s != "" || d != 0 {
+		t.Fatalf("sans cra/ : %q %d", s, d)
+	}
+	s, _ := c.PromptSection(i18n.EN, 8000, true)
+	if !strings.Contains(s, "- cra-sbom:") || !strings.Contains(s, "- cra-report:") {
+		t.Fatalf("avec cra/ : %q", s)
+	}
+	// /cra-sbom reste utilisable dans les deux cas (le prompt n'y change rien).
+	if e, ok, err := c.Expand("/cra-sbom"); err != nil || !ok || e.Skill != "cra-sbom" {
+		t.Fatalf("expand : %+v %v %v", e, ok, err)
 	}
 }

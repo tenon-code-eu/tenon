@@ -193,6 +193,8 @@ Four skills are embedded in the binary, with the source `builtin` (the lowest pr
 | `cra-report` | Draft the early warning, notification or final report from `cra/reports/<id>.toml`, then mark the step after confirmation. |
 | `cra-docs` | Write `cra/docs/*.md` (risk analysis, security by default, updates and end of support). |
 
+The descriptions of the built-in skills are added to the system prompt only when the project root contains a `cra/` directory. They stay in the catalog in every project: `/skills` lists them and `/cra-sbom` or the `skill` tool load them by name.
+
 Each skill asks for your confirmation before it writes a file, and reminds you that reports are sent by hand on the ENISA platform.
 To replace one, create a skill of the same name (for example `.tenon/skills/cra-triage/SKILL.md`, or in your user folder). A user or project skill wins silently, with no notice. See [skills](usage.md#skills).
 

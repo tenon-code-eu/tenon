@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"unicode"
 
@@ -59,7 +61,7 @@ func discoverSkills(lang i18n.Lang, getenv func(string) string, wd string) disco
 	if total > 0 {
 		notices = append(notices, i18n.T(lang, "skills.banner", total, project))
 	}
-	section, dropped := cat.PromptSection(lang, promptBudget)
+	section, dropped := cat.PromptSection(lang, promptBudget, hasCRADir(wd))
 	if dropped > 0 {
 		notices = append(notices, i18n.T(lang, "skills.dropped", dropped))
 	}
@@ -131,4 +133,11 @@ func systemPrompt(base string, sections ...string) string {
 		}
 	}
 	return base
+}
+
+// hasCRADir indique si la racine du projet contient un dossier cra/ (lien
+// symbolique exclu) : alors les skills CRA intégrés entrent dans le prompt.
+func hasCRADir(wd string) bool {
+	fi, err := os.Lstat(filepath.Join(wd, "cra"))
+	return err == nil && fi.IsDir()
 }

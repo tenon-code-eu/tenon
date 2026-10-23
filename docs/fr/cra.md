@@ -193,6 +193,8 @@ Quatre skills sont embarqués dans le binaire, avec la source `builtin` (la prio
 | `cra-report` | Rédiger l'alerte précoce, la notification ou le rapport final à partir de `cra/reports/<id>.toml`, puis marquer l'étape après confirmation. |
 | `cra-docs` | Rédiger `cra/docs/*.md` (analyse de risque, sécurité par défaut, mises à jour et fin de support). |
 
+Les descriptions des skills intégrés ne sont ajoutées au prompt système que si la racine du projet contient un dossier `cra/`. Ils restent dans le catalogue dans tous les projets : `/skills` les liste et `/cra-sbom` ou l'outil `skill` les chargent par leur nom.
+
 Chaque skill demande votre confirmation avant d'écrire un fichier, et rappelle que les signalements s'envoient à la main sur la plateforme de l'ENISA.
 Pour en remplacer un, créez un skill du même nom (par exemple `.tenon/skills/cra-triage/SKILL.md`, ou dans votre dossier utilisateur). Un skill utilisateur ou projet l'emporte sans avertissement. Voir les [skills](utilisation.md#skills).
 

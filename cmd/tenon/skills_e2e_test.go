@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"github.com/tenon-code-eu/tenon/internal/i18n"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -236,5 +237,25 @@ func TestSlashBuiltinWithWhitespaceHeadless(t *testing.T) {
 	reqs := f.requests()
 	if len(reqs) != 2 || !strings.Contains(reqs[0], `"content":"/help\tx"`) || !strings.Contains(reqs[1], `"content":"/skills\nfoo"`) {
 		t.Fatalf("requêtes : %q", reqs)
+	}
+}
+
+func TestHasCRADir(t *testing.T) {
+	d := t.TempDir()
+	if hasCRADir(d) {
+		t.Fatal("cra/ absent")
+	}
+	if err := os.Mkdir(filepath.Join(d, "cra"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if !hasCRADir(d) {
+		t.Fatal("cra/ présent")
+	}
+	if got := discoverSkills(i18n.EN, func(string) string { return "" }, d).section; !strings.Contains(got, "cra-sbom") {
+		t.Fatalf("section avec cra/ : %q", got)
+	}
+	e := t.TempDir()
+	if got := discoverSkills(i18n.EN, func(string) string { return "" }, e).section; strings.Contains(got, "cra-") {
+		t.Fatalf("section sans cra/ : %q", got)
 	}
 }

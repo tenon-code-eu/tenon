@@ -33,11 +33,13 @@ func IsBuiltin(name string) bool {
 // PromptSection renvoie la section du prompt système listant les skills
 // invocables par le modèle, ou "" s'il n'y en a aucun. Au-delà de budget
 // octets, les descriptions sont coupées à 200 caractères, puis les derniers
-// skills sont retirés (dropped).
-func (c *Catalog) PromptSection(lang i18n.Lang, budget int) (section string, dropped int) {
+// skills sont retirés (dropped). Les skills intégrés n'y figurent que si
+// withBuiltin est vrai (projet comportant un dossier cra/) ; ils restent dans
+// le catalogue dans tous les cas.
+func (c *Catalog) PromptSection(lang i18n.Lang, budget int, withBuiltin bool) (section string, dropped int) {
 	var skills []Skill
 	for _, s := range c.List() {
-		if s.ModelInvocable {
+		if s.ModelInvocable && (withBuiltin || s.Source != Builtin) {
 			skills = append(skills, s)
 		}
 	}
