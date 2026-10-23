@@ -2,7 +2,9 @@ package compliance
 
 import (
 	"encoding/json"
+	"os"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -166,11 +168,34 @@ func TestExportCRADeadlinesUnknownWithoutOpen(t *testing.T) {
 	if r.CRA == nil || !r.CRA.Reports[0].DeadlinesUnknown || r.CRA.Reports[0].Overdue {
 		t.Fatalf("%+v", r.CRA)
 	}
-	for _, l := range []i18n.Lang{i18n.EN, i18n.FR} {
+	for _, c := range []struct {
+		l    i18n.Lang
+		want string
+	}{{i18n.EN, "deadlines unknown (no open event)"}, {i18n.FR, "échéances inconnues (ouverture absente)"}} {
 		rr := richReport(false)
 		rr.CRA = r.CRA
-		if out := render(t, rr, l); !strings.Contains(out, i18n.T(l, "report.cra_unknown")) {
-			t.Errorf("%s : marqueur absent", l)
+		out := render(t, rr, c.l)
+		if !strings.Contains(out, c.want) || strings.Contains(out, "!report.") {
+			t.Errorf("%s : marqueur %q absent ou clé manquante", c.l, c.want)
+		}
+	}
+}
+
+// Toutes les clés report.cra_* du gabarit existent dans les deux langues.
+func TestCRAKeysResolve(t *testing.T) {
+	src, err := os.ReadFile("html.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys := regexp.MustCompile(`"(report\.(?:label\.)?cra[a-z_]*)"`).FindAllSubmatch(src, -1)
+	if len(keys) == 0 {
+		t.Fatal("aucune clé trouvée")
+	}
+	for _, k := range keys {
+		for _, l := range []i18n.Lang{i18n.EN, i18n.FR} {
+			if got := i18n.T(l, string(k[1])); strings.HasPrefix(got, "!") {
+				t.Errorf("%s : clé %s manquante", l, k[1])
+			}
 		}
 	}
 }
