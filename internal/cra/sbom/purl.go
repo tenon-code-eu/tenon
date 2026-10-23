@@ -89,6 +89,12 @@ func (p PURL) OSVName() string {
 	case "nuget":
 		// Les identifiants NuGet ne distinguent pas la casse.
 		return strings.ToLower(p.Name)
+	case "golang":
+		// cyclonedx-gomod -std nomme la bibliothèque standard « std » ;
+		// OSV l'indexe sous « stdlib ».
+		if p.Namespace == "" && p.Name == "std" {
+			return "stdlib"
+		}
 	}
 	if p.Namespace == "" {
 		return p.Name

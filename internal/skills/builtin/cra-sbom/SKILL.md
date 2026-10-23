@@ -20,7 +20,7 @@ Produce one CycloneDX JSON SBOM (spec 1.4 to 1.6) per product component set, sto
 
 1. Look at the project to find its ecosystems (go.mod, package.json, Cargo.toml, pyproject.toml, pom.xml, ...). Check whether `cra/product.toml` exists; if not, propose `tenon cra init` and ask before running it.
 2. Pick the generator that matches each ecosystem and show the exact command before running it:
-   - Go: `cyclonedx-gomod app -json -output cra/sbom-go.cdx.json` (or `mod` for a library)
+   - Go: `cyclonedx-gomod app -json -std -output cra/sbom-go.cdx.json` (or `cyclonedx-gomod mod -licenses -json -std -output cra/sbom-go.cdx.json` for a library). Keep `-std`: it adds the Go standard library, which `tenon cra scan` matches against the OSV `stdlib` entries. Flag names vary between versions: check `cyclonedx-gomod app -h` / `cyclonedx-gomod mod -h` first.
    - npm: `npx @cyclonedx/cyclonedx-npm --output-file cra/sbom-npm.cdx.json`
    - Python: `cyclonedx-py environment -o cra/sbom-python.cdx.json` (or `requirements`, `poetry`)
    - Rust: `cargo cyclonedx --format json` then move the file to `cra/sbom-rust.cdx.json`

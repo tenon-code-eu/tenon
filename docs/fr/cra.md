@@ -59,6 +59,8 @@ Tous les champs sauf `sboms` sont obligatoires : `cra: product.toml: <champ> req
 
 tenon lit du CycloneDX JSON 1.4 à 1.6 et ne génère pas de SBOM : utilisez l'outil de votre écosystème (`cyclonedx-gomod`, `@cyclonedx/cyclonedx-npm`, `cyclonedx-py`, `cargo cyclonedx`, `syft` en repli). Les composants imbriqués sous `components[].components` sont collectés. Les qualificateurs de purl (`?type=jar`) et les sous-chemins sont ignorés pour l'appariement.
 
+Pour Go, lancez cyclonedx-gomod avec `-std` (par exemple `cyclonedx-gomod mod -licenses -json -std -output cra/sbom.cdx.json`, ou `app` pour un binaire ; vérifiez les options de votre version avec `cyclonedx-gomod <commande> -h`). Sans `-std`, la bibliothèque standard est absente du SBOM et ses vulnérabilités ne sont pas vérifiées. Le composant produit, `pkg:golang/std@go1.x.y`, est apparié aux entrées OSV `stdlib`.
+
 ### VEX
 
 `vulnerabilities[]` de `cra/vex.cdx.json` porte `id`, `affects[].ref` (purl ou bom-ref du composant) et `analysis.state` :

@@ -118,3 +118,18 @@ func TestEcosystem(t *testing.T) {
 		t.Error("deb ne doit pas avoir d'écosystème")
 	}
 }
+
+func TestOSVNameGoStd(t *testing.T) {
+	p, err := ParsePURL("pkg:golang/std@go1.22.1?type=module")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := p.OSVName(); got != "stdlib" {
+		t.Fatalf("OSVName = %q", got)
+	}
+	// Un module dont le dernier segment est « std » garde son chemin.
+	q, _ := ParsePURL("pkg:golang/example.com/std@v1.0.0")
+	if got := q.OSVName(); got != "example.com/std" {
+		t.Fatalf("OSVName = %q", got)
+	}
+}

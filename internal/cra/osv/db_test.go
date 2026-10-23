@@ -486,3 +486,17 @@ func TestMatchGoStdlibPrefix(t *testing.T) {
 		t.Fatalf("stdlib corrigée : %v", m)
 	}
 }
+
+// TestMatchGoStdFromCycloneDXGomod : cyclonedx-gomod -std nomme la
+// bibliothèque standard « std » ; OSV l'indexe sous « stdlib ».
+func TestMatchGoStdFromCycloneDXGomod(t *testing.T) {
+	doc := `{"id":"GO-STD","affected":[
+	 {"package":{"ecosystem":"Go","name":"stdlib"},"ranges":[{"type":"SEMVER","events":[{"introduced":"0"},{"fixed":"1.22.2"}]}]}]}`
+	db := open(t, map[string][]string{"Go": {doc}})
+	if m := states(t, db, comp("pkg:golang/std@go1.22.1?type=module")); m["GO-STD"] != StateAffected {
+		t.Fatalf("std : %v", m)
+	}
+	if m := states(t, db, comp("pkg:golang/std@go1.22.2?type=module")); len(m) != 0 {
+		t.Fatalf("std corrigée : %v", m)
+	}
+}
