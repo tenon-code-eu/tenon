@@ -1,6 +1,7 @@
 package dossier
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -139,8 +140,13 @@ func NewReportID(root string, now time.Time) string {
 	return fmt.Sprintf("%s-%d", day, max+1)
 }
 
-// SaveReport écrit cra/reports/<id>.toml de façon atomique (dates en UTC).
-func SaveReport(root string, r Report) error {
+// SaveReport crée cra/reports/<id>.toml (dates en UTC) et échoue si l'id existe.
+func SaveReport(root string, r Report) error { return writeReport(root, r, true) }
+
+// UpdateReport remplace un signalement existant (report mark).
+func UpdateReport(root string, r Report) error { return writeReport(root, r, false) }
+
+func writeReport(root string, r Report, exclusive bool) error {
 	if !reportIDRe.MatchString(r.ID) {
 		return fmt.Errorf("cra: invalid report id %q", r.ID)
 	}
@@ -174,7 +180,18 @@ func SaveReport(root string, r Report) error {
 	if err := os.Chmod(tmp.Name(), 0o644); err != nil {
 		return fmt.Errorf("cra: %w", err)
 	}
-	if err := os.Rename(tmp.Name(), filepath.Join(dir, r.ID+".toml")); err != nil {
+	dst := filepath.Join(dir, r.ID+".toml")
+	if exclusive {
+		// Lien dur : atomique et refuse d'écraser un fichier existant.
+		if err := os.Link(tmp.Name(), dst); err != nil {
+			if errors.Is(err, os.ErrExist) {
+				return fmt.Errorf("cra: report %s already exists", r.ID)
+			}
+			return fmt.Errorf("cra: %w", err)
+		}
+		return nil
+	}
+	if err := os.Rename(tmp.Name(), dst); err != nil {
 		return fmt.Errorf("cra: %w", err)
 	}
 	return nil

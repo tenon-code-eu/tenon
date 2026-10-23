@@ -240,3 +240,51 @@ func TestSupportEndPast(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestVEXStatesMapped(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "v.json", `{"vulnerabilities":[
+	 {"id":"A","analysis":{"state":"false_positive","justification":"code_not_present"},"affects":[{"ref":"x"}]},
+	 {"id":"B","analysis":{"state":"resolved_with_pedigree"},"affects":[{"ref":"x"}]}]}`)
+	v, err := LoadVEX(filepath.Join(root, "v.json"))
+	if err != nil || v[0].State != "not_affected" || v[1].State != "fixed" {
+		t.Fatal(v, err)
+	}
+	write(t, root, "w.json", `{"vulnerabilities":[{"id":"A","analysis":{"state":"false_positive"},"affects":[{"ref":"x"}]}]}`)
+	if _, err := LoadVEX(filepath.Join(root, "w.json")); err == nil || err.Error() != "cra: vex: A: not_affected requires a justification" {
+		t.Fatal(err)
+	}
+}
+
+func TestNoSBOMFound(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "cra/product.toml", goodProduct)
+	d, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.SBOMPaths(); err == nil || err.Error() != "cra: no SBOM found (cra/sbom*.cdx.json)" {
+		t.Fatal(err)
+	}
+	write(t, root, "cra/sbom.cdx.json", "{}")
+	if p, err := d.SBOMPaths(); err != nil || len(p) != 1 {
+		t.Fatal(p, err)
+	}
+}
+
+func TestSaveReportExclusive(t *testing.T) {
+	root := t.TempDir()
+	a := ts(t, "2026-10-23T09:00:00Z")
+	r := Report{ID: "2026-10-23-1", Kind: "incident", AwareAt: &a}
+	if err := SaveReport(root, r); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveReport(root, r); err == nil {
+		t.Fatal("second SaveReport must fail")
+	}
+	n := ts(t, "2026-10-24T09:00:00Z")
+	r.NotificationAt = &n
+	if err := UpdateReport(root, r); err != nil {
+		t.Fatal(err)
+	}
+}

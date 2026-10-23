@@ -23,6 +23,13 @@ const (
 type Finding struct {
 	osv.Finding
 	Status string
+	// Conflict : le VEX dit « fixed » alors qu'OSV classe la version exacte du SBOM comme affectée.
+	Conflict bool
+}
+
+// ConflictMessage décrit le conflit VEX/OSV pour l'affichage.
+func (f Finding) ConflictMessage() string {
+	return "fixed per VEX but " + f.Component.PURL + " is listed as affected by " + f.ID
 }
 
 // Result est le résultat d'un scan.
@@ -31,6 +38,9 @@ type Result struct {
 	Findings                           []Finding
 	Open, ToVerify, NotAffected, Fixed int
 	DBDate                             time.Time
+	Conflicts, Unchecked               int
+	// UncheckedComponents : composants sans purl exploitable ou de type non pris en charge.
+	UncheckedComponents []sbom.Component
 }
 
 // NoDBError signale qu'aucune archive OSV n'existe pour un écosystème des SBOM :
@@ -65,10 +75,17 @@ func Run(d dossier.Dossier, boms []sbom.BOM, db *osv.DB) (Result, error) {
 	for _, c := range comps {
 		p, err := sbom.ParsePURL(c.PURL)
 		if err != nil {
+			res.Unchecked++
+			res.UncheckedComponents = append(res.UncheckedComponents, c)
 			continue
 		}
 		eco, ok := p.Ecosystem()
-		if !ok || seen[eco] {
+		if !ok {
+			res.Unchecked++
+			res.UncheckedComponents = append(res.UncheckedComponents, c)
+			continue
+		}
+		if seen[eco] {
 			continue
 		}
 		seen[eco] = true
@@ -86,7 +103,12 @@ func Run(d dossier.Dossier, boms []sbom.BOM, db *osv.DB) (Result, error) {
 		return res, err
 	}
 	for _, f := range fs {
-		sf := Finding{Finding: f, Status: statusFor(f, d.VEX)}
+		st, vexState := statusFor(f, d.VEX)
+		sf := Finding{Finding: f, Status: st}
+		if vexState == dossier.VEXFixed && f.State == osv.StateAffected {
+			sf.Conflict = true
+			res.Conflicts++
+		}
 		switch sf.Status {
 		case StatusOpen:
 			res.Open++
@@ -104,29 +126,43 @@ func Run(d dossier.Dossier, boms []sbom.BOM, db *osv.DB) (Result, error) {
 
 // statusFor choisit l'entrée VEX la plus précise (ref versionnée ou bom-ref
 // avant ref sans version) et en déduit le statut.
-func statusFor(f osv.Finding, vex []dossier.VEXEntry) string {
+func statusFor(f osv.Finding, vex []dossier.VEXEntry) (string, string) {
 	best, bestScore := "", 0
 	for _, e := range vex {
 		if !idMatches(e.ID, f) {
 			continue
 		}
 		score := refScore(e.Ref, f.Component)
-		if score > bestScore {
+		// À score égal, l'état le plus prudent l'emporte (pas l'ordre du fichier).
+		if score > bestScore || (score == bestScore && score > 0 && caution(e.State) > caution(best)) {
 			best, bestScore = e.State, score
 		}
 	}
 	switch best {
 	case dossier.VEXNotAffected:
-		return StatusNotAffected
+		return StatusNotAffected, best
 	case dossier.VEXFixed:
-		return StatusFixed
+		return StatusFixed, best
 	case dossier.VEXAffected, dossier.VEXUnderInvestigation:
-		return StatusOpen
+		return StatusOpen, best
 	}
 	if f.State == osv.StateToVerify {
-		return StatusToVerify
+		return StatusToVerify, best
 	}
-	return StatusOpen
+	return StatusOpen, best
+}
+
+// caution classe les états VEX : affected/under_investigation > fixed > not_affected.
+func caution(state string) int {
+	switch state {
+	case dossier.VEXAffected, dossier.VEXUnderInvestigation:
+		return 3
+	case dossier.VEXFixed:
+		return 2
+	case dossier.VEXNotAffected:
+		return 1
+	}
+	return 0
 }
 
 func idMatches(id string, f osv.Finding) bool {

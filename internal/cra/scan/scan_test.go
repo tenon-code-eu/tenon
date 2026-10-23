@@ -97,7 +97,6 @@ func TestScanVEX(t *testing.T) {
 	if s := statuses(r); s["GHSA-1"] != "fixed" || s["GHSA-2"] != "open" || r.Fixed != 1 {
 		t.Fatal(s)
 	}
-	d.VEX = []dossier.VEXEntry{{ID: "GHSA-2", Ref: "pkg:npm/left@1.5.0", State: "not_affected", Justification: "j"}}
 	b.Components[0].BOMRef = "ref-1"
 	d.VEX = []dossier.VEXEntry{{ID: "GHSA-2", Ref: "ref-1", State: "not_affected", Justification: "j"}}
 	r, _ = Run(d, []sbom.BOM{b}, db)
@@ -112,7 +111,7 @@ func TestScanToVerify(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.ToVerify != 0 && r.Open != 1 {
+	if r.ToVerify != 0 || r.Open != 1 {
 		t.Fatalf("%+v", r)
 	}
 	// Version absente des listes, écosystème sans comparateur : to_verify.
@@ -145,5 +144,55 @@ func TestScanNoArchive(t *testing.T) {
 	}
 	if _, err := Run(dossier.Dossier{}, nil, nil); err == nil {
 		t.Fatal("nil db must error")
+	}
+}
+
+func TestScanTieConservative(t *testing.T) {
+	db := mkDB(t, map[string][]string{"npm": {npmDoc2}})
+	b := bom("pkg:npm/left@1.5.0")
+	for _, order := range [][]string{{"not_affected", "affected"}, {"affected", "not_affected"}, {"not_affected", "under_investigation"}} {
+		var vex []dossier.VEXEntry
+		for _, st := range order {
+			vex = append(vex, dossier.VEXEntry{ID: "GHSA-2", Ref: "pkg:npm/left", State: st, Justification: "j"})
+		}
+		r, _ := Run(dossier.Dossier{VEX: vex}, []sbom.BOM{b}, db)
+		if r.Open != 1 || r.NotAffected != 0 {
+			t.Fatalf("%v: %+v", order, r)
+		}
+	}
+	vex := []dossier.VEXEntry{
+		{ID: "GHSA-2", Ref: "pkg:npm/left", State: "not_affected", Justification: "j"},
+		{ID: "GHSA-2", Ref: "pkg:npm/left", State: "fixed"},
+	}
+	r, _ := Run(dossier.Dossier{VEX: vex}, []sbom.BOM{b}, db)
+	if r.Fixed != 1 {
+		t.Fatalf("%+v", r)
+	}
+}
+
+func TestScanConflict(t *testing.T) {
+	db := mkDB(t, map[string][]string{"npm": {npmDoc2}})
+	b := bom("pkg:npm/left@1.5.0")
+	d := dossier.Dossier{VEX: []dossier.VEXEntry{{ID: "GHSA-2", Ref: "pkg:npm/left", State: "fixed"}}}
+	r, _ := Run(d, []sbom.BOM{b}, db)
+	if r.Fixed != 1 || r.Conflicts != 1 || !r.Findings[0].Conflict {
+		t.Fatalf("%+v", r)
+	}
+	if got := r.Findings[0].ConflictMessage(); got != "fixed per VEX but pkg:npm/left@1.5.0 is listed as affected by GHSA-2" {
+		t.Fatal(got)
+	}
+	// not_affected n'est pas un conflit.
+	d.VEX[0].State, d.VEX[0].Justification = "not_affected", "j"
+	if r, _ = Run(d, []sbom.BOM{b}, db); r.Conflicts != 0 {
+		t.Fatalf("%+v", r)
+	}
+}
+
+func TestScanUnchecked(t *testing.T) {
+	db := mkDB(t, map[string][]string{"npm": {npmDoc}})
+	b := bom("pkg:npm/left@3.0.0", "", "not-a-purl", "pkg:deb/debian/curl@7.0")
+	r, err := Run(dossier.Dossier{}, []sbom.BOM{b}, db)
+	if err != nil || r.Unchecked != 3 || len(r.UncheckedComponents) != 3 || r.Open != 0 {
+		t.Fatalf("%+v %v", r, err)
 	}
 }

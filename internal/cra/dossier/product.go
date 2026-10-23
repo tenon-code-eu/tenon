@@ -144,6 +144,7 @@ func (d Dossier) SBOMPaths() ([]string, error) {
 	var out []string
 	seen := map[string]bool{}
 	for _, pat := range d.Product.SBOMs {
+		pat := pat
 		if !filepath.IsAbs(pat) {
 			pat = filepath.Join(d.Root, filepath.FromSlash(pat))
 		}
@@ -157,6 +158,9 @@ func (d Dossier) SBOMPaths() ([]string, error) {
 				out = append(out, f)
 			}
 		}
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("cra: no SBOM found (%s)", strings.Join(d.Product.SBOMs, ", "))
 	}
 	return out, nil
 }

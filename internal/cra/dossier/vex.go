@@ -55,8 +55,10 @@ func LoadVEX(path string) ([]VEXEntry, error) {
 			state = VEXUnderInvestigation
 		case "exploitable":
 			state = VEXAffected
-		case "resolved":
+		case "resolved", "resolved_with_pedigree":
 			state = VEXFixed
+		case "false_positive":
+			state = VEXNotAffected
 		case VEXNotAffected, VEXAffected, VEXFixed, VEXUnderInvestigation:
 		default:
 			return nil, fmt.Errorf("cra: vex: %s: unknown state %q", v.ID, state)
