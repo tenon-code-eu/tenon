@@ -8,7 +8,6 @@ import (
 	"reflect"
 	"regexp"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/tenon-code-eu/tenon/internal/classify"
@@ -427,8 +426,9 @@ func (t *turn) send(req llm.Request, deltas bool) (text string, calls []llm.Tool
 // masquage ; un refus passe au suivant), contrôle sortant des marquages avant
 // un fournisseur non local (trouvé : session sensible et nouvelle sélection,
 // ou blocage sans local), puis envoi. Une erreur réessayable reçue avant tout
-// chunk (routing.Retryable, délai du premier chunk) passe au candidat
-// suivant ; jamais après le premier chunk. req.Model est remplacé par le
+// chunk utile (routing.Retryable, délai du premier chunk, armé seulement
+// s'il reste un candidat à essayer) passe au candidat suivant ; jamais après
+// le premier chunk utile. req.Model est remplacé par le
 // modèle du candidat. provErr vaut errNotSent si rien n'est parti (aucun
 // candidat accepté, ou arrêt demandé par un hook), sinon l'erreur du dernier
 // fournisseur essayé ; err est fatale (audit, annulation).
@@ -491,7 +491,7 @@ func (t *turn) sendWith(req llm.Request, deltas bool, prep prepFunc) (text strin
 			r := req
 			r.Model = info.Model
 			r.Messages = p.msgs
-			res, err := t.try(c, info, r, p.counts, i > 0, failed, deltas)
+			res, err := t.try(c, info, r, p.counts, i > 0, failed, deltas, laterCandidate(cands[i+1:], tried))
 			if err != nil {
 				return "", nil, nil, err
 			}
@@ -524,6 +524,17 @@ func (t *turn) sendWith(req llm.Request, deltas bool, prep prepFunc) (text strin
 	return "", nil, errNotSent, nil
 }
 
+// laterCandidate indique qu'un candidat de rest n'a pas encore été essayé
+// dans cet envoi : seul un repli possible justifie le délai du premier chunk.
+func laterCandidate(rest []routing.Candidate, tried map[string]bool) bool {
+	for _, c := range rest {
+		if !tried[c.ID] {
+			return true
+		}
+	}
+	return false
+}
+
 // requestMarker cherche un marquage dans le texte de chaque message de la
 // requête (contenu et arguments d'appels d'outils). Les appels glob et leurs
 // résultats sont exclus : des noms de fichiers ne classent jamais la session.
@@ -552,7 +563,8 @@ func requestMarker(rules classify.Rules, msgs []llm.Message) (string, bool) {
 // tryResult est l'issue d'un envoi à un candidat. sent vaut false si rien
 // n'est parti (la session est devenue sensible et le candidat n'est pas
 // local) ; started indique qu'un chunk utile a été reçu (texte, appels ou fin
-// normale), après quoi aucun repli n'est permis.
+// normale), après quoi aucun repli n'est permis. Un battement de cœur
+// (llm.Chunk.Heartbeat) n'est pas un chunk utile.
 type tryResult struct {
 	text    string
 	calls   []llm.ToolCall
@@ -565,13 +577,19 @@ type tryResult struct {
 // sous classMu, tenu jusqu'au retour de Stream : un SessionClassified émis
 // par un tour concurrent (hook agent) précède la vérification, ou suit
 // l'envoi. ProviderSelected, l'avertissement de juridiction et les
-// décomptes de masquage sont émis juste avant Stream. Sans chunk avant
-// firstChunkTimeout, le flux est annulé et provErr vaut
-// routing.ErrNoFirstChunk. err est une erreur d'émission (fatale).
-func (t *turn) try(c routing.Candidate, info llm.ProviderInfo, req llm.Request, counts []map[string]int, fellBack bool, failed error, deltas bool) (res tryResult, err error) {
+// décomptes de masquage sont émis juste avant Stream.
+//
+// Délai du premier chunk : armé seulement si arm est vrai (un candidat
+// suivant reste à essayer dans cet envoi : sans repli possible, un
+// fournisseur lent n'est jamais coupé), et seulement après le retour de
+// Stream (en-têtes reçus, réessais du fournisseur terminés). Tout chunk,
+// battement de cœur compris, l'arrête. S'il expire sans chunk, le flux est
+// annulé et provErr vaut routing.ErrNoFirstChunk. Un chunk déjà arrivé quand
+// le délai expire l'emporte : un flux sain n'est jamais annulé. err est une
+// erreur d'émission (fatale).
+func (t *turn) try(c routing.Candidate, info llm.ProviderInfo, req llm.Request, counts []map[string]int, fellBack bool, failed error, deltas bool, arm bool) (res tryResult, err error) {
 	ctx, cancel := context.WithCancel(t.ctx)
 	defer cancel()
-	var timedOut atomic.Bool
 
 	s := t.s
 	s.classMu.Lock()
@@ -594,30 +612,50 @@ func (t *turn) try(c routing.Candidate, info llm.ProviderInfo, req llm.Request, 
 		s.classMu.Unlock()
 		return res, err
 	}
-	// Délai armé une fois classMu acquis : l'attente d'un envoi concurrent
-	// n'en fait pas partie.
-	timer := time.AfterFunc(t.e.firstChunkTimeout, func() {
-		timedOut.Store(true)
-		cancel()
-	})
-	defer timer.Stop()
 	ch, perr := c.Provider.Stream(ctx, req)
 	s.classMu.Unlock()
 	res.sent = true
-	noChunk := func(e error) error {
-		if timedOut.Load() && !res.started {
-			return routing.ErrNoFirstChunk
-		}
-		return e
-	}
 	if perr != nil {
-		res.provErr = noChunk(perr)
+		res.provErr = perr
 		return res, nil
 	}
+	// Délai armé après Stream (et donc après classMu : l'attente d'un envoi
+	// concurrent n'en fait pas partie).
+	var timeout <-chan time.Time
+	if arm {
+		timer := time.NewTimer(t.e.firstChunkTimeout)
+		defer timer.Stop()
+		timeout = timer.C
+	}
 	var sb strings.Builder
-	final := false
-	for ck := range ch {
-		timer.Stop()
+	final, timedOut := false, false
+	for {
+		var ck llm.Chunk
+		var ok bool
+		select {
+		case ck, ok = <-ch:
+		case <-timeout:
+			timeout = nil
+			// Un chunk déjà disponible l'emporte sur le délai.
+			select {
+			case ck, ok = <-ch:
+			default:
+				timedOut = true
+				cancel()
+				continue
+			}
+		}
+		if !ok {
+			break
+		}
+		// Après expiration du délai, le flux annulé est seulement drainé.
+		if timedOut {
+			continue
+		}
+		timeout = nil
+		if ck.Heartbeat {
+			continue
+		}
 		if !ck.Done || ck.Err == nil {
 			res.started = true
 		}
@@ -636,15 +674,19 @@ func (t *turn) try(c routing.Candidate, info llm.ProviderInfo, req llm.Request, 
 		}
 		if ck.Done {
 			final = true
-			// Un fournisseur annulé par le délai clôt son flux avec l'erreur
-			// du contexte (OpenAICompat) : c'est un délai avant le premier
-			// chunk, donc un repli possible.
-			res.provErr = noChunk(ck.Err)
+			res.provErr = ck.Err
 			res.calls = ck.ToolCalls
 		}
 	}
-	if !final && res.provErr == nil {
-		res.provErr = noChunk(provider.ErrIncomplete)
+	switch {
+	case timedOut:
+		// Un fournisseur annulé par le délai clôt son flux avec l'erreur du
+		// contexte (OpenAICompat) : c'est un délai avant le premier chunk,
+		// donc un repli possible.
+		res = tryResult{sent: true, provErr: routing.ErrNoFirstChunk}
+		return res, nil
+	case !final && res.provErr == nil:
+		res.provErr = provider.ErrIncomplete
 	}
 	if res.provErr != nil {
 		res.calls = nil

@@ -280,6 +280,27 @@ func (o *OpenAICompat) pump(ctx context.Context, resp *http.Response, ch chan<- 
 	}
 	calls := map[int]*acc{}
 	finished, cancelled := false, false
+	// emitted : un chunk (texte ou battement) est déjà parti. Tant que ce
+	// n'est pas le cas, un événement SSE sans texte (deltas d'appels
+	// d'outils, rôle seul...) émet un unique battement de cœur
+	// (llm.Chunk.Heartbeat) : le moteur sait que le flux vit.
+	emitted := false
+
+	// beat émet le battement de cœur si aucun chunk n'est encore parti.
+	// Faux : contexte annulé.
+	beat := func() bool {
+		if emitted {
+			return true
+		}
+		select {
+		case ch <- llm.Chunk{Heartbeat: true}:
+			emitted = true
+			return true
+		case <-ctx.Done():
+			cancelled = true
+			return false
+		}
+	}
 
 	rerr := readSSE(resp.Body, func(data string) bool {
 		if ctx.Err() != nil {
@@ -292,12 +313,13 @@ func (o *OpenAICompat) pump(ctx context.Context, resp *http.Response, ch chan<- 
 		}
 		var ev streamEvent
 		if json.Unmarshal([]byte(data), &ev) != nil {
-			return true
+			return beat()
 		}
 		for _, c := range ev.Choices {
 			if c.Delta.Content != "" {
 				select {
 				case ch <- llm.Chunk{Text: c.Delta.Content}:
+					emitted = true
 				case <-ctx.Done():
 					cancelled = true
 					return false
@@ -321,7 +343,7 @@ func (o *OpenAICompat) pump(ctx context.Context, resp *http.Response, ch chan<- 
 				finished = true
 			}
 		}
-		return true
+		return beat()
 	})
 
 	if cancelled || ctx.Err() != nil {

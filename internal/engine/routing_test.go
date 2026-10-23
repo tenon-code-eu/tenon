@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -381,7 +382,7 @@ func TestTryRechecksSensitive(t *testing.T) {
 	s.sensitive = true
 	tr := &turn{e: h.eng, s: s, ctx: context.Background(), h: &s.history}
 	cur := routing.Candidate{ID: euInfo.ID, Provider: h.prov}
-	res, err := tr.try(cur, euInfo, llm.Request{Messages: s.history}, nil, false, nil, false)
+	res, err := tr.try(cur, euInfo, llm.Request{Messages: s.history}, nil, false, nil, false, true)
 	if err != nil || res.sent || len(h.prov.reqs()) != 0 {
 		t.Fatalf("res %+v, err %v, remote %d requêtes", res, err, len(h.prov.reqs()))
 	}
@@ -443,7 +444,7 @@ func TestFirstChunkTimerAfterLock(t *testing.T) {
 	s.classMu.Lock()
 	done := make(chan tryResult, 1)
 	go func() {
-		res, err := tr.try(cur, euInfo, llm.Request{Messages: s.history}, nil, false, nil, false)
+		res, err := tr.try(cur, euInfo, llm.Request{Messages: s.history}, nil, false, nil, false, true)
 		if err != nil {
 			t.Error(err)
 		}
@@ -532,4 +533,194 @@ func TestRefusedConsentExplained(t *testing.T) {
 			}
 		}
 	})
+}
+
+// step est un chunk envoyé après une attente.
+type step struct {
+	wait time.Duration
+	ck   llm.Chunk
+}
+
+// slowProvider rejoue, requête après requête, des chunks espacés dans le
+// temps (la dernière liste se répète).
+type slowProvider struct {
+	info   llm.ProviderInfo
+	script [][]step
+	mu     sync.Mutex
+	n      int
+}
+
+func (p *slowProvider) Info() llm.ProviderInfo { return p.info }
+
+func (p *slowProvider) calls() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.n
+}
+
+func (p *slowProvider) Stream(ctx context.Context, _ llm.Request) (<-chan llm.Chunk, error) {
+	p.mu.Lock()
+	i := min(p.n, len(p.script)-1)
+	p.n++
+	p.mu.Unlock()
+	steps := p.script[i]
+	ch := make(chan llm.Chunk)
+	go func() {
+		defer close(ch)
+		for _, s := range steps {
+			select {
+			case <-time.After(s.wait):
+			case <-ctx.Done():
+				ch <- llm.Chunk{Done: true, Err: ctx.Err()}
+				return
+			}
+			select {
+			case ch <- s.ck:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	return ch, nil
+}
+
+// slowText : un texte complet livré après wait.
+func slowText(wait time.Duration, s string) []step {
+	return []step{{wait: wait, ck: llm.Chunk{Text: s}}, {ck: llm.Chunk{Done: true}}}
+}
+
+// Un candidat unique n'a pas de délai de premier chunk : une réponse lente
+// aboutit, avec ou sans routeur.
+func TestSlowSingleProviderNoTimeout(t *testing.T) {
+	for _, withRouter := range []bool{false, true} {
+		slow := &slowProvider{info: euInfo, script: [][]step{slowText(150*time.Millisecond, "lent")}}
+		h := newHarness(t, euInfo, nil, func(d *Deps) {
+			d.Provider = slow
+			if withRouter {
+				routeOpt(nil, 0)(d)
+			}
+		})
+		h.eng.firstChunkTimeout = 20 * time.Millisecond
+		evs, err := h.submit(t, "s_1", "salut", nil)
+		if err != nil {
+			t.Fatalf("router %v : err %v, events %v", withRouter, err, types(evs))
+		}
+		if tc := lastTurn(t, evs); tc.Reason != "done" || slow.calls() != 1 {
+			t.Fatalf("router %v : TurnCompleted %+v, %d appels", withRouter, tc, slow.calls())
+		}
+	}
+}
+
+// Un flux d'appels d'outils seuls, dont les deltas (battements de cœur)
+// arrivent avant le délai et le chunk final bien après, aboutit sans repli.
+func TestToolCallStreamHeartbeatNoFallback(t *testing.T) {
+	remote2 := fake(remote2Info, text("non"))
+	beat := llm.Chunk{Heartbeat: true}
+	slow := &slowProvider{info: euInfo, script: [][]step{
+		{{wait: 5 * time.Millisecond, ck: beat}, {wait: 150 * time.Millisecond, ck: beat},
+			{wait: 50 * time.Millisecond, ck: llm.Chunk{Done: true, ToolCalls: []llm.ToolCall{{ID: "c1", Name: "nope", Args: []byte(`{}`)}}}}},
+		slowText(0, "fin"),
+	}}
+	h := newHarness(t, euInfo, nil, func(d *Deps) {
+		d.Provider = slow
+		routeOpt(nil, 0, remote2)(d)
+	})
+	h.eng.firstChunkTimeout = 50 * time.Millisecond
+	evs, err := h.submit(t, "s_1", "salut", nil)
+	if err != nil {
+		t.Fatalf("err %v, events %v", err, types(evs))
+	}
+	if n := len(remote2.reqs()); n != 0 || slow.calls() != 2 {
+		t.Fatalf("remote2 %d requêtes, remote %d", n, slow.calls())
+	}
+	if tc := lastTurn(t, evs); tc.Reason != "done" {
+		t.Fatalf("TurnCompleted %+v", tc)
+	}
+	for _, e := range ofType(evs, event.AssistantDelta) {
+		if p := decode[event.AssistantDeltaPayload](t, e); p.Text == "" {
+			t.Fatalf("delta vide émis pour un battement")
+		}
+	}
+}
+
+// Un battement de cœur arrête le délai sans compter comme un début : une
+// erreur réessayable qui suit permet encore le repli.
+func TestHeartbeatThenUnavailableFallsBack(t *testing.T) {
+	remote2 := fake(remote2Info, text("ok"))
+	slow := &slowProvider{info: euInfo, script: [][]step{
+		{{ck: llm.Chunk{Heartbeat: true}}, {wait: 80 * time.Millisecond, ck: llm.Chunk{Done: true, Err: provider.ErrUnavailable}}},
+	}}
+	h := newHarness(t, euInfo, nil, func(d *Deps) {
+		d.Provider = slow
+		routeOpt(nil, 0, remote2)(d)
+	})
+	h.eng.firstChunkTimeout = 20 * time.Millisecond
+	evs, err := h.submit(t, "s_1", "salut", nil)
+	if err != nil {
+		t.Fatalf("err %v, events %v", err, types(evs))
+	}
+	ps := selected(t, evs)
+	if len(ps) != 2 || ps[1].Provider.ID != "remote2" || ps[1].Error != provider.ErrUnavailable.Error() {
+		t.Fatalf("ProviderSelected %+v", ps)
+	}
+}
+
+// Session sensible : le fournisseur local, seul candidat, n'a jamais de
+// délai de premier chunk (même avec des replis configurés).
+func TestSensitiveLocalOnlyNoTimeout(t *testing.T) {
+	local := &slowProvider{info: localInfo, script: [][]step{slowText(150*time.Millisecond, "lent")}}
+	remote2 := fake(remote2Info, text("non"))
+	h := newHarness(t, euInfo, [][]llm.Chunk{text("non")}, func(d *Deps) {
+		cur := routing.Candidate{ID: d.Provider.Info().ID, Provider: d.Provider}
+		lc := &routing.Candidate{ID: localInfo.ID, Provider: local}
+		d.Router = routing.New(cur, lc, []routing.Candidate{{ID: remote2Info.ID, Provider: remote2}})
+	})
+	h.eng.firstChunkTimeout = 20 * time.Millisecond
+	evs, err := h.submit(t, "s_1", "note EU RESTRICTED", nil)
+	if err != nil {
+		t.Fatalf("err %v, events %v", err, types(evs))
+	}
+	if tc := lastTurn(t, evs); tc.Reason != "done" || local.calls() != 1 {
+		t.Fatalf("TurnCompleted %+v, local %d", tc, local.calls())
+	}
+	if len(h.prov.reqs())+len(remote2.reqs()) != 0 {
+		t.Fatal("fournisseur distant appelé")
+	}
+}
+
+// bufferedProvider a son premier chunk déjà dans le canal au retour de
+// Stream ; la fin du flux suit, en erreur si le contexte a été annulé.
+type bufferedProvider struct{ info llm.ProviderInfo }
+
+func (p *bufferedProvider) Info() llm.ProviderInfo { return p.info }
+
+func (p *bufferedProvider) Stream(ctx context.Context, _ llm.Request) (<-chan llm.Chunk, error) {
+	ch := make(chan llm.Chunk, 1)
+	ch <- llm.Chunk{Text: "ok"}
+	go func() {
+		defer close(ch)
+		time.Sleep(2 * time.Millisecond)
+		ch <- llm.Chunk{Done: true, Err: ctx.Err()}
+	}()
+	return ch, nil
+}
+
+// Un délai qui expire alors que le premier chunk est déjà arrivé n'annule
+// pas le flux.
+func TestTimerRaceKeepsHealthyStream(t *testing.T) {
+	remote2 := fake(remote2Info, text("non"))
+	h := newHarness(t, euInfo, nil, func(d *Deps) {
+		d.Provider = &bufferedProvider{info: euInfo}
+		routeOpt(nil, 0, remote2)(d)
+	})
+	h.eng.firstChunkTimeout = time.Nanosecond
+	s := h.eng.session("s_1")
+	tr := &turn{e: h.eng, s: s, ctx: context.Background(), h: &s.history}
+	cur := routing.Candidate{ID: euInfo.ID, Provider: h.eng.d.Provider}
+	for i := 0; i < 50; i++ {
+		res, err := tr.try(cur, euInfo, llm.Request{}, nil, false, nil, false, true)
+		if err != nil || res.provErr != nil || res.text != "ok" {
+			t.Fatalf("essai %d : res %+v, err %v", i, res, err)
+		}
+	}
 }

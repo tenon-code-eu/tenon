@@ -16,7 +16,10 @@ import (
 // ErrNoFirstChunk signale qu'aucune réponse n'est arrivée avant le délai.
 var ErrNoFirstChunk = errors.New("no response before timeout")
 
-// FirstChunkTimeout est le délai maximal avant le premier chunk.
+// FirstChunkTimeout est le délai maximal avant le premier chunk (ou
+// battement de cœur, llm.Chunk.Heartbeat), compté après le retour de Stream.
+// Le moteur ne l'applique que si un autre candidat peut prendre le relais
+// dans le même envoi.
 const FirstChunkTimeout = 60 * time.Second
 
 // Candidate est un fournisseur identifié.

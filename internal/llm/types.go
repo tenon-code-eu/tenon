@@ -48,6 +48,13 @@ type Chunk struct {
 	ToolCalls []ToolCall
 	Done      bool
 	Err       error
+	// Heartbeat : chunk vide (ni texte, ni appels, Done faux) émis par le
+	// fournisseur à la première activité du flux qui ne produit pas de
+	// texte (deltas d'appels d'outils, événement sans contenu). Il prouve
+	// que le flux vit : il arrête le délai du premier chunk du moteur, sans
+	// compter comme une sortie (un repli reste possible). Le moteur l'ignore
+	// pour l'affichage et l'historique.
+	Heartbeat bool
 }
 
 // Jurisdiction is the legal zone in which a provider processes data.
