@@ -263,7 +263,7 @@ func TestNoSBOMFound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := d.SBOMPaths(); err == nil || err.Error() != "cra: no SBOM found (cra/sbom*.cdx.json)" {
+	if _, err := d.SBOMPaths(); !errors.Is(err, ErrNoDefaultSBOM) || err.Error() != "cra: no SBOM found (cra/sbom*.cdx.json)" {
 		t.Fatal(err)
 	}
 	write(t, root, "cra/sbom.cdx.json", "{}")
@@ -316,8 +316,17 @@ func TestSBOMEntryMissing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := d.SBOMPaths(); err == nil || err.Error() != "cra: no SBOM found (cra/npm.cdx.json)" {
+	_, err = d.SBOMPaths()
+	var miss *SBOMMissingError
+	if !errors.As(err, &miss) || miss.Entry != "cra/npm.cdx.json" || errors.Is(err, ErrNoDefaultSBOM) || err.Error() != "cra: no SBOM found (cra/npm.cdx.json)" {
 		t.Fatalf("SBOM listé absent : %v", err)
+	}
+	// Le motif par défaut listé explicitement reste une entrée explicite.
+	write(t, root, "cra/product.toml", goodProduct+`sboms = ["cra/sbom*.cdx.json"]`+"\n")
+	if d2, err := Load(root); err != nil {
+		t.Fatal(err)
+	} else if _, err := d2.SBOMPaths(); !errors.As(err, &miss) || errors.Is(err, ErrNoDefaultSBOM) {
+		t.Fatalf("motif explicite : %v", err)
 	}
 	write(t, root, "cra/npm.cdx.json", "{}")
 	if p, err := d.SBOMPaths(); err != nil || len(p) != 2 {

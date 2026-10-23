@@ -19,6 +19,17 @@ const DefaultSBOMGlob = "cra/sbom*.cdx.json"
 // ErrNoDossier signale l'absence du répertoire cra/.
 var ErrNoDossier = errors.New("cra: no dossier (cra/ directory not found)")
 
+// ErrNoDefaultSBOM : `sboms` absent et le motif par défaut ne trouve aucun
+// fichier. Le SBOM n'est pas encore produit : dossier incomplet pour status
+// et export, erreur pour scan et db update.
+var ErrNoDefaultSBOM = errors.New("cra: no SBOM found (" + DefaultSBOMGlob + ")")
+
+// SBOMMissingError : une entrée explicite de `sboms` ne désigne aucun
+// fichier. Le dossier est invalide.
+type SBOMMissingError struct{ Entry string }
+
+func (e *SBOMMissingError) Error() string { return "cra: no SBOM found (" + e.Entry + ")" }
+
 // Product décrit le produit couvert par le dossier.
 // Les balises JSON (snake_case) forment le schéma du dossier exporté.
 type Product struct {
@@ -29,6 +40,8 @@ type Product struct {
 	Category        string    `json:"category"`
 	SupportEnd      time.Time `json:"support_end"`
 	SBOMs           []string  `json:"sboms"`
+	// SBOMsDefault : `sboms` absent de product.toml (motif par défaut).
+	SBOMsDefault bool `json:"-"`
 }
 
 // Report est un signalement (vulnérabilité exploitée ou incident grave).
@@ -125,14 +138,14 @@ func loadProduct(path string) (Product, error) {
 		u := se.UTC()
 		se = time.Date(u.Year(), u.Month(), u.Day(), 0, 0, 0, 0, time.UTC)
 	}
-	sboms := raw.SBOMs
+	sboms, def := raw.SBOMs, false
 	if len(sboms) == 0 {
-		sboms = []string{DefaultSBOMGlob}
+		sboms, def = []string{DefaultSBOMGlob}, true
 	}
 	return Product{
 		Name: raw.Name, Version: raw.Version, Manufacturer: raw.Manufacturer,
 		SecurityContact: raw.SecurityContact, Category: raw.Category,
-		SupportEnd: se, SBOMs: sboms,
+		SupportEnd: se, SBOMs: sboms, SBOMsDefault: def,
 	}, nil
 }
 
@@ -157,12 +170,21 @@ func unknownKey(md toml.MetaData, prefix string) error {
 }
 
 // SBOMPaths développe les motifs `sboms` (relatifs à la racine) en fichiers.
-// Chaque entrée doit désigner au moins un fichier : un SBOM listé absent est
-// une erreur, jamais ignoré en silence.
+// Chaque entrée explicite doit désigner au moins un fichier, sinon
+// *SBOMMissingError : un SBOM listé absent n'est jamais ignoré en silence.
+// Sans `sboms`, un motif par défaut vide donne ErrNoDefaultSBOM.
 func (d Dossier) SBOMPaths() ([]string, error) {
+	entries := d.Product.SBOMs
+	if len(entries) == 0 || d.Product.SBOMsDefault {
+		m, err := filepath.Glob(filepath.Join(d.Root, filepath.FromSlash(DefaultSBOMGlob)))
+		if err != nil || len(m) == 0 {
+			return nil, ErrNoDefaultSBOM
+		}
+		return m, nil
+	}
 	var out []string
 	seen := map[string]bool{}
-	for _, entry := range d.Product.SBOMs {
+	for _, entry := range entries {
 		pat := entry
 		if !filepath.IsAbs(pat) {
 			pat = filepath.Join(d.Root, filepath.FromSlash(pat))
@@ -172,7 +194,7 @@ func (d Dossier) SBOMPaths() ([]string, error) {
 			return nil, fmt.Errorf("cra: product.toml: sboms: %w", err)
 		}
 		if len(m) == 0 {
-			return nil, fmt.Errorf("cra: no SBOM found (%s)", entry)
+			return nil, &SBOMMissingError{Entry: entry}
 		}
 		for _, f := range m {
 			if !seen[f] {
@@ -180,9 +202,6 @@ func (d Dossier) SBOMPaths() ([]string, error) {
 				out = append(out, f)
 			}
 		}
-	}
-	if len(out) == 0 {
-		return nil, fmt.Errorf("cra: no SBOM found (%s)", DefaultSBOMGlob)
 	}
 	return out, nil
 }

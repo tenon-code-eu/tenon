@@ -55,7 +55,9 @@ sboms = ["cra/sbom.cdx.json"]     # défaut : cra/sbom*.cdx.json
 
 Tous les champs sauf `sboms` sont obligatoires : `cra: product.toml: <champ> required`. Une catégorie inconnue donne `cra: product.toml: category must be default, important-1, important-2 or critical`. Une clé inconnue (faute de frappe, champ ajouté à la main) est refusée : `cra: product.toml: unknown key <clé>`.
 
-Chaque entrée de `sboms` (ou le motif par défaut quand `sboms` est absent) doit désigner au moins un fichier, sinon `cra: no SBOM found (<entrée>)` : un SBOM listé absent n'est jamais ignoré. `scan` et `export` sortent alors avec le code 1, et `status` affiche la ligne et sort avec le code 1.
+Chaque entrée listée dans `sboms` doit désigner au moins un fichier, sinon `cra: no SBOM found (<entrée>)` : un SBOM listé absent n'est jamais ignoré. Le dossier est alors invalide : `scan`, `export`, `status` et `db update` (sans `--ecosystem`) sortent avec le code 1.
+
+Sans `sboms`, un motif par défaut vide signifie que le SBOM n'est pas encore produit. Le dossier est incomplet, pas invalide : `status` affiche `sbom : absent (...)` et garde son code de sortie (0, ou 7 pour une échéance dépassée), et `export` fonctionne sans scan, avec l'avis `cra: export without vulnerability scan (no SBOM found)`. `scan` et `db update` (sans `--ecosystem`) sortent toujours avec le code 1 : `cra: no SBOM found (cra/sbom*.cdx.json)`.
 
 ### SBOM
 
@@ -102,12 +104,12 @@ Une clé inconnue est refusée : `cra: reports/<id>.toml: unknown key <clé>`, s
 | `tenon cra init` | Créer le squelette du dossier. | 0, 1 |
 | `tenon cra db update [--mirror <url>] [--ecosystem <eco>...]` | Télécharger la base OSV (seul usage du réseau). | 0, 1 |
 | `tenon cra scan [--fail-on <liste>] [--json]` | Apparier les composants des SBOM à la base et appliquer le VEX. | 0 ; 7 quand une catégorie listée dans `--fail-on` (séparées par des virgules : `open`, `to_verify`, `unchecked`, `conflicts`) est non nulle ; 1 en cas d'erreur |
-| `tenon cra status` | Complétude du dossier, dernier scan, signalements et échéances. | 0 ; 7 si une échéance est dépassée ; 1 si le dossier est invalide, y compris un SBOM listé absent ou invalide |
+| `tenon cra status` | Complétude du dossier, dernier scan, signalements et échéances. | 0 ; 7 si une échéance est dépassée ; 1 si le dossier est invalide, y compris un SBOM listé absent ou un SBOM illisible |
 | `tenon cra report open --kind vulnerability\|incident --summary <texte> [--aware-at <RFC 3339>]` | Créer `cra/reports/<id>.toml` (`aware_at` = maintenant par défaut) et afficher les échéances. | 0, 1 |
 | `tenon cra report mark <id> early-warning\|notification\|final\|fix-available [--at <RFC 3339>]` | Enregistrer une étape. | 0, 1 |
 | `tenon cra export --out <dir> [--lang fr\|en]` | Dossier technique, HTML et JSON. | 0, 1 |
 
-`status` signale aussi un dossier incomplet (période de support échue) par des lignes de texte, sans changer le code de sortie : seule une échéance dépassée donne 7, et seul un dossier invalide (produit, VEX ou signalement illisible, SBOM absent ou invalide) donne 1. Le code 1 l'emporte sur 7. Au niveau d'audit `metadata`, le journal ne contient que des empreintes : la ligne du dernier scan donne la date et indique `projet inconnu`.
+`status` signale aussi un dossier incomplet (SBOM pas encore produit quand `sboms` est absent, période de support échue) par des lignes de texte, sans changer le code de sortie : seule une échéance dépassée donne 7, et seul un dossier invalide (produit, VEX ou signalement illisible, SBOM listé absent, SBOM illisible) donne 1. Le code 1 l'emporte sur 7. Au niveau d'audit `metadata`, le journal ne contient que des empreintes : la ligne du dernier scan donne la date et indique `projet inconnu`.
 
 `tenon config check` affiche `cra: dossier <ok|absent|invalid>, osv db <date|absent>`.
 
@@ -125,7 +127,7 @@ Les commandes qui scannent (`scan`, et `export` quand il lance un scan) ou modif
 
 Erreurs avec le code 1 :
 
-- une entrée de `sboms` (ou le motif par défaut) ne désigne aucun fichier : `cra: no SBOM found (<entrée>)` ;
+- aucun SBOM : une entrée de `sboms` ne désigne aucun fichier, ou `sboms` est absent et le motif par défaut ne trouve rien (`cra: no SBOM found (<entrée>)`) ;
 - pas de base : `cra: no vulnerability database (run tenon cra db update)` ;
 - un écosystème des SBOM manque dans la base (le scan n'affirme pas « aucune vulnérabilité » pour lui) ;
 - une archive corrompue (signalée comme illisible, jamais comme « aucune vulnérabilité »).
@@ -176,7 +178,7 @@ Pour une vulnérabilité, l'échéance finale est inconnue tant que `fix_availab
 ## Export
 
 `tenon cra export --out <dir> [--lang fr|en]` écrit `cra-dossier.json` et `cra-dossier.html`, avec le même gabarit et le même style que l'export de conformité : produit, SBOM (composants, générateur, date), dernier scan avec le VEX, signalements et respect des délais, période de support, et les parties rédigées `cra/docs/*.md` (rendues en texte échappé).
-Sans base, l'export fonctionne quand même, sans résultats de scan, et un avis le dit. Sans SBOM, ou avec un SBOM listé absent, le dossier est invalide : code de sortie 1. Quand l'export lance un scan, il écrit un événement `CRAScan` comme `tenon cra scan`.
+Sans base, ou sans SBOM quand `sboms` est absent, l'export fonctionne quand même, sans résultats de scan, et un avis dit ce qui manque. Un SBOM listé absent, ou un SBOM illisible, rend le dossier invalide : code de sortie 1. Quand l'export lance un scan, il écrit un événement `CRAScan` comme `tenon cra scan` (la configuration n'est lue qu'à ce moment).
 
 `tenon audit export` ajoute une section « CRA » : dernier scan (date, ouvertes, à vérifier, composants non vérifiés, conflits VEX) et signalements avec respect des délais (étapes en retard, étapes faites en retard). Les échéances sont calculées sur tout le journal, quel que soit `--since`. Les signalements sont listés tant que leur étape finale n'est pas faite, et « échéances inconnues » reste visible. Une échéance dépassée marque la ligne, sans code de sortie 2.
 

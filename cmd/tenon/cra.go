@@ -678,10 +678,11 @@ func (c craEnv) status(args []string) int {
 	now := time.Now()
 	p := d.Product
 	fmt.Fprintln(c.stdout, stripControl(i18n.T(c.lang, "cra.status_product", p.Name, p.Version, p.Category)))
-	// Un SBOM absent ou invalide rend le dossier invalide : code 1 à la fin.
+	// Un SBOM listé absent ou invalide rend le dossier invalide : code 1 à la
+	// fin. Sans `sboms`, un SBOM pas encore produit rend seulement le dossier incomplet.
 	sbomBad := false
 	if paths, err := d.SBOMPaths(); err != nil {
-		sbomBad = true
+		sbomBad = !errors.Is(err, dossier.ErrNoDefaultSBOM)
 		fmt.Fprintln(c.stdout, stripControl(i18n.T(c.lang, "cra.status_sbom_missing", err)))
 	} else {
 		valid := 0
@@ -773,8 +774,10 @@ func (c craEnv) lastScanLine() string {
 
 // export écrit le dossier technique (HTML et JSON). Le scan est joint (et
 // inscrit au journal, CRAScan) quand la base OSV est disponible ; sinon
-// l'export se fait sans scan, avec un avis. Un SBOM absent ou invalide rend
-// le dossier invalide : code 1.
+// l'export se fait sans scan, avec un avis. Sans `sboms`, un SBOM pas encore
+// produit donne aussi un export sans scan ; un SBOM listé absent ou invalide
+// rend le dossier invalide : code 1. La configuration n'est lue que pour
+// journaliser un scan.
 func (c craEnv) export(args []string) int {
 	fs := c.flags("export")
 	out := fs.String("out", "", i18n.T(c.lang, "flag.export_out"))
@@ -795,39 +798,45 @@ func (c craEnv) export(args []string) int {
 	if err != nil {
 		return c.fail(err)
 	}
-	boms, err := readBOMs(d)
-	if err != nil {
-		return c.fail(err)
-	}
-	s, err := loadSetup(c.lang, c.getenv, c.wd, c.globalPath)
-	if err != nil {
-		fmt.Fprintln(c.stderr, i18n.T(c.lang, "err.prefix", err))
-		return 1
-	}
 	var res *scan.Result
-	db, err := openDB(c.getenv)
-	if err == nil {
-		var r scan.Result
-		r, err = scan.Run(d, boms, db)
-		res = &r
-	}
-	var noDB *scan.NoDBError
-	if errors.As(err, &noDB) {
-		res, err = nil, nil
-	}
-	if err != nil {
+	notice := "cra: export without vulnerability scan (run tenon cra db update)"
+	boms, err := readBOMs(d)
+	switch {
+	case errors.Is(err, dossier.ErrNoDefaultSBOM):
+		notice = "cra: export without vulnerability scan (no SBOM found)"
+	case err != nil:
 		return c.fail(err)
-	}
-	if res == nil {
-		fmt.Fprintln(c.stderr, "cra: export without vulnerability scan (run tenon cra db update)")
-	} else {
-		dbDate := res.DBDate
-		if dbDate.IsZero() {
-			dbDate, _ = db.OldestDate()
+	default:
+		db, err := openDB(c.getenv)
+		if err == nil {
+			var r scan.Result
+			r, err = scan.Run(d, boms, db)
+			res = &r
 		}
-		if err := craJournal(s, c.getenv, c.wd, event.CRAScan, scanPayload(*res, dbDate)); err != nil {
+		var noDB *scan.NoDBError
+		if errors.As(err, &noDB) {
+			res, err = nil, nil
+		}
+		if err != nil {
 			return c.fail(err)
 		}
+		if res != nil {
+			s, err := loadSetup(c.lang, c.getenv, c.wd, c.globalPath)
+			if err != nil {
+				fmt.Fprintln(c.stderr, i18n.T(c.lang, "err.prefix", err))
+				return 1
+			}
+			dbDate := res.DBDate
+			if dbDate.IsZero() {
+				dbDate, _ = db.OldestDate()
+			}
+			if err := craJournal(s, c.getenv, c.wd, event.CRAScan, scanPayload(*res, dbDate)); err != nil {
+				return c.fail(err)
+			}
+		}
+	}
+	if res == nil {
+		fmt.Fprintln(c.stderr, notice)
 	}
 	now := exportNow().UTC()
 	dos, err := report.Build(d, res, now)

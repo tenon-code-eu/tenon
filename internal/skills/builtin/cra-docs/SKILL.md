@@ -25,8 +25,8 @@ Write Markdown files in `cra/docs/` that `tenon cra export` includes in the tech
 1. Read `cra/product.toml`, the code and the existing documentation. Use facts you can point to; mark every gap as "to complete by the manufacturer" rather than inventing it.
 2. Propose the list of files and their outline. Ask the user to confirm which files to write, the language, and the facts you could not find (intended use, user data processed, update channel).
 3. Write or update the confirmed files in `cra/docs/`. Never overwrite a file without showing the difference and asking.
-4. Run `tenon cra status` to check the dossier.
-5. Run `tenon cra export --out <dir> --lang en` (or `fr`) after the user chooses the folder, and tell them where `cra-dossier.html` and `cra-dossier.json` are. The export works without a scan when no database or SBOM is present, and says so in notices.
+4. Run `tenon cra status` to check the dossier (exit 0, 7 if a reporting deadline is overdue, 1 if the dossier is invalid, including a listed SBOM that is missing).
+5. Run `tenon cra export --out <dir> --lang en` (or `fr`) after the user chooses the folder, and tell them where `cra-dossier.html` and `cra-dossier.json` are. The export works without a scan when no database is present, or when no SBOM has been generated yet and `cra/product.toml` lists no `sboms`; a notice says so. A listed SBOM that is missing or an SBOM that cannot be read makes the export fail (exit 1).
 
 ## Commands
 

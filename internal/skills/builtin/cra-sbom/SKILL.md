@@ -34,6 +34,6 @@ Produce one CycloneDX JSON SBOM (spec 1.4 to 1.6) per product component set, sto
 ## Commands
 
 - `tenon cra init`
-- `tenon cra status` (exit 0, 7 if a reporting deadline is overdue, 1 if the dossier is invalid)
+- `tenon cra status` (exit 0, 7 if a reporting deadline is overdue, 1 if the dossier is invalid, including a listed SBOM that is missing; an SBOM not generated yet with no `sboms` listed is only reported as missing)
 - `tenon cra db update`
 - `tenon cra scan` (exit 0, 7 with `--fail-on open` and an open vulnerability, 1 on error)

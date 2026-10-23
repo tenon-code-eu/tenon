@@ -701,6 +701,11 @@ func TestCRAExportNoDB(t *testing.T) {
 	if n := len(craEvents[event.CRAScanPayload](t, e.auditLines(), event.CRAScan)); n != 0 {
 		t.Fatalf("%d CRAScan sans scan", n)
 	}
+	// Sans scan, la configuration n'est pas lue : une configuration cassée ne bloque pas l'export.
+	e.editGlobal("bogus_key = [\n")
+	if code, _, errb := e.run("cra", "export", "--out", out, "--lang", "en"); code != 0 {
+		t.Fatalf("config cassée sans scan : code %d, stderr %q", code, errb)
+	}
 	// Dossier absent : code 1.
 	e2 := newEnv(t, nil, "eu")
 	if code, _, errb := e2.run("cra", "export", "--out", filepath.Join(t.TempDir(), "x")); code != 1 || !strings.Contains(errb, "cra: no dossier") {
@@ -708,18 +713,53 @@ func TestCRAExportNoDB(t *testing.T) {
 	}
 }
 
-// TestCRAExportNoSBOM : sans SBOM, le dossier est invalide (R23) : code 1.
+// TestCRAExportNoSBOM : sboms absent et motif par défaut vide : SBOM pas
+// encore produit, l'export se fait sans scan, avec un avis.
 func TestCRAExportNoSBOM(t *testing.T) {
 	e := newEnv(t, nil, "eu")
 	e.craDossier("pkg:npm/left@1.0.0")
+	e.craDB(time.Now(), map[string][]string{"npm": {craLeftDoc}})
 	os.Remove(filepath.Join(e.wd, "cra", "sbom.cdx.json"))
 	out := filepath.Join(e.t.TempDir(), "d")
 	code, _, errb := e.run("cra", "export", "--out", out, "--lang", "en")
-	if code != 1 || !strings.Contains(errb, "cra: no SBOM found (cra/sbom*.cdx.json)") {
+	if code != 0 || !strings.Contains(errb, "cra: export without vulnerability scan (no SBOM found)") || strings.Contains(errb, "db update") {
 		t.Fatalf("code %d, stderr %q", code, errb)
 	}
-	if _, err := os.Stat(filepath.Join(out, "cra-dossier.json")); err == nil {
-		t.Fatal("dossier écrit sans SBOM")
+	if data, err := os.ReadFile(filepath.Join(out, "cra-dossier.json")); err != nil || !strings.Contains(string(data), `"scan": null`) {
+		t.Fatalf("%v %s", err, data)
+	}
+	if n := len(craEvents[event.CRAScanPayload](t, e.auditLines(), event.CRAScan)); n != 0 {
+		t.Fatalf("%d CRAScan sans scan", n)
+	}
+	// scan et db update sans --ecosystem échouent toujours.
+	if code, _, errb := e.run("cra", "scan"); code != 1 || !strings.Contains(errb, "cra: no SBOM found (cra/sbom*.cdx.json)") {
+		t.Fatalf("scan : code %d, stderr %q", code, errb)
+	}
+	if code, _, errb := e.run("cra", "db", "update"); code != 1 || !strings.Contains(errb, "cra: no SBOM found (cra/sbom*.cdx.json)") {
+		t.Fatalf("db update : code %d, stderr %q", code, errb)
+	}
+}
+
+// TestCRAInitThenStatus : juste après init (champs remplis), le SBOM pas
+// encore produit est une ligne « incomplet », code 0 (7 si échéance dépassée).
+func TestCRAInitThenStatus(t *testing.T) {
+	e := newEnv(t, nil, "eu")
+	if code, _, errb := e.run("cra", "init"); code != 0 {
+		t.Fatalf("init : code %d, stderr %q", code, errb)
+	}
+	e.writeFile(filepath.Join(e.wd, "cra", "product.toml"), craProduct)
+	code, out, errb := e.run("--lang", "en", "cra", "status")
+	if code != 0 || !strings.Contains(out, "sbom: missing (cra: no SBOM found (cra/sbom*.cdx.json))") {
+		t.Fatalf("code %d, stdout %q, stderr %q", code, out, errb)
+	}
+	if _, out, _ = e.run("cra", "status"); !strings.Contains(out, "sbom : absent (") {
+		t.Fatalf("FR : %q", out)
+	}
+	aware := time.Now().UTC().Add(-48 * time.Hour).Format(time.RFC3339)
+	e.writeFile(filepath.Join(e.wd, "cra", "reports", "2026-10-21-1.toml"),
+		fmt.Sprintf("kind = \"vulnerability\"\nsummary = \"x\"\naware_at = %s\n", aware))
+	if code, out, _ := e.run("cra", "status"); code != 7 {
+		t.Fatalf("échéance dépassée sans SBOM : code %d, stdout %q", code, out)
 	}
 }
 

@@ -55,7 +55,9 @@ sboms = ["cra/sbom.cdx.json"]     # default: cra/sbom*.cdx.json
 
 All fields except `sboms` are required: `cra: product.toml: <field> required`. An unknown category gives `cra: product.toml: category must be default, important-1, important-2 or critical`. An unknown key (a typo, a field added by hand) is refused: `cra: product.toml: unknown key <key>`.
 
-Each entry of `sboms` (or the default pattern when `sboms` is absent) must match at least one file, otherwise `cra: no SBOM found (<entry>)`: a listed SBOM that is missing is never skipped. `scan` and `export` then exit with code 1, and `status` prints the line and exits with code 1.
+Each entry listed in `sboms` must match at least one file, otherwise `cra: no SBOM found (<entry>)`: a listed SBOM that is missing is never skipped. The dossier is then invalid: `scan`, `export`, `status` and `db update` (without `--ecosystem`) exit with code 1.
+
+Without `sboms`, an empty default pattern means that the SBOM has not been generated yet. The dossier is incomplete, not invalid: `status` prints `sbom: missing (...)` and keeps its exit code (0, or 7 for an overdue deadline), and `export` works without a scan, with the notice `cra: export without vulnerability scan (no SBOM found)`. `scan` and `db update` (without `--ecosystem`) still exit with code 1: `cra: no SBOM found (cra/sbom*.cdx.json)`.
 
 ### SBOM
 
@@ -102,12 +104,12 @@ An unknown key is refused: `cra: reports/<id>.toml: unknown key <key>`, so `repo
 | `tenon cra init` | Create the dossier skeleton. | 0, 1 |
 | `tenon cra db update [--mirror <url>] [--ecosystem <eco>...]` | Download the OSV database (the only network use). | 0, 1 |
 | `tenon cra scan [--fail-on <list>] [--json]` | Match SBOM components against the database and apply the VEX. | 0; 7 when a category listed in `--fail-on` (comma-separated: `open`, `to_verify`, `unchecked`, `conflicts`) is non-zero; 1 on error |
-| `tenon cra status` | Dossier completeness, last scan, reports and deadlines. | 0; 7 if a deadline is overdue; 1 if the dossier is invalid, including a listed SBOM that is missing or invalid |
+| `tenon cra status` | Dossier completeness, last scan, reports and deadlines. | 0; 7 if a deadline is overdue; 1 if the dossier is invalid, including a listed SBOM that is missing or an SBOM that cannot be read |
 | `tenon cra report open --kind vulnerability\|incident --summary <text> [--aware-at <RFC 3339>]` | Create `cra/reports/<id>.toml` (`aware_at` defaults to now) and print the deadlines. | 0, 1 |
 | `tenon cra report mark <id> early-warning\|notification\|final\|fix-available [--at <RFC 3339>]` | Record a step. | 0, 1 |
 | `tenon cra export --out <dir> [--lang fr\|en]` | Technical dossier, HTML and JSON. | 0, 1 |
 
-`status` also reports an incomplete dossier (support period over) as lines of text. That does not change the exit code: only an overdue deadline gives 7, and only an invalid dossier (product, VEX or report file that cannot be read, SBOM missing or invalid) gives 1. Code 1 wins over 7. At the audit level `metadata` the journal holds only fingerprints: the last-scan line gives the date and says `project unknown`.
+`status` also reports an incomplete dossier (SBOM not generated yet when `sboms` is absent, support period over) as lines of text. That does not change the exit code: only an overdue deadline gives 7, and only an invalid dossier (product, VEX or report file that cannot be read, listed SBOM missing, SBOM that cannot be read) gives 1. Code 1 wins over 7. At the audit level `metadata` the journal holds only fingerprints: the last-scan line gives the date and says `project unknown`.
 
 `tenon config check` prints `cra: dossier <ok|absent|invalid>, osv db <date|absent>`.
 
@@ -125,7 +127,7 @@ Commands that scan (`scan`, and `export` when it runs a scan) or change a report
 
 Errors that exit with code 1:
 
-- an entry of `sboms` (or the default pattern) matches no file: `cra: no SBOM found (<entry>)`;
+- no SBOM: an entry of `sboms` matches no file, or `sboms` is absent and the default pattern matches nothing (`cra: no SBOM found (<entry>)`);
 - no database: `cra: no vulnerability database (run tenon cra db update)`;
 - an ecosystem of the SBOMs is missing from the database (the scan does not claim "no vulnerability" for it);
 - a corrupt archive (reported as unreadable, never as "no vulnerability").
@@ -176,7 +178,7 @@ For a vulnerability, the final deadline is unknown while `fix_available_at` is a
 ## Export
 
 `tenon cra export --out <dir> [--lang fr|en]` writes `cra-dossier.json` and `cra-dossier.html`, with the same template and style as the compliance export: product, SBOMs (components, generator, date), last scan with the VEX, reports and respect of the deadlines, support period, and the narrative parts `cra/docs/*.md` (rendered as escaped text).
-Without a database the export still works, without scan results, and a notice says so. Without an SBOM, or with a listed SBOM missing, the dossier is invalid: exit code 1. When the export runs a scan, it writes a `CRAScan` event like `tenon cra scan`.
+Without a database, or without an SBOM while `sboms` is absent, the export still works, without scan results, and a notice says what is missing. A listed SBOM that is missing, or an SBOM that cannot be read, makes the dossier invalid: exit code 1. When the export runs a scan, it writes a `CRAScan` event like `tenon cra scan` (the configuration is read only then).
 
 `tenon audit export` adds a "CRA" section: last scan (date, open, to verify, unchecked components, VEX conflicts) and reports with respect of the deadlines (overdue steps, steps done late). Deadlines are computed from the whole journal whatever `--since` says. Reports are listed while their final step is not done, and "deadlines unknown" stays visible. An overdue deadline marks the line, with no exit code 2.
 
