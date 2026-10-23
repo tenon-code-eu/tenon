@@ -42,6 +42,18 @@ func TestMatchPath(t *testing.T) {
 		{"symlink", "rh/**", "link/f", true},
 		{"dotdot", "rh/**", "sub/../rh/f", true},
 		{"dotdot escape", "rh/**", "../rh/f", false},
+		{"dir name", "rh", "rh/a/b.txt", true},
+		{"dir trailing slash", "rh/", "rh/a/b.txt", true},
+		{"dir trailing slash itself", "rh/", "rh", true},
+		{"dir name sibling", "rh", "rhx/a", false},
+		{"dir trailing slash sibling", "rh/", "rhx/a", false},
+		{"dir name outside", "rh", "/tmp/rh/a", false},
+		{"ancestor glob", "*.d", "x.d/f/g", true},
+		{"ancestor nested", "a/rh", "a/rh/f", true},
+		{"ancestor nested other", "a/rh", "b/rh/f", false},
+		{"absolute dir", "/srv/secret", "/srv/secret/a/b", true},
+		{"absolute dir slash", "/srv/secret/", "/srv/secret/a", true},
+		{"absolute dir sibling", "/srv/secret", "/srv/secretx/a", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -53,6 +65,25 @@ func TestMatchPath(t *testing.T) {
 				t.Fatalf("pattern=%q want %q", got, tt.pat)
 			}
 		})
+	}
+}
+
+// Les caractères de format invisibles (espace sans chasse, trait d'union
+// conditionnel...) glissés dans un marqueur ne l'empêchent pas d'être reconnu.
+func TestFindMarkerFormatRunes(t *testing.T) {
+	for _, txt := range []string{"EU\u200b RESTRICTED", "DIFFU\u00adSION RESTREINTE", "RESTREINT\u2060 UE", "EU RESTR\u200bICTED", "\ufeffEU RESTRICTED"} {
+		if _, ok := (Rules{}).FindMarker(txt); !ok {
+			t.Errorf("FindMarker(%q) non trouvé", txt)
+		}
+	}
+}
+
+// Un caractère de format en fin de bloc, après une espace, ne colle pas les
+// mots de part et d'autre de la frontière.
+func TestFindMarkerReaderFormatRuneAtBoundary(t *testing.T) {
+	text := strings.Repeat("x", readChunk-len(" EU \u200b")) + " EU \u200b" + "RESTRICTED fin"
+	if _, ok, err := (Rules{}).FindMarkerReader(strings.NewReader(text)); err != nil || !ok {
+		t.Fatalf("non trouvé (err %v)", err)
 	}
 }
 

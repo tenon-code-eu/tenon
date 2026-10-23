@@ -49,8 +49,11 @@ func resolve(root, path string) string {
 }
 
 // MatchPath rapporte le motif qui classifie path (absolu ou relatif à root).
-// Les motifs relatifs s'appliquent au chemin relatif à la racine résolue ; un
-// chemin hors du projet ne correspond jamais à un motif relatif.
+// Un chemin est classé si lui-même ou l'un de ses ancêtres correspond à un
+// motif : `rh`, `rh/` et `rh/**` couvrent tous `rh/a/b.txt` (la barre finale
+// d'un motif est ignorée). Les motifs relatifs s'appliquent au chemin
+// relatif à la racine résolue, ancêtres compris jusqu'à elle ; un chemin
+// hors du projet ne correspond jamais à un motif relatif.
 func (r Rules) MatchPath(root, path string) (string, bool) {
 	if len(r.Paths) == 0 {
 		return "", false
@@ -78,13 +81,27 @@ func (r Rules) MatchPath(root, path string) (string, bool) {
 
 func (r Rules) matchOne(root, abs, pat string) bool {
 	if filepath.IsAbs(pat) {
-		return globMatch(splitSegs(filepath.Clean(pat)), splitSegs(abs))
+		return ancestorMatch(splitSegs(filepath.Clean(pat)), splitSegs(abs))
 	}
 	rel, err := filepath.Rel(root, abs)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return false
 	}
-	return globMatch(splitSegs(strings.TrimPrefix(filepath.ToSlash(pat), "./")), splitSegs(rel))
+	return ancestorMatch(splitSegs(strings.TrimPrefix(filepath.ToSlash(pat), "./")), splitSegs(rel))
+}
+
+// ancestorMatch compare pat à segs puis à chacun de ses ancêtres (préfixes
+// non vides) : un répertoire classé couvre tout son contenu.
+func ancestorMatch(pat, segs []string) bool {
+	if len(segs) == 0 {
+		return globMatch(pat, segs)
+	}
+	for k := len(segs); k >= 1; k-- {
+		if globMatch(pat, segs[:k]) {
+			return true
+		}
+	}
+	return false
 }
 
 func splitSegs(p string) []string {
@@ -335,7 +352,8 @@ func (r Rules) scanChunk(raw string, keep int, tail *string, spaceEnd *bool) (st
 }
 
 // edgeRune renvoie la première (ou, si last, la dernière) rune de s qui n'est
-// pas une marque combinante (unicode.Mn) ; ok vaut false s'il n'y en a pas.
+// ni une marque combinante (unicode.Mn) ni un caractère de format
+// (unicode.Cf), ignorés par fold ; ok vaut false s'il n'y en a pas.
 func edgeRune(s string, last bool) (r rune, ok bool) {
 	for s != "" {
 		var size int
@@ -346,7 +364,7 @@ func edgeRune(s string, last bool) (r rune, ok bool) {
 			r, size = utf8.DecodeRuneInString(s)
 			s = s[size:]
 		}
-		if !unicode.Is(unicode.Mn, r) {
+		if !unicode.Is(unicode.Mn, r) && !unicode.Is(unicode.Cf, r) {
 			return r, true
 		}
 	}

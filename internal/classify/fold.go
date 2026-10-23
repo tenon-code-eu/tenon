@@ -45,14 +45,19 @@ func buildFoldTable() map[rune]string {
 	return t
 }
 
-// fold met s en minuscules sans accents et réduit toute suite d'espaces
-// (retours à la ligne compris) à une seule espace.
+// fold met s en minuscules sans accents, supprime les caractères de format
+// invisibles (unicode.Cf : espace sans chasse, trait d'union conditionnel,
+// BOM...) et réduit toute suite d'espaces (retours à la ligne compris) à une
+// seule espace.
 func fold(s string) string {
 	var b strings.Builder
 	space := false
 	for _, r := range s {
 		if unicode.Is(unicode.Mn, r) {
 			continue // marque combinante (entrée NFD)
+		}
+		if unicode.Is(unicode.Cf, r) {
+			continue // caractère de format invisible
 		}
 		if unicode.IsSpace(r) {
 			space = true
