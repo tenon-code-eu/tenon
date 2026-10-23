@@ -1,0 +1,21 @@
+{
+  "$schema": "http://cyclonedx.org/schema/bom-1.5.schema.json",
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "serialNumber": "urn:uuid:3e671687-395b-41f5-a30f-a58921a69b79",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2026-10-01T08:30:00Z",
+    "tools": {
+      "components": [
+        {"type": "application", "author": "CycloneDX", "name": "cyclonedx-gomod", "version": "v1.7.0"}
+      ]
+    },
+    "component": {"type": "application", "name": "myapp", "version": "v0.3.0"}
+  },
+  "components": [
+    {"bom-ref": "pkg:golang/github.com/foo/bar@v1.2.3", "type": "library", "name": "github.com/foo/bar", "version": "v1.2.3", "purl": "pkg:golang/github.com/foo/bar@v1.2.3"},
+    {"bom-ref": "pkg:golang/golang.org/x/text@v0.14.0", "type": "library", "name": "golang.org/x/text", "version": "v0.14.0", "purl": "pkg:golang/golang.org/x/text@v0.14.0"},
+    {"bom-ref": "vendored-blob", "type": "library", "name": "vendored-blob", "version": "2"}
+  ]
+}
