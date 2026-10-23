@@ -1084,8 +1084,8 @@ fallback = ["mistral", "scaleway", "ovhcloud"]  # ordered fallback for the rest
 ```
 
 - **Built-in markers**, always active: `DIFFUSION RESTREINTE`, `SPÉCIAL FRANCE`, `SPECIAL FRANCE`, `RESTREINT UE`, `EU RESTRICTED`.
-- **Marker matching**: case- and accent-insensitive (decomposed accents included), runs of whitespace (newlines included) collapsed to one space, whole phrase with word boundaries at both ends (`DIFFUSION RESTREINTES` does not match).
-- **Path patterns**: same syntax as permission rules (`*` inside a segment, `**` across segments), matched against the path relative to the resolved project root; absolute patterns are allowed; a path outside the project never matches a relative pattern. Matching is case-insensitive on every OS, and applies to both the resolved and the lexical path: a classified directory reached through a symlink (even one that points outside the project) still counts.
+- **Marker matching**: case- and accent-insensitive (decomposed accents included), invisible format characters (zero-width space, soft hyphen) ignored, runs of whitespace (newlines included) collapsed to one space, whole phrase with word boundaries at both ends (`DIFFUSION RESTREINTES` does not match).
+- **Path patterns**: same syntax as permission rules (`*` inside a segment, `**` across segments), matched against the path relative to the resolved project root; absolute patterns are allowed; a path outside the project never matches a relative pattern. A path is classified when it or any of its parent directories matches: `rh`, `rh/` and `rh/**` all cover `rh/a/b.txt` (a trailing slash is ignored), and `rhx/a` matches none of them. Matching is case-insensitive on every OS, and applies to both the resolved and the lexical path: a classified directory reached through a symlink (even one that points outside the project) still counts.
 - `routing.local` must name a provider whose jurisdiction is `local` (`ollama`, `vllm`, or one you define), otherwise `config: routing.local must name a local provider`. "Local" means a provider under your control: a local provider on a non-loopback host (for example `gpu.lan`) prints a startup notice. The local provider never uses the proxy environment variables.
 - `routing.fallback` lists known provider ids, otherwise `config: routing.fallback: unknown provider "<id>"`.
 - `[routing]` is global only. In `.tenon/config.toml` it is refused; `[classification]` there adds entries.
@@ -1103,7 +1103,7 @@ With a local provider available, the session becomes sensitive when:
 3. a `shell` command has a classified path among its words, or its output carries a marker;
 4. an MCP tool result carries a marker;
 5. a message of yours carries a marker, or a hook text does (Stop feedback, compaction context, hook block reasons);
-6. the outbound scan finds a marker in a request about to go to a non-local provider.
+6. the outbound scan finds a marker in a request about to go to a non-local provider. The scan covers the messages before and after redaction. It skips text that a non-local provider produced itself (its replies, the arguments of its tool calls, its compaction summaries): that provider already has it. On a resumed session, a reply counts as remote when the provider in effect (`SessionStarted.provider`, then each `ProviderSelected`) is not local.
 
 `glob` never taints: it returns names only, and is exempt from the outbound scan. A marker in a file *name* can therefore reach a remote provider.
 
@@ -1111,7 +1111,8 @@ With a local provider available, the session becomes sensitive when:
 
 - A tool call on a classified path is refused before it runs (`ToolResult` with `denied: "classification"`, content `classified content requires a local provider (routing.local)`). In headless mode this gives exit code 3.
 - A marker in a tool result is replaced by `[classified content withheld: no local provider]` before it enters the history. The session does not become sensitive.
-- A marker in your message or in a request blocks the turn (`Error` event, `code: "classification"`, turn `blocked`).
+- A marker in your message or in a request blocks the turn (`Error` event, `code: "classification"`, turn `blocked`). The message of a request blocked by the outbound scan suggests `/rewind`, to remove the marked content from the conversation.
+- A marker in the context added by a `UserPromptSubmit` or `SessionStart` hook withholds that context (replaced by `[classified content withheld: no local provider]`); your prompt is still sent.
 
 A resumed sensitive session whose local provider is now missing cannot continue remotely: the first send is blocked.
 Starting with `--provider <local>` and no `[routing]` is fine: the session is already local, classified reads are allowed and there is no fallback.
@@ -1124,6 +1125,7 @@ Before each send to the model (turn, compaction, sub-agent):
 - **normal session**: the current provider (`--provider` or `default_provider`), then `routing.fallback` in order;
 - each candidate goes through the usual guards (profile, allowlist, policy, non-EU consent). A refused candidate is skipped with a notice; with no candidate left the turn is blocked. `--allow-non-eu` consents to every fallback candidate; without it, a non-EU candidate asks, and a refused consent is remembered for the session. A turn blocked only because of a refused consent says so (`Error` event, `code: "jurisdiction"`);
 - **fallback triggers**: provider unavailable (after the provider's own retries of 429 and 5xx), connection error, no first chunk within 60 seconds. Never after the first chunk, never on authentication or context-length errors, never on another 4xx.
+- **the 60-second timeout** applies only when another candidate can take over in the same send: a single provider (no `[routing]`, or the local provider of a sensitive session) is never cut, however slow. It starts once the provider has answered with its headers (after its own retries) and stops at the first sign of activity of the stream, a tool-call fragment included. That sign alone does not count as a first chunk: a provider error that follows still falls back.
 
 ### What it protects, and what it does not
 
@@ -1133,7 +1135,8 @@ Not protected:
 
 - content outside the listed paths that carries no marker: tenon does not detect personal data, secrets or identifiers;
 - markers are detected in text only (not in images or binary files);
-- a shell command that reads classified data without naming its path (through a variable, a glob expanded by the shell, `head` or `sed` extracts that do not contain the marker line) is caught only if a marker appears in its output. `~` and `$VAR` are not expanded in command matching;
+- a shell command that reads classified data without naming its path (through a variable, a glob expanded by the shell, a recursive `grep -r` or `find`, `head` or `sed` extracts that do not contain the marker line) is caught only if a marker appears in its output. `~` and `$VAR` are not expanded in command matching. On macOS with the sandbox active, the existing paths named by the literal start of each `classification.paths` pattern (segments up to the first `*`, for example `rh` for `rh/**`) are denied to shell commands, read and write, with or without a local provider: such reads fail. On Linux, or with the sandbox off, they are not denied (on Linux, denying a project path would block creating files in its parent folders);
+- shell output is checked after truncation to `output_limit`: a marker beyond the limit is not seen, and the start of the output is sent. MCP results are checked on their full text, before truncation;
 - markers inside tool definitions (MCP descriptions) are not scanned;
 - a marker in a file name returned by `glob`, as above.
 

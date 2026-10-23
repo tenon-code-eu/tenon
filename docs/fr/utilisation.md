@@ -1086,8 +1086,8 @@ fallback = ["mistral", "scaleway", "ovhcloud"]  # bascule ordonnée pour le rest
 ```
 
 - **Marquages intégrés**, toujours actifs : `DIFFUSION RESTREINTE`, `SPÉCIAL FRANCE`, `SPECIAL FRANCE`, `RESTREINT UE`, `EU RESTRICTED`.
-- **Correspondance des marquages** : insensible à la casse et aux accents (accents décomposés compris), suites d'espaces (retours à la ligne compris) réduites à un espace, phrase entière avec bornes de mot aux deux extrémités (`DIFFUSION RESTREINTES` ne correspond pas).
-- **Motifs de chemins** : même syntaxe que les règles de permissions (`*` dans un segment, `**` sur plusieurs), comparés au chemin relatif à la racine résolue du projet ; les motifs absolus sont acceptés ; un chemin hors projet ne correspond jamais à un motif relatif. La comparaison ignore la casse sur tous les systèmes, et porte sur le chemin résolu comme sur le chemin lexical : un dossier classé atteint par un lien symbolique (même vers l'extérieur du projet) compte quand même.
+- **Correspondance des marquages** : insensible à la casse et aux accents (accents décomposés compris), caractères de format invisibles (espace sans chasse, trait d'union conditionnel) ignorés, suites d'espaces (retours à la ligne compris) réduites à un espace, phrase entière avec bornes de mot aux deux extrémités (`DIFFUSION RESTREINTES` ne correspond pas).
+- **Motifs de chemins** : même syntaxe que les règles de permissions (`*` dans un segment, `**` sur plusieurs), comparés au chemin relatif à la racine résolue du projet ; les motifs absolus sont acceptés ; un chemin hors projet ne correspond jamais à un motif relatif. Un chemin est classé si lui-même ou l'un de ses dossiers parents correspond : `rh`, `rh/` et `rh/**` couvrent tous `rh/a/b.txt` (la barre finale est ignorée), et `rhx/a` ne correspond à aucun d'eux. La comparaison ignore la casse sur tous les systèmes, et porte sur le chemin résolu comme sur le chemin lexical : un dossier classé atteint par un lien symbolique (même vers l'extérieur du projet) compte quand même.
 - `routing.local` doit désigner un fournisseur de juridiction `local` (`ollama`, `vllm`, ou un fournisseur que vous définissez), sinon `config: routing.local must name a local provider`. « Local » signifie un fournisseur sous votre contrôle : un fournisseur local sur un hôte non bouclé (par exemple `gpu.lan`) affiche une notice au démarrage. Le fournisseur local n'utilise jamais les variables d'environnement de proxy.
 - `routing.fallback` liste des identifiants de fournisseurs connus, sinon `config: routing.fallback: unknown provider "<id>"`.
 - `[routing]` est global seulement. Dans `.tenon/config.toml`, il est refusé ; `[classification]` y ajoute des entrées.
@@ -1105,7 +1105,7 @@ Avec un fournisseur local disponible, la session devient sensible quand :
 3. une commande `shell` a un chemin classé parmi ses mots, ou que sa sortie porte un marquage ;
 4. le résultat d'un outil MCP porte un marquage ;
 5. un de vos messages porte un marquage, ou un texte de hook (retour de Stop, contexte de compaction, raisons de blocage d'un hook) ;
-6. le contrôle sortant trouve un marquage dans une requête sur le point de partir vers un fournisseur non local.
+6. le contrôle sortant trouve un marquage dans une requête sur le point de partir vers un fournisseur non local. Le contrôle porte sur les messages avant et après masquage. Il ignore le texte produit par un fournisseur non local lui-même (ses réponses, les arguments de ses appels d'outils, ses résumés de compaction) : ce fournisseur l'a déjà. Dans une session reprise, une réponse compte comme distante quand le fournisseur en vigueur (`SessionStarted.provider`, puis chaque `ProviderSelected`) n'est pas local.
 
 `glob` ne rend jamais la session sensible : il ne renvoie que des noms, et il est exempté du contrôle sortant. Un marquage dans un *nom* de fichier peut donc atteindre un fournisseur distant.
 
@@ -1113,7 +1113,8 @@ Avec un fournisseur local disponible, la session devient sensible quand :
 
 - Un appel d'outil sur un chemin classé est refusé avant exécution (`ToolResult` avec `denied: "classification"`, contenu `classified content requires a local provider (routing.local)`). En mode non interactif, cela donne le code de sortie 3.
 - Un marquage dans un résultat d'outil est remplacé par `[classified content withheld: no local provider]` avant d'entrer dans l'historique. La session ne devient pas sensible.
-- Un marquage dans votre message ou dans une requête bloque le tour (événement `Error`, `code: "classification"`, tour `blocked`).
+- Un marquage dans votre message ou dans une requête bloque le tour (événement `Error`, `code: "classification"`, tour `blocked`). Le message d'une requête bloquée par le contrôle sortant suggère `/rewind`, pour retirer le contenu marqué de la conversation.
+- Un marquage dans le contexte ajouté par un hook `UserPromptSubmit` ou `SessionStart` retient ce contexte (remplacé par `[classified content withheld: no local provider]`) ; votre prompt part quand même.
 
 Une session sensible reprise dont le fournisseur local manque désormais ne peut pas continuer à distance : le premier envoi est bloqué.
 Lancer `--provider <local>` sans `[routing]` convient : la session est déjà locale, les lectures classées sont permises et il n'y a pas de bascule.
@@ -1126,6 +1127,7 @@ Avant chaque envoi au modèle (tour, compaction, sous-agent) :
 - **session normale** : le fournisseur courant (`--provider` ou `default_provider`), puis `routing.fallback` dans l'ordre ;
 - chaque candidat passe les garde-fous habituels (profil, liste blanche, politique, accord hors UE). Un candidat refusé est sauté avec une notice ; sans candidat, le tour est bloqué. `--allow-non-eu` consent à tous les candidats de repli ; sans lui, un candidat hors UE demande, et un accord refusé est retenu pour la session. Un tour bloqué uniquement à cause d'un accord refusé l'explique (événement `Error`, `code: "jurisdiction"`) ;
 - **déclencheurs de bascule** : fournisseur indisponible (après les propres nouvelles tentatives du fournisseur sur 429 et 5xx), erreur de connexion, aucun premier fragment en 60 secondes. Jamais après le premier fragment, jamais sur une erreur d'authentification ou de longueur de contexte, jamais sur un autre 4xx.
+- **le délai de 60 secondes** ne s'applique que si un autre candidat peut prendre le relais dans le même envoi : un fournisseur seul (sans `[routing]`, ou le fournisseur local d'une session sensible) n'est jamais coupé, aussi lent soit-il. Il démarre une fois que le fournisseur a répondu par ses en-têtes (après ses propres nouvelles tentatives) et s'arrête au premier signe d'activité du flux, fragment d'appel d'outil compris. Ce signe seul ne compte pas comme un premier fragment : une erreur du fournisseur qui suit permet encore la bascule.
 
 ### Ce que cela protège, et ce que cela ne protège pas
 
@@ -1135,7 +1137,8 @@ Non protégé :
 
 - le contenu hors des chemins listés qui ne porte aucun marquage : tenon ne détecte ni données personnelles, ni secrets, ni identifiants ;
 - les marquages ne sont détectés que dans du texte (pas dans les images ni les fichiers binaires) ;
-- une commande shell qui lit des données classées sans nommer leur chemin (par une variable, un joker développé par le shell, des extraits de `head` ou `sed` qui ne contiennent pas la ligne du marquage) n'est rattrapée que si un marquage apparaît dans sa sortie. `~` et `$VAR` ne sont pas développés dans la correspondance des commandes ;
+- une commande shell qui lit des données classées sans nommer leur chemin (par une variable, un joker développé par le shell, un `grep -r` ou un `find` récursif, des extraits de `head` ou `sed` qui ne contiennent pas la ligne du marquage) n'est rattrapée que si un marquage apparaît dans sa sortie. `~` et `$VAR` ne sont pas développés dans la correspondance des commandes. Sous macOS avec l'isolation active, les chemins existants désignés par le début littéral de chaque motif de `classification.paths` (segments jusqu'au premier `*`, par exemple `rh` pour `rh/**`) sont interdits aux commandes shell, en lecture et en écriture, avec ou sans fournisseur local : ces lectures échouent. Sous Linux, ou sans isolation, ils ne le sont pas (sous Linux, interdire un chemin du projet bloquerait la création de fichiers dans ses dossiers parents) ;
+- la sortie shell est contrôlée après troncature à `output_limit` : un marquage au-delà de la limite n'est pas vu, et le début de la sortie part. Les résultats MCP sont contrôlés sur leur texte complet, avant troncature ;
 - les marquages dans les définitions d'outils (descriptions MCP) ne sont pas analysés ;
 - un marquage dans un nom de fichier renvoyé par `glob`, comme ci-dessus.
 

@@ -77,7 +77,8 @@ Consequences in tenon:
 
 - With `[classification]` (paths and markers; built-in markers such as `DIFFUSION RESTREINTE` and `EU RESTRICTED` are always active) and `[routing] local`, a session that touches classified content becomes sensitive and is sent only to the local provider, compaction and sub-agents included.
 - Without a local provider, tool calls on classified paths are refused, marked tool results are withheld, and a turn that carries a marker is blocked (`Error` event, `code: "classification"`).
-- Before each send to a non-local provider, tenon scans the request for markers (outbound scan): a hit makes the session sensitive and re-routes it, or blocks the turn.
+- Before each send to a non-local provider, tenon scans the request for markers (outbound scan), before and after redaction: a hit makes the session sensitive and re-routes it, or blocks the turn (the message suggests `/rewind`). Text produced by a non-local provider itself (replies, tool-call arguments, summaries) is not scanned again: that provider already has it.
+- Fallback on a missing first chunk (60 seconds) applies only when another candidate can take over; a single provider is never cut, and any stream activity (tool-call fragments included) stops the timer.
 - Fallback to another provider happens only for a normal session, before the first chunk, and goes through the profile, allowlist, policy and consent guards.
 - The decisions are in the audit log (`SessionClassified`, `ProviderSelected`) and the compliance export flags any non-local provider reached after classification (exit code 2). See [usage.md](usage.md#data-sensitivity-routing).
 
@@ -139,7 +140,8 @@ Classification is a guard rail for content you have listed, not a data-loss-prev
 
 - It does not detect personal data, secrets or identifiers: content outside the listed paths that carries no marker is treated as normal.
 - Markers are found in text only, after case, accent and whitespace folding. A marker in an image, a binary file or an unusual encoding is missed.
-- A shell command that reads classified data without naming its path (through a variable, a glob expanded by the shell, a `head` or `sed` extract that does not contain the marker line) is caught only if a marker appears in its output. `~` and `$VAR` are not expanded when commands are matched against classified paths.
+- A shell command that reads classified data without naming its path (through a variable, a glob expanded by the shell, a recursive `grep -r` or `find`, a `head` or `sed` extract that does not contain the marker line) is caught only if a marker appears in its output. `~` and `$VAR` are not expanded when commands are matched against classified paths. On macOS with the sandbox active, the classified paths (literal start of each pattern, existing paths only) are denied to shell commands, so such reads fail; on Linux or with the sandbox off they are not.
+- Shell output is checked after truncation to `output_limit`: a marker beyond the limit is missed while the start of the output is sent.
 - `glob` returns names only: it never taints the session and is exempt from the outbound scan, so a marker in a file name can reach a remote provider.
 - Markers inside tool definitions (MCP descriptions) are not scanned.
 - "Local" is a declaration: a provider of jurisdiction `local` is assumed to be under your control. tenon prints a notice when its host is not a loopback address, and the local provider never uses the proxy environment variables, but it cannot verify where the server runs.
