@@ -31,6 +31,12 @@
   'overview': "Vue d'ensemble" if fr else 'Overview',
   'overview_name': 'Le harness tenon' if fr else 'The tenon harness',
   'overview_desc': "Quatorze composants, une seule règle : rien ne sort sans passer par vos permissions, votre masquage et votre journal." if fr else 'Fourteen components, one rule: nothing leaves without going through your permissions, your masking and your log.',
+  'jr_title': "Le voyage d'une requête" if fr else 'The journey of a request',
+  'jr_lede': "Suivez une demande du terminal jusqu'au journal. Chaque composant agit à son passage, puis la caméra recule sur tout le parcours." if fr else 'Follow one request from the terminal to the audit log. Each component acts as it passes, then the camera pulls back over the whole route.',
+  'jr_label': "Animation : une étoile d'or, votre requête, traverse sept stations de tenon : prompt, permissions, isolation, masquage, routage, modèles, journal d'audit." if fr else 'Animation: a gold star, your request, crosses seven tenon stations: prompt, permissions, sandbox, masking, routing, models, audit log.',
+  'jr_play': 'Lecture' if fr else 'Play',
+  'jr_pause': 'Pause' if fr else 'Pause',
+  'jr_replay': 'Rejouer' if fr else 'Replay',
   'map_title': 'Où partent vos données' if fr else 'Where your data goes',
   'map_lede': "Avant chaque envoi, tenon masque les secrets et applique vos règles. La destination dépend de votre configuration, et elle est inscrite au journal." if fr else 'Before each send, tenon masks secrets and applies your rules. The destination depends on your configuration, and it is written to the audit log.',
   'node_project': 'Votre projet' if fr else 'Your project',
@@ -108,6 +114,7 @@
   {'id': 'checkpoints', 'name': 'Checkpoints', 'desc': 'Every prompt is a restore point: /rewind brings back the files, the conversation, or both.'},
   {'id': 'policy', 'name': 'Organisation policy', 'desc': 'A floor signed with minisign, verified at every startup, that nobody can loosen.'}
 ] %}
+{% set jr = {"prompt": "› corrige le test qui échoue", "ask": "Exécuter go test ./... ?", "allowed": "Autorisé", "denied": "En attente", "shell": "$ go test ./...", "shell_ok": "ok   ./...", "secret": "token = sk-9f3a2c7e", "masked": "token = [MASQUÉ]", "stamp": "DIFFUSION RESTREINTE", "local": "local", "eu": "UE", "model": "modèle local", "block": "bloc", "names": ["Prompt", "Permissions", "Isolation système", "Masquage", "Routage", "Modèles", "Journal d'audit"], "steps": ["Vous écrivez votre demande dans le terminal.", "La commande attend votre accord.", "Le shell tourne dans sa cage : projet seulement, pas de réseau.", "Les secrets sont masqués avant l'envoi.", "Contenu classé : la session ne part qu'au modèle local.", "Modèle local ou fournisseur européen, selon vos règles.", "Chaque étape scelle un nouveau bloc du journal."]} if fr else {"prompt": "› fix the failing test", "ask": "Run go test ./... ?", "allowed": "Allowed", "denied": "Waiting", "shell": "$ go test ./...", "shell_ok": "ok   ./...", "secret": "token = sk-9f3a2c7e", "masked": "token = [REDACTED]", "stamp": "EU RESTRICTED", "local": "local", "eu": "EU", "model": "local model", "block": "block", "names": ["Prompt", "Permissions", "System sandbox", "Masking", "Routing", "Models", "Audit log"], "steps": ["You type your request in the terminal.", "The command waits for your approval.", "The shell runs in its cage: project only, no network.", "Secrets are masked before sending.", "Classified content: the session goes only to the local model.", "A local model or a European provider, by your rules.", "Every step seals a new block of the audit log."]} %}
 {% set brew = 'brew install tenon-code-eu/tap/tenon' %}
 {% set script = 'curl -fsSL https://raw.githubusercontent.com/tenon-code-eu/tenon/main/install.sh | sh' %}
 
@@ -195,6 +202,25 @@
           {% for p in parts %}<li><strong>{{ p.name }}</strong> — {{ p.desc }}</li>{% endfor %}
         </ol>
         <script type="application/json" id="h-parts" data-overview-name="{{ T.overview_name }}" data-overview-desc="{{ T.overview_desc }}">{{ parts | tojson }}</script>
+      </figure>
+    </div>
+  </section>
+
+  <section class="h-journey" aria-labelledby="h-jr-title">
+    <div class="h-wrap">
+      <h2 class="h-h2" id="h-jr-title">{{ T.jr_title }}</h2>
+      <p class="h-lede">{{ T.jr_lede }}</p>
+      <figure class="h-jr" id="h-jr">
+        <canvas class="h-jr__canvas" id="h-jr-canvas" role="img" aria-label="{{ T.jr_label }}"></canvas>
+        <div class="h-jr__bar">
+          <button class="h-jr__btn" type="button" id="h-jr-toggle" data-play="{{ T.jr_play }}" data-pause="{{ T.jr_pause }}">{{ T.jr_pause }}</button>
+          <button class="h-jr__btn" type="button" id="h-jr-replay">{{ T.jr_replay }}</button>
+          <div class="h-jr__track" aria-hidden="true"><span class="h-jr__fill" id="h-jr-fill"></span></div>
+        </div>
+        <ol class="h-jr__steps">
+          {% for n in jr.names %}<li><strong>{{ n }}</strong> — {{ jr.steps[loop.index0] }}</li>{% endfor %}
+        </ol>
+        <script type="application/json" id="h-jr-data">{{ jr | tojson }}</script>
       </figure>
     </div>
   </section>
@@ -340,4 +366,5 @@
 {% block scripts %}
   {{ super() }}
   <script src="{{ root }}/assets/site/home.js" defer></script>
+  <script src="{{ root }}/assets/site/journey.js" defer></script>
 {% endblock %}
