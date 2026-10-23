@@ -305,3 +305,62 @@ func TestLoadReport(t *testing.T) {
 		}
 	}
 }
+
+// TestSBOMEntryMissing : chaque entrée de sboms doit trouver au moins un
+// fichier ; un SBOM listé absent n'est jamais ignoré en silence.
+func TestSBOMEntryMissing(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "cra/product.toml", goodProduct+`sboms = ["cra/go.cdx.json", "cra/npm.cdx.json"]`+"\n")
+	write(t, root, "cra/go.cdx.json", "{}")
+	d, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.SBOMPaths(); err == nil || err.Error() != "cra: no SBOM found (cra/npm.cdx.json)" {
+		t.Fatalf("SBOM listé absent : %v", err)
+	}
+	write(t, root, "cra/npm.cdx.json", "{}")
+	if p, err := d.SBOMPaths(); err != nil || len(p) != 2 {
+		t.Fatal(p, err)
+	}
+}
+
+// TestUnknownKeys : une clé inconnue de product.toml ou d'un signalement est
+// refusée (report mark ne réécrit jamais un fichier qu'il n'a pas lu en entier).
+func TestUnknownKeys(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "cra/product.toml", goodProduct+"owner = \"x\"\n")
+	if _, err := Load(root); err == nil || err.Error() != "cra: product.toml: unknown key owner" {
+		t.Fatalf("product.toml : %v", err)
+	}
+	write(t, root, "cra/product.toml", goodProduct+"[extra]\nnote = \"x\"\n")
+	if _, err := Load(root); err == nil || !strings.HasPrefix(err.Error(), "cra: product.toml: unknown key extra") {
+		t.Fatalf("product.toml table : %v", err)
+	}
+	write(t, root, "cra/product.toml", goodProduct)
+	write(t, root, "cra/reports/2026-10-21-1.toml", "kind = \"incident\"\nsummary = \"x\"\naware_at = 2026-10-21T08:00:00Z\nnotes = \"keep me\"\n")
+	if _, err := LoadReport(root, "2026-10-21-1"); err == nil || err.Error() != "cra: reports/2026-10-21-1.toml: unknown key notes" {
+		t.Fatalf("signalement : %v", err)
+	}
+	if _, err := Load(root); err == nil || err.Error() != "cra: reports/2026-10-21-1.toml: unknown key notes" {
+		t.Fatalf("Load : %v", err)
+	}
+}
+
+// TestDeadlinesDoneLate : une étape faite après son échéance est done_late.
+func TestDeadlinesDoneLate(t *testing.T) {
+	a := ts(t, "2026-10-20T09:00:00Z")
+	early := ts(t, "2026-10-21T10:00:00Z") // échéance 2026-10-21T09:00:00Z
+	notif := ts(t, "2026-10-22T09:00:00Z") // avant l'échéance (2026-10-23T09:00:00Z)
+	r := Report{ID: "2026-10-20-1", Kind: "vulnerability", AwareAt: &a, EarlyWarningAt: &early, NotificationAt: &notif}
+	ds := Deadlines(r, ts(t, "2026-10-30T00:00:00Z"))
+	if ds[0].Status != StatusDoneLate || ds[1].Status != StatusDone || ds[2].Status != StatusUnknown {
+		t.Fatalf("%+v", ds)
+	}
+	// Faite à l'heure exacte de l'échéance : à temps.
+	onTime := ts(t, "2026-10-21T09:00:00Z")
+	r.EarlyWarningAt = &onTime
+	if ds := Deadlines(r, ts(t, "2026-10-30T00:00:00Z")); ds[0].Status != StatusDone {
+		t.Fatalf("%+v", ds[0])
+	}
+}

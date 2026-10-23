@@ -53,7 +53,7 @@ func funcs(lang i18n.Lang) template.FuncMap {
 		"cra": func(c CRA) string {
 			parts := []string{}
 			if c.LastScan != "" {
-				parts = append(parts, i18n.T(lang, "report.cra_scan", c.LastScan, c.Open, c.ToVerify))
+				parts = append(parts, i18n.T(lang, "report.cra_scan", c.LastScan, c.Open, c.ToVerify, c.Unchecked, c.Conflicts))
 			}
 			for _, s := range c.Reports {
 				line := i18n.T(lang, "report.cra_report", s.ID, s.Kind, s.Step)
@@ -62,6 +62,9 @@ func funcs(lang i18n.Lang) template.FuncMap {
 				}
 				if s.Overdue {
 					line += ", " + i18n.T(lang, "report.cra_overdue") + " (" + strings.Join(s.OverdueSteps, ", ") + ")"
+				}
+				if len(s.LateSteps) > 0 {
+					line += ", " + i18n.T(lang, "report.cra_late") + " (" + strings.Join(s.LateSteps, ", ") + ")"
 				}
 				parts = append(parts, line)
 			}

@@ -20,18 +20,22 @@ type CRAReportStatus struct {
 	At           string   `json:"at"`
 	Overdue      bool     `json:"overdue"`
 	OverdueSteps []string `json:"overdue_steps"`
+	// LateSteps : étapes faites après leur échéance.
+	LateSteps []string `json:"late_steps"`
 	// DeadlinesUnknown : aucun événement open dans le journal (échéances incalculables).
 	DeadlinesUnknown bool `json:"deadlines_unknown"`
 }
 
 // CRA est la section « Cyber Resilience Act » : dernier scan de chaque
-// racine de projet (ouvertes et à vérifier cumulées, date la plus récente)
-// et signalements. Omise sans événement CRA.
+// racine de projet (ouvertes, à vérifier, non vérifiés et conflits VEX
+// cumulés, date la plus récente) et signalements. Omise sans événement CRA.
 type CRA struct {
-	LastScan string            `json:"last_scan"`
-	Open     int               `json:"open"`
-	ToVerify int               `json:"to_verify"`
-	Reports  []CRAReportStatus `json:"reports"`
+	LastScan  string            `json:"last_scan"`
+	Open      int               `json:"open"`
+	ToVerify  int               `json:"to_verify"`
+	Unchecked int               `json:"unchecked"`
+	Conflicts int               `json:"conflicts"`
+	Reports   []CRAReportStatus `json:"reports"`
 }
 
 // craSessions détecte les sessions courtes « cra » (sans fournisseur) : leur
@@ -84,8 +88,8 @@ type craReport struct {
 // open laisse les échéances inconnues (donc jamais en retard).
 func craSection(ds Dataset, o Options) *CRA {
 	type scanState struct {
-		ts       time.Time
-		open, tv int
+		ts                         time.Time
+		open, tv, unchecked, confl int
 	}
 	scans := map[string]scanState{}
 	reports := map[craKey]*craReport{}
@@ -100,7 +104,7 @@ func craSection(ds Dataset, o Options) *CRA {
 		}
 		root := sessionRoot(ds, l.Session)
 		if t := lineTS(l); !t.Before(scans[root].ts) {
-			scans[root] = scanState{ts: t, open: p.Open, tv: p.ToVerify}
+			scans[root] = scanState{ts: t, open: p.Open, tv: p.ToVerify, unchecked: p.Unchecked, confl: p.Conflicts}
 		}
 	}
 	// Signalements inscrits dans la période exportée.
@@ -169,6 +173,8 @@ func craSection(ds Dataset, o Options) *CRA {
 	for _, s := range scans {
 		c.Open += s.open
 		c.ToVerify += s.tv
+		c.Unchecked += s.unchecked
+		c.Conflicts += s.confl
 		if s.ts.After(latest) {
 			latest = s.ts
 		}
@@ -181,12 +187,16 @@ func craSection(ds Dataset, o Options) *CRA {
 		st := cr.last
 		st.ID, st.Kind, st.Project = o.clean(k.id), o.clean(cr.r.Kind), o.clean(k.root)
 		st.OverdueSteps = []string{}
+		st.LateSteps = []string{}
 		// Sans événement open, aucune échéance n'est calculable : jamais présenté comme propre.
 		st.DeadlinesUnknown = cr.r.AwareAt == nil
 		for _, d := range dossier.Deadlines(cr.r, o.Now) {
 			if d.Status == dossier.StatusOverdue {
 				st.Overdue = true
 				st.OverdueSteps = append(st.OverdueSteps, d.Step)
+			}
+			if d.Status == dossier.StatusDoneLate {
+				st.LateSteps = append(st.LateSteps, d.Step)
 			}
 		}
 		c.Reports = append(c.Reports, st)

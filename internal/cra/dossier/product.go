@@ -91,6 +91,9 @@ func loadProduct(path string) (Product, error) {
 	if err != nil {
 		return Product{}, fmt.Errorf("cra: product.toml: %w", err)
 	}
+	if err := unknownKey(md, "cra: product.toml: "); err != nil {
+		return Product{}, err
+	}
 	for _, f := range []struct {
 		key string
 		val string
@@ -144,18 +147,32 @@ func isLocalTOML(t time.Time) bool {
 	return false
 }
 
+// unknownKey refuse la première clé non décodée (faute de frappe ou champ
+// ajouté à la main) : un fichier lu en partie ne doit jamais être réécrit.
+func unknownKey(md toml.MetaData, prefix string) error {
+	if u := md.Undecoded(); len(u) > 0 {
+		return fmt.Errorf("%sunknown key %s", prefix, u[0].String())
+	}
+	return nil
+}
+
 // SBOMPaths développe les motifs `sboms` (relatifs à la racine) en fichiers.
+// Chaque entrée doit désigner au moins un fichier : un SBOM listé absent est
+// une erreur, jamais ignoré en silence.
 func (d Dossier) SBOMPaths() ([]string, error) {
 	var out []string
 	seen := map[string]bool{}
-	for _, pat := range d.Product.SBOMs {
-		pat := pat
+	for _, entry := range d.Product.SBOMs {
+		pat := entry
 		if !filepath.IsAbs(pat) {
 			pat = filepath.Join(d.Root, filepath.FromSlash(pat))
 		}
 		m, err := filepath.Glob(pat)
 		if err != nil {
 			return nil, fmt.Errorf("cra: product.toml: sboms: %w", err)
+		}
+		if len(m) == 0 {
+			return nil, fmt.Errorf("cra: no SBOM found (%s)", entry)
 		}
 		for _, f := range m {
 			if !seen[f] {
@@ -165,7 +182,7 @@ func (d Dossier) SBOMPaths() ([]string, error) {
 		}
 	}
 	if len(out) == 0 {
-		return nil, fmt.Errorf("cra: no SBOM found (%s)", strings.Join(d.Product.SBOMs, ", "))
+		return nil, fmt.Errorf("cra: no SBOM found (%s)", DefaultSBOMGlob)
 	}
 	return out, nil
 }

@@ -53,7 +53,9 @@ category = "default"              # default | important-1 | important-2 | critic
 sboms = ["cra/sbom.cdx.json"]     # défaut : cra/sbom*.cdx.json
 ```
 
-Tous les champs sauf `sboms` sont obligatoires : `cra: product.toml: <champ> required`. Une catégorie inconnue donne `cra: product.toml: category must be default, important-1, important-2 or critical`.
+Tous les champs sauf `sboms` sont obligatoires : `cra: product.toml: <champ> required`. Une catégorie inconnue donne `cra: product.toml: category must be default, important-1, important-2 or critical`. Une clé inconnue (faute de frappe, champ ajouté à la main) est refusée : `cra: product.toml: unknown key <clé>`.
+
+Chaque entrée de `sboms` (ou le motif par défaut quand `sboms` est absent) doit désigner au moins un fichier, sinon `cra: no SBOM found (<entrée>)` : un SBOM listé absent n'est jamais ignoré. `scan` et `export` sortent alors avec le code 1, et `status` affiche la ligne et sort avec le code 1.
 
 ### SBOM
 
@@ -91,23 +93,25 @@ final_at = ...
 
 Les heures sont en RFC 3339 et le fuseau est obligatoire (`2026-10-23T09:12:00+02:00` ou `Z`). Une heure sans fuseau est refusée. Les échéances sont calculées en UTC : un changement d'heure ne décale pas les délais de 24 h et 72 h.
 
+Une clé inconnue est refusée : `cra: reports/<id>.toml: unknown key <clé>`, si bien que `report mark` ne réécrit jamais un fichier qu'il n'a pas pu lire en entier. `report mark` réécrit le fichier à partir de ses champs : les commentaires d'un fichier de signalement ne sont pas conservés. Gardez vos notes dans un fichier séparé, par exemple `cra/reports/<id>.md`.
+
 ## Commandes et codes de sortie
 
 | Commande | Rôle | Codes de sortie |
 |---|---|---|
 | `tenon cra init` | Créer le squelette du dossier. | 0, 1 |
 | `tenon cra db update [--mirror <url>] [--ecosystem <eco>...]` | Télécharger la base OSV (seul usage du réseau). | 0, 1 |
-| `tenon cra scan [--fail-on open] [--json]` | Apparier les composants des SBOM à la base et appliquer le VEX. | 0 ; 7 avec `--fail-on open` et au moins une vulnérabilité ouverte ; 1 en cas d'erreur |
-| `tenon cra status` | Complétude du dossier, dernier scan, signalements et échéances. | 0 ; 7 si une échéance est dépassée ; 1 si le dossier est invalide |
+| `tenon cra scan [--fail-on <liste>] [--json]` | Apparier les composants des SBOM à la base et appliquer le VEX. | 0 ; 7 quand une catégorie listée dans `--fail-on` (séparées par des virgules : `open`, `to_verify`, `unchecked`, `conflicts`) est non nulle ; 1 en cas d'erreur |
+| `tenon cra status` | Complétude du dossier, dernier scan, signalements et échéances. | 0 ; 7 si une échéance est dépassée ; 1 si le dossier est invalide, y compris un SBOM listé absent ou invalide |
 | `tenon cra report open --kind vulnerability\|incident --summary <texte> [--aware-at <RFC 3339>]` | Créer `cra/reports/<id>.toml` (`aware_at` = maintenant par défaut) et afficher les échéances. | 0, 1 |
 | `tenon cra report mark <id> early-warning\|notification\|final\|fix-available [--at <RFC 3339>]` | Enregistrer une étape. | 0, 1 |
 | `tenon cra export --out <dir> [--lang fr\|en]` | Dossier technique, HTML et JSON. | 0, 1 |
 
-`status` signale aussi un dossier incomplet (SBOM absente, période de support échue) par des lignes de texte, sans changer le code de sortie : seule une échéance dépassée donne 7, et seul un dossier invalide donne 1.
+`status` signale aussi un dossier incomplet (période de support échue) par des lignes de texte, sans changer le code de sortie : seule une échéance dépassée donne 7, et seul un dossier invalide (produit, VEX ou signalement illisible, SBOM absent ou invalide) donne 1. Le code 1 l'emporte sur 7. Au niveau d'audit `metadata`, le journal ne contient que des empreintes : la ligne du dernier scan donne la date et indique `projet inconnu`.
 
 `tenon config check` affiche `cra: dossier <ok|absent|invalid>, osv db <date|absent>`.
 
-Les commandes qui scannent ou modifient un signalement écrivent un événement dans le journal d'audit (`CRAScan`, `CRAReport`). Hors session, tenon ouvre une courte session de type `cra`, écrit l'événement et la ferme.
+Les commandes qui scannent (`scan`, et `export` quand il lance un scan) ou modifient un signalement écrivent un événement dans le journal d'audit (`CRAScan`, avec les composants non vérifiés et les conflits VEX, `CRAReport`). Hors session, tenon ouvre une courte session de type `cra`, écrit l'événement et la ferme.
 
 ## Scan
 
@@ -121,7 +125,7 @@ Les commandes qui scannent ou modifient un signalement écrivent un événement 
 
 Erreurs avec le code 1 :
 
-- aucune SBOM trouvée ;
+- une entrée de `sboms` (ou le motif par défaut) ne désigne aucun fichier : `cra: no SBOM found (<entrée>)` ;
 - pas de base : `cra: no vulnerability database (run tenon cra db update)` ;
 - un écosystème des SBOM manque dans la base (le scan n'affirme pas « aucune vulnérabilité » pour lui) ;
 - une archive corrompue (signalée comme illisible, jamais comme « aucune vulnérabilité »).
@@ -167,14 +171,14 @@ Une entrée OSV peut avoir plusieurs blocs `affected[]` pour le même paquet (pa
 | Notification | `aware_at` + 72 h | `aware_at` + 72 h |
 | Rapport final | `fix_available_at` + 14 jours | `notification_at` + 1 mois calendaire (à confirmer dans le texte du règlement) |
 
-Pour une vulnérabilité, l'échéance finale est inconnue tant que `fix_available_at` est absent : `status` affiche « échéance inconnue » et ne la masque pas. Chaque étape est `due`, `overdue` ou `done`.
+Pour une vulnérabilité, l'échéance finale est inconnue tant que `fix_available_at` est absent : `status` affiche « échéance inconnue » et ne la masque pas. Chaque étape est `due`, `overdue`, `done` ou `done_late` (faite après son échéance, affichée dans `status`, l'export et l'export de conformité).
 
 ## Export
 
 `tenon cra export --out <dir> [--lang fr|en]` écrit `cra-dossier.json` et `cra-dossier.html`, avec le même gabarit et le même style que l'export de conformité : produit, SBOM (composants, générateur, date), dernier scan avec le VEX, signalements et respect des délais, période de support, et les parties rédigées `cra/docs/*.md` (rendues en texte échappé).
-Sans base ni SBOM, l'export fonctionne quand même, sans résultats de scan, et des avis disent ce qui manque.
+Sans base, l'export fonctionne quand même, sans résultats de scan, et un avis le dit. Sans SBOM, ou avec un SBOM listé absent, le dossier est invalide : code de sortie 1. Quand l'export lance un scan, il écrit un événement `CRAScan` comme `tenon cra scan`.
 
-`tenon audit export` ajoute une section « CRA » : dernier scan (date, ouvertes, à vérifier) et signalements avec respect des délais. Les échéances sont calculées sur tout le journal, quel que soit `--since`. Les signalements sont listés tant que leur étape finale n'est pas faite, et « échéances inconnues » reste visible. Une échéance dépassée marque la ligne, sans code de sortie 2.
+`tenon audit export` ajoute une section « CRA » : dernier scan (date, ouvertes, à vérifier, composants non vérifiés, conflits VEX) et signalements avec respect des délais (étapes en retard, étapes faites en retard). Les échéances sont calculées sur tout le journal, quel que soit `--since`. Les signalements sont listés tant que leur étape finale n'est pas faite, et « échéances inconnues » reste visible. Une échéance dépassée marque la ligne, sans code de sortie 2.
 
 ## CI
 
@@ -182,7 +186,13 @@ Sans base ni SBOM, l'export fonctionne quand même, sans résultats de scan, et 
 tenon cra db update && tenon cra scan --fail-on open
 ```
 
-Le code 7 fait échouer le job tant qu'une vulnérabilité est ouverte. Ajoutez `tenon cra status` pour échouer sur une échéance de signalement dépassée. Dans un pipeline isolé, définissez `[cra] osv_mirror` vers un miroir interne dans la configuration globale.
+Le code 7 fait échouer le job tant qu'une vulnérabilité est ouverte. Seules les catégories listées dans `--fail-on` font échouer le job : avec `--fail-on open`, les résultats à vérifier, les composants non vérifiés et les conflits VEX sont affichés mais ne le font pas échouer. La variante stricte :
+
+```
+tenon cra db update && tenon cra scan --fail-on open,to_verify,unchecked
+```
+
+Ajoutez `conflicts` pour échouer aussi sur une entrée VEX `fixed` qu'OSV liste encore comme affectée. Ajoutez `tenon cra status` pour échouer sur une échéance de signalement dépassée. Dans un pipeline isolé, définissez `[cra] osv_mirror` vers un miroir interne dans la configuration globale.
 
 ## Skills intégrés
 

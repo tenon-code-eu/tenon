@@ -35,6 +35,7 @@ The early warning is short (is it exploited, which product, which Member States 
 1. Run `tenon cra status` and read the reports with their deadlines (`due`, `overdue`, `done`).
 2. To open a report, ask the user for the kind (`vulnerability` or `incident`), a one-line summary, and when they became aware (RFC 3339 with zone). Confirm, then run `tenon cra report open --kind <kind> --summary "<text>" --aware-at <time>`. Show the deadlines printed.
 3. Read `cra/reports/<id>.toml` and `cra/product.toml`. Draft the text of the requested step with the expected content above. Mark anything unknown as "to complete" instead of inventing it.
+   Never add keys or comments to `cra/reports/<id>.toml`: unknown keys are refused and `report mark` does not keep comments. Save drafts and notes in a separate file such as `cra/reports/<id>.md`.
 4. Let the user review and edit the draft. Remind them to submit it on the ENISA single reporting platform themselves.
 5. Only after the user says the step was sent (or the fix is available), confirm the time and run `tenon cra report mark <id> <early-warning|notification|final|fix-available> --at <time>`. Never mark a step that was not done.
 6. Run `tenon cra status` again. Exit code 7 means a deadline is overdue.

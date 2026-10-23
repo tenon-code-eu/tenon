@@ -85,8 +85,12 @@ func loadReport(path, id string) (Report, error) {
 		return Report{}, fmt.Errorf("%s%w", prefix, err)
 	}
 	var raw readReport
-	if _, err := toml.Decode(string(data), &raw); err != nil {
+	md, err := toml.Decode(string(data), &raw)
+	if err != nil {
 		return Report{}, fmt.Errorf("%s%w", prefix, err)
+	}
+	if err := unknownKey(md, prefix); err != nil {
+		return Report{}, err
 	}
 	if raw.Kind != "vulnerability" && raw.Kind != "incident" {
 		return Report{}, fmt.Errorf("%skind must be vulnerability or incident", prefix)

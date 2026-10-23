@@ -178,3 +178,26 @@ func TestBuild(t *testing.T) {
 		t.Fatalf("%+v", got)
 	}
 }
+
+// TestWriteDoneLate : une étape faite après son échéance est rendue « fait en retard ».
+func TestWriteDoneLate(t *testing.T) {
+	d := fixedDossier()
+	d.Reports[0].Deadlines[0].Status = dossier.StatusDoneLate
+	for _, c := range []struct {
+		lang i18n.Lang
+		want string
+	}{{i18n.EN, `<td class="overdue">done late</td>`}, {i18n.FR, `<td class="overdue">fait en retard</td>`}} {
+		dir := t.TempDir()
+		if err := Write(dir, d, c.lang); err != nil {
+			t.Fatal(err)
+		}
+		h, _ := os.ReadFile(filepath.Join(dir, "cra-dossier.html"))
+		if !strings.Contains(string(h), c.want) {
+			t.Errorf("%s : %q absent", c.lang, c.want)
+		}
+		j, _ := os.ReadFile(filepath.Join(dir, "cra-dossier.json"))
+		if !strings.Contains(string(j), `"status": "done_late"`) {
+			t.Errorf("JSON sans done_late")
+		}
+	}
+}

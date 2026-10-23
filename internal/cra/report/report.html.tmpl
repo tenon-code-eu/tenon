@@ -72,7 +72,7 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
 {{range .Reports}}<h3><span class="mono">{{.ID}}</span> ({{tk "dossier.kind." .Kind}}) — {{.Summary}}</h3>
 <table>
 <thead><tr><th>{{t "dossier.col.step"}}</th><th>{{t "dossier.col.due"}}</th><th>{{t "dossier.col.done"}}</th><th>{{t "dossier.col.status"}}</th></tr></thead>
-{{range .Deadlines}}<tr><td>{{tk "dossier.step." .Step}}</td><td>{{opt .Due}}</td><td>{{opt .Done}}</td><td{{if eq .Status "overdue"}} class="overdue"{{end}}>{{tk "dossier.dl." .Status}}</td></tr>
+{{range .Deadlines}}<tr><td>{{tk "dossier.step." .Step}}</td><td>{{opt .Due}}</td><td>{{opt .Done}}</td><td{{if or (eq .Status "overdue") (eq .Status "done_late")}} class="overdue"{{end}}>{{tk "dossier.dl." .Status}}</td></tr>
 {{end}}</table>
 {{else}}<p class="muted">{{t "dossier.none"}}</p>{{end}}
 </section>

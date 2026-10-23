@@ -374,14 +374,14 @@ func TestCRAScanFailOn(t *testing.T) {
 	if f["id"] != "GHSA-1" || f["status"] != "open" {
 		t.Errorf("finding : %v", f)
 	}
-	if code, _, errb := e.run("cra", "scan", "--fail-on", "to_verify"); code != 1 || !strings.Contains(errb, "cra: --fail-on must be open") {
+	if code, _, errb := e.run("cra", "scan", "--fail-on", "closed"); code != 1 || !strings.Contains(errb, "cra: --fail-on must be a comma-separated list of open, to_verify, unchecked, conflicts") {
 		t.Errorf("--fail-on invalide : code %d, stderr %q", code, errb)
 	}
 	evs := craEvents[event.CRAScanPayload](t, e.auditLines(), event.CRAScan)
 	if len(evs) != 3 {
 		t.Fatalf("CRAScan : %+v", evs)
 	}
-	if p := evs[0]; p.SBOMs != 1 || p.Components != 3 || p.Open != 1 || p.DBDate == "" {
+	if p := evs[0]; p.SBOMs != 1 || p.Components != 3 || p.Open != 1 || p.Unchecked != 1 || p.Conflicts != 0 || p.DBDate == "" {
 		t.Errorf("charge : %+v", p)
 	}
 }
@@ -551,7 +551,7 @@ func TestCRAStatusMetadataLevel(t *testing.T) {
 		t.Fatalf("scan : code %d, stderr %q", code, errb)
 	}
 	_, out, _ := e.run("--lang", "en", "cra", "status")
-	if !strings.Contains(out, "last scan: 20") || strings.Contains(out, "open 1") {
+	if !strings.Contains(out, "last scan: 20") || !strings.Contains(out, "(project unknown)") || strings.Contains(out, "open 1") {
 		t.Fatalf("stdout :\n%s", out)
 	}
 }
@@ -679,6 +679,11 @@ func TestCRAExport(t *testing.T) {
 	if h, _ := os.ReadFile(filepath.Join(out2, "cra-dossier.html")); !strings.Contains(string(h), "Dossier technique CRA") {
 		t.Fatal("html français")
 	}
+	// Chaque export qui lance un scan l'inscrit au journal.
+	evs := craEvents[event.CRAScanPayload](t, e.auditLines(), event.CRAScan)
+	if len(evs) != 2 || evs[0].Open != 1 || evs[0].Components != 1 || evs[0].DBDate == "" {
+		t.Fatalf("CRAScan : %+v", evs)
+	}
 }
 
 func TestCRAExportNoDB(t *testing.T) {
@@ -693,6 +698,9 @@ func TestCRAExportNoDB(t *testing.T) {
 	if err != nil || !strings.Contains(string(data), `"scan": null`) {
 		t.Fatalf("%v %s", err, data)
 	}
+	if n := len(craEvents[event.CRAScanPayload](t, e.auditLines(), event.CRAScan)); n != 0 {
+		t.Fatalf("%d CRAScan sans scan", n)
+	}
 	// Dossier absent : code 1.
 	e2 := newEnv(t, nil, "eu")
 	if code, _, errb := e2.run("cra", "export", "--out", filepath.Join(t.TempDir(), "x")); code != 1 || !strings.Contains(errb, "cra: no dossier") {
@@ -700,12 +708,94 @@ func TestCRAExportNoDB(t *testing.T) {
 	}
 }
 
-func TestCRAExportNoSBOMNotice(t *testing.T) {
+// TestCRAExportNoSBOM : sans SBOM, le dossier est invalide (R23) : code 1.
+func TestCRAExportNoSBOM(t *testing.T) {
 	e := newEnv(t, nil, "eu")
 	e.craDossier("pkg:npm/left@1.0.0")
 	os.Remove(filepath.Join(e.wd, "cra", "sbom.cdx.json"))
-	code, _, errb := e.run("cra", "export", "--out", filepath.Join(e.t.TempDir(), "d"), "--lang", "en")
-	if code != 0 || !strings.Contains(errb, "cra: export without vulnerability scan (no SBOM found)") || strings.Contains(errb, "db update") {
+	out := filepath.Join(e.t.TempDir(), "d")
+	code, _, errb := e.run("cra", "export", "--out", out, "--lang", "en")
+	if code != 1 || !strings.Contains(errb, "cra: no SBOM found (cra/sbom*.cdx.json)") {
 		t.Fatalf("code %d, stderr %q", code, errb)
+	}
+	if _, err := os.Stat(filepath.Join(out, "cra-dossier.json")); err == nil {
+		t.Fatal("dossier écrit sans SBOM")
+	}
+}
+
+// TestCRASBOMListedMissing : un SBOM listé absent n'est jamais ignoré : scan,
+// export et db update échouent, status le dit et rend 1.
+func TestCRASBOMListedMissing(t *testing.T) {
+	e := newEnv(t, nil, "eu")
+	e.writeFile(filepath.Join(e.wd, "cra", "product.toml"), craProduct+`sboms = ["cra/go.cdx.json", "cra/npm.cdx.json"]`+"\n")
+	e.writeFile(filepath.Join(e.wd, "cra", "go.cdx.json"), craSBOM("pkg:golang/example.com/a@v1.0.0"))
+	e.craDB(time.Now(), map[string][]string{"Go": {`{"id":"GO-1","affected":[]}`}, "npm": {craLeftDoc}})
+	const want = "cra: no SBOM found (cra/npm.cdx.json)"
+	if code, _, errb := e.run("cra", "scan"); code != 1 || !strings.Contains(errb, want) {
+		t.Fatalf("scan : code %d, stderr %q", code, errb)
+	}
+	if code, _, errb := e.run("cra", "export", "--out", filepath.Join(e.t.TempDir(), "d")); code != 1 || !strings.Contains(errb, want) {
+		t.Fatalf("export : code %d, stderr %q", code, errb)
+	}
+	if code, _, errb := e.run("cra", "db", "update"); code != 1 || !strings.Contains(errb, want) {
+		t.Fatalf("db update : code %d, stderr %q", code, errb)
+	}
+	code, out, errb := e.run("--lang", "en", "cra", "status")
+	if code != 1 || !strings.Contains(out, "sbom: missing ("+want+")") {
+		t.Fatalf("status : code %d, stdout %q, stderr %q", code, out, errb)
+	}
+	if n := len(craEvents[event.CRAScanPayload](t, e.auditLines(), event.CRAScan)); n != 0 {
+		t.Fatalf("%d CRAScan malgré un SBOM absent", n)
+	}
+}
+
+// TestCRAStatusSBOMInvalid : un SBOM illisible rend le dossier invalide (code 1).
+func TestCRAStatusSBOMInvalid(t *testing.T) {
+	e := newEnv(t, nil, "eu")
+	e.craDossier("pkg:npm/left@1.0.0")
+	e.writeFile(filepath.Join(e.wd, "cra", "sbom.cdx.json"), "{not json")
+	code, out, _ := e.run("--lang", "en", "cra", "status")
+	if code != 1 || !strings.Contains(out, "sbom: invalid (") {
+		t.Fatalf("code %d, stdout %q", code, out)
+	}
+}
+
+// TestCRAStatusDoneLate : une étape faite après son échéance est signalée, sans code 7.
+func TestCRAStatusDoneLate(t *testing.T) {
+	e := newEnv(t, nil, "eu")
+	e.craDossier("pkg:npm/left@1.0.0")
+	e.writeFile(filepath.Join(e.wd, "cra", "reports", "2026-10-01-1.toml"),
+		"kind = \"vulnerability\"\nsummary = \"x\"\naware_at = 2026-10-01T00:00:00Z\nearly_warning_at = 2026-10-02T10:00:00Z\nnotification_at = 2026-10-03T00:00:00Z\n")
+	code, out, errb := e.run("--lang", "en", "cra", "status")
+	if code != 0 || !strings.Contains(out, "early-warning done 2026-10-02T10:00:00Z, late (due 2026-10-02T00:00:00Z)") || !strings.Contains(out, "notification done 2026-10-03T00:00:00Z") {
+		t.Fatalf("code %d, stdout %q, stderr %q", code, out, errb)
+	}
+	if _, out, _ = e.run("cra", "status"); !strings.Contains(out, "early-warning fait 2026-10-02T10:00:00Z, en retard (échéance 2026-10-02T00:00:00Z)") {
+		t.Fatalf("FR : %q", out)
+	}
+}
+
+// TestCRAScanFailOnList : --fail-on accepte une liste ; seules les
+// catégories listées donnent le code 7.
+func TestCRAScanFailOnList(t *testing.T) {
+	e := newEnv(t, nil, "eu")
+	e.craDossier("pkg:npm/left@1.0.0", "pkg:npm/mid@1.0.0", "")
+	e.craDB(time.Now(), map[string][]string{"npm": {craLeftDoc, `{"id":"GHSA-9","summary":"unknown","affected":[{"package":{"ecosystem":"npm","name":"mid"}}]}`}})
+	e.writeFile(filepath.Join(e.wd, "cra", "vex.cdx.json"), `{"bomFormat":"CycloneDX","specVersion":"1.5","vulnerabilities":[{"id":"GHSA-1","analysis":{"state":"not_affected","justification":"code_not_reachable"},"affects":[{"ref":"pkg:npm/left@1.0.0"}]}]}`)
+	for _, c := range []struct {
+		fail string
+		code int
+	}{
+		{"open", 0}, {"to_verify", 7}, {"unchecked", 7}, {"conflicts", 0},
+		{"open,conflicts", 0}, {"open, unchecked", 7}, {"open,to_verify,unchecked", 7},
+	} {
+		if code, _, errb := e.run("cra", "scan", "--fail-on", c.fail); code != c.code {
+			t.Errorf("--fail-on %s : code %d, stderr %q", c.fail, code, errb)
+		}
+	}
+	for _, bad := range []string{"open,bogus", ",", "Open"} {
+		if code, _, errb := e.run("cra", "scan", "--fail-on", bad); code != 1 || !strings.Contains(errb, "cra: --fail-on must be a comma-separated list of open, to_verify, unchecked, conflicts") {
+			t.Errorf("--fail-on %q : code %d, stderr %q", bad, code, errb)
+		}
 	}
 }

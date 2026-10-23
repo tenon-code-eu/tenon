@@ -12,6 +12,8 @@ const (
 	StatusOverdue = "overdue"
 	StatusDone    = "done"
 	StatusUnknown = "unknown"
+	// StatusDoneLate : étape faite après son échéance.
+	StatusDoneLate = "done_late"
 )
 
 // Deadline est l'échéance d'une étape de signalement.
@@ -47,6 +49,8 @@ func Deadlines(r Report, now time.Time) []Deadline {
 	mk := func(step string, due, done *time.Time) Deadline {
 		d := Deadline{Step: step, Due: due, Done: done}
 		switch {
+		case done != nil && due != nil && done.After(*due):
+			d.Status = StatusDoneLate
 		case done != nil:
 			d.Status = StatusDone
 		case due == nil:

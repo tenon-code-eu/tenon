@@ -31,6 +31,8 @@ type SessionStartedPayload struct {
 
 // CRAScanPayload résume un scan CRA (tenon cra scan) : SBOM, composants et
 // constats par statut VEX ; DBDate est la date (RFC 3339) de la base OSV.
+// Unchecked compte les composants non vérifiés (purl absent, illisible ou de
+// type non pris en charge) et Conflicts les conflits VEX/OSV.
 type CRAScanPayload struct {
 	SBOMs       int    `json:"sboms"`
 	Components  int    `json:"components"`
@@ -39,6 +41,8 @@ type CRAScanPayload struct {
 	NotAffected int    `json:"not_affected"`
 	Fixed       int    `json:"fixed"`
 	DBDate      string `json:"db_date"`
+	Unchecked   int    `json:"unchecked,omitempty"`
+	Conflicts   int    `json:"conflicts,omitempty"`
 }
 
 // CRAReportPayload enregistre une étape d'un signalement CRA : Step vaut

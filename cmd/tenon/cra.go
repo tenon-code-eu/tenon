@@ -26,9 +26,51 @@ import (
 	"github.com/tenon-code-eu/tenon/internal/profile"
 )
 
-// Codes de sortie propres à « tenon cra » : 7 pour une vulnérabilité ouverte
-// (scan --fail-on open) ou une échéance dépassée (status).
+// Codes de sortie propres à « tenon cra » : 7 pour une catégorie listée par
+// scan --fail-on non nulle, ou une échéance dépassée (status).
 const craExitFinding = 7
+
+// craFailOn : catégories acceptées par scan --fail-on.
+var craFailOn = []string{scan.StatusOpen, scan.StatusToVerify, "unchecked", "conflicts"}
+
+// parseFailOn lit la liste séparée par des virgules de --fail-on ; vide : aucune.
+func parseFailOn(v string) (map[string]bool, error) {
+	out := map[string]bool{}
+	if v == "" {
+		return out, nil
+	}
+	bad := errors.New("cra: --fail-on must be a comma-separated list of " + strings.Join(craFailOn, ", "))
+	for _, p := range strings.Split(v, ",") {
+		p = strings.TrimSpace(p)
+		ok := false
+		for _, c := range craFailOn {
+			ok = ok || p == c
+		}
+		if !ok {
+			return nil, bad
+		}
+		out[p] = true
+	}
+	return out, nil
+}
+
+// failOnHit indique qu'une catégorie listée est non nulle.
+func failOnHit(cats map[string]bool, res scan.Result) bool {
+	return (cats[scan.StatusOpen] && res.Open > 0) || (cats[scan.StatusToVerify] && res.ToVerify > 0) ||
+		(cats["unchecked"] && res.Unchecked > 0) || (cats["conflicts"] && res.Conflicts > 0)
+}
+
+// scanPayload résume un scan pour l'événement CRAScan.
+func scanPayload(res scan.Result, dbDate time.Time) event.CRAScanPayload {
+	p := event.CRAScanPayload{
+		SBOMs: res.SBOMs, Components: res.Components, Open: res.Open, ToVerify: res.ToVerify,
+		NotAffected: res.NotAffected, Fixed: res.Fixed, Unchecked: res.Unchecked, Conflicts: res.Conflicts,
+	}
+	if !dbDate.IsZero() {
+		p.DBDate = dbDate.UTC().Format(time.RFC3339)
+	}
+	return p
+}
 
 // craOldDB : au-delà, la base OSV locale fait l'objet d'un avis.
 const craOldDB = 7 * 24 * time.Hour
@@ -339,8 +381,9 @@ func (c craEnv) scan(args []string) int {
 	if _, code, ok := c.parse(fs, args, 0); !ok {
 		return code
 	}
-	if *failOn != "" && *failOn != scan.StatusOpen {
-		return c.fail(errors.New("cra: --fail-on must be open"))
+	cats, err := parseFailOn(*failOn)
+	if err != nil {
+		return c.fail(err)
 	}
 	s, err := loadSetup(c.lang, c.getenv, c.wd, c.globalPath)
 	if err != nil {
@@ -390,17 +433,10 @@ func (c craEnv) scan(args []string) int {
 	} else {
 		c.printScan(res, dbDate)
 	}
-	payload := event.CRAScanPayload{
-		SBOMs: res.SBOMs, Components: res.Components, Open: res.Open, ToVerify: res.ToVerify,
-		NotAffected: res.NotAffected, Fixed: res.Fixed,
-	}
-	if !dbDate.IsZero() {
-		payload.DBDate = dbDate.UTC().Format(time.RFC3339)
-	}
-	if err := craJournal(s, c.getenv, c.wd, event.CRAScan, payload); err != nil {
+	if err := craJournal(s, c.getenv, c.wd, event.CRAScan, scanPayload(res, dbDate)); err != nil {
 		return c.fail(err)
 	}
-	if *failOn == scan.StatusOpen && res.Open > 0 {
+	if failOnHit(cats, res) {
 		return craExitFinding
 	}
 	return 0
@@ -612,6 +648,8 @@ func (c craEnv) printDeadlines(r dossier.Report, now time.Time) bool {
 		switch d.Status {
 		case dossier.StatusDone:
 			l = i18n.T(c.lang, "cra.deadline_done", d.Step, d.Done.UTC().Format(time.RFC3339))
+		case dossier.StatusDoneLate:
+			l = i18n.T(c.lang, "cra.deadline_done_late", d.Step, d.Done.UTC().Format(time.RFC3339), d.Due.UTC().Format(time.RFC3339))
 		case dossier.StatusOverdue:
 			overdue = true
 			l = i18n.T(c.lang, "cra.deadline_overdue", d.Step, d.Due.UTC().Format(time.RFC3339))
@@ -626,7 +664,8 @@ func (c craEnv) printDeadlines(r dossier.Report, now time.Time) bool {
 }
 
 // status affiche la complétude du dossier, le dernier scan et les échéances.
-// Codes : 0 ; 7 si une échéance est dépassée ; 1 si le dossier ne se charge pas.
+// Codes : 0 ; 7 si une échéance est dépassée ; 1 si le dossier ne se charge
+// pas ou qu'un SBOM listé est absent ou invalide (l'emporte sur 7).
 func (c craEnv) status(args []string) int {
 	fs := c.flags("status")
 	if _, code, ok := c.parse(fs, args, 0); !ok {
@@ -639,7 +678,10 @@ func (c craEnv) status(args []string) int {
 	now := time.Now()
 	p := d.Product
 	fmt.Fprintln(c.stdout, stripControl(i18n.T(c.lang, "cra.status_product", p.Name, p.Version, p.Category)))
+	// Un SBOM absent ou invalide rend le dossier invalide : code 1 à la fin.
+	sbomBad := false
 	if paths, err := d.SBOMPaths(); err != nil {
+		sbomBad = true
 		fmt.Fprintln(c.stdout, stripControl(i18n.T(c.lang, "cra.status_sbom_missing", err)))
 	} else {
 		valid := 0
@@ -652,6 +694,8 @@ func (c craEnv) status(args []string) int {
 		}
 		if valid == len(paths) {
 			fmt.Fprintln(c.stdout, i18n.T(c.lang, "cra.status_sbom_ok", valid))
+		} else {
+			sbomBad = true
 		}
 	}
 	if _, err := os.Stat(filepath.Join(c.wd, "cra", "vex.cdx.json")); err != nil {
@@ -673,6 +717,9 @@ func (c craEnv) status(args []string) int {
 			overdue = true
 		}
 	}
+	if sbomBad {
+		return 1
+	}
 	if overdue {
 		return craExitFinding
 	}
@@ -681,11 +728,12 @@ func (c craEnv) status(args []string) int {
 
 // lastScanLine décrit le dernier CRAScan du journal pour ce projet. Au niveau
 // d'audit metadata, les charges sont des empreintes : le projet ne peut être
-// vérifié et seule la date est connue.
+// vérifié (« projet inconnu ») et seule la date est connue.
 func (c craEnv) lastScanLine() string {
 	type sess struct{ readable, match bool }
 	sessions := map[string]sess{}
 	var last *audit.Line
+	lastReadable := false
 	_ = audit.ReadLines(auditDir(config.DataDir(c.getenv)), func(_ string, _ int, l audit.Line, err error) error {
 		if err != nil {
 			return nil
@@ -700,6 +748,7 @@ func (c craEnv) lastScanLine() string {
 			if s, ok := sessions[l.Session]; ok && s.match {
 				l := l
 				last = &l
+				lastReadable = s.readable
 			}
 		}
 		return nil
@@ -711,6 +760,9 @@ func (c craEnv) lastScanLine() string {
 	if t, err := time.Parse(time.RFC3339Nano, last.TS); err == nil {
 		date = t.UTC().Format(time.RFC3339)
 	}
+	if !lastReadable {
+		return i18n.T(c.lang, "cra.status_scan_unknown_project", date)
+	}
 	var probe map[string]json.RawMessage
 	var p event.CRAScanPayload
 	if json.Unmarshal(last.Payload, &probe) != nil || probe["open"] == nil || json.Unmarshal(last.Payload, &p) != nil {
@@ -719,8 +771,10 @@ func (c craEnv) lastScanLine() string {
 	return i18n.T(c.lang, "cra.status_scan", date, p.Open, p.ToVerify)
 }
 
-// export écrit le dossier technique (HTML et JSON). Le scan est joint quand la
-// base OSV est disponible ; sinon l'export se fait sans scan, avec un avis.
+// export écrit le dossier technique (HTML et JSON). Le scan est joint (et
+// inscrit au journal, CRAScan) quand la base OSV est disponible ; sinon
+// l'export se fait sans scan, avec un avis. Un SBOM absent ou invalide rend
+// le dossier invalide : code 1.
 func (c craEnv) export(args []string) int {
 	fs := c.flags("export")
 	out := fs.String("out", "", i18n.T(c.lang, "flag.export_out"))
@@ -741,31 +795,39 @@ func (c craEnv) export(args []string) int {
 	if err != nil {
 		return c.fail(err)
 	}
+	boms, err := readBOMs(d)
+	if err != nil {
+		return c.fail(err)
+	}
+	s, err := loadSetup(c.lang, c.getenv, c.wd, c.globalPath)
+	if err != nil {
+		fmt.Fprintln(c.stderr, i18n.T(c.lang, "err.prefix", err))
+		return 1
+	}
 	var res *scan.Result
-	notice := "cra: export without vulnerability scan (run tenon cra db update)"
-	if _, err := d.SBOMPaths(); err != nil {
-		notice = "cra: export without vulnerability scan (no SBOM found)"
-	} else {
-		boms, err := readBOMs(d)
-		if err != nil {
-			return c.fail(err)
-		}
-		db, err := openDB(c.getenv)
-		if err == nil {
-			var r scan.Result
-			r, err = scan.Run(d, boms, db)
-			res = &r
-		}
-		var noDB *scan.NoDBError
-		if errors.As(err, &noDB) {
-			res, err = nil, nil
-		}
-		if err != nil {
-			return c.fail(err)
-		}
+	db, err := openDB(c.getenv)
+	if err == nil {
+		var r scan.Result
+		r, err = scan.Run(d, boms, db)
+		res = &r
+	}
+	var noDB *scan.NoDBError
+	if errors.As(err, &noDB) {
+		res, err = nil, nil
+	}
+	if err != nil {
+		return c.fail(err)
 	}
 	if res == nil {
-		fmt.Fprintln(c.stderr, notice)
+		fmt.Fprintln(c.stderr, "cra: export without vulnerability scan (run tenon cra db update)")
+	} else {
+		dbDate := res.DBDate
+		if dbDate.IsZero() {
+			dbDate, _ = db.OldestDate()
+		}
+		if err := craJournal(s, c.getenv, c.wd, event.CRAScan, scanPayload(*res, dbDate)); err != nil {
+			return c.fail(err)
+		}
 	}
 	now := exportNow().UTC()
 	dos, err := report.Build(d, res, now)
