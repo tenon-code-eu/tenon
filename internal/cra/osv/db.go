@@ -29,8 +29,10 @@ type indexEntry struct {
 	Entries int    `json:"entries"`
 }
 
-// DB est une base OSV locale ; les archives sont chargées à la demande, une
-// fois par écosystème. Sûre pour un usage concurrent.
+// DB est une base OSV locale ; les archives sont chargées à la demande, par
+// écosystème, en ne gardant que les entrées des paquets demandés (MatchAll
+// demande d'un coup tous les noms des composants ; un nom nouveau relit
+// l'archive pour l'union des noms). Sûre pour un usage concurrent.
 type DB struct {
 	dir   string
 	index map[string]indexEntry
@@ -42,8 +44,23 @@ type DB struct {
 }
 
 // ecoIndex associe un nom de paquet OSV (normalisé) aux entrées qui le citent.
+// names : noms demandés à la lecture ; kept : entrées gardées.
 type ecoIndex struct {
+	names  map[string]bool
 	byName map[string][]*entry
+	kept   int
+}
+
+// header est l'en-tête minimal d'une entrée OSV, décodé pour toutes les
+// entrées afin de décider lesquelles garder.
+type header struct {
+	Withdrawn string `json:"withdrawn"`
+	Affected  []struct {
+		Package struct {
+			Ecosystem string `json:"ecosystem"`
+			Name      string `json:"name"`
+		} `json:"package"`
+	} `json:"affected"`
 }
 
 // entry ne garde que les champs utiles d'une entrée OSV.
@@ -122,22 +139,40 @@ func (db *DB) OldestDate() (time.Time, bool) {
 	return oldest, found
 }
 
-// load renvoie l'index d'un écosystème, en lisant son archive au premier appel.
+// load renvoie l'index d'un écosystème couvrant les noms demandés : l'archive
+// est lue au premier appel, puis relue pour l'union des noms si un nom manque.
 // Un échec est mémorisé : une archive illisible le reste pour toute la session.
-func (db *DB) load(eco string) (*ecoIndex, error) {
+func (db *DB) load(eco string, names map[string]bool) (*ecoIndex, error) {
 	db.mu.Lock()
 	defer db.mu.Unlock()
-	if ix, ok := db.ecos[eco]; ok {
-		return ix, nil
-	}
 	if err, ok := db.fails[eco]; ok {
 		return nil, err
+	}
+	want := names
+	if ix, ok := db.ecos[eco]; ok {
+		covered := true
+		for n := range names {
+			if !ix.names[n] {
+				covered = false
+				break
+			}
+		}
+		if covered {
+			return ix, nil
+		}
+		want = make(map[string]bool, len(ix.names)+len(names))
+		for n := range ix.names {
+			want[n] = true
+		}
+		for n := range names {
+			want[n] = true
+		}
 	}
 	ie, ok := db.index[eco]
 	if !ok {
 		return nil, fmt.Errorf("cra: osv: %s: %w", eco, ErrNoArchive)
 	}
-	ix, err := readArchive(filepath.Join(db.dir, eco, "all.zip"), eco, ie.SHA256)
+	ix, err := readArchive(filepath.Join(db.dir, eco, "all.zip"), eco, ie.SHA256, want)
 	if err != nil {
 		err = fmt.Errorf("cra: osv: %s: unreadable archive: %w", eco, err)
 		db.fails[eco] = err
@@ -147,9 +182,11 @@ func (db *DB) load(eco string) (*ecoIndex, error) {
 	return ix, nil
 }
 
-// readArchive vérifie l'empreinte (si l'index en donne une) puis indexe les
-// entrées JSON de l'archive par nom de paquet de l'écosystème.
-func readArchive(path, eco, sum string) (*ecoIndex, error) {
+// readArchive vérifie l'empreinte de toute l'archive (si l'index en donne
+// une), décode l'en-tête de chaque entrée JSON et n'indexe, par nom de paquet
+// de l'écosystème, que les entrées qui citent un des noms demandés. Une erreur
+// JSON dans n'importe quelle entrée rend l'archive illisible (échec fermé).
+func readArchive(path, eco, sum string, names map[string]bool) (*ecoIndex, error) {
 	if sum != "" {
 		f, err := os.Open(path)
 		if err != nil {
@@ -170,44 +207,64 @@ func readArchive(path, eco, sum string) (*ecoIndex, error) {
 		return nil, err
 	}
 	defer func() { _ = zr.Close() }()
-	ix := &ecoIndex{byName: map[string][]*entry{}}
+	ix := &ecoIndex{names: names, byName: map[string][]*entry{}}
 	for _, zf := range zr.File {
 		if zf.FileInfo().IsDir() || !strings.HasSuffix(zf.Name, ".json") {
 			continue
 		}
-		e, err := readEntry(zf)
+		data, err := readFile(zf)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", zf.Name, err)
 		}
-		if e.Withdrawn != "" {
+		var h header
+		if err := json.Unmarshal(data, &h); err != nil {
+			return nil, fmt.Errorf("%s: %w", zf.Name, err)
+		}
+		if h.Withdrawn != "" {
 			continue
 		}
-		seen := map[string]bool{}
-		for _, a := range e.Affected {
+		var hit []string
+		for _, a := range h.Affected {
 			if a.Package.Ecosystem != eco {
 				continue
 			}
-			n := normName(eco, a.Package.Name)
-			if !seen[n] {
-				seen[n] = true
-				ix.byName[n] = append(ix.byName[n], e)
+			if n := normName(eco, a.Package.Name); names[n] && !contains(hit, n) {
+				hit = append(hit, n)
 			}
+		}
+		if len(hit) == 0 {
+			continue
+		}
+		// Décodage complet des seules entrées gardées.
+		e := &entry{}
+		if err := json.Unmarshal(data, e); err != nil {
+			return nil, fmt.Errorf("%s: %w", zf.Name, err)
+		}
+		ix.kept++
+		for _, n := range hit {
+			ix.byName[n] = append(ix.byName[n], e)
 		}
 	}
 	return ix, nil
 }
 
-func readEntry(zf *zip.File) (*entry, error) {
+// readFile lit une entrée de l'archive.
+func readFile(zf *zip.File) ([]byte, error) {
 	rc, err := zf.Open()
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = rc.Close() }()
-	var e entry
-	if err := json.NewDecoder(rc).Decode(&e); err != nil {
-		return nil, err
+	return io.ReadAll(rc)
+}
+
+func contains(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
+		}
 	}
-	return &e, nil
+	return false
 }
 
 var pypiSep = regexp.MustCompile(`[-_.]+`)

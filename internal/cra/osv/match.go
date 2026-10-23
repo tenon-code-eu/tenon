@@ -38,13 +38,15 @@ const (
 // n'est pas rapproché (nil, nil) : il est signalé à part par l'appelant.
 // Un écosystème absent de la base renvoie ErrNoArchive ; une archive
 // illisible, une erreur nommant l'écosystème. Jamais de « aucune
-// vulnérabilité » silencieux.
+// vulnérabilité » silencieux. Appelé seul, Match charge l'archive pour ce
+// seul nom (relue à chaque nom nouveau) : pour un SBOM, préférer MatchAll.
 func (db *DB) Match(c sbom.Component) ([]Finding, error) {
 	p, eco, ok := parse(c)
 	if !ok {
 		return nil, nil
 	}
-	ix, err := db.load(eco)
+	name := p.OSVName()
+	ix, err := db.load(eco, map[string]bool{name: true})
 	if err != nil {
 		return nil, err
 	}
@@ -53,7 +55,6 @@ func (db *DB) Match(c sbom.Component) ([]Finding, error) {
 		ver = c.Version
 	}
 	cmp, hasCmp := version.For(eco)
-	name := p.OSVName()
 	// OSV indexe stdlib et toolchain Go sans le préfixe « go » (go1.22.1 → 1.22.1).
 	if eco == "Go" && (name == "stdlib" || name == "toolchain") {
 		ver = strings.TrimPrefix(ver, "go")
@@ -85,8 +86,28 @@ func (db *DB) Match(c sbom.Component) ([]Finding, error) {
 
 // MatchAll rapproche tous les composants ; un composant présent plusieurs fois
 // dans le SBOM (même purl hors qualificatifs, même version) n'est rapporté
-// qu'une fois par vulnérabilité, avec sa première occurrence.
+// qu'une fois par vulnérabilité, avec sa première occurrence. Chaque archive
+// est lue une fois, pour l'ensemble des noms OSV des composants de son
+// écosystème (dans l'ordre de première apparition des écosystèmes).
 func (db *DB) MatchAll(cs []sbom.Component) ([]Finding, error) {
+	var ecos []string
+	names := map[string]map[string]bool{}
+	for _, c := range cs {
+		p, eco, ok := parse(c)
+		if !ok {
+			continue
+		}
+		if names[eco] == nil {
+			names[eco] = map[string]bool{}
+			ecos = append(ecos, eco)
+		}
+		names[eco][p.OSVName()] = true
+	}
+	for _, eco := range ecos {
+		if _, err := db.load(eco, names[eco]); err != nil {
+			return nil, err
+		}
+	}
 	seen := map[string]bool{}
 	var out []Finding
 	for _, c := range cs {

@@ -500,3 +500,36 @@ func TestMatchGoStdFromCycloneDXGomod(t *testing.T) {
 		t.Fatalf("std corrigée : %v", m)
 	}
 }
+
+// TestLoadKeepsOnlySBOMNames : seules les entrées des paquets du SBOM sont
+// gardées en mémoire ; l'appariement est inchangé et une entrée illisible,
+// même d'un autre paquet, rend l'écosystème illisible.
+func TestLoadKeepsOnlySBOMNames(t *testing.T) {
+	doc := func(id, name string) string {
+		return `{"id":"` + id + `","affected":[{"package":{"ecosystem":"npm","name":"` + name + `"},"ranges":[{"type":"SEMVER","events":[{"introduced":"0"},{"fixed":"2.0.0"}]}]}]}`
+	}
+	db := open(t, map[string][]string{"npm": {doc("A-1", "left"), doc("B-1", "right"), doc("C-1", "other"), doc("C-2", "other")}})
+	fs, err := db.MatchAll([]sbom.Component{comp("pkg:npm/left@1.0.0"), comp("pkg:npm/left@1.5.0")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fs) != 2 || fs[0].ID != "A-1" || fs[1].ID != "A-1" {
+		t.Fatalf("constats %+v", fs)
+	}
+	ix := db.ecos["npm"]
+	if ix == nil || ix.kept != 1 || len(ix.byName) != 1 || ix.byName["left"] == nil {
+		t.Fatalf("index : %+v", ix)
+	}
+	// Un nouveau nom relit l'archive (union des noms demandés).
+	if m := states(t, db, comp("pkg:npm/right@1.0.0")); m["B-1"] != StateAffected {
+		t.Fatalf("right : %v", m)
+	}
+	if ix := db.ecos["npm"]; ix.kept != 2 || ix.byName["other"] != nil {
+		t.Fatalf("index après union : kept %d, noms %d", ix.kept, len(ix.byName))
+	}
+	// Échec fermé : une entrée illisible d'un autre paquet.
+	db = open(t, map[string][]string{"npm": {doc("A-1", "left"), `{"id":"X","affected":[{"package":`}})
+	if _, err := db.MatchAll([]sbom.Component{comp("pkg:npm/left@1.0.0")}); err == nil || !strings.Contains(err.Error(), "npm") {
+		t.Fatalf("JSON invalide hors SBOM : %v", err)
+	}
+}
