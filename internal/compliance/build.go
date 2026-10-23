@@ -10,6 +10,7 @@ import (
 
 	"github.com/tenon-code-eu/tenon/internal/audit"
 	"github.com/tenon-code-eu/tenon/internal/event"
+	"github.com/tenon-code-eu/tenon/internal/llm"
 )
 
 // clean masque un texte issu du journal puis remplace ses caractères de
@@ -56,6 +57,16 @@ type builder struct {
 	filePaths []string                   // session et chemin bruts de chaque r.Files, pour les rewinds
 	subagents map[sessKey]int            // appel "agent" → indice dans r.Subagents
 	sandbox   map[string]*SessionSandbox // résumé sandbox par session
+	routing   map[string]*routingState   // routage par session
+}
+
+// routingState suit le routage d'une session pendant la lecture du journal.
+type routingState struct {
+	SessionRouting
+	started     bool // SessionStarted vu
+	startRemote bool // le fournisseur de départ n'est pas local
+	selected    bool // au moins un ProviderSelected
+	hasRouting  bool // [routing] déclaré au démarrage
 }
 
 // mapping est la table de correspondance réglementaire, fixe et sans numéro d'article.
@@ -216,6 +227,7 @@ func Build(ds Dataset, o Options) Report {
 		commands:  map[string]*SessionCommands{},
 		subagents: map[sessKey]int{},
 		sandbox:   map[string]*SessionSandbox{},
+		routing:   map[string]*routingState{},
 	}
 	for _, l := range ds.Lines {
 		if IsMetadataPayload(l.Payload) {
@@ -226,6 +238,7 @@ func Build(ds Dataset, o Options) Report {
 	b.finish()
 	b.providers()
 	b.sandboxes()
+	b.routings()
 	r.Profiles = profilesOf(ds, o)
 	r.Policies = policiesOf(ds, o)
 	if o.Details {
@@ -445,8 +458,36 @@ func (b *builder) line(l audit.Line) {
 		}
 	case event.SessionStarted:
 		var p event.SessionStartedPayload
-		if decode(l, &p) && p.Sandbox != nil {
-			b.sessionSandbox(l.Session).setInfo(*p.Sandbox, o)
+		if decode(l, &p) {
+			if p.Sandbox != nil {
+				b.sessionSandbox(l.Session).setInfo(*p.Sandbox, o)
+			}
+			rs := b.sessionRouting(l.Session)
+			rs.started = true
+			rs.startRemote = p.Provider.Jurisdiction != llm.Local
+			rs.hasRouting = rs.hasRouting || p.Routing != nil
+			rs.addProvider(o.clean(p.Provider.ID))
+		}
+	case event.SessionClassified:
+		var p event.SessionClassifiedPayload
+		if decode(l, &p) {
+			if rs := b.sessionRouting(l.Session); !rs.Sensitive {
+				rs.Sensitive, rs.Reason = true, o.clean(p.Reason)
+			}
+		}
+	case event.ProviderSelected:
+		var p event.ProviderSelectedPayload
+		if decode(l, &p) {
+			rs := b.sessionRouting(l.Session)
+			rs.selected = true
+			rs.addProvider(o.clean(p.Provider.ID))
+			if p.Reason == "fallback" {
+				rs.Fallbacks++
+			}
+			// Violation : un fournisseur non local après le classement.
+			if rs.Sensitive && p.Provider.Jurisdiction != llm.Local {
+				rs.Violation = true
+			}
 		}
 	case event.ToolResult:
 		var p event.ToolResultPayload
@@ -827,4 +868,41 @@ func (b *builder) sandboxes() {
 		b.r.Sandbox = append(b.r.Sandbox, *s)
 	}
 	sort.Slice(b.r.Sandbox, func(i, j int) bool { return b.r.Sandbox[i].Session < b.r.Sandbox[j].Session })
+}
+
+// sessionRouting renvoie (en le créant) le suivi de routage d'une session.
+func (b *builder) sessionRouting(sid string) *routingState {
+	s := b.routing[sid]
+	if s == nil {
+		s = &routingState{SessionRouting: SessionRouting{Session: b.o.clean(sid), Providers: []string{}}}
+		b.routing[sid] = s
+	}
+	return s
+}
+
+// addProvider retient un fournisseur à sa première utilisation.
+func (s *routingState) addProvider(id string) {
+	for _, p := range s.Providers {
+		if p == id {
+			return
+		}
+	}
+	s.Providers = append(s.Providers, id)
+}
+
+// routings publie les sessions concernées par le routage, triées ; les
+// journaux sans classement, sans [routing] ni ProviderSelected n'en ont pas.
+func (b *builder) routings() {
+	for _, s := range b.routing {
+		if !s.Sensitive && !s.hasRouting && !s.selected {
+			continue
+		}
+		// Session sensible démarrée à distance et jamais routée : impossible
+		// en fonctionnement normal, donc signalée.
+		if s.Sensitive && !s.selected && s.started && s.startRemote {
+			s.Violation = true
+		}
+		b.r.Routing = append(b.r.Routing, s.SessionRouting)
+	}
+	sort.Slice(b.r.Routing, func(i, j int) bool { return b.r.Routing[i].Session < b.r.Routing[j].Session })
 }

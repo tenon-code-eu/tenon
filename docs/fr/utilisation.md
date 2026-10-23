@@ -20,6 +20,7 @@ Pour un exemple de configuration commenté, voir [config.example.toml](../config
 - [Points de restauration](#points-de-restauration)
 - [Isolation système](#isolation-système)
 - [Fournisseurs et juridictions](#fournisseurs-et-juridictions)
+- [Routage par sensibilité des données](#routage-par-sensibilité-des-données)
 - [Profils de conformité](#profils-de-conformité)
 - [Clés d'API et trousseau](#clés-dapi-et-trousseau)
 - [Serveurs MCP](#serveurs-mcp)
@@ -184,7 +185,7 @@ Pour les pipelines (GitLab CI, Forgejo/Gitea, GitHub Actions), voir [tenon en CI
 |---|---|
 | `0` | Tour terminé. Un tour arrêté par la limite d'itérations ou une réponse incomplète donne aussi 0, avec un message. |
 | `1` | Erreur : configuration, clé absente, fournisseur, contexte trop volumineux, option invalide. |
-| `3` | Une action a été refusée (validation impossible, règle `deny`) ou l'envoi au fournisseur a été bloqué (juridiction). |
+| `3` | Une action a été refusée (validation impossible, règle `deny`, contenu classé sans fournisseur local) ou l'envoi au fournisseur a été bloqué (juridiction, classification). |
 | `4` | Avec `--strict` : le tour s'est terminé par `max_iterations`, `incomplete`, `stopped_by_hook` ou `cancelled`. La ligne `strict : tour terminé avec <raison>` va sur la sortie d'erreur (sortie texte seulement). Le code 3 l'emporte sur 4, et le code 1 l'emporte sur les deux. |
 | `130` | Second Ctrl+C : sortie immédiate. Le premier annule le tour. |
 
@@ -258,7 +259,8 @@ Un dépôt peut être hostile. Sa configuration est donc limitée à :
 - des règles de permission `deny` et `ask` ;
 - des règles de masquage `[[redaction.rules]]` ;
 - `profile` et `provider_allowlist` : tous deux en restriction seule (le projet peut relever le profil ou réduire la liste blanche, jamais les assouplir) ;
-- `[sandbox]` : seulement `mode = "required"` et `deny_read` (voir [Isolation système](#isolation-système)).
+- `[sandbox]` : seulement `mode = "required"` et `deny_read` (voir [Isolation système](#isolation-système)) ;
+- `[classification]` : `paths` et `markers` s'ajoutent à ceux de la configuration globale, sans jamais en retirer (voir [Routage par sensibilité des données](#routage-par-sensibilité-des-données)).
 
 Les erreurs du fichier projet sont préfixées par `project config:`.
 
@@ -268,7 +270,8 @@ Elle **ne peut pas** :
 - choisir ou déclarer un fournisseur ;
 - déclarer un serveur MCP ;
 - changer le niveau d'audit, les délais ou les limites ;
-- désactiver l'isolation, ajouter des chemins inscriptibles (`write`) ou accorder le réseau à une règle (`network = true`).
+- désactiver l'isolation, ajouter des chemins inscriptibles (`write`) ou accorder le réseau à une règle (`network = true`) ;
+- définir `[routing]` (refusé : `config: routing not allowed in project configuration`).
 
 Les règles du projet s'ajoutent aux règles globales.
 Une règle `deny` du projet bloque toujours l'appel.
@@ -1062,6 +1065,104 @@ model = "qwen3:8b"          # context_window absent : lu sur le serveur
 jurisdiction = "local"
 ```
 
+## Routage par sensibilité des données
+
+Le contenu classé ne quitte jamais la machine : il n'est envoyé qu'à un modèle local.
+Le reste part vers les fournisseurs configurés, avec une bascule ordonnée en cas de panne.
+
+Chaque requête renvoie tout l'historique : la sensibilité est donc un état de la session, pas d'une requête. Dès qu'un contenu classé est entré dans l'historique, toutes les requêtes suivantes le transportent.
+La session devient **sensible** (une fois, définitivement) et n'est plus envoyée qu'au fournisseur `routing.local`.
+
+### Configuration
+
+```toml
+[classification]
+paths = ["rh/**", "contrats/**", "*.dr.md"]    # relatifs à la racine du projet
+markers = ["C2 - Interne"]                      # en plus des marquages intégrés
+
+[routing]
+local = "ollama"                                # fournisseur du contenu sensible
+fallback = ["mistral", "scaleway", "ovhcloud"]  # bascule ordonnée pour le reste
+```
+
+- **Marquages intégrés**, toujours actifs : `DIFFUSION RESTREINTE`, `SPÉCIAL FRANCE`, `SPECIAL FRANCE`, `RESTREINT UE`, `EU RESTRICTED`.
+- **Correspondance des marquages** : insensible à la casse et aux accents (accents décomposés compris), suites d'espaces (retours à la ligne compris) réduites à un espace, phrase entière avec bornes de mot aux deux extrémités (`DIFFUSION RESTREINTES` ne correspond pas).
+- **Motifs de chemins** : même syntaxe que les règles de permissions (`*` dans un segment, `**` sur plusieurs), comparés au chemin relatif à la racine résolue du projet ; les motifs absolus sont acceptés ; un chemin hors projet ne correspond jamais à un motif relatif. La comparaison ignore la casse sur tous les systèmes, et porte sur le chemin résolu comme sur le chemin lexical : un dossier classé atteint par un lien symbolique (même vers l'extérieur du projet) compte quand même.
+- `routing.local` doit désigner un fournisseur de juridiction `local` (`ollama`, `vllm`, ou un fournisseur que vous définissez), sinon `config: routing.local must name a local provider`. « Local » signifie un fournisseur sous votre contrôle : un fournisseur local sur un hôte non bouclé (par exemple `gpu.lan`) affiche une notice au démarrage. Le fournisseur local n'utilise jamais les variables d'environnement de proxy.
+- `routing.fallback` liste des identifiants de fournisseurs connus, sinon `config: routing.fallback: unknown provider "<id>"`.
+- `[routing]` est global seulement. Dans `.tenon/config.toml`, il est refusé ; `[classification]` y ajoute des entrées.
+- Une [politique d'organisation](politique.md) s'ajoute à `[classification]` et peut imposer `[routing] local`.
+- Sans `[routing]` : un seul fournisseur, aucune bascule, aucun fournisseur local. La classification s'applique quand même, avec les effets décrits plus bas.
+
+`tenon config check` affiche `classification : <n> chemins, <m> marquages` et `routage : local <id>, repli <ids>` (ou `routage : aucun`).
+
+### Quand une session devient sensible
+
+Avec un fournisseur local disponible, la session devient sensible quand :
+
+1. `read_file`, `write_file` ou `edit_file` touche un chemin classé, ou que son résultat ou son contenu porte un marquage ;
+2. `grep` renvoie un fichier classé (les fichiers du résultat sont vérifiés sur le disque) ou un marquage dans sa sortie ;
+3. une commande `shell` a un chemin classé parmi ses mots, ou que sa sortie porte un marquage ;
+4. le résultat d'un outil MCP porte un marquage ;
+5. un de vos messages porte un marquage, ou un texte de hook (retour de Stop, contexte de compaction, raisons de blocage d'un hook) ;
+6. le contrôle sortant trouve un marquage dans une requête sur le point de partir vers un fournisseur non local.
+
+`glob` ne rend jamais la session sensible : il ne renvoie que des noms, et il est exempté du contrôle sortant. Un marquage dans un *nom* de fichier peut donc atteindre un fournisseur distant.
+
+### Sans fournisseur local
+
+- Un appel d'outil sur un chemin classé est refusé avant exécution (`ToolResult` avec `denied: "classification"`, contenu `classified content requires a local provider (routing.local)`). En mode non interactif, cela donne le code de sortie 3.
+- Un marquage dans un résultat d'outil est remplacé par `[classified content withheld: no local provider]` avant d'entrer dans l'historique. La session ne devient pas sensible.
+- Un marquage dans votre message ou dans une requête bloque le tour (événement `Error`, `code: "classification"`, tour `blocked`).
+
+Une session sensible reprise dont le fournisseur local manque désormais ne peut pas continuer à distance : le premier envoi est bloqué.
+Lancer `--provider <local>` sans `[routing]` convient : la session est déjà locale, les lectures classées sont permises et il n'y a pas de bascule.
+
+### Routage et bascule
+
+Avant chaque envoi au modèle (tour, compaction, sous-agent) :
+
+- **session sensible** : `routing.local` uniquement. Un échec termine le tour en erreur ; jamais de bascule vers un fournisseur non local ;
+- **session normale** : le fournisseur courant (`--provider` ou `default_provider`), puis `routing.fallback` dans l'ordre ;
+- chaque candidat passe les garde-fous habituels (profil, liste blanche, politique, accord hors UE). Un candidat refusé est sauté avec une notice ; sans candidat, le tour est bloqué. `--allow-non-eu` consent à tous les candidats de repli ; sans lui, un candidat hors UE demande, et un accord refusé est retenu pour la session. Un tour bloqué uniquement à cause d'un accord refusé l'explique (événement `Error`, `code: "jurisdiction"`) ;
+- **déclencheurs de bascule** : fournisseur indisponible (après les propres nouvelles tentatives du fournisseur sur 429 et 5xx), erreur de connexion, aucun premier fragment en 60 secondes. Jamais après le premier fragment, jamais sur une erreur d'authentification ou de longueur de contexte, jamais sur un autre 4xx.
+
+### Ce que cela protège, et ce que cela ne protège pas
+
+Protégé : le contenu des chemins classés lu par les outils de tenon, et tout texte qui porte un marquage, dès qu'il passe par un des points d'entrée ci-dessus.
+
+Non protégé :
+
+- le contenu hors des chemins listés qui ne porte aucun marquage : tenon ne détecte ni données personnelles, ni secrets, ni identifiants ;
+- les marquages ne sont détectés que dans du texte (pas dans les images ni les fichiers binaires) ;
+- une commande shell qui lit des données classées sans nommer leur chemin (par une variable, un joker développé par le shell, des extraits de `head` ou `sed` qui ne contiennent pas la ligne du marquage) n'est rattrapée que si un marquage apparaît dans sa sortie. `~` et `$VAR` ne sont pas développés dans la correspondance des commandes ;
+- les marquages dans les définitions d'outils (descriptions MCP) ne sont pas analysés ;
+- un marquage dans un nom de fichier renvoyé par `glob`, comme ci-dessus.
+
+Voir [securite.md](securite.md#le-routage-par-sensibilité-et-ses-limites).
+
+### Notices
+
+| Message | Quand |
+|---|---|
+| `classification : session sensible (<raison>), routée vers <local>` | la session est devenue sensible (stderr en mode non interactif texte ; notice dans la TUI) |
+| `classification : session sensible (<raison>), aucun fournisseur local` | idem, sans fournisseur local |
+| `routage : échec de <de> (<erreur>), bascule vers <vers>` | une bascule a eu lieu |
+| `routage : fournisseur de repli « <id> » ignoré (<raison>)` | un candidat a été refusé par un garde-fou |
+| `routage : fournisseur local « <id> » indisponible (<raison>)` | le fournisseur local n'a pas pu être utilisé au démarrage |
+| `routage : le fournisseur local « <id> » utilise l'hôte non local « <hôte> »` | le fournisseur local n'est pas sur cette machine |
+| `politique <id> : routing.local imposé (<id>)` | une politique d'organisation a remplacé `routing.local` |
+
+La barre d'état de la TUI affiche `sensible → <local>` une fois la session sensible.
+
+### Dans le journal d'audit et l'export
+
+- `SessionClassified` (une fois par session) : `reason` (`path` ou `marker`), `source` (`tool`, `shell`, `mcp`, `user`, `outbound`), et `call_id`, `path`, `marker` selon le cas.
+- `ProviderSelected` : `provider` (avec sa juridiction), `reason` (`default`, `fallback`, `sensitive`) et `error` lors d'une bascule. Il est émis quand le fournisseur effectif change, premier envoi compris, et seulement quand le routage est actif.
+- `SessionStarted.routing` : `local` (vide si le fournisseur local était indisponible) et `fallback` ; omis sans `[routing]`.
+- `Error` avec `code: "classification"` ou `"jurisdiction"`, et résultats d'outils avec `denied: "classification"`.
+- L'[export de conformité](#export-de-conformité) a une ligne « Routage » (`Routing` en anglais) et une liste `routing`. Une **violation** est un `ProviderSelected` vers un fournisseur non local après le `SessionClassified` de la même session ; une session classée, jamais routée et démarrée sur un fournisseur non local est aussi signalée. Toute violation fait sortir `tenon audit export` avec le code 2.
+
 ## Profils de conformité
 
 Un profil restreint, pour toute l'exécution, ce que tenon peut envoyer et à qui.
@@ -1336,7 +1437,7 @@ Elle ne modifie pas le journal et ne le verrouille pas.
 |---|---|
 | 0 | rapport écrit, chaîne d'audit intacte |
 | 1 | erreur d'usage ou d'écriture, rien d'écrit |
-| 2 | rapport écrit, mais chaîne d'audit cassée ou jeton d'horodatage invalide ou orphelin : le rapport l'indique (bandeau ou ligne Horodatage) ; stderr affiche `horodatages invalides : <n> (rapport écrit)` pour les jetons |
+| 2 | rapport écrit, mais chaîne d'audit cassée, jeton d'horodatage invalide ou orphelin, ou violation du routage : le rapport l'indique (bandeau, ligne Horodatage ou ligne Routage) ; stderr affiche `horodatages invalides : <n> (rapport écrit)` pour les jetons et `violation du routage : une session sensible a atteint un fournisseur non local (rapport écrit)` pour le routage |
 
 ### Contenu du rapport
 
@@ -1349,6 +1450,7 @@ Elle ne modifie pas le journal et ne le verrouille pas.
 - **Fichiers modifiés** : date, session, chemin, outil, empreinte avant et après, auteur (`main` ou le sous-agent), absence éventuelle de point de restauration, et état laissé par un rewind ultérieur.
 - **Commandes** : nombre d'appels shell par session.
 - **Isolation** (`sandbox`, une liste ; omise pour les journaux écrits avant l'isolation) : par session, `mode`, `mechanism`, `network` (comme dans `SessionStarted.sandbox`), `unconfined` (résultats shell exécutés sans confinement) et `with_network` (résultats shell exécutés confinés **avec** réseau). Les deux compteurs ne se recouvrent jamais. La ligne HTML est « Isolation » (`Sandbox` en anglais), une entrée par session. Avec `audit.level = "metadata"`, le journal ne garde aucun contenu : la ligne est absente. Une session n'est listée que si son `SessionStarted` est dans la plage : une session reprise dont le `SessionStarted` précède `--since` n'est pas comptée.
+- **Routage** (`routing`, une liste ; omise pour les journaux sans classement, sans `[routing]` et sans `ProviderSelected`) : par session, `sensitive`, `reason` (`path` ou `marker`, omis si non sensible), `providers` (identifiants distincts des fournisseurs par ordre de première utilisation, en commençant par celui de `SessionStarted`), `fallbacks` (nombre de `ProviderSelected` de raison `fallback`) et `violation`. Voir [Routage par sensibilité des données](#routage-par-sensibilité-des-données). La ligne HTML est « Routage » (`Routing` en anglais). Absente avec `audit.level = "metadata"`.
 - **Sous-agents, hooks, rewinds** : exécutions de sous-agents, hooks qui ont bloqué, échoué, expiré ou demandé une confirmation, rewinds avec les fichiers restaurés, supprimés, conservés, ignorés, en échec ou inchangés.
 - **Incidents** : erreurs, tours terminés pour une raison notable (bloqué, arrêté par un hook, contexte trop grand, limite d'itérations, incomplet, annulé) et lignes illisibles du journal.
 - **Correspondance réglementaire** : quels éléments du rapport aident à documenter le RGPD, NIS2, DORA et l'AI Act. Elle ne cite aucun article.
@@ -1460,6 +1562,7 @@ Enveloppe :
 | `permissions` | liste | `tool` (chaîne), `requested`, `allowed_once`, `allowed_session`, `denied_user`, `denied_policy`, `denied_hook` (nombres) |
 | `files` | liste | `ts`, `session`, `path`, `tool`, `hash_before`, `hash_after`, `author`, `no_checkpoint` (booléen), `rewind_status` (omis si aucun rewind ne concerne le fichier) |
 | `commands` | liste | `session`, `count` ; `commands` (liste de chaînes) seulement avec `--details` |
+| `routing` | liste | omise si aucune session n'a de données de routage : `session` (chaîne), `sensitive` (booléen), `reason` (chaîne, omise si non sensible), `providers` (liste de chaînes), `fallbacks` (nombre), `violation` (booléen) |
 | `subagents` | liste | `ts`, `session`, `call_id`, `agent`, `status` |
 | `hooks` | liste | `ts`, `session`, `hook_id`, `event`, `status` ; `decision` et `reason` s'ils ne sont pas vides |
 | `rewinds` | liste | `ts`, `session`, `mode` (date et chaînes), `to_seq`, `restored`, `deleted`, `kept`, `skipped`, `failed`, `unchanged`, `untracked_calls` (nombres) |

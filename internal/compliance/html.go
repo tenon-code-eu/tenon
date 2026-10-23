@@ -37,6 +37,18 @@ func funcs(lang i18n.Lang) template.FuncMap {
 			}
 			return value
 		},
+		// routing résume le routage d'une session en une ligne.
+		"routing": func(s SessionRouting) string {
+			provs := strings.Join(s.Providers, ", ")
+			out := i18n.T(lang, "report.routing_plain", s.Session, provs, s.Fallbacks)
+			if s.Sensitive {
+				out = i18n.T(lang, "report.routing_sensitive", s.Session, s.Reason, provs, s.Fallbacks)
+			}
+			if s.Violation {
+				out += ", " + i18n.T(lang, "report.routing_violation")
+			}
+			return out
+		},
 		"date": func(t time.Time) string { return t.UTC().Format("2006-01-02 15:04") + " UTC" },
 		"day":  func(t time.Time) string { return t.UTC().Format("2006-01-02") },
 	}

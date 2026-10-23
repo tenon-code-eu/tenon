@@ -75,6 +75,14 @@ Conséquences dans tenon :
 - Les variables de secrets (`api_key_env` des fournisseurs et de tous les préréglages, `bearer_env`, `env_from`) ne sont pas transmises aux commandes, dans tous les modes (sous macOS, une commande peut encore les lire dans un autre processus, voir plus bas).
 - La façon dont chaque commande s'est exécutée est dans le journal d'audit (`ToolResult.sandbox`) et l'export de conformité. Voir [L'isolation système et ses limites](#lisolation-système-et-ses-limites) pour ce qui reste ouvert.
 
+### Routage par sensibilité des données
+
+- Avec `[classification]` (chemins et marquages ; les marquages intégrés comme `DIFFUSION RESTREINTE` et `EU RESTRICTED` sont toujours actifs) et `[routing] local`, une session qui touche du contenu classé devient sensible et n'est envoyée qu'au fournisseur local, compaction et sous-agents compris.
+- Sans fournisseur local, les appels d'outils sur des chemins classés sont refusés, les résultats d'outils marqués sont masqués, et un tour qui porte un marquage est bloqué (événement `Error`, `code: "classification"`).
+- Avant chaque envoi à un fournisseur non local, tenon cherche des marquages dans la requête (contrôle sortant) : une détection rend la session sensible et la réachemine, ou bloque le tour.
+- La bascule vers un autre fournisseur n'a lieu que pour une session normale, avant le premier fragment, et passe par les garde-fous de profil, de liste blanche, de politique et de consentement.
+- Les décisions sont dans le journal d'audit (`SessionClassified`, `ProviderSelected`) et l'export de conformité signale tout fournisseur non local atteint après le classement (code de sortie 2). Voir [utilisation.md](utilisation.md#routage-par-sensibilité-des-données).
+
 ### Profils de conformité
 
 - Avec `profile = "eu-only"`, `"secnumcloud"` ou `"strict-local"` (configuration globale ; un projet ne peut que le durcir), le fournisseur sélectionné et les serveurs MCP doivent respecter le profil, et `--allow-non-eu` est refusé.
@@ -126,6 +134,21 @@ Les permissions décident si une commande s'exécute. L'isolation système (voir
 - Une commande qui reçoit le réseau (règle `network = true`, ou « Autoriser avec réseau ») peut envoyer tout ce qu'elle peut lire. « Oui pour la session » ne mémorise jamais le réseau d'une réponse ; il garde celui d'une règle `ask` avec `network = true`.
 - Un fichier `--config` explicite hors du projet est interdit aux commandes (lecture et écriture). Dans le projet il ne l'est pas : il est versionné.
 - Seccomp, limites de ressources, espaces de noms PID et montage, filtre d'hôtes réseau et Windows ne sont pas couverts.
+
+### Le routage par sensibilité et ses limites
+
+La classification est un garde-fou pour le contenu que vous avez listé, pas un système de prévention des fuites de données.
+
+- Elle ne détecte ni données personnelles, ni secrets, ni identifiants : le contenu hors des chemins listés qui ne porte aucun marquage est traité comme normal.
+- Les marquages ne sont trouvés que dans du texte, après repli de la casse, des accents et des espaces. Un marquage dans une image, un fichier binaire ou un encodage inhabituel échappe.
+- Une commande shell qui lit des données classées sans nommer leur chemin (par une variable, un joker développé par le shell, un extrait de `head` ou `sed` qui ne contient pas la ligne du marquage) n'est rattrapée que si un marquage apparaît dans sa sortie. `~` et `$VAR` ne sont pas développés quand les commandes sont comparées aux chemins classés.
+- `glob` ne renvoie que des noms : il ne rend jamais la session sensible et il est exempté du contrôle sortant, donc un marquage dans un nom de fichier peut atteindre un fournisseur distant.
+- Les marquages dans les définitions d'outils (descriptions MCP) ne sont pas analysés.
+- « Local » est une déclaration : un fournisseur de juridiction `local` est supposé sous votre contrôle. tenon affiche une notice quand son hôte n'est pas une adresse de boucle locale, et le fournisseur local n'utilise jamais les variables d'environnement de proxy, mais tenon ne peut pas vérifier où tourne le serveur.
+- Une session devient sensible après la lecture du contenu : celui-ci reste sur la machine (fournisseur local seulement) mais se trouve dans l'historique, dans le journal d'audit avec `audit.level = "full"` et dans les points de restauration.
+- Sans fournisseur local, la classification refuse ou masque ; elle ne peut pas router.
+
+Voir [utilisation.md](utilisation.md#routage-par-sensibilité-des-données).
 
 ### Les skills de projet ne sont pas dignes de confiance
 

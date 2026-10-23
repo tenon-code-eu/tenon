@@ -73,6 +73,14 @@ Consequences in tenon:
 - Secret variables (`api_key_env` of the providers and of every preset, `bearer_env`, `env_from`) are not passed on to commands, in every mode (on macOS a command can still read them from another process, see below).
 - How each command ran is in the audit log (`ToolResult.sandbox`) and the compliance export. See [The sandbox and its limits](#the-sandbox-and-its-limits) for what stays open.
 
+### Data-sensitivity routing
+
+- With `[classification]` (paths and markers; built-in markers such as `DIFFUSION RESTREINTE` and `EU RESTRICTED` are always active) and `[routing] local`, a session that touches classified content becomes sensitive and is sent only to the local provider, compaction and sub-agents included.
+- Without a local provider, tool calls on classified paths are refused, marked tool results are withheld, and a turn that carries a marker is blocked (`Error` event, `code: "classification"`).
+- Before each send to a non-local provider, tenon scans the request for markers (outbound scan): a hit makes the session sensitive and re-routes it, or blocks the turn.
+- Fallback to another provider happens only for a normal session, before the first chunk, and goes through the profile, allowlist, policy and consent guards.
+- The decisions are in the audit log (`SessionClassified`, `ProviderSelected`) and the compliance export flags any non-local provider reached after classification (exit code 2). See [usage.md](usage.md#data-sensitivity-routing).
+
 ### Compliance profiles
 
 - With `profile = "eu-only"`, `"secnumcloud"` or `"strict-local"` (global configuration; a project can only tighten it), the selected provider and the MCP servers must meet the profile, and `--allow-non-eu` is refused.
@@ -124,6 +132,21 @@ Permissions decide whether a command runs. The system sandbox (see [usage.md](us
 - A command granted network (rule `network = true`, or "Allow with network") can send anything it can read. "Always for this session" never remembers the network of an answer; it keeps the network of an `ask` rule with `network = true`.
 - An explicit `--config` file outside the project is denied to commands (read and write). Inside the project it is not: it is versioned.
 - Seccomp, resource limits, PID and mount namespaces, a network host filter and Windows are not covered.
+
+### Data-sensitivity routing and its limits
+
+Classification is a guard rail for content you have listed, not a data-loss-prevention system.
+
+- It does not detect personal data, secrets or identifiers: content outside the listed paths that carries no marker is treated as normal.
+- Markers are found in text only, after case, accent and whitespace folding. A marker in an image, a binary file or an unusual encoding is missed.
+- A shell command that reads classified data without naming its path (through a variable, a glob expanded by the shell, a `head` or `sed` extract that does not contain the marker line) is caught only if a marker appears in its output. `~` and `$VAR` are not expanded when commands are matched against classified paths.
+- `glob` returns names only: it never taints the session and is exempt from the outbound scan, so a marker in a file name can reach a remote provider.
+- Markers inside tool definitions (MCP descriptions) are not scanned.
+- "Local" is a declaration: a provider of jurisdiction `local` is assumed to be under your control. tenon prints a notice when its host is not a loopback address, and the local provider never uses the proxy environment variables, but it cannot verify where the server runs.
+- A session becomes sensitive after the content has been read: the content stays on the machine (local provider only) but is in the history, and in the audit log at `audit.level = "full"` and in checkpoints.
+- Without a local provider, classification refuses or withholds; it cannot route.
+
+See [usage.md](usage.md#data-sensitivity-routing).
 
 ### Project skills are untrusted content
 

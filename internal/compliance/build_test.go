@@ -866,3 +866,72 @@ func TestExportSandboxAbsent(t *testing.T) {
 		t.Fatalf("sandbox %+v / %s", r.Sandbox, out)
 	}
 }
+
+var provLocal = llm.ProviderInfo{ID: "ollama", Name: "Ollama", Model: "m", Country: "FR", Jurisdiction: llm.Local}
+
+func TestExportRouting(t *testing.T) {
+	b := newLog(t)
+	b.add("s1", event.SessionStarted, event.SessionStartedPayload{
+		Provider: provEU, ProjectRoot: "/p", Routing: &event.RoutingInfo{Local: "ollama", Fallback: []string{"openai"}},
+	})
+	b.add("s1", event.ProviderSelected, event.ProviderSelectedPayload{Provider: provEU, Reason: "default"})
+	b.add("s1", event.ProviderSelected, event.ProviderSelectedPayload{Provider: provUS, Reason: "fallback", Error: "down"})
+	b.add("s1", event.SessionClassified, event.SessionClassifiedPayload{Reason: "path", Source: "tool", Path: "rh/x"})
+	b.add("s1", event.ProviderSelected, event.ProviderSelectedPayload{Provider: provLocal, Reason: "sensitive"})
+	b.add("s1", event.ProviderSelected, event.ProviderSelectedPayload{Provider: provEU, Reason: "default"})
+	// Violation : un fournisseur distant après le classement.
+	b.add("s2", event.SessionStarted, event.SessionStartedPayload{Provider: provLocal, ProjectRoot: "/p"})
+	b.add("s2", event.SessionClassified, event.SessionClassifiedPayload{Reason: "marker", Source: "user", Marker: "EU RESTRICTED"})
+	b.add("s2", event.ProviderSelected, event.ProviderSelectedPayload{Provider: provLocal, Reason: "sensitive"})
+	r := Build(b.dataset(), opts())
+	want := []SessionRouting{
+		{Session: "s1", Sensitive: true, Reason: "path", Providers: []string{"mistral", "openai", "ollama"}, Fallbacks: 1, Violation: true},
+		{Session: "s2", Sensitive: true, Reason: "marker", Providers: []string{"ollama"}},
+	}
+	if !reflect.DeepEqual(r.Routing, want) {
+		t.Fatalf("routing %+v", r.Routing)
+	}
+	if !r.RoutingViolation() {
+		t.Fatal("violation expected")
+	}
+	out, _ := json.Marshal(r)
+	if !strings.Contains(string(out), `"routing":[{"session":"s1","sensitive":true,"reason":"path","providers":["mistral","openai","ollama"],"fallbacks":1,"violation":true}`) {
+		t.Fatalf("JSON: %s", out)
+	}
+}
+
+func TestExportRoutingOK(t *testing.T) {
+	b := newLog(t)
+	b.start("s", provEU)
+	b.add("s", event.SessionClassified, event.SessionClassifiedPayload{Reason: "path", Source: "tool"})
+	b.add("s", event.ProviderSelected, event.ProviderSelectedPayload{Provider: provLocal, Reason: "sensitive"})
+	r := Build(b.dataset(), opts())
+	want := []SessionRouting{{Session: "s", Sensitive: true, Reason: "path", Providers: []string{"mistral", "ollama"}}}
+	if !reflect.DeepEqual(r.Routing, want) || r.RoutingViolation() {
+		t.Fatalf("routing %+v", r.Routing)
+	}
+}
+
+func TestExportRoutingViolation(t *testing.T) {
+	b := newLog(t)
+	b.start("s", provLocal)
+	b.add("s", event.SessionClassified, event.SessionClassifiedPayload{Reason: "path", Source: "tool"})
+	b.add("s", event.ProviderSelected, event.ProviderSelectedPayload{Provider: provEU, Reason: "fallback"})
+	// Session sensible sans aucun routage, démarrée à distance.
+	b.start("t", provUS)
+	b.add("t", event.SessionClassified, event.SessionClassifiedPayload{Reason: "marker", Source: "tool"})
+	r := Build(b.dataset(), opts())
+	if len(r.Routing) != 2 || !r.Routing[0].Violation || !r.Routing[1].Violation || !r.RoutingViolation() {
+		t.Fatalf("routing %+v", r.Routing)
+	}
+}
+
+func TestExportRoutingAbsent(t *testing.T) {
+	b := newLog(t)
+	b.start("s", provEU)
+	r := Build(b.dataset(), opts())
+	out, _ := json.Marshal(r)
+	if len(r.Routing) != 0 || strings.Contains(string(out), `"routing"`) || r.RoutingViolation() {
+		t.Fatalf("routing %+v / %s", r.Routing, out)
+	}
+}

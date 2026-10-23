@@ -66,6 +66,32 @@ type Report struct {
 	// Sandbox : isolation des commandes par session ; omis si aucun journal
 	// de la plage n'en porte (journaux antérieurs au sandbox).
 	Sandbox []SessionSandbox `json:"sandbox,omitempty"`
+	// Routing : routage par sensibilité des données, par session ; omis si
+	// aucun journal de la plage n'en porte.
+	Routing []SessionRouting `json:"routing,omitempty"`
+}
+
+// SessionRouting résume le routage d'une session : sensible ou non, motif du
+// classement, fournisseurs par ordre de première utilisation, nombre de
+// replis. Violation signale un fournisseur non local atteint après le
+// classement (ou une session sensible démarrée à distance sans routage).
+type SessionRouting struct {
+	Session   string   `json:"session"`
+	Sensitive bool     `json:"sensitive"`
+	Reason    string   `json:"reason,omitempty"`
+	Providers []string `json:"providers"`
+	Fallbacks int      `json:"fallbacks"`
+	Violation bool     `json:"violation"`
+}
+
+// RoutingViolation indique si une session viole le routage (code de sortie 2).
+func (r Report) RoutingViolation() bool {
+	for _, s := range r.Routing {
+		if s.Violation {
+			return true
+		}
+	}
+	return false
 }
 
 // SessionSandbox résume l'isolation des commandes shell d'une session.

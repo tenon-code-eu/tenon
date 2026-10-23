@@ -18,6 +18,7 @@ For a commented configuration example, see [config.example.toml](config.example.
 - [Checkpoints and rewind](#checkpoints-and-rewind)
 - [System sandbox](#system-sandbox)
 - [Providers and jurisdictions](#providers-and-jurisdictions)
+- [Data-sensitivity routing](#data-sensitivity-routing)
 - [Compliance profiles](#compliance-profiles)
 - [API keys and keyring](#api-keys-and-keyring)
 - [MCP servers](#mcp-servers)
@@ -184,7 +185,7 @@ For pipelines (GitLab CI, Forgejo/Gitea, GitHub Actions), see [tenon in CI](ci.m
 |---|---|
 | `0` | Turn completed. A turn stopped by the iteration limit or by an incomplete answer also gives 0, with a message. |
 | `1` | Error: configuration, missing key, provider, context too large, invalid option. |
-| `3` | An action was denied (approval not possible, `deny` rule) or sending to the provider was blocked (jurisdiction). |
+| `3` | An action was denied (approval not possible, `deny` rule, classified content without a local provider) or sending to the provider was blocked (jurisdiction, classification). |
 | `4` | With `--strict`: the turn ended with `max_iterations`, `incomplete`, `stopped_by_hook` or `cancelled`. The line `strict: turn ended with <reason>` goes to standard error (text output only). Code 3 wins over 4, and code 1 wins over both. |
 | `130` | Second Ctrl+C: immediate exit. The first one cancels the turn. |
 
@@ -258,7 +259,8 @@ A repository can be hostile. For this reason, its configuration is limited to:
 - `deny` and `ask` permission rules;
 - `[[redaction.rules]]` redaction rules;
 - `profile` and `provider_allowlist`: both restrict-only (the project can raise the profile or narrow the allowlist, never relax them);
-- `[sandbox]`: only `mode = "required"` and `deny_read` (see [System sandbox](#system-sandbox)).
+- `[sandbox]`: only `mode = "required"` and `deny_read` (see [System sandbox](#system-sandbox));
+- `[classification]`: `paths` and `markers` are added to the global ones, never removed (see [Data-sensitivity routing](#data-sensitivity-routing)).
 
 Errors in the project file are reported with the prefix `project config:`.
 
@@ -268,7 +270,8 @@ It **cannot**:
 - choose or declare a provider;
 - declare an MCP server;
 - change the audit level, the timeouts or the limits;
-- turn the sandbox off, add writable paths (`write`) or grant network to a rule (`network = true`).
+- turn the sandbox off, add writable paths (`write`) or grant network to a rule (`network = true`);
+- set `[routing]` (refused: `config: routing not allowed in project configuration`).
 
 Project rules are added to global rules.
 A project `deny` rule always blocks the call.
@@ -1060,6 +1063,104 @@ model = "qwen3:8b"          # no context_window: read from the server
 jurisdiction = "local"
 ```
 
+## Data-sensitivity routing
+
+Classified content never leaves your machine: it is sent only to a local model.
+Everything else goes to the configured providers, with an ordered fallback when one is down.
+
+Every request carries the whole history, so sensitivity is a state of the session, not of one request: once classified content has entered the history, every later request carries it.
+The session becomes **sensitive** (once, permanently) and from then on it is sent only to the `routing.local` provider.
+
+### Configuration
+
+```toml
+[classification]
+paths = ["rh/**", "contracts/**", "*.dr.md"]   # relative to the project root
+markers = ["C2 - Internal"]                     # in addition to the built-in markers
+
+[routing]
+local = "ollama"                                # provider of sensitive content
+fallback = ["mistral", "scaleway", "ovhcloud"]  # ordered fallback for the rest
+```
+
+- **Built-in markers**, always active: `DIFFUSION RESTREINTE`, `SPÉCIAL FRANCE`, `SPECIAL FRANCE`, `RESTREINT UE`, `EU RESTRICTED`.
+- **Marker matching**: case- and accent-insensitive (decomposed accents included), runs of whitespace (newlines included) collapsed to one space, whole phrase with word boundaries at both ends (`DIFFUSION RESTREINTES` does not match).
+- **Path patterns**: same syntax as permission rules (`*` inside a segment, `**` across segments), matched against the path relative to the resolved project root; absolute patterns are allowed; a path outside the project never matches a relative pattern. Matching is case-insensitive on every OS, and applies to both the resolved and the lexical path: a classified directory reached through a symlink (even one that points outside the project) still counts.
+- `routing.local` must name a provider whose jurisdiction is `local` (`ollama`, `vllm`, or one you define), otherwise `config: routing.local must name a local provider`. "Local" means a provider under your control: a local provider on a non-loopback host (for example `gpu.lan`) prints a startup notice. The local provider never uses the proxy environment variables.
+- `routing.fallback` lists known provider ids, otherwise `config: routing.fallback: unknown provider "<id>"`.
+- `[routing]` is global only. In `.tenon/config.toml` it is refused; `[classification]` there adds entries.
+- An [organisation policy](policy.md) adds to `[classification]` and can impose `[routing] local`.
+- Without `[routing]`: one provider, no fallback, no local provider. Classification still applies, with the effects described below.
+
+`tenon config check` prints `classification: <n> paths, <m> markers` and `routing: local <id>, fallback <ids>` (or `routing: none`).
+
+### When a session becomes sensitive
+
+With a local provider available, the session becomes sensitive when:
+
+1. `read_file`, `write_file` or `edit_file` touches a classified path, or its result or content carries a marker;
+2. `grep` returns a classified file (the files of the result are checked on disk) or a marker in its output;
+3. a `shell` command has a classified path among its words, or its output carries a marker;
+4. an MCP tool result carries a marker;
+5. a message of yours carries a marker, or a hook text does (Stop feedback, compaction context, hook block reasons);
+6. the outbound scan finds a marker in a request about to go to a non-local provider.
+
+`glob` never taints: it returns names only, and is exempt from the outbound scan. A marker in a file *name* can therefore reach a remote provider.
+
+### Without a local provider
+
+- A tool call on a classified path is refused before it runs (`ToolResult` with `denied: "classification"`, content `classified content requires a local provider (routing.local)`). In headless mode this gives exit code 3.
+- A marker in a tool result is replaced by `[classified content withheld: no local provider]` before it enters the history. The session does not become sensitive.
+- A marker in your message or in a request blocks the turn (`Error` event, `code: "classification"`, turn `blocked`).
+
+A resumed sensitive session whose local provider is now missing cannot continue remotely: the first send is blocked.
+Starting with `--provider <local>` and no `[routing]` is fine: the session is already local, classified reads are allowed and there is no fallback.
+
+### Routing and fallback
+
+Before each send to the model (turn, compaction, sub-agent):
+
+- **sensitive session**: `routing.local` only. A failure ends the turn in error; there is never a fallback to a non-local provider;
+- **normal session**: the current provider (`--provider` or `default_provider`), then `routing.fallback` in order;
+- each candidate goes through the usual guards (profile, allowlist, policy, non-EU consent). A refused candidate is skipped with a notice; with no candidate left the turn is blocked. `--allow-non-eu` consents to every fallback candidate; without it, a non-EU candidate asks, and a refused consent is remembered for the session. A turn blocked only because of a refused consent says so (`Error` event, `code: "jurisdiction"`);
+- **fallback triggers**: provider unavailable (after the provider's own retries of 429 and 5xx), connection error, no first chunk within 60 seconds. Never after the first chunk, never on authentication or context-length errors, never on another 4xx.
+
+### What it protects, and what it does not
+
+Protected: the content of classified paths read through tenon's tools, and any text that carries a marker, once seen by one of the entry points above.
+
+Not protected:
+
+- content outside the listed paths that carries no marker: tenon does not detect personal data, secrets or identifiers;
+- markers are detected in text only (not in images or binary files);
+- a shell command that reads classified data without naming its path (through a variable, a glob expanded by the shell, `head` or `sed` extracts that do not contain the marker line) is caught only if a marker appears in its output. `~` and `$VAR` are not expanded in command matching;
+- markers inside tool definitions (MCP descriptions) are not scanned;
+- a marker in a file name returned by `glob`, as above.
+
+See [security.md](security.md#data-sensitivity-routing-and-its-limits).
+
+### Notices
+
+| Message | When |
+|---|---|
+| `classification: session is sensitive (<reason>), routed to <local>` | the session became sensitive (stderr in headless text mode; a notice in the TUI) |
+| `classification: session is sensitive (<reason>), no local provider` | same, without a local provider |
+| `routing: <from> failed (<error>), using <to>` | a fallback happened |
+| `routing: fallback provider "<id>" skipped (<reason>)` | a candidate was refused by a guard |
+| `routing: local provider "<id>" unavailable (<reason>)` | the local provider could not be used at startup |
+| `routing: local provider "<id>" uses non-loopback host "<host>"` | the local provider is not on this machine |
+| `policy <id>: routing.local imposed (<id>)` | an organisation policy replaced `routing.local` |
+
+The TUI status bar shows `sensitive → <local>` once the session is sensitive.
+
+### In the audit log and the export
+
+- `SessionClassified` (once per session): `reason` (`path` or `marker`), `source` (`tool`, `shell`, `mcp`, `user`, `outbound`), and `call_id`, `path`, `marker` when they apply.
+- `ProviderSelected`: `provider` (with its jurisdiction), `reason` (`default`, `fallback`, `sensitive`) and `error` on a fallback. It is emitted when the effective provider changes, including the first send, and only when routing is active.
+- `SessionStarted.routing`: `local` (empty when the local provider was unavailable) and `fallback`; omitted without `[routing]`.
+- `Error` with `code: "classification"` or `"jurisdiction"`, and tool results with `denied: "classification"`.
+- The [compliance export](#compliance-export) has a `Routing` row (`Routage` in French) and a `routing` list. A **violation** is a `ProviderSelected` towards a non-local provider after the `SessionClassified` of the same session; a session that is classified, never routed, and started on a non-local provider is also flagged. Any violation makes `tenon audit export` exit with code 2.
+
 ## Compliance profiles
 
 A profile restricts, for the whole run, what tenon may send and to whom.
@@ -1334,7 +1435,7 @@ It does not modify the log and does not lock it.
 |---|---|
 | 0 | report written, audit chain intact |
 | 1 | usage or write error, nothing written |
-| 2 | report written, but the audit chain is broken or a timestamp token is invalid or orphan: the report says so (banner or Timestamps row); stderr shows `invalid timestamps: <n> (report written)` for tokens |
+| 2 | report written, but the audit chain is broken, a timestamp token is invalid or orphan, or a routing violation was found: the report says so (banner, Timestamps row or Routing row); stderr shows `invalid timestamps: <n> (report written)` for tokens and `routing violation: a sensitive session reached a non-local provider (report written)` for routing |
 
 ### What the report contains
 
@@ -1347,6 +1448,7 @@ It does not modify the log and does not lock it.
 - **Modified files**: date, session, path, tool, hash before and after, author (`main` or the sub-agent), whether there was no checkpoint, and the state left by a later rewind.
 - **Commands**: number of shell calls per session.
 - **Sandbox** (`sandbox`, a list; omitted for logs written before the sandbox existed): per session, `mode`, `mechanism`, `network` (as in `SessionStarted.sandbox`), `unconfined` (shell results that ran unconfined) and `with_network` (shell results that ran confined **with** network). The two counters never overlap. The HTML row is `Sandbox` (`Isolation` in French), one entry per session. At `audit.level = "metadata"` the log keeps no payload, so the row is absent. A session is listed only if its `SessionStarted` is in the range: a resumed session whose `SessionStarted` is before `--since` is not counted.
+- **Routing** (`routing`, a list; omitted for logs with no classification, no `[routing]` and no `ProviderSelected`): per session, `sensitive`, `reason` (`path` or `marker`, omitted when not sensitive), `providers` (distinct provider ids in order of first use, starting with the provider of `SessionStarted`), `fallbacks` (number of `ProviderSelected` with reason `fallback`) and `violation`. See [Data-sensitivity routing](#data-sensitivity-routing). The HTML row is `Routing` (`Routage` in French). Absent at `audit.level = "metadata"`.
 - **Sub-agents, hooks, rewinds**: sub-agent runs, hooks that blocked, failed, timed out or asked for confirmation, rewinds with the files restored, deleted, kept, skipped, failed or unchanged.
 - **Incidents**: errors, turns that ended for a notable reason (blocked, stopped by a hook, context too large, iteration limit, incomplete, cancelled) and unreadable log lines.
 - **Regulatory mapping**: which elements of the report help document GDPR, NIS2, DORA and AI Act requirements. It cites no article.
@@ -1458,6 +1560,7 @@ Envelope:
 | `permissions` | list | `tool` (string), `requested`, `allowed_once`, `allowed_session`, `denied_user`, `denied_policy`, `denied_hook` (numbers) |
 | `files` | list | `ts`, `session`, `path`, `tool`, `hash_before`, `hash_after`, `author`, `no_checkpoint` (boolean), `rewind_status` (omitted when no rewind concerns the file) |
 | `commands` | list | `session`, `count`; `commands` (list of strings) only with `--details` |
+| `routing` | list | omitted when no session has routing data: `session` (string), `sensitive` (boolean), `reason` (string, omitted when not sensitive), `providers` (list of strings), `fallbacks` (number), `violation` (boolean) |
 | `subagents` | list | `ts`, `session`, `call_id`, `agent`, `status` |
 | `hooks` | list | `ts`, `session`, `hook_id`, `event`, `status`; `decision` and `reason` when not empty |
 | `rewinds` | list | `ts`, `session`, `mode` (strings and date), `to_seq`, `restored`, `deleted`, `kept`, `skipped`, `failed`, `unchanged`, `untracked_calls` (numbers) |

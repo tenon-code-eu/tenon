@@ -464,3 +464,23 @@ func TestExportSandboxHTML(t *testing.T) {
 		}
 	}
 }
+
+func TestExportRoutingHTML(t *testing.T) {
+	for _, c := range []struct {
+		l          i18n.Lang
+		label, row string
+	}{
+		{i18n.FR, "Routage", "s1 : sensible (path), fournisseurs mistral, ollama, 1 replis, violation"},
+		{i18n.EN, "Routing", "s1: sensitive (path), providers mistral, ollama, 1 fallbacks, violation"},
+	} {
+		r := richReport(false)
+		r.Routing = []SessionRouting{{Session: "s1", Sensitive: true, Reason: "path", Providers: []string{"mistral", "ollama"}, Fallbacks: 1, Violation: true}}
+		out := render(t, r, c.l)
+		if !strings.Contains(out, "<dt>"+c.label+"</dt><dd>"+c.row+"</dd>") {
+			t.Errorf("%s: routing row missing", c.l)
+		}
+		if out = render(t, richReport(false), c.l); strings.Contains(out, "<dt>"+c.label+"</dt>") {
+			t.Errorf("%s: routing row without data", c.l)
+		}
+	}
+}

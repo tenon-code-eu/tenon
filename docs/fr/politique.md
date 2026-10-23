@@ -88,6 +88,13 @@ ca = """-----BEGIN CERTIFICATE-----
 mode = "required"                        # auto | required ("off" refusé)
 deny_read = ["/srv/secrets"]             # ajouté à la liste intégrée
 
+[classification]                         # optionnel : s'ajoute aux listes utilisateur et projet
+paths = ["rh/**"]
+markers = ["ACME CONFIDENTIEL"]
+
+[routing]                                # optionnel : impose le fournisseur local
+local = "interne-local"                  # un préréglage local ou un fournisseur de providers.define
+
 [mcp]
 mode = "allowlist"                       # any (défaut) | allowlist | off
 allow_hosts = ["mcp.acme.eu"]
@@ -96,7 +103,7 @@ allow_commands = ["/usr/local/bin/mcp-git"]
 
 Seuls `id` et `version` sont obligatoires.
 
-Valeurs refusées au chargement : `id` ou `version` absents ou invalides ; profil inconnu ; règle `allow` ; décision ou outil invalides (mêmes règles que la configuration) ; motif de masquage qui ne compile pas ; entrée de `allow_hosts` vide, avec schéma, chemin, port ou joker ailleurs qu'en tête (`*.` suivi d'au moins deux labels) ; entrée de `allow_commands` non absolue ; `mcp.mode` inconnu ; `sandbox.mode = "off"` ou autre mode inconnu ; entrée `sandbox.deny_read` relative ; clé `network` sur une règle (une politique ne peut pas ouvrir le réseau) ; `audit.level` inconnu ; entrée `providers.define` invalide (mêmes règles que `[[providers]]`, `jurisdiction` obligatoire ; `qualifications` n'accepte que `secnumcloud`) ; `audit.timestamp.url` qui n'est pas en `https` (`http` n'est permis que pour un hôte local) ; `audit.timestamp.url` dont l'hôte n'est pas local sous `profile = "strict-local"` ; `audit.timestamp.ca` sans certificat PEM valide ; clé inconnue.
+Valeurs refusées au chargement : `id` ou `version` absents ou invalides ; profil inconnu ; règle `allow` ; décision ou outil invalides (mêmes règles que la configuration) ; motif de masquage qui ne compile pas ; entrée de `allow_hosts` vide, avec schéma, chemin, port ou joker ailleurs qu'en tête (`*.` suivi d'au moins deux labels) ; entrée de `allow_commands` non absolue ; `mcp.mode` inconnu ; `sandbox.mode = "off"` ou autre mode inconnu ; entrée `sandbox.deny_read` relative ; `routing.local` qui ne désigne pas un fournisseur local ; clé `network` sur une règle (une politique ne peut pas ouvrir le réseau) ; `audit.level` inconnu ; entrée `providers.define` invalide (mêmes règles que `[[providers]]`, `jurisdiction` obligatoire ; `qualifications` n'accepte que `secnumcloud`) ; `audit.timestamp.url` qui n'est pas en `https` (`http` n'est permis que pour un hôte local) ; `audit.timestamp.url` dont l'hôte n'est pas local sous `profile = "strict-local"` ; `audit.timestamp.ca` sans certificat PEM valide ; clé inconnue.
 
 ## Application
 
@@ -113,6 +120,8 @@ Ordre de fusion : défauts, configuration globale, configuration projet, politiq
 - **Règles de permissions** : placées en tête. `deny` est absolue ; `ask` prime les règles `allow` de l'utilisateur.
 - **Isolation** : le mode effectif est le plus strict de la configuration globale, du projet, de la politique et du profil (`off` < `auto` < `required`) ; `deny_read` de la politique s'ajoute aux autres. `write` n'existe pas dans une politique. Voir [utilisation.md](utilisation.md#isolation-système).
 - **Masquage** : les règles de la politique s'ajoutent aux autres.
+- **Classification** : `[classification] paths` et `markers` s'ajoutent aux listes de l'utilisateur et du projet ; personne ne peut en retirer. Voir [utilisation.md](utilisation.md#routage-par-sensibilité-des-données).
+- **Routage** : `[routing] local` est imposé et remplace le `routing.local` de l'utilisateur, avec une notice : `politique <id> : routing.local imposé (<id>)`. Il doit désigner un fournisseur de juridiction `local` (un préréglage local ou un fournisseur de `providers.define`). Les sessions de la politique sont donc routées vers ce fournisseur quand elles deviennent sensibles ; l'export de conformité signale toute session qui a atteint un fournisseur non local après le classement.
 - **Niveau d'audit** : `audit.level` de la politique remplace celui de la configuration, dans les deux sens : une organisation peut imposer `metadata` (minimisation des données) ou `full` (traçabilité). S'ils diffèrent, une notice est affichée : `politique <id> : niveau d'audit « <p> » imposé (configuration : « <c> »)`.
 - **Horodatage de l'audit** (<a id="horodatage-de-laudit"></a>`[audit.timestamp]`) : `url` remplace l'`url` de l'utilisateur ; `ca` (racines de confiance PEM, couvertes par la signature), s'il est présent, remplace le `ca_file` de l'utilisateur. Sans `ca`, le `ca_file` de l'utilisateur reste appliqué. S'ils diffèrent, une notice est affichée : `politique <id> : horodatage d'audit imposé (<url>)`. `ca` de la politique passe avant `ca_file` dans le choix des racines ; `--tsa-ca` passe avant tout. tenon n'intègre aucun préréglage de TSA ; l'organisation désigne son autorité. Sous macOS et Windows, fournissez un `ca` : les racines système ne permettent pas de vérifier les certificats de TSA. Sous `strict-local`, un hôte non local est refusé. Voir [utilisation.md](utilisation.md#horodatage-rfc-3161).
 - **MCP** : `off` retire tous les serveurs ; `allowlist` garde un serveur seulement si son hôte (`http`) figure dans `allow_hosts` (même correspondance que les fournisseurs, sans `allow_local`) ou si `command[0]` (`stdio`) figure tel quel dans `allow_commands`. Un serveur retiré n'est pas démarré, avec une notice (`politique <id> : serveur MCP « <sid> » ignoré (non autorisé)`) et un événement `McpServerDown`. Le contrôle MCP du profil s'applique aussi aux serveurs gardés.
