@@ -28,6 +28,8 @@ type projectFile struct {
 	// une table vide l'est aussi).
 	Classification Classification `toml:"classification"`
 	Routing        *Routing       `toml:"routing"`
+	// CRA est refusé (pointeur : une table vide l'est aussi).
+	CRA *CRA `toml:"cra"`
 }
 
 // Load fusionne défauts, configuration globale puis configuration projet.
@@ -87,7 +89,7 @@ func load(globalPath, projectPath string, getenv func(string) string) (Config, e
 		cfg.MCP = g.MCP
 		cfg.Hooks = g.Hooks
 		cfg.Checkpoints = g.Checkpoints
-		cfg.Classification, cfg.Routing = g.Classification, g.Routing
+		cfg.Classification, cfg.Routing, cfg.CRA = g.Classification, g.Routing, g.CRA
 		if err := checkSandboxMode(g.Sandbox.Mode); err != nil {
 			return Config{}, err
 		}
@@ -138,6 +140,9 @@ func load(globalPath, projectPath string, getenv func(string) string) (Config, e
 		}
 		if p.Routing != nil {
 			return Config{}, errors.New("config: routing not allowed in project configuration")
+		}
+		if p.CRA != nil {
+			return Config{}, errors.New("config: cra not allowed in project configuration")
 		}
 		for i := range p.Permissions.Rules {
 			p.Permissions.Rules[i].Project = true

@@ -53,6 +53,8 @@ type Config struct {
 	Classification Classification `toml:"classification"`
 	// Routing : acheminement des sessions sensibles. Clé globale uniquement.
 	Routing Routing `toml:"routing"`
+	// CRA : assistant Cyber Resilience Act. Clé globale uniquement.
+	CRA CRA `toml:"cra"`
 	// home : $HOME lu au chargement, pour développer « ~/ » de la politique.
 	home string
 	// Profile : profil de conformité effectif après Load (le plus strict du
@@ -87,6 +89,12 @@ type Config struct {
 type Classification struct {
 	Paths   []string `toml:"paths"`
 	Markers []string `toml:"markers"`
+}
+
+// CRA : [cra]. OSVMirror : miroir des archives OSV (https, ou http vers un
+// hôte local) ; vide = base publique.
+type CRA struct {
+	OSVMirror string `toml:"osv_mirror"`
 }
 
 // Routing : [routing]. Local : fournisseur de juridiction « local » qui

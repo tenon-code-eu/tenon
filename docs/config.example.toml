@@ -251,3 +251,10 @@ disabled = false
 # [routing]
 # local = "ollama"
 # fallback = ["scaleway", "ollama"]
+
+# Cyber Resilience Act assistant. osv_mirror: base URL of an OSV archive
+# mirror used by `tenon cra db update` (archives are fetched from
+# <osv_mirror>/<ecosystem>/all.zip). https only, or http to a local host.
+# Global only: refused in .tenon/config.toml.
+# [cra]
+# osv_mirror = "https://osv-mirror.example.org/osv-vulnerabilities"
