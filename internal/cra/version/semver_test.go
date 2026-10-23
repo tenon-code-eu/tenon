@@ -11,6 +11,8 @@ func TestSemverOrder(t *testing.T) {
 		}
 	}
 	expect(t, Semver, "v1.2.3", "1.2.3", 0)
+	expect(t, Semver, "v1.2.3+incompatible", "v1.2.3", 0)
+	expect(t, Semver, "1.2.3-beta.0", "1.2.3", -1)
 	expect(t, Semver, "1.0.0+build", "1.0.0", 0)
 	expect(t, Semver, "1.0.0+a", "1.0.0+b", 0)
 	expect(t, Semver, "v0.0.0-20210101000000-abcdefabcdef", "v0.0.1", -1)

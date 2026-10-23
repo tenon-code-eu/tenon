@@ -9,15 +9,15 @@ import (
 type pep440Comparator struct{}
 
 // PEP440 compare selon PEP 440 (epoch, release, pré-release, post, dev).
-// Les versions locales (`+…`) sont rejetées : elles n'ont pas de sens dans
-// les plages OSV.
+// Le label local (`+cu117`) est ignoré (comportement pip-audit) : les plages
+// OSV ne le portent pas et les SBOM réels en contiennent.
 var PEP440 Comparator = pep440Comparator{}
 
 var pep440Re = regexp.MustCompile(`^(?:(\d+)!)?(\d+(?:\.\d+)*)` +
 	`(?:[-_.]?(alpha|a|beta|b|preview|pre|c|rc)[-_.]?(\d+)?)?` +
 	`(?:-(\d+)|[-_.]?(post|rev|r)[-_.]?(\d+)?)?` +
 	`(?:[-_.]?(dev)[-_.]?(\d+)?)?` +
-	`(\+.*)?$`)
+	`(\+[a-z0-9]+(?:[-_.][a-z0-9]+)*)?$`)
 
 type pep440 struct {
 	epoch   string
@@ -37,9 +37,6 @@ func parsePEP440(s string) (pep440, error) {
 	m := pep440Re.FindStringSubmatch(n)
 	if m == nil {
 		return v, fmt.Errorf("pep440: %q: version invalide", s)
-	}
-	if m[10] != "" {
-		return v, fmt.Errorf("pep440: %q: version locale non supportée", s)
 	}
 	v.epoch = m[1]
 	if v.epoch == "" {
