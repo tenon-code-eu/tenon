@@ -84,6 +84,17 @@ ca = """-----BEGIN CERTIFICATE-----
 ...
 -----END CERTIFICATE-----"""      # optional trust roots
 
+[sandbox]                                # optional: system sandbox floor
+mode = "required"                        # auto | required ("off" refused)
+deny_read = ["/srv/secrets"]             # added to the built-in list
+
+[classification]                         # optional: added to user and project lists
+paths = ["rh/**"]
+markers = ["ACME CONFIDENTIAL"]
+
+[routing]                                # optional: imposes the local provider
+local = "interne-local"                  # a local preset or a providers.define provider
+
 [mcp]
 mode = "allowlist"                       # any (default) | allowlist | off
 allow_hosts = ["mcp.acme.eu"]
@@ -92,7 +103,7 @@ allow_commands = ["/usr/local/bin/mcp-git"]
 
 Only `id` and `version` are required.
 
-Values refused at load time: missing or invalid `id` or `version`; unknown profile; an `allow` rule; invalid decision or tool (same rules as the configuration); a redaction pattern that does not compile; an empty `allow_hosts` entry, or one with a scheme, path, port, or a wildcard anywhere but the start (`*.` followed by at least two labels); a relative `allow_commands` entry; unknown `mcp.mode`; unknown `audit.level`; an invalid `providers.define` entry (same rules as `[[providers]]`, `jurisdiction` required; `qualifications` accepts only `secnumcloud`); an `audit.timestamp.url` that is not `https` (`http` is allowed for local hosts only); an `audit.timestamp.url` whose host is not local under `profile = "strict-local"`; an `audit.timestamp.ca` without a valid PEM certificate; an unknown key.
+Values refused at load time: missing or invalid `id` or `version`; unknown profile; an `allow` rule; invalid decision or tool (same rules as the configuration); a redaction pattern that does not compile; an empty `allow_hosts` entry, or one with a scheme, path, port, or a wildcard anywhere but the start (`*.` followed by at least two labels); a relative `allow_commands` entry; unknown `mcp.mode`; `sandbox.mode = "off"` or another unknown mode; a relative `sandbox.deny_read` entry; a `network` key on a rule (a policy cannot open the network); unknown `audit.level`; an invalid `providers.define` entry (same rules as `[[providers]]`, `jurisdiction` required; `qualifications` accepts only `secnumcloud`); an `audit.timestamp.url` that is not `https` (`http` is allowed for local hosts only); an `audit.timestamp.url` whose host is not local under `profile = "strict-local"`; an `audit.timestamp.ca` without a valid PEM certificate; an unknown key.
 
 ## How the policy applies
 
@@ -107,7 +118,10 @@ Merge order: defaults, global configuration, project configuration, policy.
   - A selected provider that is not allowed stops tenon at startup, before any network access, with exit code 1: `provider "<pid>" (host "<h>") not allowed by policy <id>`. `--allow-non-eu` does not lift it.
   - The same check runs before each send, after the profile check: nothing is sent and the turn is blocked (`Error` event, `code: "policy"`).
 - **Permission rules**: placed first. `deny` is absolute; `ask` wins over the user's `allow` rules.
+- **Sandbox**: the effective mode is the strictest of global, project, policy and profile (`off` < `auto` < `required`); `deny_read` of the policy is added to the others. `write` does not exist in a policy. See [usage.md](usage.md#system-sandbox).
 - **Redaction**: policy rules are added to the others.
+- **Classification**: `[classification] paths` and `markers` are added to the user and project lists; nobody can remove one. See [usage.md](usage.md#data-sensitivity-routing).
+- **Routing**: `[routing] local` is imposed and replaces the user `routing.local`, with a notice: `policy <id>: routing.local imposed (<id>)`. It must name a provider whose jurisdiction is `local`: a local preset, one from `providers.define`, or a user `[[providers]]` entry. This is checked when the policy is applied to the configuration, not when the policy file is loaded; otherwise startup fails with `policy violation: routing.local must name a local provider`. Sessions of the policy are therefore routed to that provider when they become sensitive; the compliance export flags any session that reached a non-local provider after classification.
 - **Audit level**: `audit.level` of the policy replaces the configuration level, in both directions: an organisation can impose `metadata` (data minimisation) or `full` (traceability). When they differ, a notice is printed: `policy <id>: audit level "<p>" imposed (config: "<c>")`.
 - **Audit timestamping** (<a id="audit-timestamping"></a>`[audit.timestamp]`): `url` replaces the user `url`; `ca` (PEM trust roots, covered by the signature), when present, replaces the user `ca_file`. Without `ca`, the user `ca_file` still applies. When they differ, a notice is printed: `policy <id>: audit timestamp imposed (<url>)`. The policy `ca` comes before `ca_file` in the choice of roots; `--tsa-ca` comes first. tenon ships no TSA preset; the organisation names its authority. On macOS and Windows, give a `ca`: the system roots cannot verify TSA certificates. Under `strict-local` a non-local host is refused. See [usage.md](usage.md#timestamping-rfc-3161).
 - **MCP**: `off` removes every server; `allowlist` keeps a server only if its host (`http`) is in `allow_hosts` (same matching as providers, without `allow_local`) or if `command[0]` (`stdio`) is in `allow_commands` exactly. A removed server is dropped before it starts, with a notice (`policy <id>: MCP server "<sid>" skipped (not allowed)`) and a `McpServerDown` event. The profile MCP check still applies to the servers kept.
@@ -161,4 +175,4 @@ Exit code 0 when valid; 1 when invalid, or when no policy is found (`tenon: no p
 
 ## Limits
 
-A policy bounds what tenon does. Permission rules apply to shell commands, but the provider host allowlist does not restrict the network access made by shell commands or stdio MCP programs, and an administrator of the machine can always remove it. Hooks imposed by the organisation, refresh by URL, expiry or revocation, several trusted keys and Windows are not supported.
+A policy bounds what tenon does. Permission rules apply to shell commands, and `[sandbox] mode = "required"` confines them, but the provider host allowlist does not restrict the network access of a command that was granted network or of stdio MCP programs, and an administrator of the machine can always remove it. Hooks imposed by the organisation, refresh by URL, expiry or revocation, several trusted keys and Windows are not supported.

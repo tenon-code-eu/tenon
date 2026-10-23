@@ -38,7 +38,7 @@ func newRewindHarness(t *testing.T, script [][]llm.Chunk, opts ...func(*Deps)) (
 		d.Checkpoints = store
 		d.Tools = tools.NewRegistry(append(
 			tools.FS(d.ProjectRoot, 30000, tools.WithSnapshot(snapshotTo(store))),
-			tools.Shell(d.ProjectRoot, 5*time.Second, 30000))...)
+			tools.Shell(d.ProjectRoot, 5*time.Second, 30000, tools.ShellOptions{}))...)
 	}}, opts...)...)
 	return h, store
 }

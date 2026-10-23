@@ -193,8 +193,8 @@ func TestMatchWildcard(t *testing.T) {
 		{"a.c", "abc", false},
 	}
 	for _, tt := range tests {
-		if got := matchWildcard(tt.pat, tt.s); got != tt.want {
-			t.Errorf("matchWildcard(%q,%q)=%v want %v", tt.pat, tt.s, got, tt.want)
+		if got := MatchWildcard(tt.pat, tt.s); got != tt.want {
+			t.Errorf("MatchWildcard(%q,%q)=%v want %v", tt.pat, tt.s, got, tt.want)
 		}
 	}
 }
@@ -395,5 +395,36 @@ func TestDecideLiftable(t *testing.T) {
 		if got := p.Check(tt.call(root)); got != d {
 			t.Errorf("%s: Check = %v, Decide = %v", tt.name, got, d)
 		}
+	}
+}
+
+func TestDecideNet(t *testing.T) {
+	p, _ := newPerms(t, []Rule{
+		{Tool: "shell", Match: "npm install*", Decision: Allow, Network: true},
+		{Tool: "shell", Match: "curl *", Decision: Ask, Network: true},
+		{Tool: "shell", Match: "go test*", Decision: Allow},
+	})
+	tests := []struct {
+		name    string
+		cmd     string
+		want    Decision
+		network bool
+	}{
+		{"allow avec réseau", "npm install left-pad", Allow, true},
+		{"enchaînée sans ask", "npm install x && rm -rf y", Ask, false},
+		{"ask avec réseau", "curl https://example.eu", Ask, true},
+		{"allow sans réseau", "go test ./...", Allow, false},
+		{"défaut", "ls", Ask, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d, _, network := p.DecideNet(shellCall(tt.cmd))
+			if d != tt.want || network != tt.network {
+				t.Fatalf("DecideNet(%q) = %v, %v ; attendu %v, %v", tt.cmd, d, network, tt.want, tt.network)
+			}
+			if d2, _ := p.Decide(shellCall(tt.cmd)); d2 != d {
+				t.Fatalf("Decide = %v, DecideNet = %v", d2, d)
+			}
+		})
 	}
 }

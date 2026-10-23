@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/tenon-code-eu/tenon/internal/llm"
 )
 
 func TestNewMarshalsPayload(t *testing.T) {
@@ -226,6 +228,47 @@ func TestSessionStartedProfileJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(got), `"profile":"eu-only"`) {
+		t.Fatalf("got %s", got)
+	}
+}
+
+func TestSessionClassifiedPayloadJSON(t *testing.T) {
+	if SessionClassified != "SessionClassified" {
+		t.Fatalf("got %q", SessionClassified)
+	}
+	full, err := json.Marshal(SessionClassifiedPayload{Reason: "path", Source: "tool", CallID: "c1", Path: "rh/paie.csv"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(full) != `{"reason":"path","source":"tool","call_id":"c1","path":"rh/paie.csv"}` {
+		t.Fatalf("got %s", full)
+	}
+	minimal, err := json.Marshal(SessionClassifiedPayload{Reason: "marker", Source: "user", Marker: "EU RESTRICTED"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(minimal) != `{"reason":"marker","source":"user","marker":"EU RESTRICTED"}` {
+		t.Fatalf("got %s", minimal)
+	}
+}
+
+func TestProviderSelectedPayloadJSON(t *testing.T) {
+	if ProviderSelected != "ProviderSelected" {
+		t.Fatalf("got %q", ProviderSelected)
+	}
+	got, err := json.Marshal(ProviderSelectedPayload{Provider: llm.ProviderInfo{ID: "local"}, Reason: "sensitive"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(got)
+	if !strings.Contains(s, `"provider":{"id":"local"`) || !strings.HasSuffix(s, `,"reason":"sensitive"}`) {
+		t.Fatalf("got %s", s)
+	}
+	got, err = json.Marshal(ProviderSelectedPayload{Provider: llm.ProviderInfo{ID: "r2"}, Reason: "fallback", Error: "provider unavailable"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(string(got), `"reason":"fallback","error":"provider unavailable"}`) {
 		t.Fatalf("got %s", got)
 	}
 }

@@ -19,6 +19,10 @@ type Message struct {
 	Content    string     `json:"content,omitempty"`
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string     `json:"tool_call_id,omitempty"`
+	// Remote : message d'assistant (ou résumé de compaction) produit par un
+	// fournisseur non local. Jamais envoyé ni sérialisé ; le contrôle sortant
+	// des marquages l'ignore (le fournisseur distant a déjà ce texte).
+	Remote bool `json:"-"`
 }
 
 // ToolCall is a model request to run a tool.
@@ -48,6 +52,13 @@ type Chunk struct {
 	ToolCalls []ToolCall
 	Done      bool
 	Err       error
+	// Heartbeat : chunk vide (ni texte, ni appels, Done faux) émis par le
+	// fournisseur à la première activité du flux qui ne produit pas de
+	// texte (deltas d'appels d'outils, événement sans contenu). Il prouve
+	// que le flux vit : il arrête le délai du premier chunk du moteur, sans
+	// compter comme une sortie (un repli reste possible). Le moteur l'ignore
+	// pour l'affichage et l'historique.
+	Heartbeat bool
 }
 
 // Jurisdiction is the legal zone in which a provider processes data.

@@ -18,7 +18,9 @@ Pour un exemple de configuration commenté, voir [config.example.toml](../config
 - [Sous-agents](#sous-agents)
 - [Hooks](#hooks)
 - [Points de restauration](#points-de-restauration)
+- [Isolation système](#isolation-système)
 - [Fournisseurs et juridictions](#fournisseurs-et-juridictions)
+- [Routage par sensibilité des données](#routage-par-sensibilité-des-données)
 - [Profils de conformité](#profils-de-conformité)
 - [Clés d'API et trousseau](#clés-dapi-et-trousseau)
 - [Serveurs MCP](#serveurs-mcp)
@@ -121,11 +123,13 @@ Au-delà, il sort avec le code 1.
 Quand l'agent veut écrire, exécuter une commande ou sortir du projet, un panneau remplace la zone de saisie.
 Il montre l'outil, la commande complète ou les chemins, et un aperçu du changement pour `write_file` et `edit_file`.
 
-| Réponse | Français | Anglais |
+| Réponse | Ligne de touches en français | Ligne de touches en anglais |
 |---|---|---|
-| Oui, une fois | `o` | `y` |
-| Oui pour la session | `s` | `a` |
-| Non | `n` | `n` |
+| Oui, une fois | `o : oui une fois` | `y: yes once` |
+| Oui pour la session | `s : oui pour la session` | `a: always for this session` |
+| Non | `n : non` | `n: no` |
+
+Pour une commande shell qui s'exécutera isolée avec le réseau isolé, le panneau propose aussi `r : autoriser avec réseau` (`w: allow with network` en anglais) ; `s : oui pour la session (sans réseau)` ne mémorise jamais le réseau d'une réponse. Avec une règle `ask` qui accorde le réseau, la ligne est `o : oui une fois (avec réseau) · s : pour la session (avec réseau) · n : non`. Voir [Isolation système](#isolation-système).
 
 Échap refuse aussi la demande.
 Ctrl+C refuse toutes les demandes en attente, puis agit comme d'habitude.
@@ -154,7 +158,7 @@ La commande et les chemins sont affichés de façon à ce qu'aucun caractère ne
 - Un `[` suivi de `U+` ou `0x` dans le texte d'origine est écrit `[U+005B]`.
 - Une suite d'au moins 3 lignes vides devient `⏎ × N` quand la commande ne tient pas à l'écran ; la demande ne peut alors pas être acceptée.
 
-Pour une commande shell, le panneau rappelle qu'une commande autorisée s'exécute avec vos droits, sans bac à sable.
+Pour une commande shell, le panneau indique si la commande s'exécute isolée ou, sans isolation active, rappelle qu'une commande autorisée s'exécute avec vos droits.
 Si la commande contient un caractère non ASCII, un avertissement s'affiche.
 Pour un outil MCP, le panneau indique le serveur, son pays et sa juridiction.
 
@@ -181,7 +185,7 @@ Pour les pipelines (GitLab CI, Forgejo/Gitea, GitHub Actions), voir [tenon en CI
 |---|---|
 | `0` | Tour terminé. Un tour arrêté par la limite d'itérations ou une réponse incomplète donne aussi 0, avec un message. |
 | `1` | Erreur : configuration, clé absente, fournisseur, contexte trop volumineux, option invalide. |
-| `3` | Une action a été refusée (validation impossible, règle `deny`) ou l'envoi au fournisseur a été bloqué (juridiction). |
+| `3` | Une action a été refusée (validation impossible, règle `deny`, contenu classé sans fournisseur local) ou l'envoi au fournisseur a été bloqué (juridiction, classification). |
 | `4` | Avec `--strict` : le tour s'est terminé par `max_iterations`, `incomplete`, `stopped_by_hook` ou `cancelled`. La ligne `strict : tour terminé avec <raison>` va sur la sortie d'erreur (sortie texte seulement). Le code 3 l'emporte sur 4, et le code 1 l'emporte sur les deux. |
 | `130` | Second Ctrl+C : sortie immédiate. Le premier annule le tour. |
 
@@ -254,7 +258,9 @@ Un dépôt peut être hostile. Sa configuration est donc limitée à :
 - `lang` ;
 - des règles de permission `deny` et `ask` ;
 - des règles de masquage `[[redaction.rules]]` ;
-- `profile` et `provider_allowlist` : tous deux en restriction seule (le projet peut relever le profil ou réduire la liste blanche, jamais les assouplir).
+- `profile` et `provider_allowlist` : tous deux en restriction seule (le projet peut relever le profil ou réduire la liste blanche, jamais les assouplir) ;
+- `[sandbox]` : seulement `mode = "required"` et `deny_read` (voir [Isolation système](#isolation-système)) ;
+- `[classification]` : `paths` et `markers` s'ajoutent à ceux de la configuration globale, sans jamais en retirer (voir [Routage par sensibilité des données](#routage-par-sensibilité-des-données)).
 
 Les erreurs du fichier projet sont préfixées par `project config:`.
 
@@ -263,7 +269,9 @@ Elle **ne peut pas** :
 - ajouter une règle `allow` (le chargement échoue) ;
 - choisir ou déclarer un fournisseur ;
 - déclarer un serveur MCP ;
-- changer le niveau d'audit, les délais ou les limites.
+- changer le niveau d'audit, les délais ou les limites ;
+- désactiver l'isolation, ajouter des chemins inscriptibles (`write`) ou accorder le réseau à une règle (`network = true`) ;
+- définir `[routing]` (refusé : `config: routing not allowed in project configuration`).
 
 Les règles du projet s'ajoutent aux règles globales.
 Une règle `deny` du projet bloque toujours l'appel.
@@ -313,7 +321,7 @@ match = "*secrets/*"    # toute commande qui cite secrets/
 decision = "deny"
 ```
 
-Même ainsi, `cd secrets && cat k` ou `cat secr*/k` passent : les permissions filtrent des appels, elles ne sont pas un bac à sable (voir [securite.md](securite.md#les-permissions-ne-sont-pas-un-bac-à-sable)).
+Même ainsi, `cd secrets && cat k` ou `cat secr*/k` passent : les permissions filtrent des appels. L'[isolation système](#isolation-système) limite ce qu'une commande peut écrire, lire et atteindre, mais elle n'est pas complète (voir [securite.md](securite.md#lisolation-système-et-ses-limites)).
 
 Une règle `allow` sur une commande ne couvre jamais une commande enchaînée : `go test *` n'autorise pas `go test ./... ; rm x`.
 `grep` et `glob` ne montrent que les fichiers que `read_file` lirait sans demande.
@@ -882,6 +890,115 @@ Un rewind ne réécrit jamais la session ni le [journal d'audit](#journal-daudit
 `ToolResult` gagne deux champs facultatifs : `no_checkpoint` (écrit sans copie) et `untracked` (un appel `shell` ou MCP non annulable).
 `--resume` applique `Rewound` : la conversation reconstruite est coupée comme en direct, et une note `code seul` en attente est gardée pour le message suivant. `--output json` inclut les événements `Rewound` d'une session reprise.
 
+## Isolation système
+
+Les permissions décident si une commande s'exécute. L'isolation limite ce qu'elle peut faire une fois lancée. Les commandes shell et les serveurs MCP stdio sont confinés avec les mécanismes du système : Landlock et espaces de noms sous Linux, `sandbox-exec` sous macOS. Elle est active par défaut.
+
+### Ce que peut faire une commande isolée
+
+- **Écrire** : le projet, `$TMPDIR` et `/tmp` (macOS : aussi `/private/tmp` et `/private/var/folders`), `/dev/null`, `/dev/tty`, `/dev/zero`, `/dev/random`, `/dev/urandom`, le cache utilisateur (`$XDG_CACHE_HOME` ou `~/.cache` ; macOS : `~/Library/Caches`), `~/.npm` (journaux et cache de npm et npx) et les chemins de `[sandbox] write`.
+- **Lire** : partout, sauf les chemins interdits ci-dessous.
+- **Interdit en lecture et en écriture** (prime sur tout le reste, même dans le projet) : `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.azure`, `~/.config/gcloud`, `~/.kube`, `~/.docker`, `~/.netrc`, `~/.password-store`, `~/Library/Keychains` (trousseau macOS, où tenon range les clés des fournisseurs : les identifiants que git `osxkeychain`, `gh` ou `docker` y gardent sont aussi illisibles depuis une commande confinée), le dossier de configuration de tenon, le dossier de données de tenon (journal d'audit, sessions), le fichier de politique d'organisation et `deny_read` (global, projet et politique). Un chemin absent est ignoré.
+- **Fichiers git protégés** (macOS seulement, au mieux) : dans un projet qui a un dossier `.git`, `.git/config`, `.git/hooks`, `.git/commondir` et `.git/config.worktree` restent lisibles mais ne peuvent être ni écrits ni créés, et ni `.git` ni le dossier du projet ne peuvent être supprimés ou renommés. Une commande ne peut donc pas planter un hook ou un `core.fsmonitor` exécuté sans isolation à votre prochaine commande git. Les dossiers git des sous-modules (`.git/modules/*`) et les dépôts imbriqués (`sous/.git`) ne sont pas protégés. Les commandes qui écrivent `.git/config` (`git config`, `git remote add`, `git push -u`, `git submodule init`) échouent sous isolation : lancez-les vous-même. Un fichier `.git` (worktree git, sous-module) n'est pas traité : son dossier git est hors du projet, inscriptible seulement si `write` l'inclut. Sous Linux, ces fichiers ne sont pas protégés (voir [Sécurité et limites](securite.md#lisolation-système-et-ses-limites)).
+- **Réseau** : fermé, sauf si la commande reçoit le réseau (voir plus bas).
+- **Environnement** : les variables de tenon moins tous les secrets qu'il connaît : `api_key_env` de tous les fournisseurs et de tous les préréglages (même redéfinis par une configuration), `bearer_env` et `env_from` de tous les serveurs MCP. `PATH`, `HOME` et `LANG` ne sont jamais retirés. Cela vaut dans tous les modes, `off` et « indisponible » compris.
+
+Les hooks et le marquage git ne sont pas confinés : ce sont vos commandes et tenon lui-même.
+
+### Configuration
+
+```toml
+[sandbox]
+mode = "auto"      # "auto" (défaut) | "required" | "off"
+write = []         # chemins inscriptibles, en plus des défauts (absolus ou ~/)
+deny_read = []     # chemins interdits, en plus de la liste intégrée (absolus ou ~/)
+```
+
+| Mode | Effet |
+|---|---|
+| `auto` | Confine quand c'est possible. Si l'isolation est indisponible, une notice s'affiche et les commandes s'exécutent sans isolation. |
+| `required` | tenon refuse de démarrer (code de sortie 1) si l'isolation, ou l'isolation réseau, est indisponible. |
+| `off` | Aucun confinement (les variables de secrets sont tout de même retirées). |
+
+- Le mode effectif est le plus strict de la configuration globale, de la configuration du projet, de la politique d'organisation et du profil. `off` < `auto` < `required`. Un projet ou une politique ne peut jamais produire `off`.
+- `profile = "strict-local"` impose `required` : le profil promet que rien ne quitte la machine.
+- La configuration d'un projet ne peut que durcir : `mode = "required"` et `deny_read` sont acceptés ; `mode = "off"` et `write` sont refusés (`config: sandbox.<clé> not allowed in project configuration`).
+- `write` et `deny_read` acceptent des chemins absolus ou commençant par `~/` (`config: sandbox.<clé>: path must be absolute or start with ~/`).
+- La politique d'organisation peut fixer `mode` (`auto` ou `required`) et `deny_read` (voir [politique.md](politique.md#contenu)).
+
+`tenon config check` affiche l'état : `sandbox: auto (landlock, network full)` ou `sandbox: auto (unavailable: <raison>)`. Sous `required`, il sort avec le code 1 quand l'isolation est indisponible.
+
+### Notices et refus
+
+| Message | Sens |
+|---|---|
+| `sandbox: unavailable (<raison>), commands run unconfined` | Mode `auto`, aucun mécanisme : les commandes s'exécutent comme avant. |
+| `sandbox: network isolation TCP only (user namespaces unavailable)` | Repli Linux, voir plus bas. |
+| `sandbox: network not isolated (<raison>)` | Mode `auto` : ni espaces de noms ni Landlock TCP ; les commandes confinées ont encore le réseau. |
+| `sandbox: Unix sockets not confined (Landlock ABI < 9): <chemin> reachable` | Noyau Linux trop ancien pour confiner les sockets Unix : un socket de runtime de conteneurs ou le bus de session D-Bus est joignable, voir plus bas. Pas un refus, même sous `required`. |
+| `sandbox: required but unavailable (<raison>)` | Mode `required` : tenon ne démarre pas (code 1). |
+| `sandbox: required but network not isolated (<raison>)` | Mode `required` : tenon ne démarre pas (code 1). |
+
+Avec `--lang fr`, ces messages sont traduits. Si l'assistant d'isolation lui-même échoue, la commande n'est pas lancée : stderr affiche `sandbox: <raison>` et le code de sortie est 126.
+
+### Linux (Landlock)
+
+- Il faut Landlock (noyau 5.13 ou plus, LSM chargé). Sans lui, l'isolation est indisponible.
+- Réseau : les espaces de noms utilisateur (`CLONE_NEWUSER|CLONE_NEWNET`) donnent à la commande un réseau vide (boucle locale seulement, sans route), qui ferme TCP, UDP et DNS. Si les espaces de noms utilisateur sont indisponibles (profil seccomp par défaut de Docker, restriction AppArmor d'Ubuntu sur les espaces de noms non privilégiés), tenon se replie sur Landlock TCP (noyau 6.7 ou plus) : `connect` et `bind` en TCP sont refusés, **UDP reste ouvert**. Les sockets Unix abstraits sont cloisonnés (ABI 6 ou plus). Sans l'un ni l'autre, le réseau n'est pas isolé.
+- Les noms contenus dans un dossier interdit peuvent être listés ; leur contenu ne peut pas être lu.
+- Un fichier ne peut pas être créé, supprimé ni renommé directement dans un dossier qui contient une entrée interdite, ni dans ses ancêtres jusqu'à la racine inscriptible. Exemple : avec `deny_read = ["<projet>/secrets"]`, une commande ne peut pas créer de fichier directement à la racine du projet. Un fichier `--config` sous `/tmp` a le même effet : pas de nouveau fichier directement dans `/tmp`.
+- Les règles sont figées au lancement : une entrée créée ensuite dans un dossier non inscriptible n'est pas lisible par la commande.
+- Les sockets Unix ne sont confinés qu'avec Landlock ABI 9 ou plus (`LANDLOCK_ACCESS_FS_RESOLVE_UNIX`). Sur un noyau plus ancien, un socket accessible par son chemin (par exemple `/var/run/docker.sock`) reste connectable, et tenon affiche la notice ci-dessus pour les sockets de runtime connus et pour le bus de session D-Bus (`$XDG_RUNTIME_DIR/bus`, `/run/user/<uid>/bus`). Un utilisateur du groupe `docker` doit savoir que ce socket donne root sur la machine. Le bus de session permet à une commande de lancer un processus non confiné (`systemd-run --user`) ou de lire des secrets dans le Secret Service (GNOME Keyring, KWallet).
+
+### macOS (`sandbox-exec`)
+
+- tenon génère un profil et lance `/usr/bin/sandbox-exec -p <profil> -- <commande>`. `(deny network*)` couvre aussi les sockets Unix.
+- Apple déclare `sandbox-exec` déprécié, mais il fonctionne encore. Si un futur macOS le retire, l'isolation devient indisponible et les modes ci-dessus s'appliquent.
+
+### Réseau pour une commande
+
+- Une règle shell peut accorder le réseau : `network = true` avec `decision = "allow"` ou `"ask"` (refusé avec `deny`, sur un autre outil, dans la configuration du projet et dans la politique).
+
+```toml
+[[permissions.rules]]
+tool = "shell"
+match = "go mod download *"
+decision = "allow"
+network = true
+```
+
+- Avec une telle règle, un simple « Oui » ouvre le réseau, et le panneau affiche « Réseau accordé par la règle ». Sa ligne de touches est `o : oui une fois (avec réseau) · s : pour la session (avec réseau) · n : non` : une validation pour la session garde le réseau de la règle aux appels suivants (c'est la règle qui l'accorde, pas la réponse).
+- Quand une commande isolée demande une validation, la ligne de touches est `o : oui une fois · r : autoriser avec réseau · s : oui pour la session (sans réseau) · n : non`. « Oui pour la session » ne mémorise jamais le réseau d'une réponse.
+- Le panneau n'annonce « réseau fermé sauf autorisation » et ne propose `r` que si le réseau est isolé. Sans isolation réseau (`sandbox: network not isolated`), une commande confinée a de toute façon le réseau : le panneau affiche la note d'une commande non confinée (« une commande autorisée s'exécute avec vos droits ») et ne propose pas `r`.
+- En mode non interactif, rien n'est demandé : le réseau ne vient que d'une règle, et une règle `ask` avec `network = true` est refusée comme avant (code de sortie 3).
+
+### Serveurs MCP stdio
+
+Un serveur stdio est confiné selon son `risk` : `network` ouvre le réseau ; `write` ou `exec` rend le projet inscriptible ; `read` ou vide donne un serveur sans réseau et un projet en lecture seule. Son dossier de travail (`$HOME`) n'est pas inscriptible : seuls les défauts (temporaires, caches, `~/.npm`) et `write` le sont. Sous macOS, `.git/config` et `.git/hooks` restent protégés même avec `write` ou `exec`.
+
+Quand un serveur confiné ne démarre pas, son avis se termine par un rappel : `serveur MCP <id> indisponible : <erreur> (confiné : risk "<risk>" ; voir [sandbox] write et risk)`. Déclarez le bon `risk`, ou ajoutez à `[sandbox] write` les dossiers où le serveur écrit.
+
+### Mise à jour vers l'isolation
+
+L'isolation est active par défaut (`mode = "auto"`). Après une mise à jour :
+
+- Un outil qui écrit hors du projet, des dossiers temporaires et des caches échoue désormais. `~/.npm` est inscriptible par défaut (npm et npx, courants pour les serveurs MCP stdio). Ajoutez les autres dossiers dans la configuration globale, par exemple :
+
+```toml
+[sandbox]
+write = ["~/go/pkg/mod", "~/.cargo", "~/.m2"]
+```
+
+- Le `risk` d'un serveur MCP décide aussi de son confinement : un serveur stdio sans `risk` n'a pas de réseau et voit le projet en lecture seule. Déclarez `risk = "network"`, `"write"` ou `"exec"` sur les serveurs qui en ont besoin.
+- `mode = "off"` rétablit le comportement précédent (les variables de secrets sont tout de même retirées).
+
+### Dans le journal d'audit et l'export
+
+- `SessionStarted.sandbox` : `mode`, `mechanism` (`landlock`, `sandbox-exec`, `none`), `network` (`full`, `tcp`, `none`) et `reason`. Un serveur stdio a `sandbox: {confined, network}` dans `SessionStarted.mcp`.
+- `ToolResult.sandbox` sur les appels shell : `confined` et `network` (la commande avait le réseau : toujours vrai hors isolation).
+- `PermissionResolved.network` consigne une réponse « avec réseau ».
+- L'[export de conformité](#export-de-conformité) a une ligne « Isolation » par session (absente avec `audit.level = "metadata"`, voir plus bas).
+
 ## Fournisseurs et juridictions
 
 Tout point d'accès compatible OpenAI est utilisable.
@@ -947,6 +1064,107 @@ base_url = "http://gpu.lan:11434/v1"
 model = "qwen3:8b"          # context_window absent : lu sur le serveur
 jurisdiction = "local"
 ```
+
+## Routage par sensibilité des données
+
+Le contenu classé ne quitte jamais la machine : il n'est envoyé qu'à un modèle local.
+Le reste part vers les fournisseurs configurés, avec une bascule ordonnée en cas de panne.
+
+Chaque requête renvoie tout l'historique : la sensibilité est donc un état de la session, pas d'une requête. Dès qu'un contenu classé est entré dans l'historique, toutes les requêtes suivantes le transportent.
+La session devient **sensible** (une fois, définitivement) et n'est plus envoyée qu'au fournisseur `routing.local`.
+
+### Configuration
+
+```toml
+[classification]
+paths = ["rh/**", "contrats/**", "*.dr.md"]    # relatifs à la racine du projet
+markers = ["C2 - Interne"]                      # en plus des marquages intégrés
+
+[routing]
+local = "ollama"                                # fournisseur du contenu sensible
+fallback = ["mistral", "scaleway", "ovhcloud"]  # bascule ordonnée pour le reste
+```
+
+- **Marquages intégrés**, toujours actifs : `DIFFUSION RESTREINTE`, `SPÉCIAL FRANCE`, `SPECIAL FRANCE`, `RESTREINT UE`, `EU RESTRICTED`.
+- **Correspondance des marquages** : insensible à la casse et aux accents (accents décomposés compris), caractères de format invisibles (espace sans chasse, trait d'union conditionnel) ignorés, suites d'espaces (retours à la ligne compris) réduites à un espace, phrase entière avec bornes de mot aux deux extrémités (`DIFFUSION RESTREINTES` ne correspond pas).
+- **Motifs de chemins** : même syntaxe que les règles de permissions (`*` dans un segment, `**` sur plusieurs), comparés au chemin relatif à la racine résolue du projet ; les motifs absolus sont acceptés ; un chemin hors projet ne correspond jamais à un motif relatif. Un chemin est classé si lui-même ou l'un de ses dossiers parents correspond : `rh`, `rh/` et `rh/**` couvrent tous `rh/a/b.txt` (la barre finale est ignorée), et `rhx/a` ne correspond à aucun d'eux. La comparaison ignore la casse sur tous les systèmes, et porte sur le chemin résolu comme sur le chemin lexical : un dossier classé atteint par un lien symbolique (même vers l'extérieur du projet) compte quand même.
+- `routing.local` doit désigner un fournisseur de juridiction `local` (`ollama`, `vllm`, ou un fournisseur que vous définissez), sinon `config: routing.local must name a local provider`. « Local » signifie un fournisseur sous votre contrôle : un fournisseur local sur un hôte non bouclé (par exemple `gpu.lan`) affiche une notice au démarrage. Le fournisseur local n'utilise jamais les variables d'environnement de proxy.
+- `routing.fallback` liste des identifiants de fournisseurs connus, sinon `config: routing.fallback: unknown provider "<id>"`.
+- `[routing]` est global seulement. Dans `.tenon/config.toml`, il est refusé ; `[classification]` y ajoute des entrées.
+- Une [politique d'organisation](politique.md) s'ajoute à `[classification]` et peut imposer `[routing] local`.
+- Sans `[routing]` : un seul fournisseur, aucune bascule, aucun fournisseur local. La classification s'applique quand même, avec les effets décrits plus bas.
+
+`tenon config check` affiche `classification : <n> chemins, <m> marquages` et `routage : local <id>, repli <ids>` (ou `routage : aucun`).
+
+### Quand une session devient sensible
+
+Avec un fournisseur local disponible, la session devient sensible quand :
+
+1. `read_file`, `write_file` ou `edit_file` touche un chemin classé, ou que son résultat ou son contenu porte un marquage ;
+2. `grep` renvoie un fichier classé (les fichiers du résultat sont vérifiés sur le disque) ou un marquage dans sa sortie ;
+3. une commande `shell` a un chemin classé parmi ses mots, ou que sa sortie porte un marquage ;
+4. le résultat d'un outil MCP porte un marquage ;
+5. un de vos messages porte un marquage, ou un texte de hook (retour de Stop, contexte de compaction, raisons de blocage d'un hook) ;
+6. le contrôle sortant trouve un marquage dans une requête sur le point de partir vers un fournisseur non local. Le contrôle porte sur les messages avant et après masquage. Il ignore le texte produit par un fournisseur non local lui-même (ses réponses, les arguments de ses appels d'outils, ses résumés de compaction) : ce fournisseur l'a déjà. Dans une session reprise, une réponse compte comme distante quand le fournisseur en vigueur (`SessionStarted.provider`, puis chaque `ProviderSelected`) n'est pas local.
+
+`glob` ne rend jamais la session sensible : il ne renvoie que des noms, et il est exempté du contrôle sortant. Un marquage dans un *nom* de fichier peut donc atteindre un fournisseur distant.
+
+### Sans fournisseur local
+
+- Un appel d'outil sur un chemin classé est refusé avant exécution (`ToolResult` avec `denied: "classification"`, contenu `classified content requires a local provider (routing.local)`). En mode non interactif, cela donne le code de sortie 3.
+- Un marquage dans un résultat d'outil est remplacé par `[classified content withheld: no local provider]` avant d'entrer dans l'historique. La session ne devient pas sensible.
+- Un marquage dans votre message ou dans une requête bloque le tour (événement `Error`, `code: "classification"`, tour `blocked`). Le message d'une requête bloquée par le contrôle sortant suggère `/rewind`, pour retirer le contenu marqué de la conversation.
+- Un marquage dans le contexte ajouté par un hook `UserPromptSubmit` ou `SessionStart` retient ce contexte (remplacé par `[classified content withheld: no local provider]`) ; votre prompt part quand même.
+
+Une session sensible reprise dont le fournisseur local manque désormais ne peut pas continuer à distance : le premier envoi est bloqué.
+Lancer `--provider <local>` sans `[routing]` convient : la session est déjà locale, les lectures classées sont permises et il n'y a pas de bascule.
+
+### Routage et bascule
+
+Avant chaque envoi au modèle (tour, compaction, sous-agent) :
+
+- **session sensible** : `routing.local` uniquement. Un échec termine le tour en erreur ; jamais de bascule vers un fournisseur non local ;
+- **session normale** : le fournisseur courant (`--provider` ou `default_provider`), puis `routing.fallback` dans l'ordre ;
+- chaque candidat passe les garde-fous habituels (profil, liste blanche, politique, accord hors UE). Un candidat refusé est sauté avec une notice ; sans candidat, le tour est bloqué. `--allow-non-eu` consent à tous les candidats de repli ; sans lui, un candidat hors UE demande, et un accord refusé est retenu pour la session. Un tour bloqué uniquement à cause d'un accord refusé l'explique (événement `Error`, `code: "jurisdiction"`) ;
+- **déclencheurs de bascule** : fournisseur indisponible (après les propres nouvelles tentatives du fournisseur sur 429 et 5xx), erreur de connexion, aucun premier fragment en 60 secondes. Jamais après le premier fragment, jamais sur une erreur d'authentification ou de longueur de contexte, jamais sur un autre 4xx.
+- **le délai de 60 secondes** ne s'applique que si un autre candidat peut prendre le relais dans le même envoi : un fournisseur seul (sans `[routing]`, ou le fournisseur local d'une session sensible) n'est jamais coupé, aussi lent soit-il. Il démarre une fois que le fournisseur a répondu par ses en-têtes (après ses propres nouvelles tentatives) et s'arrête au premier signe d'activité du flux, fragment d'appel d'outil compris. Ce signe seul ne compte pas comme un premier fragment : une erreur du fournisseur qui suit permet encore la bascule.
+
+### Ce que cela protège, et ce que cela ne protège pas
+
+Protégé : le contenu des chemins classés lu par les outils de tenon, et tout texte qui porte un marquage, dès qu'il passe par un des points d'entrée ci-dessus.
+
+Non protégé :
+
+- le contenu hors des chemins listés qui ne porte aucun marquage : tenon ne détecte ni données personnelles, ni secrets, ni identifiants ;
+- les marquages ne sont détectés que dans du texte (pas dans les images ni les fichiers binaires) ;
+- une commande shell qui lit des données classées sans nommer leur chemin (par une variable, un joker développé par le shell, un `grep -r` ou un `find` récursif, des extraits de `head` ou `sed` qui ne contiennent pas la ligne du marquage) n'est rattrapée que si un marquage apparaît dans sa sortie. `~` et `$VAR` ne sont pas développés dans la correspondance des commandes. Sous macOS avec l'isolation active, les chemins existants désignés par le début littéral de chaque motif de `classification.paths` (segments jusqu'au premier `*`, par exemple `rh` pour `rh/**`) sont interdits aux commandes shell, en lecture et en écriture, avec ou sans fournisseur local : ces lectures échouent. Sous Linux, ou sans isolation, ils ne le sont pas (sous Linux, interdire un chemin du projet bloquerait la création de fichiers dans ses dossiers parents) ;
+- la sortie shell est contrôlée après troncature à `output_limit` : un marquage au-delà de la limite n'est pas vu, et le début de la sortie part. Les résultats MCP sont contrôlés sur leur texte complet, avant troncature ;
+- les marquages dans les définitions d'outils (descriptions MCP) ne sont pas analysés ;
+- un marquage dans un nom de fichier renvoyé par `glob`, comme ci-dessus.
+
+Voir [securite.md](securite.md#le-routage-par-sensibilité-et-ses-limites).
+
+### Notices
+
+| Message | Quand |
+|---|---|
+| `classification : session sensible (<raison>), routée vers <local>` | la session est devenue sensible (stderr en mode non interactif texte ; notice dans la TUI) |
+| `classification : session sensible (<raison>), aucun fournisseur local` | idem, sans fournisseur local |
+| `routage : échec de <de> (<erreur>), bascule vers <vers>` | une bascule a eu lieu |
+| `routage : fournisseur de repli « <id> » ignoré (<raison>)` | un candidat a été refusé par un garde-fou |
+| `routage : fournisseur local « <id> » indisponible (<raison>)` | le fournisseur local n'a pas pu être utilisé au démarrage |
+| `routage : le fournisseur local « <id> » utilise l'hôte non local « <hôte> »` | le fournisseur local n'est pas sur cette machine |
+| `politique <id> : routing.local imposé (<id>)` | une politique d'organisation a remplacé `routing.local` |
+
+La barre d'état de la TUI affiche `sensible → <local>` une fois la session sensible.
+
+### Dans le journal d'audit et l'export
+
+- `SessionClassified` (une fois par session) : `reason` (`path` ou `marker`), `source` (`tool`, `shell`, `mcp`, `user`, `outbound`), et `call_id`, `path`, `marker` selon le cas.
+- `ProviderSelected` : `provider` (avec sa juridiction), `reason` (`default`, `fallback`, `sensitive`) et `error` lors d'une bascule. Il est émis quand le fournisseur effectif change, premier envoi compris, et seulement quand le routage est actif.
+- `SessionStarted.routing` : `local` (vide si le fournisseur local était indisponible) et `fallback` ; omis sans `[routing]`.
+- `Error` avec `code: "classification"` ou `"jurisdiction"`, et résultats d'outils avec `denied: "classification"`.
+- L'[export de conformité](#export-de-conformité) a une ligne « Routage » (`Routing` en anglais) et une liste `routing`. Une **violation** est un `ProviderSelected` vers un fournisseur non local après le `SessionClassified` de la même session ; une session classée, jamais routée, démarrée sur un fournisseur non local et qui a reçu une réponse du modèle (`AssistantMessage`) après son classement est aussi signalée (sans réponse, rien n'est parti : prompt bloqué par un hook, tour annulé avant l'envoi). Les appels refusés par la classification comptent dans les refus du résumé et dans la colonne `denied_classification` du tableau des permissions. Toute violation fait sortir `tenon audit export` avec le code 2.
 
 ## Profils de conformité
 
@@ -1043,7 +1261,7 @@ Un appel dont les arguments contiennent un marqueur de masquage (`[SECRET_1]`…
 ### Serveur stdio
 
 - La commande est un chemin absolu, ou un nom nu cherché dans les dossiers absolus du `PATH`. Un chemin relatif est refusé.
-- Le serveur est lancé **depuis votre dossier personnel (`HOME`)**, jamais depuis le projet.
+- Le serveur est lancé **depuis votre dossier personnel (`HOME`)**, jamais depuis le projet. Il est confiné par l'[isolation système](#isolation-système) selon son `risk`.
 - La racine du projet lui est transmise par la variable `TENON_PROJECT_ROOT`.
 - Son environnement est réduit à `PATH`, `HOME`, `LANG`, `TENON_PROJECT_ROOT` et les variables listées dans `env_from`.
 - Sans `jurisdiction`, il vaut `local`.
@@ -1222,7 +1440,7 @@ Elle ne modifie pas le journal et ne le verrouille pas.
 |---|---|
 | 0 | rapport écrit, chaîne d'audit intacte |
 | 1 | erreur d'usage ou d'écriture, rien d'écrit |
-| 2 | rapport écrit, mais chaîne d'audit cassée ou jeton d'horodatage invalide ou orphelin : le rapport l'indique (bandeau ou ligne Horodatage) ; stderr affiche `horodatages invalides : <n> (rapport écrit)` pour les jetons |
+| 2 | rapport écrit, mais chaîne d'audit cassée, jeton d'horodatage invalide ou orphelin, ou violation du routage : le rapport l'indique (bandeau, ligne Horodatage ou ligne Routage) ; stderr affiche `horodatages invalides : <n> (rapport écrit)` pour les jetons et `violation du routage : une session sensible a atteint un fournisseur non local (rapport écrit)` pour le routage |
 
 ### Contenu du rapport
 
@@ -1234,6 +1452,8 @@ Elle ne modifie pas le journal et ne le verrouille pas.
 - **Permissions** : par outil, demandes, accords (une fois ou pour la session) et refus (par l'utilisateur, par la politique, par un hook).
 - **Fichiers modifiés** : date, session, chemin, outil, empreinte avant et après, auteur (`main` ou le sous-agent), absence éventuelle de point de restauration, et état laissé par un rewind ultérieur.
 - **Commandes** : nombre d'appels shell par session.
+- **Isolation** (`sandbox`, une liste ; omise pour les journaux écrits avant l'isolation) : par session, `mode`, `mechanism`, `network` (comme dans `SessionStarted.sandbox`), `unconfined` (résultats shell exécutés sans confinement) et `with_network` (résultats shell exécutés confinés **avec** réseau). Les deux compteurs ne se recouvrent jamais. La ligne HTML est « Isolation » (`Sandbox` en anglais), une entrée par session. Avec `audit.level = "metadata"`, le journal ne garde aucun contenu : la ligne est absente. Une session n'est listée que si son `SessionStarted` est dans la plage : une session reprise dont le `SessionStarted` précède `--since` n'est pas comptée.
+- **Routage** (`routing`, une liste ; omise pour les journaux sans classement, sans `[routing]` et sans `ProviderSelected`) : par session, `sensitive`, `reason` (`path` ou `marker`, omis si non sensible), `providers` (identifiants distincts des fournisseurs par ordre de première utilisation, en commençant par celui de `SessionStarted`), `fallbacks` (nombre de `ProviderSelected` de raison `fallback`) et `violation`. Voir [Routage par sensibilité des données](#routage-par-sensibilité-des-données). La ligne HTML est « Routage » (`Routing` en anglais). Absente avec `audit.level = "metadata"`.
 - **Sous-agents, hooks, rewinds** : exécutions de sous-agents, hooks qui ont bloqué, échoué, expiré ou demandé une confirmation, rewinds avec les fichiers restaurés, supprimés, conservés, ignorés, en échec ou inchangés.
 - **Incidents** : erreurs, tours terminés pour une raison notable (bloqué, arrêté par un hook, contexte trop grand, limite d'itérations, incomplet, annulé) et lignes illisibles du journal.
 - **Correspondance réglementaire** : quels éléments du rapport aident à documenter le RGPD, NIS2, DORA et l'AI Act. Elle ne cite aucun article.
@@ -1342,9 +1562,10 @@ Enveloppe :
 | `mcp_servers` | liste | `id`, `jurisdiction`, `country` (chaînes), `sessions` (nombre) |
 | `mcp_failures` | liste | `session`, `server`, `error` (chaînes), `ts` (date) |
 | `redactions` | objet | nom de catégorie vers nombre d'éléments masqués |
-| `permissions` | liste | `tool` (chaîne), `requested`, `allowed_once`, `allowed_session`, `denied_user`, `denied_policy`, `denied_hook` (nombres) |
+| `permissions` | liste | `tool` (chaîne), `requested`, `allowed_once`, `allowed_session`, `denied_user`, `denied_policy`, `denied_hook`, `denied_classification` (nombres) |
 | `files` | liste | `ts`, `session`, `path`, `tool`, `hash_before`, `hash_after`, `author`, `no_checkpoint` (booléen), `rewind_status` (omis si aucun rewind ne concerne le fichier) |
 | `commands` | liste | `session`, `count` ; `commands` (liste de chaînes) seulement avec `--details` |
+| `routing` | liste | omise si aucune session n'a de données de routage : `session` (chaîne), `sensitive` (booléen), `reason` (chaîne, omise si non sensible), `providers` (liste de chaînes), `fallbacks` (nombre), `violation` (booléen) |
 | `subagents` | liste | `ts`, `session`, `call_id`, `agent`, `status` |
 | `hooks` | liste | `ts`, `session`, `hook_id`, `event`, `status` ; `decision` et `reason` s'ils ne sont pas vides |
 | `rewinds` | liste | `ts`, `session`, `mode` (date et chaînes), `to_seq`, `restored`, `deleted`, `kept`, `skipped`, `failed`, `unchanged`, `untracked_calls` (nombres) |

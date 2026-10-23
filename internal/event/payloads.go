@@ -20,6 +20,28 @@ type SessionStartedPayload struct {
 	Profile string `json:"profile,omitempty"`
 	// Policy identifie la politique d'organisation active (omis sans politique).
 	Policy *PolicyRef `json:"policy,omitempty"`
+	// Sandbox décrit l'isolation des commandes de la session (omis si inconnue).
+	Sandbox *SandboxInfo `json:"sandbox,omitempty"`
+	// Routing décrit le routage configuré ([routing]) : omis sans lui.
+	Routing *RoutingInfo `json:"routing,omitempty"`
+}
+
+// RoutingInfo décrit le routage de la session : fournisseur local des
+// contenus classés et fournisseurs de repli, dans l'ordre d'essai.
+type RoutingInfo struct {
+	Local    string   `json:"local,omitempty"`
+	Fallback []string `json:"fallback,omitempty"`
+}
+
+// SandboxInfo décrit l'isolation des commandes : mode effectif ("auto",
+// "required", "off"), mécanisme ("landlock", "sandbox-exec", "none"),
+// isolation réseau ("full", "tcp", "none") et raison d'une indisponibilité
+// ou d'une isolation partielle.
+type SandboxInfo struct {
+	Mode      string `json:"mode"`
+	Mechanism string `json:"mechanism"`
+	Network   string `json:"network"`
+	Reason    string `json:"reason,omitempty"`
 }
 
 // PolicyRef identifie la politique d'organisation appliquée à la session.
@@ -34,6 +56,8 @@ type MCPServerInfo struct {
 	ID           string           `json:"id"`
 	Jurisdiction llm.Jurisdiction `json:"jurisdiction"`
 	Country      string           `json:"country,omitempty"`
+	// Sandbox records how a stdio server was started (omitted for http).
+	Sandbox *SandboxUse `json:"sandbox,omitempty"`
 }
 
 // UserMessagePayload carries a user message.
@@ -113,6 +137,12 @@ type PermissionRequestedPayload struct {
 	// updatedInput changed them (omitted otherwise): UIs preview these
 	// instead of the model's original arguments.
 	Args json.RawMessage `json:"args,omitempty"`
+	// Sandboxed is true when the shell command will run confined: UIs then
+	// offer "Allow with network" besides "Allow".
+	Sandboxed bool `json:"sandboxed,omitempty"`
+	// RuleNetwork is true when the matched permission rule grants network:
+	// approving the request then runs the command with network access.
+	RuleNetwork bool `json:"rule_network,omitempty"`
 	// ParentCallID is the call_id of the "agent" tool call that produced this
 	// event inside a sub-agent run; empty for the main agent.
 	ParentCallID string `json:"parent_call_id,omitempty"`
@@ -123,6 +153,9 @@ type PermissionResolvedPayload struct {
 	PermissionID string `json:"permission_id"`
 	Allowed      bool   `json:"allowed"`
 	Remember     bool   `json:"remember"`
+	// Network is true when the user allowed the confined command with network
+	// access ("Allow with network"); never remembered.
+	Network bool `json:"network,omitempty"`
 	// ParentCallID is the call_id of the "agent" tool call that produced this
 	// event inside a sub-agent run; empty for the main agent.
 	ParentCallID string `json:"parent_call_id,omitempty"`
@@ -144,9 +177,19 @@ type ToolResultPayload struct {
 	NoCheckpoint bool `json:"no_checkpoint,omitempty"`
 	// Untracked is true when the call may have changed files outside the checkpoint tracking (e.g. bash).
 	Untracked bool `json:"untracked,omitempty"`
+	// Sandbox records how a shell command ran (omitted for other tools).
+	Sandbox *SandboxUse `json:"sandbox,omitempty"`
 	// ParentCallID is the call_id of the "agent" tool call that produced this
 	// event inside a sub-agent run; empty for the main agent.
 	ParentCallID string `json:"parent_call_id,omitempty"`
+}
+
+// SandboxUse records how a command ran.
+type SandboxUse struct {
+	// Confined: the command ran confined by the system sandbox.
+	Confined bool `json:"confined"`
+	// Network: the command had network access (always true when not confined).
+	Network bool `json:"network"`
 }
 
 // McpServerDownPayload reports an MCP server that is unreachable (at start or
@@ -188,6 +231,32 @@ type ErrorPayload struct {
 	// ParentCallID is the call_id of the "agent" tool call that produced this
 	// event inside a sub-agent run; empty for the main agent.
 	ParentCallID string `json:"parent_call_id,omitempty"`
+}
+
+// SessionClassifiedPayload records that the session became sensitive (once,
+// permanently). Reason is "path" or "marker"; Source is "tool", "shell",
+// "mcp", "user" or "outbound". CallID is the tool call that triggered it,
+// Path the classified path (relative to the project root when inside it) and
+// Marker the classification marker as configured; empty fields are omitted.
+// Session-wide, so it carries no ParentCallID even when a sub-agent triggers it.
+type SessionClassifiedPayload struct {
+	Reason string `json:"reason"`
+	Source string `json:"source"`
+	CallID string `json:"call_id,omitempty"`
+	Path   string `json:"path,omitempty"`
+	Marker string `json:"marker,omitempty"`
+}
+
+// ProviderSelectedPayload records a change of the provider that receives the
+// model requests (including the first send of a session with routing).
+// Reason is "default", "fallback" (an earlier candidate failed or was refused
+// during this send) or "sensitive" (the session is sensitive: local provider
+// only). Error is the failure of the previous candidate on a fallback.
+// Emitted before the request is sent. Session-wide: no ParentCallID.
+type ProviderSelectedPayload struct {
+	Provider llm.ProviderInfo `json:"provider"`
+	Reason   string           `json:"reason"`
+	Error    string           `json:"error,omitempty"`
 }
 
 // SubagentStartedPayload opens a sub-agent run launched by the "agent" tool call CallID.

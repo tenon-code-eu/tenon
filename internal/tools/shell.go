@@ -13,21 +13,52 @@ import (
 	"syscall"
 	"time"
 	"unicode/utf8"
+
+	"github.com/tenon-code-eu/tenon/internal/event"
+	"github.com/tenon-code-eu/tenon/internal/sandbox"
 )
 
+// ShellOptions règle l'isolation et l'environnement des commandes.
+type ShellOptions struct {
+	// Sandbox est la Spec de base des commandes isolées (nil : non isolées).
+	// Son champ Network est remplacé, à chaque appel, par NetworkFrom(ctx).
+	Sandbox *sandbox.Spec
+	// Env est l'environnement des commandes, déjà filtré des secrets ; nil
+	// hérite de l'environnement de tenon.
+	Env []string
+	// NetworkOpen indique que l'isolation ne coupe pas le réseau (sonde :
+	// isolation réseau "none") : une commande confinée a alors le réseau, et
+	// le journal le dit.
+	NetworkOpen bool
+}
+
 // Shell renvoie l'outil d'exécution de commandes, ancré sur root.
-func Shell(root string, timeout time.Duration, limit int) Tool {
+func Shell(root string, timeout time.Duration, limit int, opts ShellOptions) Tool {
 	// Résout les liens symboliques pour que $PWD (utilisé par bash) soit le chemin réel.
 	if r, err := filepath.EvalSymlinks(root); err == nil {
 		root = r
 	}
-	return &shellTool{root: root, timeout: timeout, limit: limit}
+	s := &shellTool{root: root, timeout: timeout, limit: limit, netOpen: opts.NetworkOpen}
+	if opts.Sandbox != nil {
+		spec := *opts.Sandbox
+		spec.Write = append([]string(nil), spec.Write...)
+		spec.DenyRead = append([]string(nil), spec.DenyRead...)
+		spec.DenyWrite = append([]string(nil), spec.DenyWrite...)
+		s.spec = &spec
+	}
+	if opts.Env != nil {
+		s.env = append([]string{}, opts.Env...)
+	}
+	return s
 }
 
 type shellTool struct {
 	root    string
 	timeout time.Duration
 	limit   int
+	spec    *sandbox.Spec // nil : commandes non isolées
+	env     []string      // nil : environnement de tenon
+	netOpen bool          // réseau non isolé malgré le confinement
 }
 
 type shellArgs struct {
@@ -87,6 +118,21 @@ func (s *shellTool) Run(ctx context.Context, args json.RawMessage) (Result, erro
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.WaitDelay = time.Second
 	cmd.Cancel = func() error { return killGroup(cmd) }
+	cmd.Env = s.env
+
+	// Sans isolation, la commande a tout le réseau : le journal le dit.
+	network := NetworkFrom(ctx)
+	use := &event.SandboxUse{Network: true}
+	if s.spec != nil {
+		// Copie par appel : le réseau dépend de la règle ou de la réponse.
+		spec := *s.spec
+		spec.Network = network
+		if err := sandbox.Wrap(cmd, spec); err != nil {
+			// Échec fermé : la commande n'est pas lancée (ni Sandbox, rien n'a tourné).
+			return fail("cannot confine command: %v", err), nil
+		}
+		use.Confined, use.Network = true, network || s.netOpen
+	}
 
 	if err := cmd.Start(); err != nil {
 		return fail("cannot start command: %v", err), nil
@@ -100,7 +146,7 @@ func (s *shellTool) Run(ctx context.Context, args json.RawMessage) (Result, erro
 	}
 	out := buf.String(s.limit)
 	if tctx.Err() == context.DeadlineExceeded {
-		return Result{IsError: true, Content: fmt.Sprintf("%s\n[timed out after %s]", out, timeout)}, nil
+		return Result{IsError: true, Content: fmt.Sprintf("%s\n[timed out after %s]", out, timeout), Sandbox: use}, nil
 	}
 	code := 0
 	if waitErr != nil {
@@ -111,12 +157,15 @@ func (s *shellTool) Run(ctx context.Context, args json.RawMessage) (Result, erro
 		} else if errors.As(waitErr, &ee) {
 			code = ee.ExitCode()
 		} else {
-			return fail("%s\n[execution error: %v]", out, waitErr), nil
+			res := fail("%s\n[execution error: %v]", out, waitErr)
+			res.Sandbox = use
+			return res, nil
 		}
 	}
 	return Result{
 		Content: fmt.Sprintf("%s\n[exit code: %d]", out, code),
 		IsError: code != 0,
+		Sandbox: use,
 	}, nil
 }
 

@@ -167,12 +167,25 @@ func sanitize(s string) string {
 }
 
 // statusBar rend la barre d'état :
-// tenon · modèle · fournisseur · pays · juridiction · session · ~jetons/fenêtre.
+// tenon · modèle · fournisseur · pays · juridiction · [sensible → local] ·
+// session · ~jetons/fenêtre.
 func (m Model) statusBar() string {
+	// Fournisseur effectif : le dernier retenu (bascule, session sensible).
 	p := m.opts.Provider
+	if m.tr.selected != nil {
+		p = *m.tr.selected
+	}
 	parts := []string{"tenon", p.Model, headless.ProviderLabel(p), p.Country}
 	jur := i18n.T(m.lang, "banner.prefix", headless.JurisdictionLabel(m.lang, p.Jurisdiction))
-	tail := []string{m.opts.SessionID, i18n.T(m.lang, "tui.status_tokens", m.estimateTokens(), m.opts.ContextWindow)}
+	var tail []string
+	if r := m.tr.routing; r.Sensitive {
+		ind := i18n.T(m.lang, "tui.status_sensitive_no_local")
+		if r.Local != "" {
+			ind = i18n.T(m.lang, "tui.status_sensitive", r.Local)
+		}
+		tail = append(tail, ind)
+	}
+	tail = append(tail, m.opts.SessionID, i18n.T(m.lang, "tui.status_tokens", m.estimateTokens(), m.opts.ContextWindow))
 	sep := " · "
 	var b strings.Builder
 	write := func(ss []string) {

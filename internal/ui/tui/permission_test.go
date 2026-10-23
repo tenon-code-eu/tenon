@@ -813,3 +813,87 @@ func TestPermissionSubagentContextControlChars(t *testing.T) {
 		t.Fatalf("panneau %q", out)
 	}
 }
+
+func TestPermissionNetworkOption(t *testing.T) {
+	for _, tc := range []struct {
+		lang      i18n.Lang
+		key       rune
+		shown     string
+		sessionKy rune
+	}{
+		{i18n.EN, 'w', "w: allow with network", 'a'},
+		{i18n.FR, 'r', "r : autoriser avec réseau", 's'},
+	} {
+		t.Run(string(tc.lang), func(t *testing.T) {
+			f := newFake()
+			h := newHarness(t, f, Options{Lang: tc.lang})
+			p := shellPerm("p1")
+			p.Sandboxed = true
+			askPerm(t, h, f, p)
+			v := h.m.View()
+			if !strings.Contains(v, tc.shown) {
+				t.Fatalf("option réseau absente : %q", v)
+			}
+			if strings.Contains(v, i18n.T(tc.lang, "tui.perm.not_sandbox")) {
+				t.Fatalf("« pas de bac à sable » affiché pour une commande isolée : %q", v)
+			}
+			h.send(runeKey(tc.key))
+			wantReply(t, f, "p1", engine.Reply{Allow: true, Network: true})
+
+			// « Toujours » reste sans réseau.
+			p = shellPerm("p2")
+			p.Sandboxed = true
+			askPerm(t, h, f, p)
+			h.send(runeKey(tc.sessionKy))
+			wantReply(t, f, "p2", engine.Reply{Allow: true, Remember: true})
+
+			// Commande non isolée : pas d'option, la touche est ignorée.
+			askPerm(t, h, f, shellPerm("p3"))
+			if v := h.m.View(); strings.Contains(v, tc.shown) {
+				t.Fatalf("option réseau affichée sans isolation : %q", v)
+			}
+			h.send(runeKey(tc.key))
+			if _, ok := f.reply("p3"); ok {
+				t.Fatal("réseau accepté sans isolation")
+			}
+		})
+	}
+}
+
+func TestPermissionRuleNetworkNote(t *testing.T) {
+	for _, tc := range []struct {
+		lang         i18n.Lang
+		netKey, once rune
+		option       string
+	}{
+		{i18n.EN, 'w', 'y', "allow with network"},
+		{i18n.FR, 'r', 'o', "autoriser avec réseau"},
+	} {
+		t.Run(string(tc.lang), func(t *testing.T) {
+			f := newFake()
+			h := newHarness(t, f, Options{Lang: tc.lang})
+			p := shellPerm("p1")
+			p.Sandboxed, p.RuleNetwork = true, true
+			askPerm(t, h, f, p)
+			v := h.m.View()
+			if !strings.Contains(v, i18n.T(tc.lang, "perm.network_by_rule")) {
+				t.Fatalf("note réseau de la règle absente : %q", v)
+			}
+			if !strings.Contains(v, i18n.T(tc.lang, "tui.perm.keys_tool_rule_network")) {
+				t.Fatalf("touches attendues absentes : %q", v)
+			}
+			for _, bad := range []string{tc.option, i18n.T(tc.lang, "tui.perm.sandboxed")} {
+				if strings.Contains(v, bad) {
+					t.Fatalf("vue contient %q : %q", bad, v)
+				}
+			}
+			h.send(runeKey(tc.netKey))
+			if _, ok := f.reply("p1"); ok {
+				t.Fatal("option réseau séparée acceptée")
+			}
+			quiet(h)
+			h.send(runeKey(tc.once))
+			wantReply(t, f, "p1", engine.Reply{Allow: true})
+		})
+	}
+}

@@ -68,11 +68,12 @@ type pendingCall struct {
 // subagentInfo décrit un sous-agent lancé (contexte du panneau de validation).
 type subagentInfo struct{ agent, description string }
 
-// answerKeys associe aux réponses « oui une fois » et « oui pour la session »
-// leur touche dans chaque langue ; « non » est n dans les deux langues.
-var answerKeys = map[i18n.Lang]struct{ once, session rune }{
-	i18n.FR: {once: 'o', session: 's'},
-	i18n.EN: {once: 'y', session: 'a'},
+// answerKeys associe aux réponses « oui une fois », « oui avec réseau » et
+// « oui pour la session » leur touche dans chaque langue ; « non » est n dans
+// les deux langues.
+var answerKeys = map[i18n.Lang]struct{ once, network, session rune }{
+	i18n.FR: {once: 'o', network: 'r', session: 's'},
+	i18n.EN: {once: 'y', network: 'w', session: 'a'},
 }
 
 const noKey = 'n'
@@ -309,6 +310,11 @@ func (m Model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if settled && m.approvable() {
 			m.answer(engine.Reply{Allow: true})
 		}
+	case k.network:
+		// Réseau pour cet appel seulement : jamais mémorisé.
+		if settled && m.approvable() && m.networkOption() {
+			m.answer(engine.Reply{Allow: true, Network: true})
+		}
 	case k.session:
 		if settled && m.approvable() && m.prompts[0].p.Kind == "tool" && m.prompts[0].p.HookReason == "" {
 			m.answer(engine.Reply{Allow: true, Remember: true})
@@ -350,6 +356,47 @@ type panel struct {
 	approvable bool
 }
 
+// networkOption indique que la demande affichée propose « Autoriser avec
+// réseau » : commande d'un outil isolé (Sandboxed, posé par l'engine pour le
+// shell seulement).
+// Absente quand la règle accorde déjà le réseau (RuleNetwork) : « oui une
+// fois » l'ouvre alors.
+func (m Model) networkOption() bool {
+	return m.prompting() && m.prompts[0].p.Kind == "tool" && m.prompts[0].p.Sandboxed && !m.prompts[0].p.RuleNetwork
+}
+
+// ruleNetwork indique que la demande affichée porte sur une commande isolée
+// dont la règle accorde le réseau.
+func (m Model) ruleNetwork() bool {
+	return m.prompting() && m.prompts[0].p.Kind == "tool" && m.prompts[0].p.Sandboxed && m.prompts[0].p.RuleNetwork
+}
+
+// promptKeys renvoie la ligne des touches de la demande affichée.
+func (m Model) promptKeys() string {
+	if m.networkOption() {
+		label := lowerFirst(i18n.T(m.lang, "perm.allow_network"))
+		if m.prompts[0].p.HookReason != "" {
+			return i18n.T(m.lang, "tui.perm.keys_hook_network", label)
+		}
+		return i18n.T(m.lang, "tui.perm.keys_tool_network", label)
+	}
+	if m.ruleNetwork() && m.prompts[0].p.HookReason == "" {
+		// « Pour la session » garde le réseau de la règle (jamais celui d'une réponse) : à préciser.
+		return i18n.T(m.lang, "tui.perm.keys_tool_rule_network")
+	}
+	return i18n.T(m.lang, m.promptKeysKey())
+}
+
+// lowerFirst met en minuscule la première lettre de s (libellé inséré dans
+// la ligne des touches).
+func lowerFirst(s string) string {
+	r, n := utf8.DecodeRuneInString(s)
+	if n == 0 {
+		return s
+	}
+	return string(unicode.ToLower(r)) + s[n:]
+}
+
 func (m Model) promptKeysKey() string {
 	if m.prompting() && m.prompts[0].p.Kind == "tool" {
 		if m.prompts[0].p.HookReason != "" {
@@ -376,7 +423,7 @@ func (m Model) promptPanel() panel {
 	}
 	p := m.prompts[0]
 	top := splitLines(m.st.perm.Render(m.wrap(i18n.T(m.lang, "tui.perm.title"))))
-	keyLines := splitLines(m.st.perm.Render(m.wrap(i18n.T(m.lang, m.promptKeysKey()))))
+	keyLines := splitLines(m.st.perm.Render(m.wrap(m.promptKeys())))
 	avail := max(1, m.height-statusHeight-minConvHeight)
 
 	if m.width >= minApproveWidth {
@@ -604,8 +651,19 @@ func (m Model) headLines(p *permPrompt, collapse bool) []string {
 		}
 	}
 	if p.p.Tool == "shell" {
-		// Risque rappelé par la spécification : pas de bac à sable.
-		out = append(out, splitLines(m.st.notice.Render(m.wrap(i18n.T(m.lang, "tui.perm.not_sandbox"))))...)
+		// Risque rappelé par la spécification : pas de bac à sable, sauf
+		// commande isolée (écriture limitée, réseau fermé par défaut).
+		note := "tui.perm.not_sandbox"
+		switch {
+		case p.p.Sandboxed && p.p.RuleNetwork:
+			note = "tui.perm.sandboxed_write"
+		case p.p.Sandboxed:
+			note = "tui.perm.sandboxed"
+		}
+		out = append(out, splitLines(m.st.notice.Render(m.wrap(i18n.T(m.lang, note))))...)
+		if p.p.Sandboxed && p.p.RuleNetwork {
+			out = append(out, splitLines(m.st.notice.Render(m.wrap(i18n.T(m.lang, "perm.network_by_rule"))))...)
+		}
 		// Sosies de guillemets, tirets… : information seule, sans effet sur
 		// l'acceptation.
 		if !isASCII(p.command) {

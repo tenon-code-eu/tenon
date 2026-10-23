@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"slices"
 
 	"github.com/BurntSushi/toml"
 
@@ -21,6 +22,12 @@ type projectFile struct {
 	Profile     string      `toml:"profile"`
 	// ProviderAllowlist ne peut que restreindre : liste vide refusée à la validation.
 	ProviderAllowlist *ProviderAllowlist `toml:"provider_allowlist"`
+	// Sandbox : le projet ne peut que durcir (required, deny_read).
+	Sandbox Sandbox `toml:"sandbox"`
+	// Classification s'ajoute à celle du global ; Routing est refusé (pointeur :
+	// une table vide l'est aussi).
+	Classification Classification `toml:"classification"`
+	Routing        *Routing       `toml:"routing"`
 }
 
 // Load fusionne défauts, configuration globale puis configuration projet.
@@ -56,6 +63,7 @@ func LoadPolicy(globalPath, projectPath string, getenv func(string) string, pol 
 // load fusionne les fichiers et valide tout sauf le fournisseur par défaut.
 func load(globalPath, projectPath string, getenv func(string) string) (Config, error) {
 	cfg := Defaults(getenv)
+	cfg.home = getenv("HOME")
 
 	if data, ok, err := readOptional(globalPath); err != nil {
 		return Config{}, err
@@ -79,6 +87,17 @@ func load(globalPath, projectPath string, getenv func(string) string) (Config, e
 		cfg.MCP = g.MCP
 		cfg.Hooks = g.Hooks
 		cfg.Checkpoints = g.Checkpoints
+		cfg.Classification, cfg.Routing = g.Classification, g.Routing
+		if err := checkSandboxMode(g.Sandbox.Mode); err != nil {
+			return Config{}, err
+		}
+		cfg.Sandbox.Mode = g.Sandbox.Mode
+		if cfg.Sandbox.Write, err = expandSandboxPaths("write", g.Sandbox.Write, cfg.home); err != nil {
+			return Config{}, err
+		}
+		if cfg.Sandbox.DenyRead, err = expandSandboxPaths("deny_read", g.Sandbox.DenyRead, cfg.home); err != nil {
+			return Config{}, err
+		}
 		cfg.Allowlist = g.Allowlist
 		gp, err := profile.Parse(string(g.Profile))
 		if err != nil {
@@ -110,9 +129,15 @@ func load(globalPath, projectPath string, getenv func(string) string) (Config, e
 			return Config{}, fmt.Errorf("project config: key not allowed %q", und[0].String())
 		}
 		for _, r := range p.Permissions.Rules {
+			if r.Network {
+				return Config{}, errors.New("config: network not allowed in project configuration")
+			}
 			if r.Decision == "allow" {
 				return Config{}, errors.New(`project config: "allow" rules are not allowed`)
 			}
+		}
+		if p.Routing != nil {
+			return Config{}, errors.New("config: routing not allowed in project configuration")
 		}
 		for i := range p.Permissions.Rules {
 			p.Permissions.Rules[i].Project = true
@@ -130,10 +155,29 @@ func load(globalPath, projectPath string, getenv func(string) string) (Config, e
 		}
 		cfg.Profile = profile.Stricter(cfg.Profile, pp)
 		cfg.ProjectAllowlist = p.ProviderAllowlist
+		if err := checkSandboxMode(p.Sandbox.Mode); err != nil {
+			return Config{}, err
+		}
+		if p.Sandbox.Mode == "off" {
+			return Config{}, errors.New("config: sandbox.mode not allowed in project configuration")
+		}
+		if p.Sandbox.Write != nil {
+			return Config{}, errors.New("config: sandbox.write not allowed in project configuration")
+		}
+		pd, err := expandSandboxPaths("deny_read", p.Sandbox.DenyRead, cfg.home)
+		if err != nil {
+			return Config{}, err
+		}
+		cfg.Sandbox.Mode = stricterSandbox(cfg.Sandbox.Mode, p.Sandbox.Mode)
+		cfg.Sandbox.DenyRead = append(cfg.Sandbox.DenyRead, pd...)
+		cfg.Classification.Paths = append(slices.Clone(cfg.Classification.Paths), p.Classification.Paths...)
+		cfg.Classification.Markers = append(slices.Clone(cfg.Classification.Markers), p.Classification.Markers...)
 		cfg.Permissions.Rules = append(cfg.Permissions.Rules, p.Permissions.Rules...)
 		cfg.Redaction.Rules = append(cfg.Redaction.Rules, p.Redaction.Rules...)
 	}
 
+	// Plancher du profil, puis mode explicite (« auto » par défaut).
+	cfg.Sandbox.Mode = stricterSandbox(cfg.Sandbox.Mode, profile.SandboxMode(cfg.Profile))
 	if err := cfg.validateFields(); err != nil {
 		return Config{}, err
 	}

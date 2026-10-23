@@ -76,7 +76,7 @@ func withHooks(t *testing.T, hs ...hk) func(*Deps) {
 
 // withShell ajoute l'outil shell aux outils fichiers.
 func withShell(d *Deps) {
-	d.Tools = tools.NewRegistry(append(tools.FS(d.ProjectRoot, 30000), tools.Shell(d.ProjectRoot, 5*time.Second, 30000))...)
+	d.Tools = tools.NewRegistry(append(tools.FS(d.ProjectRoot, 30000), tools.Shell(d.ProjectRoot, 5*time.Second, 30000, tools.ShellOptions{}))...)
 }
 
 func exists(p string) bool { _, err := os.Stat(p); return err == nil }

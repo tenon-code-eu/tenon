@@ -173,6 +173,10 @@ func auditExport(args []string, langFlag string, stdout, stderr io.Writer, geten
 		fmt.Fprintln(stderr, i18n.T(lang, "audit.export.timestamps_invalid", n))
 		return 2
 	}
+	if rep.RoutingViolation() {
+		fmt.Fprintln(stderr, i18n.T(lang, "audit.export.routing_violation"))
+		return 2
+	}
 	return 0
 }
 

@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -35,7 +36,7 @@ import (
 	"github.com/tenon-code-eu/tenon/internal/orgpolicy"
 	"github.com/tenon-code-eu/tenon/internal/policy"
 	"github.com/tenon-code-eu/tenon/internal/profile"
-	"github.com/tenon-code-eu/tenon/internal/provider"
+	"github.com/tenon-code-eu/tenon/internal/sandbox"
 	"github.com/tenon-code-eu/tenon/internal/secrets"
 	"github.com/tenon-code-eu/tenon/internal/session"
 	"github.com/tenon-code-eu/tenon/internal/skills"
@@ -190,6 +191,9 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 				return 1
 			}
 		}
+		// Classification et routage : nombre de règles, fournisseur local et replis.
+		fmt.Fprintln(stdout, classificationLine(lang, cs.cfg))
+		fmt.Fprintln(stdout, routingLine(lang, cs.cfg))
 		// Horodatage : URL et origine des racines, puis contrôle du profil.
 		l, err := timestampLine(lang, cs.cfg)
 		if err == nil {
@@ -204,6 +208,14 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		}
 		if l != "" {
 			fmt.Fprintln(stdout, l)
+		}
+		// Isolation : mode effectif et sonde ; le refus du mode required
+		// fait échouer le contrôle comme il bloquerait le démarrage.
+		mode, st := sandboxStatus(cs.cfg)
+		fmt.Fprintln(stdout, sandboxLine(lang, mode, st))
+		if err := sandboxRefusal(lang, mode, st); err != nil {
+			fmt.Fprintln(stderr, i18n.T(lang, "err.prefix", err))
+			return 1
 		}
 		fmt.Fprintln(stdout, i18n.T(lang, "config.ok"))
 		return 0
@@ -307,6 +319,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		Redact:     func(s string) string { out, _ := red.RedactJSON(s); return out },
 		RedactText: redactText(red),
 		Strict:     *strict,
+		Local:      st.local,
 	}, stdout, stderr)
 	// Les sinks sont encore ouverts : les événements du hook SessionEnd y
 	// sont écrits.
@@ -371,6 +384,7 @@ func runInteractive(ctx context.Context, fs *flag.FlagSet, lang i18n.Lang, o eng
 		Version:       version,
 		Profile:       string(st.profile),
 		Policy:        st.policy,
+		Local:         st.local,
 		Redact:        redactText(st.redactor),
 		Skills:        st.skills,
 		Agents:        st.agents,
@@ -606,7 +620,7 @@ func loadSetup(lang i18n.Lang, getenv func(string) string, wd, globalPath string
 		}
 		// Une règle de la politique se comporte comme une règle projet : ses
 		// ask priment les allow de la configuration.
-		rules = append(rules, policy.Rule{Tool: r.Tool, Match: r.Match, Decision: d, Project: r.Project || r.Policy})
+		rules = append(rules, policy.Rule{Tool: r.Tool, Match: r.Match, Decision: d, Project: r.Project || r.Policy, Network: r.Network})
 	}
 	custom := make([]policy.RedactionRule, 0, len(cfg.Redaction.Rules))
 	for _, r := range cfg.Redaction.Rules {
@@ -683,6 +697,8 @@ type started struct {
 	// policy est la ligne de la politique d'organisation, déjà traduite
 	// (écran de bienvenue ; "" sans politique).
 	policy string
+	// local est le fournisseur local du routage ("" : aucun).
+	local string
 }
 
 // providerInfo décrit le fournisseur configuré pc.
@@ -865,6 +881,9 @@ func policyNotices(lang i18n.Lang, cfg config.Config) []string {
 	if ids := cfg.PolicyStrippedQualifications; len(ids) > 0 {
 		out = append(out, i18n.T(lang, "policy.qualifications_stripped", pol.ID, strings.Join(ids, ", ")))
 	}
+	if cfg.PolicyRoutingLocal != "" {
+		out = append(out, i18n.T(lang, "policy.routing_imposed", pol.ID, cfg.PolicyRoutingLocal))
+	}
 	if cfg.PolicyTimestampImposed {
 		out = append(out, i18n.T(lang, "policy.timestamp_imposed", pol.ID, timestampURL(cfg)))
 	}
@@ -933,7 +952,26 @@ func startEngine(o engineOptions) (started, error) {
 		}
 		return started{}, err
 	}
-	pc, detectNotices, err := detectLocal(o.ctx, lang, pc, providerNoProxy(cfg.Profile, pc))
+	// Isolation : sondée une fois, après les refus de configuration et avant
+	// tout contact d'un fournisseur (détection locale) ou d'un serveur MCP ;
+	// le mode required refuse ici le démarrage.
+	home, configDir, dataDir, policyPath := sandboxPaths(getenv)
+	sbSpec, sbInfo, sbNotices, err := sandboxSetup(lang, cfg, wd, home, configDir, dataDir, policyPath, getenv)
+	if err != nil {
+		return started{}, err
+	}
+	startNotices = append(startNotices, sbNotices...)
+	if sbSpec != nil {
+		// --config hors du projet : une commande confinée ne doit ni le lire
+		// ni le réécrire (mode off au lancement suivant).
+		sbSpec.DenyRead = append(sbSpec.DenyRead, configDeny(o.globalPath, wd, getenv)...)
+	}
+	// Isolation sans coupure réseau : le journal déclare le réseau ouvert.
+	sbNetOpen := sbSpec != nil && sbInfo.Network == "none"
+	// Sans proxy d'environnement : profil (providerNoProxy), ou fournisseur
+	// local du routeur (ruling R14, quel que soit le profil).
+	curNoProxy := providerNoProxy(cfg.Profile, pc) || routesLocal(cfg, pc)
+	pc, detectNotices, err := detectLocal(o.ctx, lang, pc, curNoProxy)
 	if err != nil {
 		return started{}, err
 	}
@@ -945,10 +983,15 @@ func startEngine(o engineOptions) (started, error) {
 	// leur forme décodée et sous les formes encodées de go-keyring.
 	var apiKey string
 	var keyErr error
+	// Clés lisibles de chaque fournisseur : candidats du routage.
+	keys := map[string]string{}
 	for _, p := range cfg.Providers {
 		v, source, err := providerKey(p, getenv)
 		if p.ID == pc.ID {
 			apiKey, keyErr = v, err
+		}
+		if err == nil && v != "" {
+			keys[p.ID] = v
 		}
 		if err == nil && source == "keyring" {
 			s.redactor.AddKeyringSecret(v)
@@ -963,6 +1006,15 @@ func startEngine(o engineOptions) (started, error) {
 			return started{}, errors.New(i18n.T(lang, "err.no_api_key_env", pc.ID))
 		}
 		return started{}, errors.New(i18n.T(lang, "err.missing_env", pc.APIKeyEnv))
+	}
+
+	// Routage : fournisseur local (routing.local, ou le courant s'il est
+	// local) et replis, construits après les refus et la détection du
+	// fournisseur courant, avant toute session ou serveur MCP.
+	curProv := newProvider(info, apiKey, curNoProxy)
+	router, routingInfo, routingNotices, err := buildRouter(cfg, pc, curProv, routerDeps{ctx: o.ctx, lang: lang, keys: keys})
+	if err != nil {
+		return started{}, err
 	}
 
 	files, err := instructions.Load(wd)
@@ -1052,6 +1104,12 @@ func startEngine(o engineOptions) (started, error) {
 	out := policy.NewOutbound(s.redactor)
 	if o.allowNonEU {
 		out.Consent(info.ID)
+		// --allow-non-eu vaut aussi pour chaque fournisseur de repli.
+		if router != nil {
+			for _, c := range router.Candidates(false) {
+				out.Consent(c.ID)
+			}
+		}
 	}
 
 	// grep et glob ne révèlent que les fichiers que read_file pourrait lire
@@ -1075,7 +1133,14 @@ func startEngine(o engineOptions) (started, error) {
 		fsOpts = append(fsOpts, tools.WithoutCheckpoints())
 	}
 	ts := append(tools.FS(wd, cfg.OutputLimit, fsOpts...),
-		tools.Shell(wd, cfg.ShellTimeout.Duration, cfg.OutputLimit))
+		// Environnement des commandes : celui de tenon sans les secrets
+		// configurés, dans tous les modes, isolation active ou non.
+		tools.Shell(wd, cfg.ShellTimeout.Duration, cfg.OutputLimit, tools.ShellOptions{
+			// Dossiers classés interdits aux commandes confinées (macOS, R22).
+			Sandbox:     shellSpec(sbSpec, classifiedDenyRead(cfg.Classification.Paths, wd, runtime.GOOS)),
+			Env:         secretEnv(cfg, environ()),
+			NetworkOpen: sbNetOpen,
+		}))
 	// Skills : l'outil skill rejoint les outils internes, avant ceux de MCP.
 	disc := o.skills
 	if disc == nil {
@@ -1110,7 +1175,7 @@ func startEngine(o engineOptions) (started, error) {
 	}
 	// Serveurs MCP (configuration globale seulement), démarrés après les
 	// étapes qui peuvent échouer sans eux.
-	mgr, unavailable, active, notices := startMCP(o, cfg, red)
+	mgr, unavailable, active, notices := startMCP(o, cfg, red, mcpSandboxSpec(sbSpec, wd), sbNetOpen)
 	closeAll := func() {
 		// Serveurs MCP d'abord : un appel en cours ne peut plus écrire dans
 		// des sinks fermés.
@@ -1125,15 +1190,11 @@ func startEngine(o engineOptions) (started, error) {
 	// masquer aucun outil interne.
 	ts = append(ts, mgr.Tools()...)
 
-	// strict-local, ou secnumcloud avec un fournisseur local : le
-	// fournisseur ignore les variables de proxy (voir providerNoProxy).
-	var provOpts []provider.Option
-	if providerNoProxy(cfg.Profile, pc) {
-		provOpts = append(provOpts, provider.WithoutProxy())
-	}
-
 	eng := engine.New(engine.Deps{
-		Provider:            provider.NewOpenAICompat(info, apiKey, provOpts...),
+		Provider:            curProv,
+		Router:              router,
+		Routing:             routingInfo,
+		Classify:            cfg.ClassifyRules(),
 		Tools:               tools.NewRegistry(ts...),
 		Permissions:         perm,
 		Outbound:            out,
@@ -1158,6 +1219,8 @@ func startEngine(o engineOptions) (started, error) {
 		Profile:             cfg.Profile,
 		Policy:              cfg.Policy,
 		Allowlists:          allowlists(cfg),
+		ShellSandboxed:      shellSandboxed(sbSpec, sbInfo),
+		Sandbox:             &sbInfo,
 	})
 	if o.resume != "" {
 		if err := eng.Restore(sid, events); err != nil {
@@ -1172,9 +1235,10 @@ func startEngine(o engineOptions) (started, error) {
 		anchorAtEnd(lang, cfg, config.DataDir(getenv), redactText(red), o.stderr)
 	}
 	return started{
-		eng: eng, redactor: red, sessionID: sid, close: closeAndAnchor, notices: slices.Concat(startNotices, detectNotices, skillNotices, ad.notices, hookNotices, ckNotices, notices), skills: cat, agents: ad.cat, hooks: hookSet,
+		eng: eng, redactor: red, sessionID: sid, close: closeAndAnchor, notices: slices.Concat(startNotices, detectNotices, routingNotices, skillNotices, ad.notices, hookNotices, ckNotices, notices), skills: cat, agents: ad.cat, hooks: hookSet,
 		downNotices: downNotices(o.lang, unavailable, red),
 		provider:    info, contextWindow: pc.Window(), profile: cfg.Profile,
+		local:  routingLocal(router),
 		policy: policyLine(lang, "tui.welcome.policy", cfg.Policy),
 	}, nil
 }
@@ -1205,12 +1269,15 @@ func killLiveMCP() {
 // secrets (env_from, bearer_env) sont ajoutés au Redactor avant toute
 // écriture ; les serveurs injoignables et les avertissements sont renvoyés
 // pour être signalés.
-func startMCP(o engineOptions, cfg config.Config, red *policy.Redactor) (*mcp.Manager, []event.McpServerDownPayload, []event.MCPServerInfo, []string) {
+// Les serveurs stdio sont confinés par sbSpec (nil : non confinés) ;
+// netOpen signale une isolation sans coupure réseau.
+func startMCP(o engineOptions, cfg config.Config, red *policy.Redactor, sbSpec *sandbox.Spec, netOpen bool) (*mcp.Manager, []event.McpServerDownPayload, []event.MCPServerInfo, []string) {
 	ctx := o.ctx
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	jurisdiction := map[string]llm.Jurisdiction{}
+	risk := map[string]string{}
 	// Serveurs exclus par le profil ou la politique : ni lancés ni contactés, signalés
 	// indisponibles. Un serveur désactivé n'est pas lancé : pas d'avis.
 	servers := make([]config.MCPServer, 0, len(cfg.MCP.Servers))
@@ -1218,6 +1285,7 @@ func startMCP(o engineOptions, cfg config.Config, red *policy.Redactor) (*mcp.Ma
 	var skippedOrder []string
 	for _, s := range cfg.MCP.Servers {
 		jurisdiction[s.ID] = llm.Jurisdiction(s.Jurisdiction)
+		risk[s.ID] = s.Risk
 		if !s.Disabled {
 			if msg := profileMCPSkip(o.lang, cfg.Profile, s); msg != "" {
 				skipped[s.ID] = msg
@@ -1263,6 +1331,8 @@ func startMCP(o engineOptions, cfg config.Config, red *policy.Redactor) (*mcp.Ma
 		Root:        o.wd,
 		AllowNonEU:  allowNonEU,
 		NoProxy:     mcpNoProxy(cfg.Profile),
+		Sandbox:     sbSpec,
+		NetworkOpen: netOpen,
 	})
 	liveMCP.Store(mgr)
 	// Comme les clés d'API : une valeur trop courte (ex. DEBUG=1) masquerait
@@ -1286,6 +1356,10 @@ func startMCP(o engineOptions, cfg config.Config, red *policy.Redactor) (*mcp.Ma
 		if d.NonEUSkipped {
 			msg = i18n.T(o.lang, "mcp.non_eu_skipped", d.Server)
 		}
+		// Serveur confiné : l'échec peut venir de l'isolation (risk, write).
+		if d.Confined {
+			msg += " " + i18n.T(o.lang, "mcp.down_confined", risk[d.Server])
+		}
 		unavailable = append(unavailable, event.McpServerDownPayload{Server: d.Server, Error: msg})
 	}
 	var active []event.MCPServerInfo
@@ -1293,7 +1367,7 @@ func startMCP(o engineOptions, cfg config.Config, red *policy.Redactor) (*mcp.Ma
 		if s.Disabled || isDown[s.ID] {
 			continue
 		}
-		active = append(active, event.MCPServerInfo{ID: s.ID, Jurisdiction: llm.Jurisdiction(s.Jurisdiction), Country: s.Country})
+		active = append(active, event.MCPServerInfo{ID: s.ID, Jurisdiction: llm.Jurisdiction(s.Jurisdiction), Country: s.Country, Sandbox: mgr.SandboxUse(s.ID)})
 	}
 	for _, w := range mgr.Warnings() {
 		notices = append(notices, i18n.T(o.lang, "mcp.warning", headless.OneLine(w)))

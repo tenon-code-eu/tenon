@@ -106,7 +106,9 @@ decision = "deny"
 # Protecting a directory needs two rules: a path pattern does not apply to
 # the text of a command, so "secrets/*" does not block `cat secrets/k`.
 # Even so, `cd secrets && cat k` or `cat secr*/k` get through: permissions
-# are not a sandbox (see docs/security.md).
+# alone do not confine anything. To block reads at the system level, add the
+# directory's absolute path to [sandbox] deny_read (see the Sandbox section
+# below and docs/security.md).
 [[permissions.rules]]
 tool = "*"              # file tools: paths under secrets/
 match = "secrets/*"
@@ -116,6 +118,29 @@ decision = "deny"
 tool = "shell"          # commands that mention secrets/
 match = "*secrets/*"
 decision = "deny"
+
+# --- Sandbox --------------------------------------------------------------
+#
+# Shell commands run confined: writes limited to the project, temp and cache
+# directories; credentials directories unreadable; network closed.
+#
+# [sandbox]
+# mode = "auto"                # "auto" (default) | "required" | "off"
+# write = ["~/go/pkg"]         # extra writable paths (absolute or ~/); global only
+# deny_read = ["~/private"]    # extra paths denied for read and write
+#
+# A project config can only harden: mode = "required" and deny_read are
+# accepted, mode = "off" and write are refused. profile = "strict-local"
+# forces "required".
+#
+# A shell rule can open the network for matching commands (allow or ask only;
+# refused in project config and in the organization policy):
+#
+# [[permissions.rules]]
+# tool = "shell"
+# match = "go mod download *"
+# decision = "allow"
+# network = true
 
 # --- Redaction ------------------------------------------------------------
 #
@@ -206,3 +231,23 @@ disabled = false
 # base_url = "https://llm.example.eu/v1"
 # jurisdiction = "eu"
 # qualifications = ["secnumcloud"]
+
+# Data-sensitivity routing. A session becomes sensitive when it touches a
+# classified path or content carrying a marker; from then on it is sent only
+# to the local provider. The built-in markers (DIFFUSION RESTREINTE,
+# SPECIAL FRANCE, RESTREINT UE, EU RESTRICTED) are always active. Paths use
+# the permission-rule syntax, relative to the project root ("*" inside a
+# segment, "**" across segments) or absolute; markers ignore case, accents
+# and whitespace runs. Lists add up (global, project, organisation policy);
+# a project config can add entries but never remove any.
+# [classification]
+# paths = ["secrets/**", "**/*.pem"]
+# markers = ["INTERNAL ONLY"]
+
+# local: a provider whose jurisdiction is "local" (ollama, vllm, or one you
+# define). fallback: providers tried in order when the current one is
+# unavailable (never for a sensitive session). Global only: refused in
+# .tenon/config.toml. An organisation policy can impose [routing] local.
+# [routing]
+# local = "ollama"
+# fallback = ["scaleway", "ollama"]

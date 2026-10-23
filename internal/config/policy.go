@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"slices"
 
 	"github.com/tenon-code-eu/tenon/internal/orgpolicy"
@@ -102,6 +103,32 @@ func ApplyPolicy(cfg Config, pol *orgpolicy.Policy) (Config, error) {
 		}
 		cfg.Audit.Timestamp = ts
 	}
+
+	// Classification : les règles de la politique s'ajoutent.
+	cfg.Classification.Paths = append(slices.Clone(cfg.Classification.Paths), pol.Classification.Paths...)
+	cfg.Classification.Markers = append(slices.Clone(cfg.Classification.Markers), pol.Classification.Markers...)
+
+	// Fournisseur local imposé : il doit exister et être local, sinon la
+	// politique est refusée. Contrôlé après les define.
+	if l := pol.Routing.Local; l != "" {
+		if p, ok := cfg.Provider(l); !ok || p.Jurisdiction != "local" {
+			return Config{}, fmt.Errorf("%w: routing.local must name a local provider", orgpolicy.ErrPolicy)
+		}
+		if cfg.Routing.Local != l {
+			cfg.PolicyRoutingLocal = l
+		}
+		cfg.Routing.Local = l
+	}
+
+	// Confinement : la politique ne fait que durcir ; deny_read s'ajoute.
+	cfg.Sandbox.Mode = stricterSandbox(cfg.Sandbox.Mode, pol.Sandbox.Mode)
+	pd, err := expandSandboxPaths("deny_read", pol.Sandbox.DenyRead, cfg.home)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.Sandbox.DenyRead = append(slices.Clone(cfg.Sandbox.DenyRead), pd...)
+	// Plancher du profil, connu seulement ici (la politique peut le relever).
+	cfg.Sandbox.Mode = stricterSandbox(cfg.Sandbox.Mode, profile.SandboxMode(cfg.Profile))
 
 	if err := cfg.validate(); err != nil {
 		return Config{}, err

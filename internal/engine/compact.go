@@ -156,16 +156,18 @@ func summaryInput(old []llm.Message, limit int) string {
 // reason, si non vide, termine le tour : reasonTooLarge, reasonBlocked
 // (juridiction refusée) ou reasonCancelled (err est alors l'erreur du
 // contexte). Une err seule est fatale pour le tour.
-func (t *turn) compact(info llm.ProviderInfo, defs []llm.ToolDef, force bool) (reason string, err error) {
+func (t *turn) compact(defs []llm.ToolDef, force bool) (reason string, err error) {
 	d := t.e.d
-	limit := int(d.CompactionThreshold * float64(d.ContextWindow))
+	// Fenêtre du fournisseur qui recevra l'envoi (premier candidat).
+	window := t.window()
+	limit := int(d.CompactionThreshold * float64(window))
 	h := *t.h
 	before := estimate(h, defs)
 	if !force && before <= limit {
 		return "", nil
 	}
 	// Après un refus du fournisseur, la taille rejetée borne la fenêtre réelle.
-	win := d.ContextWindow
+	win := window
 	if force && before < win {
 		win = before
 	}
@@ -191,35 +193,42 @@ func (t *turn) compact(info llm.ProviderInfo, defs []llm.ToolDef, force bool) (r
 		}
 	}
 
-	// Premier passage par le contrôle sortant : les arguments d'appels
-	// d'outils sont masqués par RedactJSON avant d'être rendus en texte,
-	// comme sur le chemin normal. La requête entière y repasse ensuite.
-	old, ok, err := t.outbound(info, conv[:start])
-	if err != nil {
-		return "", err
-	}
-	if !ok {
-		return reasonBlocked, nil
-	}
 	// La requête de résumé tient elle aussi sous le seuil de la fenêtre
 	// (réduite à la taille rejetée après un refus du fournisseur).
 	sumLimit := limit
 	if l := int(d.CompactionThreshold * float64(win)); l < sumLimit {
 		sumLimit = l
 	}
-	msgs, ok, err := t.outbound(info, []llm.Message{
-		{Role: llm.System, Content: summaryPrompt},
-		{Role: llm.User, Content: summaryInput(old, sumLimit)},
-	})
+	// Pour chaque candidat : premier passage par le contrôle sortant (les
+	// arguments d'appels d'outils sont masqués par RedactJSON avant d'être
+	// rendus en texte, comme sur le chemin normal), puis la requête entière
+	// y repasse.
+	prep := func(info llm.ProviderInfo) (prepared, bool, error) {
+		old, c1, ok, err := t.outboundCheck(info, conv[:start])
+		if err != nil || !ok {
+			return prepared{}, ok, err
+		}
+		msgs, c2, ok, err := t.outboundCheck(info, []llm.Message{
+			{Role: llm.System, Content: summaryPrompt},
+			{Role: llm.User, Content: summaryInput(old, sumLimit)},
+		})
+		// Le contrôle des marquages porte sur les messages structurés dont le
+		// texte rendu est tiré (même texte, résultats glob exclus).
+		scan := append([]llm.Message{{Role: llm.System, Content: summaryPrompt}}, old...)
+		raw := append([]llm.Message{{Role: llm.System, Content: summaryPrompt}}, conv[:start]...)
+		return prepared{msgs: msgs, counts: []map[string]int{c1, c2}, scan: scan, raw: raw}, ok, err
+	}
+	stop := t.stopReason
+	summary, _, provErr, err := t.sendWith(llm.Request{}, false, prep)
 	if err != nil {
 		return "", err
 	}
-	if !ok {
+	if errors.Is(provErr, errNotSent) {
+		// continue:false d'un hook Notification : la boucle arrête le tour.
+		if t.stopReason != stop {
+			return "", nil
+		}
 		return reasonBlocked, nil
-	}
-	summary, _, provErr, err := t.stream(llm.Request{Model: info.Model, Messages: msgs}, false)
-	if err != nil {
-		return "", err
 	}
 	if provErr != nil {
 		if cerr := t.ctx.Err(); cerr != nil {
@@ -244,11 +253,18 @@ func (t *turn) compact(info llm.ProviderInfo, defs []llm.ToolDef, force bool) (r
 		if err != nil {
 			return t.compactHookErr(err)
 		}
-		hc = out.Context
+		// Classification : le contexte est joint au message de résumé.
+		if hc, err = t.scanHookText(out.Context); err != nil {
+			return "", err
+		}
 	}
 
 	nh := make([]llm.Message, 0, 2+len(conv)-start)
-	nh = append(nh, h[0], summaryMessage(summary, hc))
+	// Résumé produit par un fournisseur non local : exclu du contrôle
+	// sortant comme ses réponses (hc a été contrôlé par scanHookText).
+	sm := summaryMessage(summary, hc)
+	sm.Remote = t.remote
+	nh = append(nh, h[0], sm)
 	nh = append(nh, conv[start:]...)
 	if err := t.emit(event.ContextCompacted, event.ContextCompactedPayload{
 		Summary: summary, Replaced: start, TokensBefore: before, TokensAfter: estimate(nh, defs),
@@ -281,4 +297,15 @@ func (t *turn) tooLarge() (string, error) {
 		return "", err
 	}
 	return reasonTooLarge, nil
+}
+
+// window renvoie la fenêtre de contexte du premier candidat de l'envoi
+// (Deps.ContextWindow si elle est inconnue).
+func (t *turn) window() int {
+	if r := t.e.router; r != nil {
+		if c := r.Candidates(t.s.isSensitive()); len(c) > 0 && c[0].Window > 0 {
+			return c[0].Window
+		}
+	}
+	return t.e.d.ContextWindow
 }

@@ -37,6 +37,9 @@ type Options struct {
 	// (« policy: acme-dev v3 (key …) »), affichée sous celle du profil
 	// ("" : aucune politique, aucune ligne).
 	Policy string
+	// Local est le fournisseur local du routage ("" : celui de
+	// SessionStarted, ou le fournisseur courant s'il est local).
+	Local string
 	// Version est la version affichée dans l'écran de bienvenue ("dev" si vide).
 	Version string
 	// Redact masque tout texte venu des événements avant affichage (même
@@ -230,6 +233,10 @@ func New(eng Engine, opts Options) Model {
 		m.redact = func(s string) string { return s }
 	}
 	m.tr.SetRedact(opts.Redact)
+	m.tr.routing = headless.Routing{Local: opts.Local, Current: opts.Provider.ID}
+	if opts.Local == "" && opts.Provider.Jurisdiction == llm.Local {
+		m.tr.routing.Local = opts.Provider.ID
+	}
 	for _, n := range opts.Notices {
 		m.tr.notice(strings.ReplaceAll(m.redact(headless.Clean(n)), "\n", " "))
 	}

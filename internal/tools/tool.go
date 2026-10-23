@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/tenon-code-eu/tenon/internal/event"
 	"github.com/tenon-code-eu/tenon/internal/llm"
 )
 
@@ -45,6 +46,29 @@ type Result struct {
 	// ServerDown porte l'identifiant d'un serveur MCP qui vient de tomber pendant
 	// cet appel (vide sinon) ; signalé une seule fois par serveur.
 	ServerDown string
+	// Sandbox indique comment la commande shell s'est exécutée (isolée ou
+	// non, réseau accordé ou non) ; nil pour les autres outils.
+	Sandbox *event.SandboxUse
+	// Untruncated est le texte complet avant troncature (résultat MCP), pour
+	// le seul contrôle de classification ; jamais enregistré ni envoyé.
+	// Vide : Content est complet.
+	Untruncated string
+}
+
+// networkKey est la clé de contexte du drapeau réseau d'un appel.
+type networkKey struct{}
+
+// WithNetwork renvoie ctx portant le drapeau réseau de l'appel : vrai quand
+// une règle allow avec network ou la réponse « Autoriser avec réseau »
+// l'accorde.
+func WithNetwork(ctx context.Context, on bool) context.Context {
+	return context.WithValue(ctx, networkKey{}, on)
+}
+
+// NetworkFrom renvoie le drapeau réseau porté par ctx (false par défaut).
+func NetworkFrom(ctx context.Context) bool {
+	on, _ := ctx.Value(networkKey{}).(bool)
+	return on
 }
 
 // Tool est un outil appelable par le modèle.

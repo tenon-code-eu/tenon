@@ -366,3 +366,40 @@ func TestWithoutProxy(t *testing.T) {
 		t.Errorf("transport par défaut modifié : %T", d.client.Transport)
 	}
 }
+
+// Un flux d'appels d'outils seuls (aucun texte avant le chunk final) émet un
+// battement de cœur au premier événement SSE : le délai du premier chunk du
+// moteur s'arrête sans que le flux compte comme commencé.
+func TestStreamToolCallHeartbeat(t *testing.T) {
+	p, _ := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+		sse(w,
+			`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"f","arguments":"{\"a"}}]}}]}`,
+			`{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\":1}"}}]},"finish_reason":"tool_calls"}]}`,
+			`[DONE]`)
+	})
+	ch, err := p.Stream(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []llm.Chunk
+	for c := range ch {
+		got = append(got, c)
+	}
+	if len(got) != 2 || !got[0].Heartbeat || got[0].Text != "" || got[0].Done ||
+		got[1].Heartbeat || !got[1].Done || len(got[1].ToolCalls) != 1 {
+		t.Fatalf("chunks %+v", got)
+	}
+}
+
+// Un flux de texte n'émet aucun battement de cœur.
+func TestStreamTextNoHeartbeat(t *testing.T) {
+	p, _ := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+		sse(w, `{"choices":[{"delta":{"content":"a"}}]}`, `{"choices":[{"delta":{}}]}`, `[DONE]`)
+	})
+	ch, _ := p.Stream(context.Background(), req)
+	for c := range ch {
+		if c.Heartbeat {
+			t.Fatalf("battement %+v", c)
+		}
+	}
+}

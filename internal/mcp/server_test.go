@@ -9,6 +9,7 @@ import (
 
 	"github.com/tenon-code-eu/tenon/internal/config"
 	"github.com/tenon-code-eu/tenon/internal/mcp/mcptest"
+	"github.com/tenon-code-eu/tenon/internal/sandbox"
 )
 
 // Variables d'environnement du serveur MCP de test (binaire de test relancé).
@@ -17,7 +18,10 @@ const (
 	envMode   = mcptest.EnvMode
 )
 
+// TestMain : relancé avec __sandbox, le binaire de test joue l'assistant
+// d'isolation (Linux) ; avec TENON_TEST_MCP_SERVER=1, le serveur stdio.
 func TestMain(m *testing.M) {
+	sandbox.MaybeMain()
 	mcptest.Main()
 	os.Exit(m.Run())
 }

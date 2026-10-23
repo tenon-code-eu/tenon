@@ -10,6 +10,7 @@ import (
 
 	"github.com/tenon-code-eu/tenon/internal/audit"
 	"github.com/tenon-code-eu/tenon/internal/event"
+	"github.com/tenon-code-eu/tenon/internal/llm"
 )
 
 // clean masque un texte issu du journal puis remplace ses caractères de
@@ -53,8 +54,22 @@ type builder struct {
 	agents    map[sessKey]string // appel "agent" → nom du sous-agent
 	warned    map[string]bool
 	commands  map[string]*SessionCommands
-	filePaths []string        // session et chemin bruts de chaque r.Files, pour les rewinds
-	subagents map[sessKey]int // appel "agent" → indice dans r.Subagents
+	filePaths []string                   // session et chemin bruts de chaque r.Files, pour les rewinds
+	subagents map[sessKey]int            // appel "agent" → indice dans r.Subagents
+	sandbox   map[string]*SessionSandbox // résumé sandbox par session
+	routing   map[string]*routingState   // routage par session
+}
+
+// routingState suit le routage d'une session pendant la lecture du journal.
+type routingState struct {
+	SessionRouting
+	started     bool // SessionStarted vu
+	startRemote bool // le fournisseur de départ n'est pas local
+	selected    bool // au moins un ProviderSelected
+	hasRouting  bool // [routing] déclaré au démarrage
+	// sentAfter : une réponse du modèle (AssistantMessage) suit le
+	// classement, preuve d'un envoi de la session sensible.
+	sentAfter bool
 }
 
 // mapping est la table de correspondance réglementaire, fixe et sans numéro d'article.
@@ -214,6 +229,8 @@ func Build(ds Dataset, o Options) Report {
 		warned:    map[string]bool{},
 		commands:  map[string]*SessionCommands{},
 		subagents: map[sessKey]int{},
+		sandbox:   map[string]*SessionSandbox{},
+		routing:   map[string]*routingState{},
 	}
 	for _, l := range ds.Lines {
 		if IsMetadataPayload(l.Payload) {
@@ -223,6 +240,8 @@ func Build(ds Dataset, o Options) Report {
 	}
 	b.finish()
 	b.providers()
+	b.sandboxes()
+	b.routings()
 	r.Profiles = profilesOf(ds, o)
 	r.Policies = policiesOf(ds, o)
 	if o.Details {
@@ -440,6 +459,43 @@ func (b *builder) line(l audit.Line) {
 				r.Consents.Denied++
 			}
 		}
+	case event.SessionStarted:
+		var p event.SessionStartedPayload
+		if decode(l, &p) {
+			if p.Sandbox != nil {
+				b.sessionSandbox(l.Session).setInfo(*p.Sandbox, o)
+			}
+			rs := b.sessionRouting(l.Session)
+			rs.started = true
+			rs.startRemote = p.Provider.Jurisdiction != llm.Local
+			rs.hasRouting = rs.hasRouting || p.Routing != nil
+			rs.addProvider(o.clean(p.Provider.ID))
+		}
+	case event.SessionClassified:
+		var p event.SessionClassifiedPayload
+		if decode(l, &p) {
+			if rs := b.sessionRouting(l.Session); !rs.Sensitive {
+				rs.Sensitive, rs.Reason = true, o.clean(p.Reason)
+			}
+		}
+	case event.ProviderSelected:
+		var p event.ProviderSelectedPayload
+		if decode(l, &p) {
+			rs := b.sessionRouting(l.Session)
+			rs.selected = true
+			rs.addProvider(o.clean(p.Provider.ID))
+			if p.Reason == "fallback" {
+				rs.Fallbacks++
+			}
+			// Violation : un fournisseur non local après le classement.
+			if rs.Sensitive && p.Provider.Jurisdiction != llm.Local {
+				rs.Violation = true
+			}
+		}
+	case event.AssistantMessage:
+		if rs := b.routing[l.Session]; rs != nil && rs.Sensitive {
+			rs.sentAfter = true
+		}
 	case event.ToolResult:
 		var p event.ToolResultPayload
 		if decode(l, &p) {
@@ -509,6 +565,17 @@ func (b *builder) shell(session string, args json.RawMessage) {
 }
 
 func (b *builder) toolResult(l audit.Line, p event.ToolResultPayload) {
+	if p.Tool == "shell" && p.Sandbox != nil {
+		// Sans SessionStarted portant le sandbox, la session n'est pas listée.
+		if s := b.sandbox[l.Session]; s != nil {
+			switch {
+			case !p.Sandbox.Confined:
+				s.Unconfined++
+			case p.Sandbox.Network:
+				s.WithNetwork++
+			}
+		}
+	}
 	switch p.Denied {
 	case "user":
 		b.r.Summary.Denials++
@@ -519,6 +586,9 @@ func (b *builder) toolResult(l audit.Line, p event.ToolResultPayload) {
 	case "hook":
 		b.r.Summary.Denials++
 		b.perm(p.Tool).DeniedHook++
+	case "classification":
+		b.r.Summary.Denials++
+		b.perm(p.Tool).DeniedClassification++
 	}
 	if p.Path == "" || p.HashAfter == "" {
 		return
@@ -785,4 +855,66 @@ func timelineEntry(l audit.Line, o Options, resolved map[sessKey]bool) (Timeline
 		}
 	}
 	return TimelineEntry{}, false
+}
+
+// sessionSandbox renvoie (en le créant) le résumé sandbox d'une session.
+func (b *builder) sessionSandbox(sid string) *SessionSandbox {
+	s := b.sandbox[sid]
+	if s == nil {
+		s = &SessionSandbox{Session: b.o.clean(sid)}
+		b.sandbox[sid] = s
+	}
+	return s
+}
+
+// setInfo retient l'isolation annoncée ; une reprise remplace la précédente.
+func (s *SessionSandbox) setInfo(i event.SandboxInfo, o Options) {
+	s.Mode, s.Mechanism, s.Network = o.clean(i.Mode), o.clean(i.Mechanism), o.clean(i.Network)
+}
+
+// sandboxes publie les résumés triés par session ; rien si aucun.
+func (b *builder) sandboxes() {
+	for _, s := range b.sandbox {
+		b.r.Sandbox = append(b.r.Sandbox, *s)
+	}
+	sort.Slice(b.r.Sandbox, func(i, j int) bool { return b.r.Sandbox[i].Session < b.r.Sandbox[j].Session })
+}
+
+// sessionRouting renvoie (en le créant) le suivi de routage d'une session.
+func (b *builder) sessionRouting(sid string) *routingState {
+	s := b.routing[sid]
+	if s == nil {
+		s = &routingState{SessionRouting: SessionRouting{Session: b.o.clean(sid), Providers: []string{}}}
+		b.routing[sid] = s
+	}
+	return s
+}
+
+// addProvider retient un fournisseur à sa première utilisation.
+func (s *routingState) addProvider(id string) {
+	for _, p := range s.Providers {
+		if p == id {
+			return
+		}
+	}
+	s.Providers = append(s.Providers, id)
+}
+
+// routings publie les sessions concernées par le routage, triées ; les
+// journaux sans classement, sans [routing] ni ProviderSelected n'en ont pas.
+func (b *builder) routings() {
+	for _, s := range b.routing {
+		if !s.Sensitive && !s.hasRouting && !s.selected {
+			continue
+		}
+		// Session sensible démarrée à distance, jamais routée, et qui a reçu
+		// une réponse après son classement : impossible en fonctionnement
+		// normal, donc signalée. Sans réponse (prompt bloqué par un hook,
+		// annulation avant l'envoi, local refusé), rien n'est parti.
+		if s.Sensitive && !s.selected && s.started && s.startRemote && s.sentAfter {
+			s.Violation = true
+		}
+		b.r.Routing = append(b.r.Routing, s.SessionRouting)
+	}
+	sort.Slice(b.r.Routing, func(i, j int) bool { return b.r.Routing[i].Session < b.r.Routing[j].Session })
 }

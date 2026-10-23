@@ -120,20 +120,15 @@ func (t *turn) evalPrompt(ctx context.Context, prompt string) (string, error) {
 	tc.ctx = ctx
 	tc.noHooks = true // la requête d'un hook prompt ne déclenche aucun hook
 	tc.outer = t.turnCtx()
-	info := d.Provider.Info()
-	msgs, ok, err := tc.outbound(info, []llm.Message{
+	text, _, provErr, err := tc.send(llm.Request{Messages: []llm.Message{
 		{Role: llm.System, Content: i18n.T(d.Lang, "hooks.prompt_system")},
 		{Role: llm.User, Content: prompt},
-	})
+	}}, false)
 	if err != nil {
 		return "", err
 	}
-	if !ok {
+	if errors.Is(provErr, errNotSent) {
 		return "", errors.New("provider not allowed")
-	}
-	text, _, provErr, err := tc.stream(llm.Request{Model: info.Model, Messages: msgs}, false)
-	if err != nil {
-		return "", err
 	}
 	if provErr != nil {
 		return "", provErr
@@ -260,7 +255,12 @@ func (t *turn) stopHook(active bool) (again bool, err error) {
 	if err != nil || t.stopReason != "" || !out.Block {
 		return false, err
 	}
-	msg := stopFeedback + out.Reason
+	// Classification : le retour du hook entre dans l'historique.
+	reason, err := t.scanHookText(out.Reason)
+	if err != nil {
+		return false, err
+	}
+	msg := stopFeedback + reason
 	*t.h = append(*t.h, llm.Message{Role: llm.User, Content: msg})
 	if err := t.emit(event.UserMessage, event.UserMessagePayload{Text: msg, Hook: string(ev)}); err != nil {
 		return false, err

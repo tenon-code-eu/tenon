@@ -21,7 +21,6 @@ tenon:
   image: golang:1.26.9-bookworm
   variables:
     TENON_TASK: "Review the changes of this merge request and run the tests."
-    XDG_DATA_HOME: "$CI_PROJECT_DIR/.tenon-data"
   rules:
     # Pipelines of fork merge requests never run this job.
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_PROJECT_PATH == $CI_PROJECT_PATH && $CI_COMMIT_REF_PROTECTED == "true"'
@@ -48,6 +47,11 @@ tenon:
       vrc=0
       tenon --config ci/tenon.toml audit verify || vrc=$?
       tenon --config ci/tenon.toml audit export --all-projects --out tenon-audit || true
+      # The audit log lives in tenon's default data dir, outside the
+      # workspace (the sandbox denies it to commands): copy it into the
+      # workspace so the artifacts can include it.
+      mkdir -p tenon-audit-log
+      cp -R "${XDG_DATA_HOME:-$HOME/.local/share}/tenon/audit/." tenon-audit-log/ || true
       [ "$rc" -ne 0 ] && exit "$rc"
       exit "$vrc"
   artifacts:
@@ -58,4 +62,4 @@ tenon:
     paths:
       - tenon-events.jsonl
       - tenon-audit/
-      - .tenon-data/tenon/audit/
+      - tenon-audit-log/

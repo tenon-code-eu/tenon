@@ -27,9 +27,14 @@ import (
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/tenon-code-eu/tenon/internal/config"
+	"github.com/tenon-code-eu/tenon/internal/event"
 	"github.com/tenon-code-eu/tenon/internal/llm"
+	"github.com/tenon-code-eu/tenon/internal/sandbox"
 	"github.com/tenon-code-eu/tenon/internal/tools"
 )
+
+// wrapCommand confine la commande d'un serveur stdio (remplacée dans les tests).
+var wrapCommand = sandbox.Wrap
 
 const (
 	defaultConnectTimeout = 15 * time.Second
@@ -72,6 +77,15 @@ type Options struct {
 	// HTTP_PROXY/HTTPS_PROXY ; une adresse privée ne sort pas par un proxy.
 	NoProxy bool
 
+	// Sandbox est la Spec de base des serveurs stdio (nil : non confinés).
+	// Elle ne contient pas le projet : chaque serveur reçoit une copie, avec
+	// Dir = HOME, le projet inscriptible pour risk write ou exec, le réseau
+	// ouvert pour risk network.
+	Sandbox *sandbox.Spec
+	// NetworkOpen indique que l'isolation ne coupe pas le réseau (sonde :
+	// isolation réseau "none") : le journal déclare alors le réseau ouvert.
+	NetworkOpen bool
+
 	// dial remplace le transport réel (tests).
 	dial func(config.MCPServer) (sdk.Transport, error)
 }
@@ -82,7 +96,15 @@ type Down struct {
 	// NonEUSkipped : serveur hors UE (ou de juridiction inconnue) ni lancé
 	// ni contacté, faute de consentement d'avance (AllowNonEU).
 	NonEUSkipped bool
+	// Confined : serveur stdio lancé confiné, puis injoignable ; l'échec
+	// peut venir du confinement (écriture refusée, réseau coupé).
+	Confined bool
 }
+
+// confinedError marque l'échec d'un serveur stdio lancé confiné.
+type confinedError struct{ error }
+
+func (e confinedError) Unwrap() error { return e.error }
 
 // skipped indique qu'un serveur ne doit pas être contacté : hors UE ou de
 // juridiction inconnue, sans consentement d'avance. Aucun octet ne doit lui
@@ -110,7 +132,8 @@ type Manager struct {
 type server struct {
 	decl     config.MCPServer
 	session  *sdk.ClientSession
-	proc     *procTransport // nil hors stdio
+	proc     *procTransport    // nil hors stdio
+	use      *event.SandboxUse // isolation d'un serveur stdio (nil sinon)
 	down     atomic.Bool
 	closing  atomic.Bool // Manager.Close en cours : pas de ServerDown
 	reported atomic.Bool
@@ -165,7 +188,8 @@ func Start(ctx context.Context, servers []config.MCPServer, opts Options) (*Mana
 		}
 		r := results[i]
 		if r.err != nil {
-			down = append(down, Down{Server: decl.ID, Error: errText(r.err)})
+			var ce confinedError
+			down = append(down, Down{Server: decl.ID, Error: errText(r.err), Confined: errors.As(r.err, &ce)})
 			continue
 		}
 		m.servers = append(m.servers, r.srv)
@@ -208,6 +232,18 @@ func Start(ctx context.Context, servers []config.MCPServer, opts Options) (*Mana
 
 // Tools renvoie les outils de tous les serveurs joignables au démarrage.
 func (m *Manager) Tools() []tools.Tool { return slices.Clone(m.tools) }
+
+// SandboxUse renvoie l'isolation du serveur stdio id joignable au démarrage
+// (nil pour un serveur http, de test ou absent).
+func (m *Manager) SandboxUse(id string) *event.SandboxUse {
+	for _, s := range m.servers {
+		if s.decl.ID == id && s.use != nil {
+			u := *s.use
+			return &u
+		}
+	}
+	return nil
+}
 
 // Secrets renvoie les valeurs non vides des variables env_from et bearer_env.
 func (m *Manager) Secrets() []string { return slices.Clone(m.secrets) }
@@ -308,6 +344,16 @@ func connect(ctx context.Context, decl config.MCPServer, opts Options) (*server,
 		cmd.Env = minimalEnv(decl, opts.Getenv, opts.Root)
 		cmd.Dir = home
 		cmd.SysProcAttr = procAttr()
+		// Sans isolation, le serveur a tout le réseau : le journal le dit.
+		srv.use = &event.SandboxUse{Network: true}
+		if opts.Sandbox != nil {
+			spec := stdioSpec(*opts.Sandbox, decl, home, opts.Root)
+			if err := wrapCommand(cmd, spec); err != nil {
+				// Échec fermé : le serveur n'est pas lancé.
+				return nil, nil, fmt.Errorf("cannot confine server: %w", err)
+			}
+			srv.use = &event.SandboxUse{Confined: true, Network: spec.Network || opts.NetworkOpen}
+		}
 		srv.proc = &procTransport{inner: &sdk.CommandTransport{Command: cmd, TerminateDuration: killDelay}}
 		transport = srv.proc
 	case decl.Transport == "http":
@@ -328,10 +374,18 @@ func connect(ctx context.Context, decl config.MCPServer, opts Options) (*server,
 	defer stop()
 
 	client := sdk.NewClient(&sdk.Implementation{Name: "tenon", Version: "1"}, nil)
+	// Échec après un lancement confiné : marqué pour l'avis (Down.Confined).
+	fail := func(err error) error {
+		err = timeoutErr(cctx, err)
+		if srv.use != nil && srv.use.Confined {
+			return confinedError{err}
+		}
+		return err
+	}
 	session, err := client.Connect(cctx, transport, nil)
 	if err != nil {
 		srv.killAfterFailure()
-		return nil, nil, timeoutErr(cctx, err)
+		return nil, nil, fail(err)
 	}
 	srv.session = session
 	var list []*sdk.Tool
@@ -339,7 +393,7 @@ func connect(ctx context.Context, decl config.MCPServer, opts Options) (*server,
 		if err != nil {
 			srv.killAfterFailure()
 			_ = srv.close()
-			return nil, nil, timeoutErr(cctx, err)
+			return nil, nil, fail(err)
 		}
 		list = append(list, t)
 		if len(list) >= maxListed {
@@ -360,6 +414,30 @@ func timeoutErr(ctx context.Context, err error) error {
 		return fmt.Errorf("connection timed out: %w", err)
 	}
 	return err
+}
+
+// stdioSpec dérive de base la Spec du serveur stdio decl selon son risk
+// déclaré : network ouvre le réseau ; write ou exec rend le projet root
+// inscriptible ; read ou vide le laisse en lecture seule. Le dossier de
+// travail home n'est jamais rendu inscriptible. base n'est pas modifiée.
+func stdioSpec(base sandbox.Spec, decl config.MCPServer, home, root string) sandbox.Spec {
+	s := sandbox.Spec{
+		Dir:      home,
+		Write:    slices.Clone(base.Write),
+		DenyRead: slices.Clone(base.DenyRead),
+		// .git/hooks et .git/config du projet restent protégés quand le
+		// risk rend le projet inscriptible.
+		DenyWrite: slices.Clone(base.DenyWrite),
+	}
+	switch decl.Risk {
+	case "network":
+		s.Network = true
+	case "write", "exec":
+		if root != "" {
+			s.Write = append(s.Write, root)
+		}
+	}
+	return s
 }
 
 // envProjectRoot transmet la racine du projet aux serveurs stdio.

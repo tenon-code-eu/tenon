@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -589,5 +590,17 @@ func TestProfileWeakerNotSettableFromTOML(t *testing.T) {
 	_, err := Load(write(t, "weaker_project_profile = \"eu-only\"\n"), "", env(nil))
 	if err == nil || !strings.Contains(err.Error(), "key not allowed") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestPresetKeyEnvs(t *testing.T) {
+	got := PresetKeyEnvs()
+	for _, k := range []string{"MISTRAL_API_KEY", "SCW_SECRET_KEY", "OVH_AI_ENDPOINTS_ACCESS_TOKEN", "ALBERT_API_KEY", "CODESTRAL_API_KEY"} {
+		if !slices.Contains(got, k) {
+			t.Errorf("%s absent de %v", k, got)
+		}
+	}
+	if slices.Contains(got, "") {
+		t.Errorf("entrée vide dans %v", got)
 	}
 }

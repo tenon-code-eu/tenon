@@ -30,6 +30,8 @@ const (
 	HookStarted         Type = "HookStarted"
 	HookCompleted       Type = "HookCompleted"
 	Rewound             Type = "Rewound"
+	SessionClassified   Type = "SessionClassified"
+	ProviderSelected    Type = "ProviderSelected"
 )
 
 // Event is one entry of a session log.

@@ -42,6 +42,9 @@ type Options struct {
 	// Strict : un tour terminé par max_iterations, incomplete,
 	// stopped_by_hook ou cancelled donne le code 4 (3 et 1 l'emportent).
 	Strict bool
+	// Local est le fournisseur local du routage ("" : celui de
+	// SessionStarted, ou aucun).
+	Local string
 }
 
 // Codes de sortie.
@@ -75,7 +78,7 @@ func Run(ctx context.Context, eng *engine.Engine, sessionID string, in engine.In
 	errc := make(chan error, 1)
 	go func() { errc <- eng.SubmitInput(ctx, sessionID, in) }()
 
-	r := &renderer{hookLabels: map[string]string{}, eng: eng, out: out, lang: lang, redact: redact, redactText: redactText, stdout: stdout, stderr: stderr}
+	r := &renderer{routing: Routing{Local: opts.Local}, hookLabels: map[string]string{}, eng: eng, out: out, lang: lang, redact: redact, redactText: redactText, stdout: stdout, stderr: stderr}
 	var err error
 loop:
 	for {
@@ -135,6 +138,9 @@ type renderer struct {
 	failed  bool   // le tour n'a pas pu tourner (context_too_large)
 	ended   string // raison d'un tour non terminé proprement (--strict)
 
+	// routing suit le fournisseur local et le fournisseur effectif.
+	routing Routing
+
 	// hookLabels associe le run_id d'un hook à son libellé (nom de la
 	// commande, ou type) : HookCompleted ne porte pas la commande.
 	hookLabels map[string]string
@@ -148,6 +154,7 @@ func (r *renderer) handle(ev event.Event) {
 	case event.SessionStarted:
 		var p event.SessionStartedPayload
 		if r.decode(ev, &p) {
+			r.routing.Started(p)
 			r.text("%s\n", Banner(r.lang, p.Provider))
 			if line := MCPBanner(r.lang, p.MCP); line != "" {
 				r.text("%s\n", line)
@@ -160,6 +167,18 @@ func (r *renderer) handle(ev event.Event) {
 		var p event.McpServerDownPayload
 		if r.decode(ev, &p) {
 			r.text("%s\n", ServerDownNotice(r.lang, p, r.redactText))
+		}
+	case event.SessionClassified:
+		var p event.SessionClassifiedPayload
+		if r.decode(ev, &p) {
+			r.text("%s\n", r.routing.Classified(r.lang, p))
+		}
+	case event.ProviderSelected:
+		var p event.ProviderSelectedPayload
+		if r.decode(ev, &p) {
+			if n := r.routing.Selected(r.lang, p); n != "" {
+				r.text("%s\n", n)
+			}
 		}
 	case event.JurisdictionWarning:
 		var p event.JurisdictionWarningPayload

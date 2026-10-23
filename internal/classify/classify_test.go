@@ -1,0 +1,262 @@
+package classify
+
+import (
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"testing/iotest"
+)
+
+func tmpRoot(t *testing.T) string {
+	t.Helper()
+	r, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+
+func TestMatchPath(t *testing.T) {
+	root := tmpRoot(t)
+	if err := os.MkdirAll(filepath.Join(root, "rh"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(root, "rh"), filepath.Join(root, "link")); err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name, pat, path string
+		want            bool
+	}{
+		{"dir glob", "rh/**", "rh/a/b.txt", true},
+		{"dir glob abs path", "rh/**", filepath.Join(root, "rh/a/b.txt"), true},
+		{"prefix sibling", "rh/**", "rhx/a", false},
+		{"star in segment", "*.dr.md", "n.dr.md", true},
+		{"star not across", "*.dr.md", "x/n.dr.md", false},
+		{"globstar", "**/*.dr.md", "x/n.dr.md", true},
+		{"absolute", "/srv/secret/**", "/srv/secret/a", true},
+		{"relative vs outside", "etc/**", "/etc/passwd", false},
+		{"relative vs outside2", "**", "/etc/passwd", false},
+		{"symlink", "rh/**", "link/f", true},
+		{"dotdot", "rh/**", "sub/../rh/f", true},
+		{"dotdot escape", "rh/**", "../rh/f", false},
+		{"dir name", "rh", "rh/a/b.txt", true},
+		{"dir trailing slash", "rh/", "rh/a/b.txt", true},
+		{"dir trailing slash itself", "rh/", "rh", true},
+		{"dir name sibling", "rh", "rhx/a", false},
+		{"dir trailing slash sibling", "rh/", "rhx/a", false},
+		{"dir name outside", "rh", "/tmp/rh/a", false},
+		{"ancestor glob", "*.d", "x.d/f/g", true},
+		{"ancestor nested", "a/rh", "a/rh/f", true},
+		{"ancestor nested other", "a/rh", "b/rh/f", false},
+		{"absolute dir", "/srv/secret", "/srv/secret/a/b", true},
+		{"absolute dir slash", "/srv/secret/", "/srv/secret/a", true},
+		{"absolute dir sibling", "/srv/secret", "/srv/secretx/a", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := Rules{Paths: []string{tt.pat}}.MatchPath(root, tt.path)
+			if ok != tt.want {
+				t.Fatalf("MatchPath(%q,%q)=%q,%v want %v", tt.pat, tt.path, got, ok, tt.want)
+			}
+			if ok && got != tt.pat {
+				t.Fatalf("pattern=%q want %q", got, tt.pat)
+			}
+		})
+	}
+}
+
+// Les caractères de format invisibles (espace sans chasse, trait d'union
+// conditionnel...) glissés dans un marqueur ne l'empêchent pas d'être reconnu.
+func TestFindMarkerFormatRunes(t *testing.T) {
+	for _, txt := range []string{"EU\u200b RESTRICTED", "DIFFU\u00adSION RESTREINTE", "RESTREINT\u2060 UE", "EU RESTR\u200bICTED", "\ufeffEU RESTRICTED"} {
+		if _, ok := (Rules{}).FindMarker(txt); !ok {
+			t.Errorf("FindMarker(%q) non trouvé", txt)
+		}
+	}
+}
+
+// Un caractère de format en fin de bloc, après une espace, ne colle pas les
+// mots de part et d'autre de la frontière.
+func TestFindMarkerReaderFormatRuneAtBoundary(t *testing.T) {
+	text := strings.Repeat("x", readChunk-len(" EU \u200b")) + " EU \u200b" + "RESTRICTED fin"
+	if _, ok, err := (Rules{}).FindMarkerReader(strings.NewReader(text)); err != nil || !ok {
+		t.Fatalf("non trouvé (err %v)", err)
+	}
+}
+
+func TestFindMarker(t *testing.T) {
+	user := Rules{Markers: []string{"C2 - Interne"}}
+	tests := []struct {
+		name, text, want string
+		r                Rules
+	}{
+		{"case", "voir … diffusion restreinte …", "DIFFUSION RESTREINTE", Rules{}},
+		{"accent+spaces", "Spécial  France", "SPÉCIAL FRANCE", Rules{}},
+		{"newline", "SPECIAL\nFRANCE", "SPÉCIAL FRANCE", Rules{}},
+		{"split lines", "DIFFUSION\n\tRESTREINTE", "DIFFUSION RESTREINTE", Rules{}},
+		{"suffix letter", "DIFFUSION RESTREINTES", "", Rules{}},
+		{"prefix letter", "XDIFFUSION RESTREINTE", "", Rules{}},
+		{"later occurrence", "XDIFFUSION RESTREINTE puis eu restricted.", "EU RESTRICTED", Rules{}},
+		{"user", "doc c2 - interne ok", "C2 - Interne", user},
+		{"punct boundary", "(RESTREINT UE)", "RESTREINT UE", Rules{}},
+		{"none", "rien", "", user},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := tt.r.FindMarker(tt.text)
+			if ok != (tt.want != "") || got != tt.want {
+				t.Fatalf("FindMarker(%q)=%q,%v want %q", tt.text, got, ok, tt.want)
+			}
+		})
+	}
+}
+
+func TestMatchCommand(t *testing.T) {
+	root := tmpRoot(t)
+	r := Rules{Paths: []string{"rh/**", "contrats/**"}}
+	tests := []struct {
+		cmd  string
+		want string
+	}{
+		{"cat rh/paie.csv", "rh/**"},
+		{"grep -r x ./rh", "rh/**"},
+		{"echo rh", ""},
+		{`cp a "contrats/x y.pdf" b`, "contrats/**"},
+		{"cat x>rh/out.txt", "rh/**"},
+		{"cat a;cat rh/b", "rh/**"},
+		{"ls src", ""},
+	}
+	for _, tt := range tests {
+		got, ok := r.MatchCommand(root, tt.cmd)
+		if ok != (tt.want != "") || got != tt.want {
+			t.Errorf("MatchCommand(%q)=%q,%v want %q", tt.cmd, got, ok, tt.want)
+		}
+	}
+}
+
+func TestCommandPath(t *testing.T) {
+	root := tmpRoot(t)
+	r := Rules{Paths: []string{"rh/**"}}
+	if w, ok := r.CommandPath(root, `cat a;cat "rh/b c.csv"`); !ok || w != "rh/b c.csv" {
+		t.Fatalf("got %q, %v", w, ok)
+	}
+	if w, ok := r.CommandPath(root, "ls src"); ok || w != "" {
+		t.Fatalf("got %q, %v", w, ok)
+	}
+}
+
+func TestFindMarkerReader(t *testing.T) {
+	r := Rules{Markers: []string{"Note Interne"}}
+	tests := []struct {
+		in, want string
+	}{
+		{"début DIFFUSION \n\n   RESTREINTE fin", "DIFFUSION RESTREINTE"},
+		{"x Spécial France y", "SPÉCIAL FRANCE"},
+		{"une note\tinterne ici", "Note Interne"},
+		{"DIFFUSION RESTREINTES", ""},
+		{"rien", ""},
+	}
+	for _, tt := range tests {
+		for name, rd := range map[string]io.Reader{
+			"whole":   strings.NewReader(tt.in),
+			"onebyte": iotest.OneByteReader(strings.NewReader(tt.in)),
+		} {
+			got, ok, err := r.FindMarkerReader(rd)
+			if err != nil || ok != (tt.want != "") || got != tt.want {
+				t.Errorf("%s %q: got %q, %v, %v", name, tt.in, got, ok, err)
+			}
+		}
+	}
+	// Grand texte : marquage après plusieurs blocs de lecture.
+	big := strings.Repeat("a ", 200000) + "EU\nRESTRICTED"
+	if m, ok, _ := r.FindMarkerReader(strings.NewReader(big)); !ok || m != "EU RESTRICTED" {
+		t.Fatalf("got %q, %v", m, ok)
+	}
+}
+
+func TestFindMarkerReaderCombiningMarks(t *testing.T) {
+	const acute = "\u0301"
+	marker := "CONFIDENTIALITÉ RENFORCÉE"
+	r := Rules{Markers: []string{marker}}
+	nfd := " CONFIDENTIALITE" + acute + " RENFORCE" + acute + "E y"
+	// Accents décomposés, lecture entière et octet par octet.
+	for name, rd := range map[string]io.Reader{
+		"whole":   strings.NewReader("x" + nfd),
+		"onebyte": iotest.OneByteReader(strings.NewReader("x" + nfd)),
+	} {
+		if m, ok, err := r.FindMarkerReader(rd); err != nil || !ok || m != marker {
+			t.Errorf("%s: got %q, %v, %v", name, m, ok, err)
+		}
+	}
+	pad := func(n int) string { return strings.Repeat("a ", readChunk)[:n] }
+	// Bloc coupé entre E et U+0301, juste avant l'espace : le bloc suivant
+	// commence par la marque combinante.
+	cut := strings.Index(nfd, acute)
+	in := pad(readChunk-cut) + nfd
+	if in[readChunk:readChunk+len(acute)] != acute {
+		t.Fatal("frontière mal placée")
+	}
+	if m, ok, _ := r.FindMarkerReader(strings.NewReader(in)); !ok || m != marker {
+		t.Errorf("mark at boundary: got %q, %v", m, ok)
+	}
+	// Miroir : le bloc finit par espace + marque combinante.
+	mirror := " CONFIDENTIALITE" + acute + " " + acute + "RENFORCE" + acute + "E y"
+	cut = strings.Index(mirror, " "+acute) + 1 + len(acute)
+	in = pad(readChunk-cut) + mirror
+	if in[readChunk-len(acute):readChunk] != acute || in[readChunk-len(acute)-1] != ' ' {
+		t.Fatal("frontière miroir mal placée")
+	}
+	if m, ok, _ := r.FindMarkerReader(strings.NewReader(in)); !ok || m != marker {
+		t.Errorf("space+mark at boundary: got %q, %v", m, ok)
+	}
+}
+
+func TestEmpty(t *testing.T) {
+	if !(Rules{}).Empty() {
+		t.Fatal("empty")
+	}
+	if (Rules{Markers: []string{"x"}}).Empty() || (Rules{Paths: []string{"x"}}).Empty() {
+		t.Fatal("not empty")
+	}
+}
+
+func TestFoldCombiningMarks(t *testing.T) {
+	r := Rules{}
+	for _, in := range []string{"Spécial France", "dIFFUSION  restreinte", "Diffusion Restreinte", "RESTREINT UE"} {
+		if _, ok := r.FindMarker(in); !ok {
+			t.Errorf("no match for %q", in)
+		}
+	}
+	if m, _ := r.FindMarker("Spécial France"); m != "SPÉCIAL FRANCE" {
+		t.Errorf("got %q", m)
+	}
+	if _, ok := (Rules{Markers: []string{"Résumé interne"}}).FindMarker("résumé interne"); !ok {
+		t.Error("NFD user marker")
+	}
+}
+
+func TestMatchPathFoldAndLexical(t *testing.T) {
+	root := tmpRoot(t)
+	if _, ok := (Rules{Paths: []string{"rh/**"}}).MatchPath(root, "RH/paie.csv"); !ok {
+		t.Error("case")
+	}
+	if _, ok := (Rules{Paths: []string{"Dossiers/Résumé/**"}}).MatchPath(root, "dossiers/résumé/f"); !ok {
+		t.Error("NFD path vs NFC pattern")
+	}
+	if _, ok := (Rules{Paths: []string{"Dossiers/Résumé/**"}}).MatchPath(root, "dossiers/résumé/f"); !ok {
+		t.Error("NFC path vs NFD pattern")
+	}
+	out := tmpRoot(t)
+	if err := os.Symlink(out, filepath.Join(root, "rh")); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := (Rules{Paths: []string{"rh/**"}}).MatchPath(root, filepath.Join(root, "rh", "f")); !ok {
+		t.Error("symlink to outside")
+	}
+	if _, ok := (Rules{Paths: []string{"rh/**"}}).MatchPath(root, "rh/f"); !ok {
+		t.Error("symlink to outside, relative")
+	}
+}

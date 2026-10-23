@@ -30,8 +30,8 @@ Copy the template of your forge and the configuration to `ci/tenon.toml` in your
 ## What the job does
 
 1. **Install.** `TENON_VERSION=<vX.Y.Z> TENON_REQUIRE_SIGNATURE=1 sh install.sh`. The image has `minisign` (the templates install it with `apt-get`), so the signature of the release is verified, not only its SHA-256 hash.
-2. **Run.** `XDG_DATA_HOME="$PWD/.tenon-data"` keeps the audit log inside the workspace. Then `tenon --config ci/tenon.toml -p "$TENON_TASK" --strict --output json > tenon-events.jsonl`. The exit code of the job is the exit code of tenon.
-3. **Always, even on failure.** `tenon --config ci/tenon.toml audit verify` (integrity of the hash chain) and `tenon --config ci/tenon.toml audit export --all-projects --out tenon-audit` (compliance report), with the same configuration as the run step so the timestamp trust roots match, then the upload of the artifacts.
+2. **Run.** `tenon --config ci/tenon.toml -p "$TENON_TASK" --strict --output json > tenon-events.jsonl`. The exit code of the job is the exit code of tenon.
+3. **Always, even on failure.** `tenon --config ci/tenon.toml audit verify` (integrity of the hash chain) and `tenon --config ci/tenon.toml audit export --all-projects --out tenon-audit` (compliance report), with the same configuration as the run step so the timestamp trust roots match, then the copy of the audit log (`<data dir>/tenon/audit/`, by default `~/.local/share/tenon/audit/`) into the workspace (`tenon-audit-log/`) and the upload of the artifacts. The data directory stays at its default place, outside the workspace: the sandbox denies it to commands, and on Linux a denied directory inside the project would block file creation at the project root. Do not set `XDG_DATA_HOME` inside the workspace.
 
 ## Exit codes
 
@@ -69,7 +69,7 @@ Each template has the line commented. The minisign signature is still verified w
 |---|---|
 | `tenon-events.jsonl` | One JSON event per line (`--output json`), payload redacted. |
 | `tenon-audit/` | Compliance export: HTML and JSON report. |
-| `.tenon-data/tenon/audit/` | The audit log itself (hash chain) and, if `[audit.timestamp]` is set, the RFC 3161 tokens. |
+| `tenon-audit-log/` | Copy of the audit log itself (hash chain) and, if `[audit.timestamp]` is set, the RFC 3161 tokens. |
 
 See [Audit log](usage.md#audit-log), [Timestamping](usage.md#timestamping-rfc-3161) and [Compliance export](usage.md#compliance-export) for `audit verify`, `audit export` and `audit timestamp`. The artifacts are kept even when the job fails.
 
@@ -79,8 +79,10 @@ See [Audit log](usage.md#audit-log), [Timestamping](usage.md#timestamping-rfc-31
 
 **The key exists only on protected refs (GitLab).** A protected variable reaches only pipelines on protected branches or tags, so the merge request rule of the template requires a protected source branch. Unprotecting the variable would expose the key to the pipeline of any branch, including one that rewrites `ci/tenon.toml`: this works, but it is not recommended.
 
-**Keep the `allow` rules minimal.** In CI nobody approves anything, so each `allow` rule is a permanent authorisation for the model. Allow the exact commands the task needs (`go test ./...`), nothing broader. An `allow` rule on a command does not cover a chained command, but permissions are not a sandbox (see [Security and limits](security.md)): run the job on a runner that holds nothing you cannot lose.
+**Keep the `allow` rules minimal.** In CI nobody approves anything, so each `allow` rule is a permanent authorisation for the model. Allow the exact commands the task needs (`go test ./...`), nothing broader. An `allow` rule on a command does not cover a chained command, but the [sandbox](usage.md#system-sandbox) limits writes and network without being complete (see [Security and limits](security.md#the-sandbox-and-its-limits)): run the job on a runner that holds nothing you cannot lose.
 
 **Never run a job with secrets on merge requests from forks.** The author of a fork controls the code, `ci/tenon.toml` and the task. The templates skip fork pipelines; keep it that way.
 
 **An ephemeral runner keeps nothing.** The audit log, the compliance export and the timestamp tokens disappear with the runner. Archive the artifacts, timestamp tokens included, off the runner (artifact storage with a retention policy, or a copy to a store you control). A log that was not archived cannot be verified later.
+
+**The sandbox needs user namespaces for full network isolation.** On Linux the runner image must allow unprivileged user namespaces (this is not the case with the default seccomp profile of Docker, nor with the Ubuntu AppArmor restriction). Without them, tenon falls back to TCP-only isolation and prints `sandbox: network isolation TCP only (user namespaces unavailable)`: UDP stays open. To make the job fail instead of running with a weaker sandbox, set `[sandbox] mode = "required"` in `ci/tenon.toml`.

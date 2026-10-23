@@ -189,3 +189,14 @@ func TestProviderInfoQualificationsOmitted(t *testing.T) {
 		t.Errorf("json = %s", b)
 	}
 }
+
+func TestSandboxMode(t *testing.T) {
+	if SandboxMode(StrictLocal) != "required" {
+		t.Fatal("strict-local")
+	}
+	for _, n := range []Name{None, EUOnly, SecNumCloud} {
+		if SandboxMode(n) != "" {
+			t.Fatal(n)
+		}
+	}
+}

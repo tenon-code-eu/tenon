@@ -108,6 +108,7 @@ func TestPolicyMCPSkippedE2E(t *testing.T) {
 }
 
 func TestPolicyProfileRaisedE2E(t *testing.T) {
+	sandboxReady(t)
 	f := newFakeLLM(t, sseText("bonjour local"))
 	e := newEnv(t, f, "local")
 	e.editGlobal("profile = \"eu-only\"\n")
@@ -206,10 +207,10 @@ func TestConfigCheckPolicyE2E(t *testing.T) {
 	e := newEnv(t, nil, "eu")
 	_, key := e.withPolicy(policyHead)
 	code, out, errb := e.runCheck("--lang", "en")
-	if code != 0 || out != "policy: acme-dev v3 (key "+key+")\nOK\n" {
+	if code != 0 || out != "policy: acme-dev v3 (key "+key+")\n"+routingCheckEN+sandboxCheckEN+"OK\n" {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errb)
 	}
-	if _, out, _ = e.runCheck(); out != "politique : acme-dev v3 (clé "+key+")\nOK\n" {
+	if _, out, _ = e.runCheck(); out != "politique : acme-dev v3 (clé "+key+")\n"+routingCheckFR+sandboxCheckFR+"OK\n" {
 		t.Fatalf("fr : %q", out)
 	}
 	// Ligne de politique avant celle du profil, puis contrôle d'hôte.

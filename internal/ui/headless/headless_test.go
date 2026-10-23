@@ -611,3 +611,85 @@ func TestStrictJSON(t *testing.T) {
 		}
 	}
 }
+
+// recShell est un faux outil shell qui compte ses exécutions.
+type recShell struct {
+	mu  sync.Mutex
+	ran int
+}
+
+func (s *recShell) Name() string            { return "shell" }
+func (s *recShell) Description() string     { return "faux shell" }
+func (s *recShell) Schema() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
+func (s *recShell) Risk() tools.Risk        { return tools.Exec }
+func (s *recShell) Target(args json.RawMessage) (tools.Target, error) {
+	var a struct {
+		Command string `json:"command"`
+	}
+	err := json.Unmarshal(args, &a)
+	return tools.Target{Command: a.Command}, err
+}
+func (s *recShell) Run(context.Context, json.RawMessage) (tools.Result, error) {
+	s.mu.Lock()
+	s.ran++
+	s.mu.Unlock()
+	return tools.Result{Content: "ok"}, nil
+}
+
+// Review Focus 5 : une règle ask avec network ne s'ouvre jamais sans réponse
+// humaine ; headless refuse la demande comme d'habitude (code 3).
+func TestHeadlessAskNetworkRule(t *testing.T) {
+	root := t.TempDir()
+	perm, err := policy.NewPermissions(root, []policy.Rule{
+		{Tool: "shell", Match: "curl *", Decision: policy.Ask, Network: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := policy.NewRedactor(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sh := &recShell{}
+	eng := engine.New(engine.Deps{
+		Provider: &scripted{
+			info:   llm.ProviderInfo{ID: "t", Name: "Test SA", Model: "m-1", Country: "FR", Jurisdiction: llm.EU},
+			script: [][]llm.Chunk{call("shell", `{"command":"curl https://example.eu"}`), text("fini")},
+		},
+		Tools:          tools.NewRegistry(sh),
+		Permissions:    perm,
+		Outbound:       policy.NewOutbound(r),
+		ProjectRoot:    root,
+		ShellSandboxed: true,
+	})
+	var out, errb bytes.Buffer
+	code := Run(context.Background(), eng, "s_1", engine.Input{Text: "télécharge"}, Options{Output: JSON}, &out, &errb)
+	if code != 3 {
+		t.Fatalf("code=%d stderr=%s", code, errb.String())
+	}
+	if sh.ran != 0 {
+		t.Fatalf("shell exécuté %d fois", sh.ran)
+	}
+	sc := bufio.NewScanner(&out)
+	resolved := 0
+	for sc.Scan() {
+		var e event.Event
+		if err := json.Unmarshal(sc.Bytes(), &e); err != nil {
+			t.Fatalf("ligne %q : %v", sc.Text(), err)
+		}
+		if e.Type != event.PermissionResolved {
+			continue
+		}
+		resolved++
+		var p event.PermissionResolvedPayload
+		if err := json.Unmarshal(e.Payload, &p); err != nil {
+			t.Fatal(err)
+		}
+		if p.Allowed || p.Network {
+			t.Fatalf("PermissionResolved %+v", p)
+		}
+	}
+	if resolved != 1 {
+		t.Fatalf("%d PermissionResolved, attendu 1", resolved)
+	}
+}

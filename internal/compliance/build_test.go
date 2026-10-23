@@ -824,3 +824,141 @@ func TestBuildTimestamps(t *testing.T) {
 		t.Fatalf("got %+v want %+v", got, want)
 	}
 }
+
+func TestExportSandbox(t *testing.T) {
+	b := newLog(t)
+	b.add("s1", event.SessionStarted, event.SessionStartedPayload{
+		Provider: provEU, ProjectRoot: "/p",
+		Sandbox: &event.SandboxInfo{Mode: "auto", Mechanism: "landlock", Network: "tcp"},
+	})
+	for _, u := range []event.SandboxUse{{Confined: true, Network: false}, {Confined: true, Network: true}, {Confined: false, Network: true}} {
+		u := u
+		b.add("s1", event.ToolResult, event.ToolResultPayload{Tool: "shell", Content: "ok", Sandbox: &u})
+	}
+	// Un autre outil ou une session sans sandbox ne comptent pas.
+	b.add("s1", event.ToolResult, event.ToolResultPayload{Tool: "read", Content: "ok"})
+	b.start("s2", provEU)
+	b.add("s2", event.ToolResult, event.ToolResultPayload{Tool: "shell", Content: "ok", Sandbox: &event.SandboxUse{Confined: false, Network: true}})
+	r := Build(b.dataset(), opts())
+	want := []SessionSandbox{{Session: "s1", Mode: "auto", Mechanism: "landlock", Network: "tcp", Unconfined: 1, WithNetwork: 1}}
+	if !reflect.DeepEqual(r.Sandbox, want) {
+		t.Fatalf("sandbox %+v", r.Sandbox)
+	}
+	out, err := json.Marshal(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), `"sandbox":[{"session":"s1","mode":"auto","mechanism":"landlock","network":"tcp","unconfined":1,"with_network":1}]`) {
+		t.Fatalf("JSON: %s", out)
+	}
+}
+
+func TestExportSandboxAbsent(t *testing.T) {
+	b := newLog(t)
+	b.start("s", provEU)
+	b.add("s", event.ToolResult, event.ToolResultPayload{Tool: "shell", Content: "ok"})
+	r := Build(b.dataset(), opts())
+	out, err := json.Marshal(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Sandbox) != 0 || strings.Contains(string(out), `"sandbox"`) {
+		t.Fatalf("sandbox %+v / %s", r.Sandbox, out)
+	}
+}
+
+var provLocal = llm.ProviderInfo{ID: "ollama", Name: "Ollama", Model: "m", Country: "FR", Jurisdiction: llm.Local}
+
+func TestExportRouting(t *testing.T) {
+	b := newLog(t)
+	b.add("s1", event.SessionStarted, event.SessionStartedPayload{
+		Provider: provEU, ProjectRoot: "/p", Routing: &event.RoutingInfo{Local: "ollama", Fallback: []string{"openai"}},
+	})
+	b.add("s1", event.ProviderSelected, event.ProviderSelectedPayload{Provider: provEU, Reason: "default"})
+	b.add("s1", event.ProviderSelected, event.ProviderSelectedPayload{Provider: provUS, Reason: "fallback", Error: "down"})
+	b.add("s1", event.SessionClassified, event.SessionClassifiedPayload{Reason: "path", Source: "tool", Path: "rh/x"})
+	b.add("s1", event.ProviderSelected, event.ProviderSelectedPayload{Provider: provLocal, Reason: "sensitive"})
+	b.add("s1", event.ProviderSelected, event.ProviderSelectedPayload{Provider: provEU, Reason: "default"})
+	// Violation : un fournisseur distant après le classement.
+	b.add("s2", event.SessionStarted, event.SessionStartedPayload{Provider: provLocal, ProjectRoot: "/p"})
+	b.add("s2", event.SessionClassified, event.SessionClassifiedPayload{Reason: "marker", Source: "user", Marker: "EU RESTRICTED"})
+	b.add("s2", event.ProviderSelected, event.ProviderSelectedPayload{Provider: provLocal, Reason: "sensitive"})
+	r := Build(b.dataset(), opts())
+	want := []SessionRouting{
+		{Session: "s1", Sensitive: true, Reason: "path", Providers: []string{"mistral", "openai", "ollama"}, Fallbacks: 1, Violation: true},
+		{Session: "s2", Sensitive: true, Reason: "marker", Providers: []string{"ollama"}},
+	}
+	if !reflect.DeepEqual(r.Routing, want) {
+		t.Fatalf("routing %+v", r.Routing)
+	}
+	if !r.RoutingViolation() {
+		t.Fatal("violation expected")
+	}
+	out, _ := json.Marshal(r)
+	if !strings.Contains(string(out), `"routing":[{"session":"s1","sensitive":true,"reason":"path","providers":["mistral","openai","ollama"],"fallbacks":1,"violation":true}`) {
+		t.Fatalf("JSON: %s", out)
+	}
+}
+
+func TestExportRoutingOK(t *testing.T) {
+	b := newLog(t)
+	b.start("s", provEU)
+	b.add("s", event.SessionClassified, event.SessionClassifiedPayload{Reason: "path", Source: "tool"})
+	b.add("s", event.ProviderSelected, event.ProviderSelectedPayload{Provider: provLocal, Reason: "sensitive"})
+	r := Build(b.dataset(), opts())
+	want := []SessionRouting{{Session: "s", Sensitive: true, Reason: "path", Providers: []string{"mistral", "ollama"}}}
+	if !reflect.DeepEqual(r.Routing, want) || r.RoutingViolation() {
+		t.Fatalf("routing %+v", r.Routing)
+	}
+}
+
+func TestExportRoutingViolation(t *testing.T) {
+	b := newLog(t)
+	b.start("s", provLocal)
+	b.add("s", event.SessionClassified, event.SessionClassifiedPayload{Reason: "path", Source: "tool"})
+	b.add("s", event.ProviderSelected, event.ProviderSelectedPayload{Provider: provEU, Reason: "fallback"})
+	// Session sensible sans aucun routage, démarrée à distance.
+	b.start("t", provUS)
+	b.add("t", event.SessionClassified, event.SessionClassifiedPayload{Reason: "marker", Source: "tool"})
+	b.add("t", event.AssistantMessage, event.AssistantMessagePayload{Text: "ok"})
+	r := Build(b.dataset(), opts())
+	if len(r.Routing) != 2 || !r.Routing[0].Violation || !r.Routing[1].Violation || !r.RoutingViolation() {
+		t.Fatalf("routing %+v", r.Routing)
+	}
+}
+
+// Session classée puis rien envoyé (hook UserPromptSubmit bloquant, Ctrl-C
+// avant l'envoi, local refusé) : aucune violation sans réponse du modèle
+// après le classement.
+func TestExportRoutingClassifiedNoSend(t *testing.T) {
+	b := newLog(t)
+	b.start("t", provUS)
+	b.add("t", event.AssistantMessage, event.AssistantMessagePayload{Text: "avant"})
+	b.add("t", event.SessionClassified, event.SessionClassifiedPayload{Reason: "marker", Source: "user"})
+	b.add("t", event.TurnCompleted, event.TurnCompletedPayload{Reason: "blocked_by_hook"})
+	r := Build(b.dataset(), opts())
+	if len(r.Routing) != 1 || r.Routing[0].Violation || r.RoutingViolation() {
+		t.Fatalf("routing %+v", r.Routing)
+	}
+}
+
+// Un refus de classification compte parmi les refus.
+func TestExportDeniedClassification(t *testing.T) {
+	b := newLog(t)
+	b.start("s", provEU)
+	b.add("s", event.ToolResult, event.ToolResultPayload{CallID: "c1", Tool: "read_file", IsError: true, Denied: "classification"})
+	r := Build(b.dataset(), opts())
+	if r.Summary.Denials != 1 || len(r.Permissions) != 1 || r.Permissions[0].DeniedClassification != 1 {
+		t.Fatalf("refus %d, permissions %+v", r.Summary.Denials, r.Permissions)
+	}
+}
+
+func TestExportRoutingAbsent(t *testing.T) {
+	b := newLog(t)
+	b.start("s", provEU)
+	r := Build(b.dataset(), opts())
+	out, _ := json.Marshal(r)
+	if len(r.Routing) != 0 || strings.Contains(string(out), `"routing"`) || r.RoutingViolation() {
+		t.Fatalf("routing %+v / %s", r.Routing, out)
+	}
+}

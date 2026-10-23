@@ -16,7 +16,9 @@ For a commented configuration example, see [config.example.toml](config.example.
 - [Sub-agents](#sub-agents)
 - [Hooks](#hooks)
 - [Checkpoints and rewind](#checkpoints-and-rewind)
+- [System sandbox](#system-sandbox)
 - [Providers and jurisdictions](#providers-and-jurisdictions)
+- [Data-sensitivity routing](#data-sensitivity-routing)
 - [Compliance profiles](#compliance-profiles)
 - [API keys and keyring](#api-keys-and-keyring)
 - [MCP servers](#mcp-servers)
@@ -121,11 +123,13 @@ After that, it exits with code 1.
 When the agent wants to write, run a command or go outside the project, a panel replaces the input area.
 It shows the tool, the full command or the paths, and a preview of the change for `write_file` and `edit_file`.
 
-| Answer | English | French |
+| Answer | English key line | French key line |
 |---|---|---|
-| Yes, once | `y` | `o` |
-| Yes for the session | `a` | `s` |
-| No | `n` | `n` |
+| Yes, once | `y: yes once` | `o : oui une fois` |
+| Yes for the session | `a: always for this session` | `s : oui pour la session` |
+| No | `n: no` | `n : non` |
+
+For a shell command that will run confined with the network isolated, the panel also offers `w: allow with network` (`r : autoriser avec réseau` in French); `a: always for this session (no network)` never remembers the network of an answer. With an `ask` rule that grants network, the line is `y: yes once (with network) · a: always for this session (with network) · n: no`. See [System sandbox](#system-sandbox).
 
 Esc also denies the request.
 Ctrl+C denies all pending requests, then acts as usual.
@@ -154,7 +158,7 @@ The command and the paths are shown so that no character is hidden:
 - A `[` followed by `U+` or `0x` in the original text is written `[U+005B]`.
 - A sequence of at least 3 empty lines becomes `⏎ × N` when the command does not fit on the screen. In that case, the request cannot be approved.
 
-For a shell command, the panel reminds you that an approved command runs with your permissions, without a sandbox.
+For a shell command, the panel says whether the command runs sandboxed or, when no sandbox is active, reminds you that an approved command runs with your permissions.
 If the command contains a non-ASCII character, a warning appears.
 For an MCP tool, the panel shows the server, its country and its jurisdiction.
 
@@ -181,7 +185,7 @@ For pipelines (GitLab CI, Forgejo/Gitea, GitHub Actions), see [tenon in CI](ci.m
 |---|---|
 | `0` | Turn completed. A turn stopped by the iteration limit or by an incomplete answer also gives 0, with a message. |
 | `1` | Error: configuration, missing key, provider, context too large, invalid option. |
-| `3` | An action was denied (approval not possible, `deny` rule) or sending to the provider was blocked (jurisdiction). |
+| `3` | An action was denied (approval not possible, `deny` rule, classified content without a local provider) or sending to the provider was blocked (jurisdiction, classification). |
 | `4` | With `--strict`: the turn ended with `max_iterations`, `incomplete`, `stopped_by_hook` or `cancelled`. The line `strict: turn ended with <reason>` goes to standard error (text output only). Code 3 wins over 4, and code 1 wins over both. |
 | `130` | Second Ctrl+C: immediate exit. The first one cancels the turn. |
 
@@ -254,7 +258,9 @@ A repository can be hostile. For this reason, its configuration is limited to:
 - `lang`;
 - `deny` and `ask` permission rules;
 - `[[redaction.rules]]` redaction rules;
-- `profile` and `provider_allowlist`: both restrict-only (the project can raise the profile or narrow the allowlist, never relax them).
+- `profile` and `provider_allowlist`: both restrict-only (the project can raise the profile or narrow the allowlist, never relax them);
+- `[sandbox]`: only `mode = "required"` and `deny_read` (see [System sandbox](#system-sandbox));
+- `[classification]`: `paths` and `markers` are added to the global ones, never removed (see [Data-sensitivity routing](#data-sensitivity-routing)).
 
 Errors in the project file are reported with the prefix `project config:`.
 
@@ -263,7 +269,9 @@ It **cannot**:
 - add an `allow` rule (loading fails);
 - choose or declare a provider;
 - declare an MCP server;
-- change the audit level, the timeouts or the limits.
+- change the audit level, the timeouts or the limits;
+- turn the sandbox off, add writable paths (`write`) or grant network to a rule (`network = true`);
+- set `[routing]` (refused: `config: routing not allowed in project configuration`).
 
 Project rules are added to global rules.
 A project `deny` rule always blocks the call.
@@ -313,7 +321,7 @@ match = "*secrets/*"    # any command that mentions secrets/
 decision = "deny"
 ```
 
-Even so, `cd secrets && cat k` or `cat secr*/k` get through: permissions filter calls, they are not a sandbox (see [security.md](security.md#permissions-are-not-a-sandbox)).
+Even so, `cd secrets && cat k` or `cat secr*/k` get through: permissions filter calls. The [system sandbox](#system-sandbox) limits what a command can write, read and reach, but it is not complete (see [security.md](security.md#the-sandbox-and-its-limits)).
 
 An `allow` rule on a command never covers a chained command: `go test *` does not allow `go test ./... ; rm x`.
 `grep` and `glob` show only the files that `read_file` would read without a request.
@@ -880,6 +888,115 @@ A rewind never rewrites the session or the [audit log](#audit-log). It adds one 
 `ToolResult` gains two optional fields: `no_checkpoint` (written without a copy) and `untracked` (a `shell` or MCP call that cannot be undone).
 `--resume` applies `Rewound`: the rebuilt conversation is cut as it was live, and a pending `code only` note is kept for the next message. `--output json` includes the `Rewound` events of a resumed session.
 
+## System sandbox
+
+Permissions decide whether a command runs. The sandbox limits what it can do once it runs. Shell commands, and stdio MCP servers, are confined with the mechanisms of the system: Landlock and user namespaces on Linux, `sandbox-exec` on macOS. It is on by default.
+
+### What a confined command can do
+
+- **Write**: the project, `$TMPDIR` and `/tmp` (macOS: also `/private/tmp` and `/private/var/folders`), `/dev/null`, `/dev/tty`, `/dev/zero`, `/dev/random`, `/dev/urandom`, the user cache (`$XDG_CACHE_HOME` or `~/.cache`; macOS: `~/Library/Caches`), `~/.npm` (npm and npx logs and cache) and the paths of `[sandbox] write`.
+- **Read**: everywhere, except the denied paths below.
+- **Denied for read and write** (this wins over everything, even inside the project): `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.azure`, `~/.config/gcloud`, `~/.kube`, `~/.docker`, `~/.netrc`, `~/.password-store`, `~/Library/Keychains` (macOS Keychain, where tenon stores provider keys: credentials that git `osxkeychain`, `gh` or `docker` keep there are unreadable from confined commands too), the tenon configuration directory, the tenon data directory (audit log, sessions), the organisation policy file and `deny_read` (global, project and policy). A path that does not exist is ignored.
+- **Protected git files** (macOS only, best effort): in a project with a `.git` directory, `.git/config`, `.git/hooks`, `.git/commondir` and `.git/config.worktree` stay readable but cannot be written or created, and neither `.git` nor the project directory can be removed or renamed. A command thus cannot plant a hook or a `core.fsmonitor` that would run unconfined at your next git command. The git directories of submodules (`.git/modules/*`) and nested repositories (`sub/.git`) are not protected. Commands that write `.git/config` (`git config`, `git remote add`, `git push -u`, `git submodule init`) fail when confined: run them yourself. A `.git` file (git worktree, submodule) is not handled: its git directory is outside the project, writable only if `write` includes it. On Linux these files are not protected (see [Security and limits](security.md#the-sandbox-and-its-limits)).
+- **Network**: closed, unless the command is granted network (see below).
+- **Environment**: the variables of tenon minus every secret it knows: `api_key_env` of all providers and of every preset (even when a configuration redefines it), `bearer_env` and `env_from` of all MCP servers. `PATH`, `HOME` and `LANG` are never removed. This applies in every mode, `off` and "unavailable" included.
+
+Hooks and git marking are not confined: they are your commands and tenon itself.
+
+### Configuration
+
+```toml
+[sandbox]
+mode = "auto"      # "auto" (default) | "required" | "off"
+write = []         # writable paths, in addition to the defaults (absolute or ~/)
+deny_read = []     # denied paths, in addition to the built-in list (absolute or ~/)
+```
+
+| Mode | Effect |
+|---|---|
+| `auto` | Confine when possible. If the sandbox is unavailable, a notice is printed and commands run unconfined. |
+| `required` | tenon refuses to start (exit code 1) if the sandbox, or the network isolation, is unavailable. |
+| `off` | No confinement (secret variables are still removed). |
+
+- The effective mode is the strictest of the global configuration, the project configuration, the organisation policy and the profile. `off` < `auto` < `required`. A project or a policy can never produce `off`.
+- `profile = "strict-local"` implies `required`: the profile promises that nothing leaves the machine.
+- A project configuration can only tighten: `mode = "required"` and `deny_read` are accepted; `mode = "off"` and `write` are refused (`config: sandbox.<key> not allowed in project configuration`).
+- `write` and `deny_read` accept absolute paths or paths starting with `~/` (`config: sandbox.<key>: path must be absolute or start with ~/`).
+- The organisation policy can set `mode` (`auto` or `required`) and `deny_read` (see [policy.md](policy.md#content)).
+
+`tenon config check` prints the state: `sandbox: auto (landlock, network full)` or `sandbox: auto (unavailable: <reason>)`. Under `required`, it exits with code 1 when the sandbox is unavailable.
+
+### Notices and refusals
+
+| Message | Meaning |
+|---|---|
+| `sandbox: unavailable (<reason>), commands run unconfined` | Mode `auto`, no mechanism: commands run as before. |
+| `sandbox: network isolation TCP only (user namespaces unavailable)` | Linux fallback, see below. |
+| `sandbox: network not isolated (<reason>)` | Mode `auto`: neither namespaces nor Landlock TCP; confined commands still have the network. |
+| `sandbox: Unix sockets not confined (Landlock ABI < 9): <path> reachable` | Linux kernel too old to confine Unix sockets: a container runtime socket or the D-Bus session bus is reachable, see below. Not a refusal, even under `required`. |
+| `sandbox: required but unavailable (<reason>)` | Mode `required`: tenon does not start (exit code 1). |
+| `sandbox: required but network not isolated (<reason>)` | Mode `required`: tenon does not start (exit code 1). |
+
+If the sandbox helper itself fails, the command is not run: stderr shows `sandbox: <reason>` and the exit code is 126.
+
+### Linux (Landlock)
+
+- Needs Landlock (kernel 5.13 or later, with the LSM loaded). Without it the sandbox is unavailable.
+- Network: user namespaces (`CLONE_NEWUSER|CLONE_NEWNET`) give the command an empty network (loopback only, no route), which closes TCP, UDP and DNS. If user namespaces are unavailable (Docker default seccomp profile, Ubuntu AppArmor restriction on unprivileged user namespaces), tenon falls back to Landlock TCP (kernel 6.7 or later): `connect` and `bind` in TCP are refused, **UDP stays open**. Abstract Unix sockets are scoped (ABI 6 or later). Without either, the network is not isolated.
+- Names inside a denied directory can be listed; their contents cannot be read.
+- A file cannot be created, removed or renamed directly in a directory that contains a denied entry, nor in its ancestors up to the writable root. Example: with `deny_read = ["<project>/secrets"]`, a command cannot create a file directly at the project root. A `--config` file under `/tmp` has the same effect: no new file directly in `/tmp`.
+- The rules are fixed at launch: an entry created afterwards in a non-writable directory is not readable by the command.
+- Unix sockets are confined only with Landlock ABI 9 or later (`LANDLOCK_ACCESS_FS_RESOLVE_UNIX`). On an older kernel, a socket reachable by path (for example `/var/run/docker.sock`) stays connectable, and tenon prints the notice above for the known runtime sockets and for the D-Bus session bus (`$XDG_RUNTIME_DIR/bus`, `/run/user/<uid>/bus`). A user of the `docker` group must know that this socket gives root on the host. The session bus lets a command start an unconfined process (`systemd-run --user`) or read secrets from the Secret Service (GNOME Keyring, KWallet).
+
+### macOS (`sandbox-exec`)
+
+- tenon generates a profile and runs `/usr/bin/sandbox-exec -p <profile> -- <command>`. `(deny network*)` also covers Unix sockets.
+- Apple marks `sandbox-exec` as deprecated, but it still works. If a future macOS removes it, the sandbox becomes unavailable and the modes above apply.
+
+### Network for one command
+
+- A shell rule can grant network: `network = true` with `decision = "allow"` or `"ask"` (refused with `deny`, on another tool, in the project configuration and in the policy).
+
+```toml
+[[permissions.rules]]
+tool = "shell"
+match = "go mod download *"
+decision = "allow"
+network = true
+```
+
+- With such a rule, a plain "Yes" opens the network, and the panel says "Network granted by rule". Its key line is `y: yes once (with network) · a: always for this session (with network) · n: no`: an approval for the session keeps the network of the rule on later calls (the rule grants it, not the answer).
+- When a confined command needs approval, the key line is `y: yes once · w: allow with network · a: always for this session (no network) · n: no`. "Always for this session" never remembers the network of an answer.
+- The panel says "no network unless allowed" and offers `w` only when the network is isolated. Without network isolation (`sandbox: network not isolated`), a confined command has the network anyway: the panel shows the note of an unconfined command ("an approved command runs with your permissions") and offers no `w`.
+- In non-interactive mode, nothing is asked: the network comes only from a rule, and an `ask` rule with `network = true` is denied as before (exit code 3).
+
+### Stdio MCP servers
+
+A stdio server is confined according to its `risk`: `network` opens the network; `write` or `exec` makes the project writable; `read` or empty gives no network and a read-only project. Its working directory (`$HOME`) is not writable: only the defaults (temporary files, caches, `~/.npm`) and `write` are. On macOS, `.git/config` and `.git/hooks` stay protected even with `write` or `exec`.
+
+When a confined server fails to start, its notice ends with a reminder: `MCP server <id> unavailable: <error> (confined: risk "<risk>"; see [sandbox] write and risk)`. Declare the right `risk`, or add the directories the server writes to `[sandbox] write`.
+
+### Upgrading to the sandbox
+
+The sandbox is on by default (`mode = "auto"`). After an upgrade:
+
+- A tool that writes outside the project, the temporary directories and the caches now fails. `~/.npm` is writable by default (npm and npx, common for stdio MCP servers). Add the other directories to the global configuration, for example:
+
+```toml
+[sandbox]
+write = ["~/go/pkg/mod", "~/.cargo", "~/.m2"]
+```
+
+- The `risk` of an MCP server now also decides its confinement: a stdio server with no `risk` gets no network and a read-only project. Set `risk = "network"`, `"write"` or `"exec"` on the servers that need it.
+- `mode = "off"` restores the previous behaviour (secret variables are still removed).
+
+### In the audit log and the export
+
+- `SessionStarted.sandbox`: `mode`, `mechanism` (`landlock`, `sandbox-exec`, `none`), `network` (`full`, `tcp`, `none`) and `reason`. A stdio server has `sandbox: {confined, network}` in `SessionStarted.mcp`.
+- `ToolResult.sandbox` on shell calls: `confined` and `network` (the command had network: always true when not confined).
+- `PermissionResolved.network` records an answer "with network".
+- The [compliance export](#compliance-export) has a "Sandbox" row per session (absent at `audit.level = "metadata"`, see below).
+
 ## Providers and jurisdictions
 
 You can use any OpenAI-compatible endpoint.
@@ -945,6 +1062,107 @@ base_url = "http://gpu.lan:11434/v1"
 model = "qwen3:8b"          # no context_window: read from the server
 jurisdiction = "local"
 ```
+
+## Data-sensitivity routing
+
+Classified content never leaves your machine: it is sent only to a local model.
+Everything else goes to the configured providers, with an ordered fallback when one is down.
+
+Every request carries the whole history, so sensitivity is a state of the session, not of one request: once classified content has entered the history, every later request carries it.
+The session becomes **sensitive** (once, permanently) and from then on it is sent only to the `routing.local` provider.
+
+### Configuration
+
+```toml
+[classification]
+paths = ["rh/**", "contracts/**", "*.dr.md"]   # relative to the project root
+markers = ["C2 - Internal"]                     # in addition to the built-in markers
+
+[routing]
+local = "ollama"                                # provider of sensitive content
+fallback = ["mistral", "scaleway", "ovhcloud"]  # ordered fallback for the rest
+```
+
+- **Built-in markers**, always active: `DIFFUSION RESTREINTE`, `SPÉCIAL FRANCE`, `SPECIAL FRANCE`, `RESTREINT UE`, `EU RESTRICTED`.
+- **Marker matching**: case- and accent-insensitive (decomposed accents included), invisible format characters (zero-width space, soft hyphen) ignored, runs of whitespace (newlines included) collapsed to one space, whole phrase with word boundaries at both ends (`DIFFUSION RESTREINTES` does not match).
+- **Path patterns**: same syntax as permission rules (`*` inside a segment, `**` across segments), matched against the path relative to the resolved project root; absolute patterns are allowed; a path outside the project never matches a relative pattern. A path is classified when it or any of its parent directories matches: `rh`, `rh/` and `rh/**` all cover `rh/a/b.txt` (a trailing slash is ignored), and `rhx/a` matches none of them. Matching is case-insensitive on every OS, and applies to both the resolved and the lexical path: a classified directory reached through a symlink (even one that points outside the project) still counts.
+- `routing.local` must name a provider whose jurisdiction is `local` (`ollama`, `vllm`, or one you define), otherwise `config: routing.local must name a local provider`. "Local" means a provider under your control: a local provider on a non-loopback host (for example `gpu.lan`) prints a startup notice. The local provider never uses the proxy environment variables.
+- `routing.fallback` lists known provider ids, otherwise `config: routing.fallback: unknown provider "<id>"`.
+- `[routing]` is global only. In `.tenon/config.toml` it is refused; `[classification]` there adds entries.
+- An [organisation policy](policy.md) adds to `[classification]` and can impose `[routing] local`.
+- Without `[routing]`: one provider, no fallback, no local provider. Classification still applies, with the effects described below.
+
+`tenon config check` prints `classification: <n> paths, <m> markers` and `routing: local <id>, fallback <ids>` (or `routing: none`).
+
+### When a session becomes sensitive
+
+With a local provider available, the session becomes sensitive when:
+
+1. `read_file`, `write_file` or `edit_file` touches a classified path, or its result or content carries a marker;
+2. `grep` returns a classified file (the files of the result are checked on disk) or a marker in its output;
+3. a `shell` command has a classified path among its words, or its output carries a marker;
+4. an MCP tool result carries a marker;
+5. a message of yours carries a marker, or a hook text does (Stop feedback, compaction context, hook block reasons);
+6. the outbound scan finds a marker in a request about to go to a non-local provider. The scan covers the messages before and after redaction. It skips text that a non-local provider produced itself (its replies, the arguments of its tool calls, its compaction summaries): that provider already has it. On a resumed session, a reply counts as remote when the provider in effect (`SessionStarted.provider`, then each `ProviderSelected`) is not local.
+
+`glob` never taints: it returns names only, and is exempt from the outbound scan. A marker in a file *name* can therefore reach a remote provider.
+
+### Without a local provider
+
+- A tool call on a classified path is refused before it runs (`ToolResult` with `denied: "classification"`, content `classified content requires a local provider (routing.local)`). In headless mode this gives exit code 3.
+- A marker in a tool result is replaced by `[classified content withheld: no local provider]` before it enters the history. The session does not become sensitive.
+- A marker in your message or in a request blocks the turn (`Error` event, `code: "classification"`, turn `blocked`). The message of a request blocked by the outbound scan suggests `/rewind`, to remove the marked content from the conversation.
+- A marker in the context added by a `UserPromptSubmit` or `SessionStart` hook withholds that context (replaced by `[classified content withheld: no local provider]`); your prompt is still sent.
+
+A resumed sensitive session whose local provider is now missing cannot continue remotely: the first send is blocked.
+Starting with `--provider <local>` and no `[routing]` is fine: the session is already local, classified reads are allowed and there is no fallback.
+
+### Routing and fallback
+
+Before each send to the model (turn, compaction, sub-agent):
+
+- **sensitive session**: `routing.local` only. A failure ends the turn in error; there is never a fallback to a non-local provider;
+- **normal session**: the current provider (`--provider` or `default_provider`), then `routing.fallback` in order;
+- each candidate goes through the usual guards (profile, allowlist, policy, non-EU consent). A refused candidate is skipped with a notice; with no candidate left the turn is blocked. `--allow-non-eu` consents to every fallback candidate; without it, a non-EU candidate asks, and a refused consent is remembered for the session. A turn blocked only because of a refused consent says so (`Error` event, `code: "jurisdiction"`);
+- **fallback triggers**: provider unavailable (after the provider's own retries of 429 and 5xx), connection error, no first chunk within 60 seconds. Never after the first chunk, never on authentication or context-length errors, never on another 4xx.
+- **the 60-second timeout** applies only when another candidate can take over in the same send: a single provider (no `[routing]`, or the local provider of a sensitive session) is never cut, however slow. It starts once the provider has answered with its headers (after its own retries) and stops at the first sign of activity of the stream, a tool-call fragment included. That sign alone does not count as a first chunk: a provider error that follows still falls back.
+
+### What it protects, and what it does not
+
+Protected: the content of classified paths read through tenon's tools, and any text that carries a marker, once seen by one of the entry points above.
+
+Not protected:
+
+- content outside the listed paths that carries no marker: tenon does not detect personal data, secrets or identifiers;
+- markers are detected in text only (not in images or binary files);
+- a shell command that reads classified data without naming its path (through a variable, a glob expanded by the shell, a recursive `grep -r` or `find`, `head` or `sed` extracts that do not contain the marker line) is caught only if a marker appears in its output. `~` and `$VAR` are not expanded in command matching. On macOS with the sandbox active, the existing paths named by the literal start of each `classification.paths` pattern (segments up to the first `*`, for example `rh` for `rh/**`) are denied to shell commands, read and write, with or without a local provider: such reads fail. On Linux, or with the sandbox off, they are not denied (on Linux, denying a project path would block creating files in its parent folders);
+- shell output is checked after truncation to `output_limit`: a marker beyond the limit is not seen, and the start of the output is sent. MCP results are checked on their full text, before truncation;
+- markers inside tool definitions (MCP descriptions) are not scanned;
+- a marker in a file name returned by `glob`, as above.
+
+See [security.md](security.md#data-sensitivity-routing-and-its-limits).
+
+### Notices
+
+| Message | When |
+|---|---|
+| `classification: session is sensitive (<reason>), routed to <local>` | the session became sensitive (stderr in headless text mode; a notice in the TUI) |
+| `classification: session is sensitive (<reason>), no local provider` | same, without a local provider |
+| `routing: <from> failed (<error>), using <to>` | a fallback happened |
+| `routing: fallback provider "<id>" skipped (<reason>)` | a candidate was refused by a guard |
+| `routing: local provider "<id>" unavailable (<reason>)` | the local provider could not be used at startup |
+| `routing: local provider "<id>" uses non-loopback host "<host>"` | the local provider is not on this machine |
+| `policy <id>: routing.local imposed (<id>)` | an organisation policy replaced `routing.local` |
+
+The TUI status bar shows `sensitive → <local>` once the session is sensitive.
+
+### In the audit log and the export
+
+- `SessionClassified` (once per session): `reason` (`path` or `marker`), `source` (`tool`, `shell`, `mcp`, `user`, `outbound`), and `call_id`, `path`, `marker` when they apply.
+- `ProviderSelected`: `provider` (with its jurisdiction), `reason` (`default`, `fallback`, `sensitive`) and `error` on a fallback. It is emitted when the effective provider changes, including the first send, and only when routing is active.
+- `SessionStarted.routing`: `local` (empty when the local provider was unavailable) and `fallback`; omitted without `[routing]`.
+- `Error` with `code: "classification"` or `"jurisdiction"`, and tool results with `denied: "classification"`.
+- The [compliance export](#compliance-export) has a `Routing` row (`Routage` in French) and a `routing` list. A **violation** is a `ProviderSelected` towards a non-local provider after the `SessionClassified` of the same session; a session that is classified, never routed, started on a non-local provider, and that received a model reply (`AssistantMessage`) after its classification is also flagged (without a reply, nothing was sent: a prompt blocked by a hook, a turn cancelled before the send). Tool calls refused by classification are counted in the summary's denials and in the `denied_classification` column of the permissions table. Any violation makes `tenon audit export` exit with code 2.
 
 ## Compliance profiles
 
@@ -1041,7 +1259,7 @@ A call whose arguments contain a redaction marker (`[SECRET_1]`…) is denied.
 ### Stdio server
 
 - The command is an absolute path, or a bare name looked up in the absolute directories of `PATH`. A relative path is refused.
-- The server starts **from your home directory (`HOME`)**, never from the project.
+- The server starts **from your home directory (`HOME`)**, never from the project. It is confined by the [system sandbox](#system-sandbox) according to its `risk`.
 - It receives the project root in the `TENON_PROJECT_ROOT` variable.
 - Its environment is reduced to `PATH`, `HOME`, `LANG`, `TENON_PROJECT_ROOT` and the variables listed in `env_from`.
 - Without `jurisdiction`, it is `local`.
@@ -1220,7 +1438,7 @@ It does not modify the log and does not lock it.
 |---|---|
 | 0 | report written, audit chain intact |
 | 1 | usage or write error, nothing written |
-| 2 | report written, but the audit chain is broken or a timestamp token is invalid or orphan: the report says so (banner or Timestamps row); stderr shows `invalid timestamps: <n> (report written)` for tokens |
+| 2 | report written, but the audit chain is broken, a timestamp token is invalid or orphan, or a routing violation was found: the report says so (banner, Timestamps row or Routing row); stderr shows `invalid timestamps: <n> (report written)` for tokens and `routing violation: a sensitive session reached a non-local provider (report written)` for routing |
 
 ### What the report contains
 
@@ -1232,6 +1450,8 @@ It does not modify the log and does not lock it.
 - **Permissions**: per tool, requests, approvals (once or for the session) and denials (by the user, by policy, by a hook).
 - **Modified files**: date, session, path, tool, hash before and after, author (`main` or the sub-agent), whether there was no checkpoint, and the state left by a later rewind.
 - **Commands**: number of shell calls per session.
+- **Sandbox** (`sandbox`, a list; omitted for logs written before the sandbox existed): per session, `mode`, `mechanism`, `network` (as in `SessionStarted.sandbox`), `unconfined` (shell results that ran unconfined) and `with_network` (shell results that ran confined **with** network). The two counters never overlap. The HTML row is `Sandbox` (`Isolation` in French), one entry per session. At `audit.level = "metadata"` the log keeps no payload, so the row is absent. A session is listed only if its `SessionStarted` is in the range: a resumed session whose `SessionStarted` is before `--since` is not counted.
+- **Routing** (`routing`, a list; omitted for logs with no classification, no `[routing]` and no `ProviderSelected`): per session, `sensitive`, `reason` (`path` or `marker`, omitted when not sensitive), `providers` (distinct provider ids in order of first use, starting with the provider of `SessionStarted`), `fallbacks` (number of `ProviderSelected` with reason `fallback`) and `violation`. See [Data-sensitivity routing](#data-sensitivity-routing). The HTML row is `Routing` (`Routage` in French). Absent at `audit.level = "metadata"`.
 - **Sub-agents, hooks, rewinds**: sub-agent runs, hooks that blocked, failed, timed out or asked for confirmation, rewinds with the files restored, deleted, kept, skipped, failed or unchanged.
 - **Incidents**: errors, turns that ended for a notable reason (blocked, stopped by a hook, context too large, iteration limit, incomplete, cancelled) and unreadable log lines.
 - **Regulatory mapping**: which elements of the report help document GDPR, NIS2, DORA and AI Act requirements. It cites no article.
@@ -1340,9 +1560,10 @@ Envelope:
 | `mcp_servers` | list | `id`, `jurisdiction`, `country` (strings), `sessions` (number) |
 | `mcp_failures` | list | `session`, `server`, `error` (strings), `ts` (date) |
 | `redactions` | object | category name to number of masked items |
-| `permissions` | list | `tool` (string), `requested`, `allowed_once`, `allowed_session`, `denied_user`, `denied_policy`, `denied_hook` (numbers) |
+| `permissions` | list | `tool` (string), `requested`, `allowed_once`, `allowed_session`, `denied_user`, `denied_policy`, `denied_hook`, `denied_classification` (numbers) |
 | `files` | list | `ts`, `session`, `path`, `tool`, `hash_before`, `hash_after`, `author`, `no_checkpoint` (boolean), `rewind_status` (omitted when no rewind concerns the file) |
 | `commands` | list | `session`, `count`; `commands` (list of strings) only with `--details` |
+| `routing` | list | omitted when no session has routing data: `session` (string), `sensitive` (boolean), `reason` (string, omitted when not sensitive), `providers` (list of strings), `fallbacks` (number), `violation` (boolean) |
 | `subagents` | list | `ts`, `session`, `call_id`, `agent`, `status` |
 | `hooks` | list | `ts`, `session`, `hook_id`, `event`, `status`; `decision` and `reason` when not empty |
 | `rewinds` | list | `ts`, `session`, `mode` (strings and date), `to_seq`, `restored`, `deleted`, `kept`, `skipped`, `failed`, `unchanged`, `untracked_calls` (numbers) |

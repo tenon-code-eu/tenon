@@ -35,7 +35,7 @@ func newAgentEngine(t *testing.T, script [][]llm.Chunk, files map[string]string,
 	h := newHarness(t, euInfo, script, append([]func(*Deps){func(d *Deps) {
 		d.Agents = cat
 		d.Lang = i18n.EN
-		d.Tools = tools.NewRegistry(append(tools.FS(d.ProjectRoot, 30000), tools.Shell(d.ProjectRoot, time.Second, 30000))...)
+		d.Tools = tools.NewRegistry(append(tools.FS(d.ProjectRoot, 30000), tools.Shell(d.ProjectRoot, time.Second, 30000, tools.ShellOptions{}))...)
 	}}, opts...)...)
 	if err := os.WriteFile(filepath.Join(h.root, "a.txt"), []byte("hi\n"), 0o644); err != nil {
 		t.Fatal(err)

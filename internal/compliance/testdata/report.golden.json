@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "generator": "tenon test",
-  "report_id": "sha256:5d7030e3c58a460a523f78048250dc98c783b07c8b5d1a0ae4a139daed9edb73",
+  "report_id": "sha256:1a6590f25ec61cf43d3a5d6828c23330acc82670adc401b4832574e32c8a6294",
   "html_sha256": "sha256:cc",
   "report": {
     "generator": "tenon test",
@@ -77,7 +77,8 @@
         "allowed_session": 0,
         "denied_user": 0,
         "denied_policy": 0,
-        "denied_hook": 0
+        "denied_hook": 0,
+        "denied_classification": 0
       }
     ],
     "files": [

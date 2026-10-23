@@ -51,10 +51,13 @@ func ParseDecision(s string) (Decision, error) {
 // Rule associe un outil ("*" = tous) et un motif à une décision. Project
 // indique une règle de la config projet (.tenon/config.toml) : le projet ne
 // peut que restreindre, ses règles ask priment donc les allow globales.
+// Network ouvre le réseau à la commande shell isolée quand la règle allow
+// correspond, ou quand l'utilisateur accepte la demande d'une règle ask.
 type Rule struct {
 	Tool, Match string
 	Decision    Decision
 	Project     bool
+	Network     bool
 }
 
 // Call décrit un appel d'outil à vérifier.
@@ -101,6 +104,13 @@ func (p *Permissions) Check(c Call) Decision {
 // levé par un hook : liftable vaut true seulement pour un Ask issu d'une règle
 // ask globale ou du défaut selon le risque.
 func (p *Permissions) Decide(c Call) (d Decision, liftable bool) {
+	d, liftable, _ = p.DecideNet(c)
+	return d, liftable
+}
+
+// DecideNet applique Decide et renvoie en plus le drapeau Network de la règle
+// allow ou ask retenue (false pour un deny, un Ask imposé ou un défaut).
+func (p *Permissions) DecideNet(c Call) (d Decision, liftable, network bool) {
 	infos := make([]pathInfo, len(c.Target.Paths))
 	for i, raw := range c.Target.Paths {
 		infos[i] = p.inspect(raw)
@@ -120,7 +130,7 @@ func (p *Permissions) Decide(c Call) (d Decision, liftable bool) {
 			if r.Decision == Allow && chainsBeyond(r.Match, c.Target.Command) {
 				return false // allow ne couvre jamais une commande enchaînée
 			}
-			return matchWildcard(r.Match, c.Target.Command)
+			return MatchWildcard(r.Match, c.Target.Command)
 		}
 		pat := r.Match
 		if fold {
@@ -131,7 +141,7 @@ func (p *Permissions) Decide(c Call) (d Decision, liftable bool) {
 				if fold {
 					cand = strings.ToLower(cand)
 				}
-				if matchWildcard(pat, cand) {
+				if MatchWildcard(pat, cand) {
 					return true
 				}
 			}
@@ -159,44 +169,44 @@ func (p *Permissions) Decide(c Call) (d Decision, liftable bool) {
 	// deny : aussi sur la forme lexicale, pour ne pas être contourné par un lien.
 	for _, r := range p.rules {
 		if r.Decision == Deny && matches(r, true) {
-			return Deny, false
+			return Deny, false, false
 		}
 	}
 
 	// Validation humaine imposée par l'outil (serveur MCP hors UE) : aucune
 	// règle allow ni le défaut des lectures ne la lèvent.
 	if c.Target.ForceAsk {
-		return Ask, false
+		return Ask, false, false
 	}
 
 	for _, in := range infos {
 		if !in.inside || isSensitive(in.given) || isSensitive(in.resolved) {
-			return Ask, false
+			return Ask, false, false
 		}
 	}
 
 	// ask du projet : prime les allow (globales, le projet n'en a pas).
 	for _, r := range p.rules {
 		if r.Project && r.Decision == Ask && matches(r, false) {
-			return Ask, false
+			return Ask, false, r.Network
 		}
 	}
 
 	for _, r := range p.rules {
 		if r.Decision == Allow && matches(r, false) {
-			return Allow, false
+			return Allow, false, r.Network
 		}
 	}
 	for _, r := range p.rules {
 		if r.Decision == Ask && matches(r, false) {
-			return Ask, true
+			return Ask, true, r.Network
 		}
 	}
 
 	if c.Risk == tools.Read {
-		return Allow, false
+		return Allow, false, false
 	}
-	return Ask, true
+	return Ask, true, false
 }
 
 func (p *Permissions) inspect(raw string) pathInfo {

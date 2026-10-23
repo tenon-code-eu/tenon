@@ -37,7 +37,11 @@ const interruptedMsg = "cancelled: session interrupted"
 // appels non annulables) est rejoué comme en direct ; un Rewound des modes
 // conversation et both tronque l'historique à la longueur du point, celui du
 // mode code met sa note en attente (jointe au prochain UserMessage accepté).
-// Les autres types sont ignorés.
+// SessionStarted et ProviderSelected suivent le fournisseur en cours : les
+// réponses et résumés produits par un fournisseur non local sont marqués
+// llm.Message.Remote (exclus du contrôle sortant des marquages).
+// Un SessionClassified rend la session sensible (définitivement, quel que soit
+// son parent_call_id). Les autres types sont ignorés.
 func (e *Engine) Restore(sessionID string, events []event.Event) error {
 	s := e.session(sessionID)
 	s.turn.Lock()
@@ -53,6 +57,14 @@ func (e *Engine) Restore(sessionID string, events []event.Event) error {
 	var pending []llm.ToolCall // appels du dernier message assistant sans résultat
 	// startCtx : contexte SessionStart encore en attente (dernier prompt bloqué).
 	var startCtx string
+	// sensitive : la session a été classée (SessionClassified).
+	var sensitive bool
+	var sensitiveReason string
+	// remote : le fournisseur en cours (SessionStarted.provider, puis chaque
+	// ProviderSelected) n'est pas local ; les réponses et résumés qui suivent
+	// sont marqués llm.Message.Remote (exclus du contrôle sortant). Un
+	// journal sans ces événements laisse remote faux : tout est contrôlé.
+	var remote bool
 	closePending := func() {
 		for _, c := range pending {
 			history = append(history, llm.Message{Role: llm.Tool, Content: interruptedMsg, ToolCallID: c.ID})
@@ -83,7 +95,7 @@ func (e *Engine) Restore(sessionID string, events []event.Event) error {
 			}
 			rw.addResult(ev.Seq, p)
 		}
-		if meta.ParentCallID != "" && ev.Type != event.PermissionRequested {
+		if meta.ParentCallID != "" && ev.Type != event.PermissionRequested && ev.Type != event.SessionClassified {
 			continue
 		}
 		switch ev.Type {
@@ -121,7 +133,7 @@ func (e *Engine) Restore(sessionID string, events []event.Event) error {
 			if p.Incomplete && p.Text == "" && len(p.ToolCalls) == 0 {
 				continue
 			}
-			history = append(history, llm.Message{Role: llm.Assistant, Content: p.Text, ToolCalls: p.ToolCalls})
+			history = append(history, llm.Message{Role: llm.Assistant, Content: p.Text, ToolCalls: p.ToolCalls, Remote: remote})
 			pending = append([]llm.ToolCall(nil), p.ToolCalls...)
 		case event.ToolResult:
 			var p event.ToolResultPayload
@@ -150,7 +162,9 @@ func (e *Engine) Restore(sessionID string, events []event.Event) error {
 			}
 			rest := history[1+p.Replaced:]
 			nh := make([]llm.Message, 0, 2+len(rest))
-			nh = append(nh, history[0], summaryMessage(p.Summary, p.HookContext))
+			sm := summaryMessage(p.Summary, p.HookContext)
+			sm.Remote = remote
+			nh = append(nh, history[0], sm)
 			history = append(nh, rest...)
 			rw.compacted()
 		case event.Rewound:
@@ -171,6 +185,27 @@ func (e *Engine) Restore(sessionID string, events []event.Event) error {
 				history = append(history[:0:0], history[:pt.HistoryLen]...)
 			}
 			rw.addRewound(ev.Seq, p)
+		case event.SessionStarted:
+			var p event.SessionStartedPayload
+			if err := unmarshalPayload(ev, &p); err != nil {
+				return err
+			}
+			remote = p.Provider.Jurisdiction != "" && p.Provider.Jurisdiction != llm.Local
+		case event.ProviderSelected:
+			var p event.ProviderSelectedPayload
+			if err := unmarshalPayload(ev, &p); err != nil {
+				return err
+			}
+			remote = p.Provider.Jurisdiction != "" && p.Provider.Jurisdiction != llm.Local
+		case event.SessionClassified:
+			var p event.SessionClassifiedPayload
+			if err := unmarshalPayload(ev, &p); err != nil {
+				return err
+			}
+			// Définitif : le premier SessionClassified fixe la raison.
+			if !sensitive {
+				sensitive, sensitiveReason = true, p.Reason
+			}
 		case event.PermissionRequested:
 			var p event.PermissionRequestedPayload
 			if err := unmarshalPayload(ev, &p); err != nil {
@@ -194,6 +229,9 @@ func (e *Engine) Restore(sessionID string, events []event.Event) error {
 	s.resumed = true
 	s.warned = false
 	s.remembered = map[string]bool{}
+	s.classMu.Lock()
+	s.sensitive, s.sensitiveReason = sensitive, sensitiveReason
+	s.classMu.Unlock()
 	return nil
 }
 

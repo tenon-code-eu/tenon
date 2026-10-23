@@ -10,6 +10,7 @@ import (
 
 	"github.com/tenon-code-eu/tenon/internal/event"
 	"github.com/tenon-code-eu/tenon/internal/i18n"
+	"github.com/tenon-code-eu/tenon/internal/llm"
 	"github.com/tenon-code-eu/tenon/internal/ui/headless"
 )
 
@@ -60,6 +61,11 @@ type Transcript struct {
 	holdback bool
 	// hookRuns retient les hooks démarrés (par run_id) jusqu'à leur fin.
 	hookRuns map[string]hookRun
+	// routing suit le fournisseur local et l'état sensible (barre d'état).
+	routing headless.Routing
+	// selected est le dernier fournisseur retenu (ProviderSelected) ; nil :
+	// celui du démarrage.
+	selected *llm.ProviderInfo
 }
 
 // hookRun est le hook d'un HookStarted : événement et libellé court.
@@ -147,6 +153,7 @@ func (t *Transcript) Apply(ev event.Event) {
 		if !t.decode(ev, &p) {
 			return
 		}
+		t.routing.Started(p)
 		text := headless.Banner(t.lang, p.Provider)
 		if p.Resumed {
 			text += " " + i18n.T(t.lang, "tui.resumed")
@@ -261,6 +268,22 @@ func (t *Transcript) Apply(ev event.Event) {
 			return
 		}
 		t.notice(headless.ServerDownNotice(t.lang, p, t.redact))
+	case event.SessionClassified:
+		var p event.SessionClassifiedPayload
+		if !t.decode(ev, &p) {
+			return
+		}
+		t.notice(t.routing.Classified(t.lang, p))
+	case event.ProviderSelected:
+		var p event.ProviderSelectedPayload
+		if !t.decode(ev, &p) {
+			return
+		}
+		info := p.Provider
+		t.selected = &info
+		if n := t.routing.Selected(t.lang, p); n != "" {
+			t.notice(n)
+		}
 	case event.JurisdictionWarning:
 		var p event.JurisdictionWarningPayload
 		if !t.decode(ev, &p) {
