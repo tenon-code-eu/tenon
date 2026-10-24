@@ -54,13 +54,13 @@ warn_at = 0.8              # 0 < warn_at < 1
 
 ## 5. Vue envoyée au modèle
 
-`view(history) []llm.Message`, appelée avant chaque envoi (tour, compaction, sous-agent sur son propre historique). Déterministe ; ne modifie jamais `history`.
+`view(history) []llm.Message`, appelée avant chaque envoi (tour, compaction, sous-agent sur son propre historique). Déterministe pour un historique et l'ensemble masqué précédent donnés ; ne modifie jamais `history`.
 
 Étapes, dans l'ordre :
 
 1. **Déduplication.** Deux résultats d'outil identiques (même outil, mêmes arguments, même SHA-256 de contenu) : seul le plus récent reste ; l'ancien devient `[same content as the read at turn <n>]`.
-2. **Masquage sous pression.** Si l'estimation de la vue dépasse 50 % de la fenêtre, les résultats d'outils les plus anciens sont remplacés, un par un, jusqu'à repasser sous 40 %. Jamais masqués : les résultats des 3 derniers messages assistant portant des appels d'outils (les 3 dernières itérations) et tout message qui suit le plus ancien d'entre eux, le message de résumé de compaction, les messages de l'utilisateur et de l'assistant. Protéger des itérations plutôt que des tours utilisateur permet de masquer dans un long tour agentique et dans un sous-agent (un seul message utilisateur). Talon : `[output hidden to save context: <tool> <arguments abrégés à 60 car.>, <n> lines, sha256 <12 hex>; run the tool again if you need it]`.
-3. Si la vue dépasse encore le seuil de compaction (0,8), la compaction actuelle s'applique (inchangée, sur l'historique).
+2. **Masquage sous pression, collant.** L'ensemble masqué par la vue précédente (session, ou tour du sous-agent) est réappliqué. Si l'estimation de la vue ainsi obtenue dépasse 50 % de la fenêtre, les résultats d'outils les plus anciens sont masqués en plus, un par un, jusqu'à repasser sous 40 %. Entre 40 et 50 %, rien de nouveau n'est masqué : le préfixe envoyé reste stable (cache du fournisseur). Jamais masqués : les résultats des 3 derniers messages assistant portant des appels d'outils (les 3 dernières itérations) et tout message qui suit le plus ancien d'entre eux, les résultats de l'outil `agent` (relancer un sous-agent coûte cher et n'est pas déterministe ; la déduplication s'y applique), le message de résumé de compaction, les messages de l'utilisateur et de l'assistant. Protéger des itérations plutôt que des tours utilisateur permet de masquer dans un long tour agentique et dans un sous-agent (un seul message utilisateur). Talon : `[output hidden to save context: <tool> <arguments abrégés à 60 car.>, <n> lines, sha256 <12 hex>; run the tool again if you need it]`.
+3. Si la vue dépasse encore le seuil de compaction (0,8), la compaction s'applique. Le déclenchement, le contrôle « trop volumineux » (queue conservée) et la taille rejetée d'une compaction forcée utilisent l'estimation de la vue ; le résumé porte sur l'historique complet.
 
 - Événement `ContextShaped` quand l'ensemble des appels masqués ou dédupliqués change : `{masked: [call_id], deduplicated: [call_id], saved_tokens}`.
 - Le routage par sensibilité, le scan sortant, l'audit, `--resume` et `/rewind` utilisent l'historique complet ; masquer ne lève jamais une sensibilité.
