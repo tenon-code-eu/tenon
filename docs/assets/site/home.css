@@ -249,33 +249,62 @@ body:has(.h-page) { background: var(--color-paper); color: var(--color-ink-2);
   font-size: 0.75rem; color: var(--color-muted); }
 
 
-/* ── Le voyage d'une requête (animation en une prise) ────────────── */
+/* ── Le voyage d'une requête : la boucle d'agent + le journal en direct ── */
 .h-journey { background: var(--color-night); color: var(--color-on-night); padding-block: var(--space-3xl) var(--space-2xl); }
 .h-journey .h-h2 { color: var(--color-on-night); }
 .h-journey .h-lede { color: var(--color-on-night-muted); }
 .h-jr { margin: 0; display: grid; gap: var(--space-sm); }
-.h-jr__canvas { display: none; width: 100%; aspect-ratio: 1 / 1; border-radius: var(--radius-md);
+.h-jr__chapters, .h-jr__stage, .h-jr__cap, .h-jr__bar { display: none; }
+.h-jr.is-live .h-jr__chapters { display: flex; flex-wrap: wrap; gap: var(--space-2xs); }
+.h-jr.is-live .h-jr__stage { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-sm); }
+.h-jr.is-live .h-jr__cap { display: block; }
+.h-jr.is-live .h-jr__bar { display: flex; }
+.h-jr__chap { display: inline-flex; align-items: center; gap: var(--space-xs); min-height: 34px; padding: 0 var(--space-sm);
+  border-radius: 999px; cursor: pointer; white-space: nowrap; font: 600 var(--text-sm)/1 var(--font-body);
+  color: var(--color-on-night-muted); background: transparent; border: var(--rule-hair) solid var(--color-night-rule);
+  transition: color var(--dur-micro) var(--ease-out), border-color var(--dur-micro) var(--ease-out); }
+.h-jr__chap span { font: 500 0.75rem/1 var(--font-mono); }
+.h-jr__chap:hover { color: var(--color-on-night); border-color: var(--color-on-night-muted); }
+.h-jr__chap.is-active { color: var(--color-gold-ink); background: var(--color-gold); border-color: var(--color-gold); }
+.h-jr__canvas { display: block; width: 100%; aspect-ratio: 1 / 1; border-radius: var(--radius-md);
   border: var(--rule-hair) solid var(--color-night-rule); background: var(--color-night); }
-.h-jr__bar { display: none; align-items: center; gap: var(--space-xs); }
+.h-jr__log { display: flex; flex-direction: column; min-width: 0; overflow: hidden; padding: var(--space-md); border-radius: var(--radius-md);
+  border: var(--rule-hair) solid var(--color-night-rule); background: var(--color-night-2); }
+.h-jr__log-title { margin: 0 0 var(--space-sm); font: 500 0.75rem/1.2 var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-gold); }
+.h-jr__events { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; justify-content: flex-end; gap: 6px;
+  min-height: 16rem; max-height: 22rem; overflow: hidden; font: 400 0.78rem/1.35 var(--font-mono); }
+.h-jr__events li { display: grid; grid-template-columns: 2.2em minmax(0, 1fr) auto; gap: var(--space-xs); align-items: baseline;
+  padding-bottom: 6px; border-bottom: var(--rule-hair) solid var(--color-night-rule); color: var(--color-on-night-muted); }
+.h-jr__events li b { font-weight: 500; color: var(--color-on-night); }
+.h-jr__events li i { font-style: normal; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.h-jr__events li em { font-style: normal; color: var(--color-on-night-muted); }
+.h-jr__events li.is-new b, .h-jr__events li.is-new em { color: var(--color-gold); }
+.h-jr__proofs { list-style: none; margin: var(--space-sm) 0 0; padding: 0; display: grid; gap: 4px; font: 500 0.78rem/1.35 var(--font-mono); }
+.h-jr__proofs li { color: var(--color-night-rule); }
+.h-jr__proofs li.is-on { color: var(--color-gold); }
+.h-jr__log-note { margin: var(--space-sm) 0 0; font-size: 0.75rem; color: var(--color-on-night-muted); }
+.h-jr__cap { margin: 0; min-height: 3.2em; font-family: var(--font-display); font-weight: 700; font-size: var(--text-lg);
+  line-height: 1.3; color: var(--color-on-night); border-left: 3px solid var(--color-gold); padding-inline-start: var(--space-md); }
+.h-jr__bar { align-items: center; gap: var(--space-xs); }
 .h-jr__btn { flex: none; min-height: 34px; padding: 0 var(--space-sm); border-radius: var(--radius-sm); cursor: pointer;
   font: 600 var(--text-sm)/1 var(--font-body); white-space: nowrap; color: var(--color-on-night);
-  background: transparent; border: var(--rule-hair) solid var(--color-night-rule);
-  transition: border-color var(--dur-micro) var(--ease-out); }
+  background: transparent; border: var(--rule-hair) solid var(--color-night-rule); transition: border-color var(--dur-micro) var(--ease-out); }
 .h-jr__btn:hover { border-color: var(--color-gold); }
-.h-jr__track { flex: 1; height: 3px; background: var(--color-night-rule); border-radius: 2px; overflow: hidden; }
-.h-jr__fill { display: block; height: 100%; background: var(--color-gold); transform-origin: left; transform: scaleX(0); }
-.h-jr__canvas { order: 0; } .h-jr__cap { order: 1; } .h-jr__bar { order: 2; }
-.h-jr__cap { display: none; margin: 0; min-height: 3.2em; font-family: var(--font-display); font-weight: 700; font-size: var(--text-lg);
-  line-height: 1.3; color: var(--color-on-night); border-left: 3px solid var(--color-gold); padding-inline-start: var(--space-md); }
-.h-jr.is-live .h-jr__cap { display: block; }
+.h-jr__track { position: relative; flex: 1; height: 22px; cursor: pointer; touch-action: none; }
+.h-jr__track::before { content: ""; position: absolute; left: 0; right: 0; top: 10px; height: 3px; border-radius: 2px; background: var(--color-night-rule); }
+.h-jr__fill { position: absolute; left: 0; right: 0; top: 10px; height: 3px; border-radius: 2px; background: var(--color-gold); transform-origin: left; transform: scaleX(0); }
+.h-jr__marks i { position: absolute; top: 6px; width: 2px; height: 11px; background: var(--color-on-night-muted); }
+.h-jr__track:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
 .h-jr__steps { margin: 0; padding-inline-start: var(--space-lg); font-size: var(--text-sm); color: var(--color-on-night-muted); }
 .h-jr__steps li { margin-bottom: var(--space-2xs); }
-.h-jr__steps strong { color: var(--color-on-night); }
-.h-jr.is-live .h-jr__canvas { display: block; }
-.h-jr.is-live .h-jr__bar { display: flex; }
 .h-jr.is-live .h-jr__steps { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-@media (min-width: 40rem) { .h-jr__canvas { aspect-ratio: 16 / 9; } }
-@media (pointer: coarse) { .h-jr__btn { min-height: 44px; } }
+@media (min-width: 60rem) {
+  .h-jr.is-live .h-jr__stage { grid-template-columns: minmax(0, 1.9fr) minmax(0, 1fr); }
+  .h-jr__canvas { aspect-ratio: 4 / 3; }
+  .h-jr__events { max-height: none; min-height: 0; flex: 1 1 0; }
+  .h-jr__log { height: 0; min-height: 100%; }
+}
+@media (pointer: coarse) { .h-jr__btn, .h-jr__chap { min-height: 44px; } }
 
 /* ── Points de rupture (mobile d'abord) ──────────────────────────── */
 @media (min-width: 40rem) {
