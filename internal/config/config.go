@@ -16,6 +16,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/BurntSushi/toml"
+
 	"github.com/tenon-code-eu/tenon/internal/classify"
 	"github.com/tenon-code-eu/tenon/internal/hostmatch"
 	"github.com/tenon-code-eu/tenon/internal/orgpolicy"
@@ -53,6 +55,11 @@ type Config struct {
 	Classification Classification `toml:"classification"`
 	// Routing : acheminement des sessions sensibles. Clé globale uniquement.
 	Routing Routing `toml:"routing"`
+	// Budget : plafond de tokens par session. Effectif après Load : le plus
+	// bas du global, du projet et de la politique.
+	Budget Budget `toml:"budget"`
+	// Usage : facteurs énergie et CO₂ déclarés. Clé globale uniquement.
+	Usage Usage `toml:"usage"`
 	// CRA : assistant Cyber Resilience Act. Clé globale uniquement.
 	CRA CRA `toml:"cra"`
 	// home : $HOME lu au chargement, pour développer « ~/ » de la politique.
@@ -102,6 +109,68 @@ type CRA struct {
 type Routing struct {
 	Local    string   `toml:"local"`
 	Fallback []string `toml:"fallback"`
+	// Compaction et Subagents : fournisseur des appels de compaction et des
+	// sous-agents ("" = fournisseur de la session).
+	Compaction string `toml:"compaction"`
+	Subagents  string `toml:"subagents"`
+}
+
+// Budget : [budget]. SessionTokens : plafond entrée + sortie par session
+// (0 = aucun). WarnAt : fraction qui déclenche l'avis (0,8 par défaut dès
+// qu'un plafond existe).
+type Budget struct {
+	SessionTokens int64   `toml:"session_tokens"`
+	WarnAt        float64 `toml:"warn_at"`
+}
+
+// Usage : [usage]. Facteurs déclarés par l'utilisateur, 0 = non déclaré.
+type Usage struct {
+	WhPerMTok  float64 `toml:"wh_per_mtoken"`
+	GCO2PerKWh float64 `toml:"gco2_per_kwh"`
+}
+
+// defaultWarnAt : seuil d'avis quand un budget existe sans warn_at.
+const defaultWarnAt = 0.8
+
+// finishBudget pose le seuil d'avis par défaut dès qu'un plafond existe.
+func (c *Config) finishBudget() {
+	if c.Budget.SessionTokens > 0 && c.Budget.WarnAt == 0 {
+		c.Budget.WarnAt = defaultWarnAt
+	}
+}
+
+// lowestBudget renvoie le plus bas des deux plafonds non nuls.
+func lowestBudget(a, b int64) int64 {
+	if a <= 0 {
+		return max(b, 0)
+	}
+	if b > 0 && b < a {
+		return b
+	}
+	return a
+}
+
+// checkBudget contrôle les clés présentes de [budget] ; md dit lesquelles le
+// sont (0 explicite est refusé, absent est accepté).
+func checkBudget(b Budget, md toml.MetaData) error {
+	if md.IsDefined("budget", "session_tokens") && b.SessionTokens <= 0 {
+		return errors.New("config: budget.session_tokens must be positive")
+	}
+	if md.IsDefined("budget", "warn_at") && (b.WarnAt <= 0 || b.WarnAt >= 1) {
+		return errors.New("config: budget.warn_at must be between 0 and 1")
+	}
+	return nil
+}
+
+// checkUsage contrôle les facteurs déclarés (positifs s'ils sont présents).
+func checkUsage(u Usage, md toml.MetaData) error {
+	if md.IsDefined("usage", "wh_per_mtoken") && u.WhPerMTok <= 0 {
+		return errors.New("config: usage.wh_per_mtoken must be positive")
+	}
+	if md.IsDefined("usage", "gco2_per_kwh") && u.GCO2PerKWh <= 0 {
+		return errors.New("config: usage.gco2_per_kwh must be positive")
+	}
+	return nil
 }
 
 // ClassifyRules renvoie les règles de classification de la configuration.
@@ -120,6 +189,16 @@ func (c Config) validateRouting() error {
 	for _, id := range c.Routing.Fallback {
 		if _, ok := c.Provider(id); !ok {
 			return fmt.Errorf("config: routing.fallback: unknown provider %q", id)
+		}
+	}
+	for _, k := range []struct{ key, id string }{
+		{"compaction", c.Routing.Compaction}, {"subagents", c.Routing.Subagents},
+	} {
+		if k.id == "" {
+			continue
+		}
+		if _, ok := c.Provider(k.id); !ok {
+			return fmt.Errorf("config: routing.%s: unknown provider %q", k.key, k.id)
 		}
 	}
 	return nil
@@ -574,6 +653,12 @@ func (c Config) validateFields() error {
 		if _, err := regexp.Compile(r.Pattern); err != nil {
 			return fmt.Errorf("config: invalid redaction pattern %q: %w", r.Name, err)
 		}
+	}
+	if c.Budget.SessionTokens < 0 {
+		return errors.New("config: budget.session_tokens must be positive")
+	}
+	if c.Budget.WarnAt != 0 && (c.Budget.WarnAt < 0 || c.Budget.WarnAt >= 1) {
+		return errors.New("config: budget.warn_at must be between 0 and 1")
 	}
 	if c.Checkpoints.RetentionDays < 0 {
 		return errors.New("config: retention_days must be >= 0")

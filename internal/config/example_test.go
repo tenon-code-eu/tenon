@@ -42,36 +42,46 @@ func TestConfigExampleLoads(t *testing.T) {
 	if len(cfg.Providers) <= len(presets()) {
 		t.Fatal("aucun fournisseur personnalisé dans l'exemple")
 	}
-	// Le bloc [cra] est commenté : il doit rester valable une fois décommenté.
+	// Les blocs commentés doivent rester valables une fois décommentés.
 	b, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var out []string
-	in := false
-	for _, l := range strings.Split(string(b), "\n") {
-		switch {
-		case l == "# [cra]":
-			in = true
-			out = append(out, "[cra]")
-		case in && strings.HasPrefix(l, "# "):
-			out = append(out, strings.TrimPrefix(l, "# "))
-		default:
-			in = false
+	for _, c := range []struct {
+		table string
+		check func(Config) bool
+	}{
+		{"cra", func(c Config) bool { return c.CRA.OSVMirror != "" }},
+		{"budget", func(c Config) bool { return c.Budget.SessionTokens > 0 && c.Budget.WarnAt == 0.8 }},
+		{"usage", func(c Config) bool { return c.Usage.WhPerMTok > 0 && c.Usage.GCO2PerKWh > 0 }},
+		{"routing", func(c Config) bool { return c.Routing.Compaction == "ollama" && c.Routing.Subagents == "ollama" }},
+	} {
+		var out []string
+		in := false
+		for _, l := range strings.Split(string(b), "\n") {
+			switch {
+			case l == "# ["+c.table+"]":
+				in = true
+				out = append(out, "["+c.table+"]")
+			case in && strings.HasPrefix(l, "# "):
+				out = append(out, strings.TrimPrefix(l, "# "))
+			default:
+				in = false
+			}
 		}
-	}
-	if len(out) < 2 {
-		t.Fatal("bloc [cra] absent de l'exemple")
-	}
-	tmp := filepath.Join(t.TempDir(), "config.toml")
-	if err := os.WriteFile(tmp, []byte(strings.Join(out, "\n")+"\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	c2, err := Load(tmp, "", env(nil))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if c2.CRA.OSVMirror == "" {
-		t.Fatal("osv_mirror non lu")
+		if len(out) < 2 {
+			t.Fatalf("bloc [%s] absent de l'exemple", c.table)
+		}
+		tmp := filepath.Join(t.TempDir(), "config.toml")
+		if err := os.WriteFile(tmp, []byte(strings.Join(out, "\n")+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		c2, err := Load(tmp, "", env(nil))
+		if err != nil {
+			t.Fatalf("[%s] : %v", c.table, err)
+		}
+		if !c.check(c2) {
+			t.Fatalf("bloc [%s] non lu : %+v", c.table, c2)
+		}
 	}
 }

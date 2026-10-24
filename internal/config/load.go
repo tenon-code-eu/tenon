@@ -28,6 +28,10 @@ type projectFile struct {
 	// une table vide l'est aussi).
 	Classification Classification `toml:"classification"`
 	Routing        *Routing       `toml:"routing"`
+	// Budget : le projet ne peut que baisser le plafond. Usage est refusé
+	// (pointeur : une table vide l'est aussi).
+	Budget Budget `toml:"budget"`
+	Usage  *Usage `toml:"usage"`
 	// CRA est refusé (pointeur : une table vide l'est aussi).
 	CRA *CRA `toml:"cra"`
 }
@@ -90,6 +94,13 @@ func load(globalPath, projectPath string, getenv func(string) string) (Config, e
 		cfg.Hooks = g.Hooks
 		cfg.Checkpoints = g.Checkpoints
 		cfg.Classification, cfg.Routing, cfg.CRA = g.Classification, g.Routing, g.CRA
+		if err := checkBudget(g.Budget, md); err != nil {
+			return Config{}, err
+		}
+		if err := checkUsage(g.Usage, md); err != nil {
+			return Config{}, err
+		}
+		cfg.Budget, cfg.Usage = g.Budget, g.Usage
 		if err := checkSandboxMode(g.Sandbox.Mode); err != nil {
 			return Config{}, err
 		}
@@ -141,6 +152,12 @@ func load(globalPath, projectPath string, getenv func(string) string) (Config, e
 		if p.Routing != nil {
 			return Config{}, errors.New("config: routing not allowed in project configuration")
 		}
+		if p.Usage != nil {
+			return Config{}, errors.New("config: usage not allowed in project configuration")
+		}
+		if err := checkBudget(p.Budget, md); err != nil {
+			return Config{}, err
+		}
 		if p.CRA != nil {
 			return Config{}, errors.New("config: cra not allowed in project configuration")
 		}
@@ -175,12 +192,21 @@ func load(globalPath, projectPath string, getenv func(string) string) (Config, e
 		}
 		cfg.Sandbox.Mode = stricterSandbox(cfg.Sandbox.Mode, p.Sandbox.Mode)
 		cfg.Sandbox.DenyRead = append(cfg.Sandbox.DenyRead, pd...)
+		// Budget : le plus bas des plafonds non nuls ; le seuil d'avis du projet
+		// s'applique seulement s'il baisse le plafond ou si aucun n'existe.
+		if low := lowestBudget(cfg.Budget.SessionTokens, p.Budget.SessionTokens); low != cfg.Budget.SessionTokens {
+			cfg.Budget.SessionTokens = low
+			if p.Budget.WarnAt != 0 {
+				cfg.Budget.WarnAt = p.Budget.WarnAt
+			}
+		}
 		cfg.Classification.Paths = append(slices.Clone(cfg.Classification.Paths), p.Classification.Paths...)
 		cfg.Classification.Markers = append(slices.Clone(cfg.Classification.Markers), p.Classification.Markers...)
 		cfg.Permissions.Rules = append(cfg.Permissions.Rules, p.Permissions.Rules...)
 		cfg.Redaction.Rules = append(cfg.Redaction.Rules, p.Redaction.Rules...)
 	}
 
+	cfg.finishBudget()
 	// Plancher du profil, puis mode explicite (« auto » par défaut).
 	cfg.Sandbox.Mode = stricterSandbox(cfg.Sandbox.Mode, profile.SandboxMode(cfg.Profile))
 	if err := cfg.validateFields(); err != nil {

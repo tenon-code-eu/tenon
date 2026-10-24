@@ -249,9 +249,33 @@ disabled = false
 # define). fallback: providers tried in order when the current one is
 # unavailable (never for a sensitive session). Global only: refused in
 # .tenon/config.toml. An organisation policy can impose [routing] local.
+# compaction / subagents: provider used for context-compaction calls and for
+# sub-agents (default: the session provider). They go through the same checks
+# as the session (profile, allowlists, policy, non-EU consent); when refused,
+# the session provider is used instead, with a notice. A sensitive session
+# always uses "local".
 # [routing]
 # local = "ollama"
 # fallback = ["scaleway", "ollama"]
+# compaction = "ollama"
+# subagents = "ollama"
+
+# Token budget per session (input + output, compaction and sub-agents
+# included). At warn_at (0 < x < 1, default 0.8) a single notice is shown; at
+# 100 % the current turn ends normally and the next one does not start
+# (reason "budget_exceeded", exit code 4 under --strict). A project config
+# can only lower session_tokens (the lowest value wins); an organisation
+# policy can impose [budget] session_tokens.
+# [budget]
+# session_tokens = 2000000
+# warn_at = 0.8
+
+# Energy and CO2 factors you declare yourself; when set, the compliance
+# export adds an estimate line. Positive numbers. Global only: refused in
+# .tenon/config.toml.
+# [usage]
+# wh_per_mtoken = 150
+# gco2_per_kwh = 55
 
 # Cyber Resilience Act assistant. osv_mirror: base URL of an OSV archive
 # mirror used by `tenon cra db update` (archives are fetched from

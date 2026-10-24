@@ -239,3 +239,23 @@ func TestParseClassificationRouting(t *testing.T) {
 		t.Fatal("routing.fallback accepted in policy")
 	}
 }
+
+func TestParseBudget(t *testing.T) {
+	hd := "id = \"p\"\nversion = 1\n"
+	p, err := Parse([]byte(hd + "[budget]\nsession_tokens = 1500000\n"))
+	if err != nil || p.Budget.SessionTokens != 1500000 {
+		t.Fatalf("%v %+v", err, p.Budget)
+	}
+	if p, err = Parse([]byte(hd)); err != nil || p.Budget.SessionTokens != 0 {
+		t.Fatalf("%v %+v", err, p.Budget)
+	}
+	for _, s := range []string{"0", "-1"} {
+		_, err := Parse([]byte(hd + "[budget]\nsession_tokens = " + s + "\n"))
+		if err == nil || !errors.Is(err, ErrPolicy) || !strings.HasSuffix(err.Error(), "budget.session_tokens must be positive") {
+			t.Fatalf("%s: %v", s, err)
+		}
+	}
+	if _, err := Parse([]byte(hd + "[budget]\nwarn_at = 0.5\n")); err == nil {
+		t.Fatal("warn_at inconnu accepté")
+	}
+}

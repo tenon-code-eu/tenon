@@ -120,6 +120,10 @@ func ApplyPolicy(cfg Config, pol *orgpolicy.Policy) (Config, error) {
 		cfg.Routing.Local = l
 	}
 
+	// Budget : le plafond de la politique ne peut que baisser celui de la config.
+	cfg.Budget.SessionTokens = lowestBudget(cfg.Budget.SessionTokens, pol.Budget.SessionTokens)
+	cfg.finishBudget()
+
 	// Confinement : la politique ne fait que durcir ; deny_read s'ajoute.
 	cfg.Sandbox.Mode = stricterSandbox(cfg.Sandbox.Mode, pol.Sandbox.Mode)
 	pd, err := expandSandboxPaths("deny_read", pol.Sandbox.DenyRead, cfg.home)

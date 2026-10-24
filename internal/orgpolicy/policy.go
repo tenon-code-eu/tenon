@@ -30,7 +30,9 @@ type Policy struct {
 	Classification Classification
 	// Routing : fournisseur local imposé ("" = non imposé).
 	Routing Routing
-	KeyID   string // renseigné par Load
+	// Budget : plafond de tokens par session imposé (0 = non imposé).
+	Budget Budget
+	KeyID  string // renseigné par Load
 }
 
 // Classification : règles de sensibilité imposées ([classification]).
@@ -43,6 +45,17 @@ type Classification struct {
 // fournisseur est vérifié à l'application (config.ApplyPolicy).
 type Routing struct {
 	Local string `toml:"local"`
+}
+
+// Budget : [budget] de la politique. Seul session_tokens est imposable ;
+// la valeur est strictement positive (0 = non imposé).
+type Budget struct {
+	SessionTokens int64 `toml:"session_tokens"`
+}
+
+// rawBudget garde la présence de la clé : « session_tokens = 0 » est refusé.
+type rawBudget struct {
+	SessionTokens *int64 `toml:"session_tokens"`
 }
 
 // AuditTimestamp : horodatage RFC 3161 imposé. CA : PEM des racines de
@@ -123,6 +136,7 @@ type raw struct {
 	Sandbox        Sandbox        `toml:"sandbox"`
 	Classification Classification `toml:"classification"`
 	Routing        Routing        `toml:"routing"`
+	Budget         rawBudget      `toml:"budget"`
 }
 
 var idRe = regexp.MustCompile(`^[a-z0-9_-]{1,64}$`)
@@ -223,6 +237,13 @@ func Parse(b []byte) (Policy, error) {
 			return Policy{}, policyErr("sandbox.deny_read: path must be absolute or start with ~/")
 		}
 	}
+	var budget Budget
+	if st := r.Budget.SessionTokens; st != nil {
+		if *st <= 0 {
+			return Policy{}, policyErr("budget.session_tokens must be positive")
+		}
+		budget.SessionTokens = *st
+	}
 	var ts *AuditTimestamp
 	if t := r.Audit.Timestamp; t != nil {
 		if t.URL == "" {
@@ -250,6 +271,7 @@ func Parse(b []byte) (Policy, error) {
 		Rules: r.Permissions.Rules, Redaction: r.Redaction.Rules,
 		AuditLevel: r.Audit.Level, MCP: r.MCP, Sandbox: r.Sandbox,
 		Classification: r.Classification, Routing: r.Routing,
+		Budget: budget,
 	}, nil
 }
 
