@@ -1,5 +1,15 @@
 <p align="center"><img src="docs/assets/logo-tenon.jpeg" alt="tenon — European open-source coding agent harness" width="480"></p>
 
+<p align="center">
+  <a href="https://github.com/tenon-code-eu/tenon/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/tenon-code-eu/tenon/actions/workflows/ci.yml/badge.svg?branch=main"></a>
+  <a href="https://github.com/tenon-code-eu/tenon/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/tenon-code-eu/tenon?label=release&color=003399"></a>
+  <a href="LICENSE"><img alt="Licence EUPL-1.2" src="https://img.shields.io/badge/licence-EUPL--1.2-003399"></a>
+  <a href="go.mod"><img alt="Go 1.26" src="https://img.shields.io/github/go-mod/go-version/tenon-code-eu/tenon?color=003399"></a>
+  <img alt="Linux · macOS" src="https://img.shields.io/badge/platform-Linux%20%C2%B7%20macOS-003399">
+  <a href="https://tenon-code-eu.github.io/tenon/"><img alt="Documentation" src="https://img.shields.io/badge/docs-tenon--code--eu.github.io-FFCC00?labelColor=003399"></a>
+  <img alt="Made in Europe" src="https://img.shields.io/badge/made%20in-Europe-FFCC00?labelColor=003399">
+</p>
+
 # tenon
 
 tenon is a terminal coding agent, written in Go.

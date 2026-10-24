@@ -21,6 +21,11 @@
   'copy_label': 'Copier' if fr else 'Copy',
   'copied': 'Copié' if fr else 'Copied',
   'script_note': 'Le script vérifie le hash SHA-256, et la signature minisign si elle est installée.' if fr else 'The script checks the SHA-256 hash, and the minisign signature when minisign is installed.',
+  'badges_label': 'Fiche technique' if fr else 'Fact sheet',
+  'b_platform': 'Linux · macOS',
+  'b_signed': 'Versions signées minisign' if fr else 'Releases signed with minisign',
+  'b_sbom': 'SBOM CycloneDX' if fr else 'CycloneDX SBOM',
+  'b_eu': "Conçu en Europe" if fr else 'Built in Europe',
   'read_script': 'Lire le script' if fr else 'Read the script',
   'stage_hint': 'Cliquez un composant · glissez pour tourner' if fr else 'Click a component · drag to orbit',
   'stage_label': "Maquette 3D du harness tenon vue de haut : quatorze composants reliés par des pistes de données. Flèches gauche et droite pour passer d'un composant à l'autre, Échap pour la vue d'ensemble." if fr else 'A 3D top-down model of the tenon harness: fourteen components linked by data traces. Left and right arrows move between components, Escape returns to the overview.',
@@ -175,6 +180,14 @@
           </div>
           <p class="h-install__note">{{ T.script_note }} <a href="https://github.com/tenon-code-eu/tenon/blob/main/install.sh">{{ T.read_script }}</a></p>
         </div>
+        <ul class="h-badges" aria-label="{{ T.badges_label }}">
+          <li><a href="https://github.com/tenon-code-eu/tenon/blob/main/LICENSE"><span>licence</span>EUPL-1.2</a></li>
+          <li><span>Go</span>1.26</li>
+          <li>{{ T.b_platform }}</li>
+          <li>{{ T.b_signed }}</li>
+          <li>{{ T.b_sbom }}</li>
+          <li class="h-badges__eu">{{ T.b_eu }}</li>
+        </ul>
       </div>
 
       <figure class="h-stage is-fallback" id="h-stage">
