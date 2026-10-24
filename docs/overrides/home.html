@@ -3,6 +3,8 @@
 {#- Page d'accueil EN/FR : la langue vient du front matter (lang: fr). -#}
 {% set fr = page.meta.lang == 'fr' %}
 {% set root = base_url %}
+{#- Version des fichiers : change à chaque construction, pour ne jamais servir un ancien script avec une nouvelle page. -#}
+{% set v = build_date_utc.strftime('%Y%m%d%H%M%S') %}
 {% set T = {
   'lang': 'fr' if fr else 'en',
   'skip': 'Aller au contenu' if fr else 'Skip to content',
@@ -133,8 +135,8 @@
 
 {% block extrahead %}
   {{ super() }}
-  <link rel="stylesheet" href="{{ root }}/assets/site/tokens.css">
-  <link rel="stylesheet" href="{{ root }}/assets/site/home.css">
+  <link rel="stylesheet" href="{{ root }}/assets/site/tokens.css?v={{ v }}">
+  <link rel="stylesheet" href="{{ root }}/assets/site/home.css?v={{ v }}">
   <link rel="preload" href="{{ root }}/assets/site/fonts/bricolage-grotesque-latin-700-normal.woff2" as="font" type="font/woff2" crossorigin>
 {% endblock %}
 
@@ -400,6 +402,6 @@
 
 {% block scripts %}
   {{ super() }}
-  <script src="{{ root }}/assets/site/home.js" defer></script>
-  <script src="{{ root }}/assets/site/journey.js" defer></script>
+  <script src="{{ root }}/assets/site/home.js?v={{ v }}" defer></script>
+  <script src="{{ root }}/assets/site/journey.js?v={{ v }}" defer></script>
 {% endblock %}
