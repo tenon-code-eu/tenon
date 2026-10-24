@@ -410,6 +410,35 @@ local = "gpu"
 	}
 }
 
+// Un fournisseur « local » en repli n'emprunte pas le proxy ; le routeur
+// dédié de la compaction le réutilise tel quel et signale son hôte non
+// local.
+func TestRoutingLocalFallbackNeverProxied(t *testing.T) {
+	s := spyProxies(t)
+	remote := newFakeLLM(t, sseText("bonjour"))
+	e := newEnvExtra(t, remote, "eu", `
+[[providers]]
+id = "gpu"
+base_url = "http://gpu.lan:11434/v1"
+detect = "ollama"
+jurisdiction = "local"
+
+[routing]
+fallback = ["gpu"]
+compaction = "gpu"
+`)
+	code, _, errb := e.run("--lang", "en", "-p", "salut")
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, errb)
+	}
+	if !s.noProxy["gpu"] || !s.detected["http://gpu.lan:11434/v1"] {
+		t.Fatalf("repli local par proxy : fournisseur sans proxy=%v, détection sans proxy=%v", s.noProxy["gpu"], s.detected["http://gpu.lan:11434/v1"])
+	}
+	if !strings.Contains(errb, "gpu.lan") {
+		t.Fatalf("avis d'hôte non local absent : %q", errb)
+	}
+}
+
 // Review Focus 3 + R14 : un fournisseur courant local, fournisseur local du
 // routeur, est construit et détecté sans proxy.
 func TestRoutingCurrentLocalNeverProxied(t *testing.T) {

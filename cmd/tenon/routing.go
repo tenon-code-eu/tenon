@@ -113,7 +113,10 @@ func buildRouter(cfg config.Config, current config.Provider, curProv provider.Pr
 			}
 			var n []string
 			var err error
-			c, n, err = routeCandidate(cfg, pc, d, providerNoProxy(cfg.Profile, pc))
+			// Un fournisseur « local » ne passe jamais par le proxy, même en
+			// repli : le routeur dédié peut réutiliser ce candidat.
+			local := pc.Jurisdiction == string(llm.Local)
+			c, n, err = routeCandidate(cfg, pc, d, local || providerNoProxy(cfg.Profile, pc))
 			notices = append(notices, n...)
 			if err != nil {
 				notices = append(notices, i18n.T(d.lang, "routing.fallback_skipped", id, err))
@@ -137,9 +140,10 @@ func buildRouter(cfg config.Config, current config.Provider, curProv provider.Pr
 // aucun routeur. Un fournisseur refusé ou inutilisable donne un routeur nil
 // et un avis : le fournisseur de la session est alors utilisé. Un candidat
 // déjà construit (d.built : fournisseur local ou repli du routage, autre
-// routeur dédié) est réutilisé, sans nouvelle détection ni nouvel avis ;
-// sinon les avis de sa construction sont renvoyés (hôte non local d'un
-// fournisseur « local », détection).
+// routeur dédié) est réutilisé, sans nouvelle détection ; sinon les avis de
+// sa construction sont renvoyés (détection). L'hôte non local d'un
+// fournisseur « local » est signalé dans les deux cas, sauf pour
+// routing.local qui l'a déjà signalé.
 func buildDedicated(cfg config.Config, kind, id string, current config.Provider, allowNonEU bool, d routerDeps) (*routing.Router, []string) {
 	if id == "" || id == current.ID {
 		return nil, nil
@@ -158,14 +162,14 @@ func buildDedicated(cfg config.Config, kind, id string, current config.Provider,
 	if j := llm.Jurisdiction(pc.Jurisdiction); j != llm.EU && j != llm.Local && !allowNonEU {
 		return refused(i18n.T(d.lang, "routing.reason_non_eu"))
 	}
-	if c, ok := d.built[id]; ok {
-		return routing.New(c, nil, nil), nil
-	}
 	var notices []string
 	// Comme pour routing.local : un fournisseur « local » joint par un hôte
-	// non local est signalé, sans refus.
-	if h := urlHost(pc.BaseURL); local && !profile.IsLocalHost(h) {
+	// non local est signalé, sans refus. routing.local l'a déjà signalé.
+	if h := urlHost(pc.BaseURL); local && id != cfg.Routing.Local && !profile.IsLocalHost(h) {
 		notices = append(notices, i18n.T(d.lang, "routing.non_loopback", pc.ID, h))
+	}
+	if c, ok := d.built[id]; ok {
+		return routing.New(c, nil, nil), notices
 	}
 	c, n, err := routeCandidate(cfg, pc, d, local || providerNoProxy(cfg.Profile, pc))
 	if err != nil {
