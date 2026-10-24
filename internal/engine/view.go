@@ -152,9 +152,13 @@ func lineCount(s string) int {
 // shapeRequest applique la vue aux messages msgs (déjà passés par le
 // contrôle sortant) et émet ContextShaped si les ensembles masqués ou
 // dédupliqués diffèrent des derniers émis par ce tour (la session pour le
-// tour principal).
+// tour principal). Une requête hors conversation (noShape) n'émet rien et
+// laisse cet état intact.
 func (t *turn) shapeRequest(msgs []llm.Message, defs []llm.ToolDef) ([]llm.Message, error) {
 	out, sh := view(msgs, defs, t.window())
+	if t.noShape {
+		return out, nil
+	}
 	last := &t.shaped
 	if t.parent == "" {
 		last = &t.s.shaped

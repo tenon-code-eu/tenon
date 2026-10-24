@@ -58,6 +58,9 @@ type turn struct {
 	// imbriqué (sous-agent, hook agent) ; le tour principal utilise
 	// session.shaped.
 	shaped Shaped
+	// noShape : requête hors conversation (évaluation d'un hook prompt) ;
+	// la vue s'applique sans lire ni écrire shaped, sans ContextShaped.
+	noShape bool
 }
 
 // loopResult résume la fin de loop. Reason vaut l'une des raisons de

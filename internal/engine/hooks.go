@@ -119,6 +119,7 @@ func (t *turn) evalPrompt(ctx context.Context, prompt string) (string, error) {
 	tc := *t // copie superficielle : même session, contexte du hook
 	tc.ctx = ctx
 	tc.noHooks = true // la requête d'un hook prompt ne déclenche aucun hook
+	tc.noShape = true // hors conversation : état de la vue de la session intact
 	tc.outer = t.turnCtx()
 	text, _, provErr, err := tc.send(llm.Request{Messages: []llm.Message{
 		{Role: llm.System, Content: i18n.T(d.Lang, "hooks.prompt_system")},

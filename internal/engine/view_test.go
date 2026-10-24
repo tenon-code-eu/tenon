@@ -371,3 +371,35 @@ func TestViewSubagentHistory(t *testing.T) {
 		t.Fatal("texte modifié")
 	}
 }
+
+func TestContextShapedIgnoresPromptHook(t *testing.T) {
+	h := newHarness(t, euInfo, [][]llm.Chunk{
+		call("c1", "read_file", `{"path":"a.txt"}`),
+		call("c2", "read_file", `{"path":"a.txt"}`),
+		call("c3", "write_file", `{"path":"b.txt","content":"x"}`),
+		text(`{"ok":true}`),
+		text("fin"),
+	}, withHooks(t, hk{"PreToolUse", "Write", map[string]any{"type": "prompt", "prompt": "Judge: $ARGUMENTS"}}))
+	if err := os.WriteFile(filepath.Join(h.root, "a.txt"), []byte(strings.Repeat(runes(80)+"\n", 30)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	evs, err := h.submit(t, "s_1", "lis puis écris", func(event.PermissionRequestedPayload) Reply { return Reply{Allow: true} })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := len(h.prov.reqs()); n != 5 {
+		t.Fatalf("%d requêtes", n)
+	}
+	// Un seul événement : la déduplication de c1 ; ni la requête du hook
+	// prompt ni l'envoi suivant n'en émettent.
+	cs := ofType(evs, event.ContextShaped)
+	if len(cs) != 1 {
+		t.Fatalf("ContextShaped x%d, events %v", len(cs), types(evs))
+	}
+	if p := decode[event.ContextShapedPayload](t, cs[0]); !reflect.DeepEqual(p.Deduplicated, []string{"c1"}) {
+		t.Fatalf("payload %+v", p)
+	}
+	if s := h.eng.session("s_1").shaped; !reflect.DeepEqual(s.Deduplicated, []string{"c1"}) {
+		t.Fatalf("état de la session %+v", s)
+	}
+}
