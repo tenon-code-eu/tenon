@@ -404,8 +404,27 @@ func TestSandboxConfigDeny(t *testing.T) {
 	wd := t.TempDir()
 	getenv := func(k string) string { return map[string]string{"XDG_CONFIG_HOME": "/x"}[k] }
 	out := filepath.Join(t.TempDir(), "ci.toml")
-	if got := configDeny(out, wd, getenv); len(got) != 1 || got[0] != out {
+	if got := configDeny(out, wd, getenv); len(got) != 1 || got[0] != canonicalPath(out) {
 		t.Fatalf("hors projet : %v", got)
+	}
+	// Dossier voisin au préfixe commun (/a/proj et /a/proj2) : hors projet.
+	base := t.TempDir()
+	proj, sib := filepath.Join(base, "proj"), filepath.Join(base, "proj2")
+	for _, d := range []string{proj, sib} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := configDeny(filepath.Join(sib, "c.toml"), proj, getenv); len(got) != 1 {
+		t.Fatalf("voisin : %v", got)
+	}
+	// Chemin relatif : résolu depuis le dossier courant, le projet en production.
+	t.Chdir(proj)
+	if got := configDeny(filepath.Join("ci", "tenon.toml"), proj, getenv); got != nil {
+		t.Fatalf("relatif dans le projet : %v", got)
+	}
+	if got := configDeny(filepath.Join("..", "proj2", "c.toml"), proj, getenv); len(got) != 1 {
+		t.Fatalf("relatif hors projet : %v", got)
 	}
 	for _, p := range []string{filepath.Join(wd, "ci", "tenon.toml"), "/x/tenon/config.toml", ""} {
 		if got := configDeny(p, wd, getenv); got != nil {

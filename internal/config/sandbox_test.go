@@ -139,11 +139,23 @@ func TestStrictLocalSandbox(t *testing.T) {
 		t.Fatalf("%v %+v", err, cfg.Sandbox)
 	}
 	// Profil relevé par la politique : plancher appliqué dans ApplyPolicy.
-	cfg, err = loadPol(t, "[sandbox]\nmode = \"off\"\n", "", &orgpolicy.Policy{ID: "p", Profile: "strict-local"})
+	cfg, err = loadPol(t, "default_provider = \"ollama\"\n[sandbox]\nmode = \"off\"\n", "", &orgpolicy.Policy{ID: "p", Profile: "strict-local"})
 	if err != nil {
-		t.Skipf("profil strict-local incompatible avec le fournisseur par défaut : %v", err)
+		t.Fatal(err)
 	}
 	if cfg.Sandbox.Mode != "required" {
 		t.Fatalf("%+v", cfg.Sandbox)
 	}
+}
+
+func TestSandboxProjectModeInvalid(t *testing.T) {
+	_, err := loadSB(t, "", "[sandbox]\nmode = \"x\"\n")
+	wantErr(t, err, "config: sandbox.mode must be auto, required or off")
+}
+
+func TestPolicyDenyReadWithoutHome(t *testing.T) {
+	g := write(t, "lang = \"en\"\n")
+	pol := &orgpolicy.Policy{ID: "p", Sandbox: orgpolicy.Sandbox{DenyRead: []string{"~/o"}}}
+	_, err := LoadPolicy(g, "", env(map[string]string{}), pol)
+	wantErr(t, err, "config: sandbox.deny_read: HOME not set")
 }

@@ -182,8 +182,9 @@ type PermissionResolvedPayload struct {
 	PermissionID string `json:"permission_id"`
 	Allowed      bool   `json:"allowed"`
 	Remember     bool   `json:"remember"`
-	// Network is true when the user allowed the confined command with network
-	// access ("Allow with network"); never remembered.
+	// Network is true when the allowed command runs with network access, granted
+	// by the reply ("Allow with network") or by the matched rule; a reply alone
+	// never grants it to a tool that is not a confined shell command.
 	Network bool `json:"network,omitempty"`
 	// ParentCallID is the call_id of the "agent" tool call that produced this
 	// event inside a sub-agent run; empty for the main agent.
