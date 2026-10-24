@@ -112,9 +112,14 @@ func (t *turn) run(in Input) error {
 		}
 	}
 	// Budget épuisé : le tour ne part pas (ni hook, ni envoi). Le prompt
-	// est journalisé comme bloqué, comme un prompt bloqué par un hook (avec
-	// le contexte SessionStart encore en attente, pour la reprise).
+	// est d'abord classé comme sur le chemin normal (marquage : refus sans
+	// fournisseur local, sans journaliser le texte ; session sensible
+	// sinon), puis journalisé comme bloqué, comme un prompt bloqué par un
+	// hook (avec le contexte SessionStart encore en attente, pour la reprise).
 	if _, _, over := t.s.overBudget(d.Budget); over {
+		if blocked, err := t.checkUser(in.Text, in.Typed); blocked || err != nil {
+			return err
+		}
 		if err := t.emit(event.UserMessage, event.UserMessagePayload{
 			Text: in.Text, Typed: in.Typed, Skill: in.Skill, SkillSHA256: in.SkillSHA256,
 			Blocked: true, HookContext: t.s.startCtx,

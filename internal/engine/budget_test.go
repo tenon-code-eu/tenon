@@ -616,3 +616,66 @@ func TestUsageInterruptedCall(t *testing.T) {
 		})
 	}
 }
+
+func TestBudgetRefusedPromptClassified(t *testing.T) {
+	// Budget déjà épuisé (journal repris) ; le prompt porte un marquage.
+	over := func(t *testing.T, h *harness) {
+		l := &evLog{t: t, sid: "s_1"}
+		l.add(event.SessionStarted, event.SessionStartedPayload{Provider: euInfo}).
+			add(event.Usage, event.UsagePayload{Provider: "mistral", Purpose: "turn", Input: 2000})
+		if err := h.eng.Restore("s_1", l.evs); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const prompt = "voici la note DIFFUSION RESTREINTE à relire"
+
+	t.Run("no local", func(t *testing.T) {
+		h := newHarness(t, euInfo, [][]llm.Chunk{text("jamais")}, budgetOpt(1000, 0.8))
+		over(t, h)
+		evs, err := h.submit(t, "s_1", prompt, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range evs {
+			if strings.Contains(string(e.Payload), "relire") {
+				t.Fatalf("texte du prompt journalisé : %s %s", e.Type, e.Payload)
+			}
+		}
+		errs := ofType(evs, event.Error)
+		if len(errs) != 1 || decode[event.ErrorPayload](t, errs[0]).Code != deniedClassification {
+			t.Fatalf("events %v", types(evs))
+		}
+		if tc := lastTurn(t, evs); tc.Reason != "blocked" {
+			t.Fatalf("TurnCompleted %+v", tc)
+		}
+		if n := len(h.prov.reqs()); n != 0 {
+			t.Fatalf("%d requêtes", n)
+		}
+	})
+
+	t.Run("local", func(t *testing.T) {
+		local := fake(localInfo, text("jamais"))
+		h := newHarness(t, euInfo, [][]llm.Chunk{text("jamais")}, budgetOpt(1000, 0.8), routeOpt(local, 0))
+		over(t, h)
+		evs, err := h.submit(t, "s_1", prompt, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(classified(t, evs)) != 1 {
+			t.Fatalf("session non classée, events %v", types(evs))
+		}
+		um := ofType(evs, event.UserMessage)
+		if len(um) != 1 || !decode[event.UserMessagePayload](t, um[0]).Blocked {
+			t.Fatalf("events %v", types(evs))
+		}
+		if tc := lastTurn(t, evs); tc.Reason != "budget_exceeded" {
+			t.Fatalf("TurnCompleted %+v", tc)
+		}
+		if !h.eng.session("s_1").isSensitive() {
+			t.Fatal("session non sensible")
+		}
+		if n := len(h.prov.reqs()) + len(local.reqs()); n != 0 {
+			t.Fatalf("%d requêtes", n)
+		}
+	})
+}
