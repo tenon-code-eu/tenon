@@ -213,3 +213,29 @@ compaction = "us"
 		t.Fatalf("session : %d requêtes, %d résumés", len(main.requests()), summaries(main))
 	}
 }
+
+// stream_usage = false (TOML) : stream_options n'est pas envoyé.
+func TestStreamUsageFalseE2E(t *testing.T) {
+	f := newFakeLLM(t, sseText("ok"))
+	e := newEnvExtra(t, f, "eu", fmt.Sprintf(`
+[[providers]]
+id = "sans"
+name = "Sans SAS"
+base_url = %q
+api_key_env = "TEST_KEY"
+model = "m"
+country = "FR"
+jurisdiction = "eu"
+stream_usage = false
+`, f.srv.URL))
+	if code, _, errb := e.run("--provider", "sans", "-p", "salut"); code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, errb)
+	}
+	if code, _, errb := e.run("-p", "salut"); code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, errb)
+	}
+	reqs := f.requests()
+	if len(reqs) != 2 || strings.Contains(reqs[0], "stream_options") || !strings.Contains(reqs[1], "stream_options") {
+		t.Fatalf("requêtes %q", reqs)
+	}
+}

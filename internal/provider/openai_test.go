@@ -525,3 +525,19 @@ func TestStreamNoUsage(t *testing.T) {
 		t.Fatalf("last = %+v", last)
 	}
 }
+
+// Un 400 sans rapport avec stream_options n'est pas réessayé sans l'option.
+func TestStreamUsageUnrelated400NotRetried(t *testing.T) {
+	n := 0
+	p, _ := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+		n++
+		http.Error(w, `{"error":"invalid model"}`, 400)
+	})
+	_, err := p.Stream(context.Background(), req)
+	if err == nil || !strings.Contains(err.Error(), "invalid model") || errors.Is(err, errStreamOptions) {
+		t.Fatalf("err = %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("%d requêtes", n)
+	}
+}
