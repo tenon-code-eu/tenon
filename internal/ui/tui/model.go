@@ -29,6 +29,8 @@ type Options struct {
 	SessionID     string
 	Provider      llm.ProviderInfo
 	ContextWindow int
+	// SessionTokens : total de jetons déjà compté (session reprise).
+	SessionTokens int64
 	ProjectRoot   string
 	// Profile est le profil de conformité actif, affiché dans l'écran de
 	// bienvenue ("" : aucun profil, aucune ligne).
@@ -218,7 +220,7 @@ func New(eng Engine, opts Options) Model {
 		opts:   opts,
 		lang:   l,
 		sub:    eng.Subscribe(),
-		tr:     NewTranscript(l),
+		tr:     seededTranscript(l, opts.SessionTokens),
 		redact: opts.Redact,
 		input:  in,
 		st:     newStyles(lipgloss.DefaultRenderer()),
@@ -595,4 +597,13 @@ func (m *Model) scroll(n int) {
 	if m.scrollBack == 0 {
 		m.unseen = false
 	}
+}
+
+// seededTranscript crée la transcription avec le total de jetons déjà compté
+// (session reprise) ; la barre d'état l'affiche dès l'ouverture s'il est > 0.
+func seededTranscript(l i18n.Lang, tokens int64) *Transcript {
+	t := NewTranscript(l)
+	t.sessionTokens = tokens
+	t.usageSeen = tokens > 0
+	return t
 }

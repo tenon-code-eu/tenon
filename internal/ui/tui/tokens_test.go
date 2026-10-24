@@ -55,3 +55,16 @@ func TestDedicatedProviderNotShownAsSwitch(t *testing.T) {
 		t.Fatalf("statut : %q", s)
 	}
 }
+
+func TestStatusLineTokensResumed(t *testing.T) {
+	f := newFake()
+	opts := statusOpts(i18n.EN)
+	opts.SessionTokens = 2000
+	h := newHarness(t, f, opts)
+	h.send(tea.WindowSizeMsg{Width: 220, Height: 30})
+	if s := lastLine(h.m.View()); !strings.Contains(s, "session 2k") {
+		t.Fatalf("avant Usage : %q", s)
+	}
+	f.emit(t, event.Usage, event.UsagePayload{Purpose: "turn", Input: 500, Output: 100})
+	h.until("cumul", func() bool { return strings.Contains(lastLine(h.m.View()), "in 500 · out 100 · session 2.6k") })
+}

@@ -386,6 +386,7 @@ func runInteractive(ctx context.Context, fs *flag.FlagSet, lang i18n.Lang, o eng
 		SessionID:     st.sessionID,
 		Provider:      st.provider,
 		ContextWindow: st.contextWindow,
+		SessionTokens: st.eng.SessionTokens(st.sessionID),
 		ProjectRoot:   o.wd,
 		Version:       version,
 		Profile:       string(st.profile),
