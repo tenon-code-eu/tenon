@@ -101,7 +101,7 @@ func TestRunNonBlockingErrors(t *testing.T) {
 	d := t.TempDir()
 	for name, h := range map[string]Hook{
 		"exit1":   script(t, d, PreToolUse, "exit 1"),
-		"missing": {ID: "x", Event: PreToolUse, Type: Command, Command: "sh /nonexistent/x.sh", Timeout: 5 * time.Second},
+		"missing": {ID: "x", Event: PreToolUse, Type: Command, Command: "/nonexistent/x.sh", Timeout: 5 * time.Second},
 		"badjson": script(t, d, PreToolUse, "echo '{bad'"),
 	} {
 		o := runHook(t, h, nil)

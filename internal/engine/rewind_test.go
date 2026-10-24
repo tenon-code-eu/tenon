@@ -414,6 +414,7 @@ func TestRewindTurnInProgress(t *testing.T) {
 }
 
 func TestRewindPartialFailure(t *testing.T) {
+	skipIfRoot(t)
 	h, _ := newRewindHarness(t, [][]llm.Chunk{
 		calls(
 			llm.ToolCall{ID: "c1", Name: "write_file", Args: json.RawMessage(`{"path":"a.txt","content":"v2"}`)},
@@ -455,6 +456,7 @@ func TestRewindPartialFailure(t *testing.T) {
 }
 
 func TestWriteRefusedWhenCheckpointFails(t *testing.T) {
+	skipIfRoot(t)
 	var dir string
 	h, _ := newRewindHarness(t, [][]llm.Chunk{writeCall("c1", "a.txt", "v2"), text("done")}, func(d *Deps) {
 		dir = filepath.Join(t.TempDir(), "ro")
@@ -718,5 +720,14 @@ func TestRewindFileNotInPreview(t *testing.T) {
 	}
 	if got := readFile(t, a); got != "v2" {
 		t.Fatalf("a.txt = %q", got)
+	}
+}
+
+// skipIfRoot saute les tests qui provoquent un échec par les droits du système de fichiers :
+// root (conteneur de CI) les ignore.
+func skipIfRoot(t *testing.T) {
+	t.Helper()
+	if os.Geteuid() == 0 {
+		t.Skip("root ignore les droits du système de fichiers")
 	}
 }
