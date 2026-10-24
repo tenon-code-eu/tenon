@@ -3,7 +3,9 @@ package compliance
 import (
 	"bytes"
 	_ "embed"
+	"fmt"
 	"html/template"
+	"math"
 	"strings"
 	"time"
 
@@ -46,6 +48,31 @@ func funcs(lang i18n.Lang) template.FuncMap {
 			}
 			if s.Violation {
 				out += ", " + i18n.T(lang, "report.routing_violation")
+			}
+			return out
+		},
+		// tokens résume la section tokens : total, par session, énergie.
+		"tokens": func(t Tokens) string {
+			line := func(c TokenCounts) string {
+				return i18n.T(lang, "report.tokens_counts", c.Input, c.Output, c.Cached, int(math.Round(c.EstimatedShare*100)), c.Saved)
+			}
+			parts := []string{line(t.Total)}
+			for _, s := range t.Sessions {
+				parts = append(parts, s.Session+" : "+line(s.TokenCounts))
+			}
+			for _, p := range t.Providers {
+				parts = append(parts, p.ID+" "+p.Model+" : "+line(p.TokenCounts))
+			}
+			out := strings.Join(parts, "; ")
+			if t.Energy != nil {
+				num := func(f float64) string {
+					s := fmt.Sprintf("%.2f", f)
+					if lang == i18n.FR {
+						s = strings.Replace(s, ".", ",", 1)
+					}
+					return s
+				}
+				out += " — " + i18n.T(lang, "report.tokens_energy", num(t.Energy.Wh), num(t.Energy.GCO2e))
 			}
 			return out
 		},

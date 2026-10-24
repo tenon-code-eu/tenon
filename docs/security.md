@@ -150,6 +150,18 @@ Classification is a guard rail for content you have listed, not a data-loss-prev
 
 See [usage.md](usage.md#data-sensitivity-routing).
 
+### The context view is not a protection
+
+Token sobriety (deduplication, masking, truncation) shapes what is sent to the model to save tokens. It is not a security control.
+
+- The view is applied **after** the outbound scan and redaction: it hides nothing that those did not already treat, and it never lifts a sensitivity.
+- The history keeps the full content. The audit log (at `audit.level = "full"`), `--resume`, `/rewind`, routing and checkpoints use it, not the view. A masked tool result is still in the log and in the session file.
+- Masking protects the tool results of the last 3 assistant messages that carry tool calls; user and assistant text and the compaction summary are never touched.
+- Token counts are real when the provider reports them and estimated otherwise (marked). Energy and CO2 figures exist only with factors you declare.
+- The budget is a soft cap: parallel sub-agent calls may slightly exceed it.
+
+See [usage.md](usage.md#token-sobriety).
+
 ### Project skills are untrusted content
 
 A skill in `.tenon/skills`, `.claude/skills` or `.agents/skills` of a repository is content written by the repository authors, like `AGENTS.md`.

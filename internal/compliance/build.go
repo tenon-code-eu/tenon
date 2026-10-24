@@ -58,6 +58,7 @@ type builder struct {
 	subagents map[sessKey]int            // appel "agent" → indice dans r.Subagents
 	sandbox   map[string]*SessionSandbox // résumé sandbox par session
 	routing   map[string]*routingState   // routage par session
+	tokens    *tokenState                // tokens et économies de la plage
 }
 
 // routingState suit le routage d'une session pendant la lecture du journal.
@@ -235,6 +236,7 @@ func Build(ds Dataset, o Options) Report {
 		subagents: map[sessKey]int{},
 		sandbox:   map[string]*SessionSandbox{},
 		routing:   map[string]*routingState{},
+		tokens:    newTokenState(),
 	}
 	for _, l := range ds.Lines {
 		if IsMetadataPayload(l.Payload) || isCRASession(ds, l.Session) {
@@ -246,6 +248,7 @@ func Build(ds Dataset, o Options) Report {
 	b.providers()
 	b.sandboxes()
 	b.routings()
+	r.Tokens = b.tokens.section(o)
 	r.CRA = craSection(ds, o)
 	r.Profiles = profilesOf(ds, o)
 	r.Policies = policiesOf(ds, o)
@@ -497,6 +500,8 @@ func (b *builder) line(l audit.Line) {
 				rs.Violation = true
 			}
 		}
+	case event.Usage, event.ContextShaped:
+		b.tokens.line(b, l)
 	case event.AssistantMessage:
 		if rs := b.routing[l.Session]; rs != nil && rs.Sensitive {
 			rs.sentAfter = true

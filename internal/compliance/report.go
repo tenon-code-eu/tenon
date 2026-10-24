@@ -22,6 +22,9 @@ type Options struct {
 	Generator string
 	// Now est la date de génération.
 	Now time.Time
+	// WhPerMTok et GCO2PerKWh : facteurs déclarés ([usage] global) ; l'énergie
+	// n'est calculée que si les deux sont > 0, jamais par défaut.
+	WhPerMTok, GCO2PerKWh float64
 }
 
 // PolicyUse compte les sessions placées sous une politique d'organisation
@@ -69,6 +72,9 @@ type Report struct {
 	// Routing : routage par sensibilité des données, par session ; omis si
 	// aucun journal de la plage n'en porte.
 	Routing []SessionRouting `json:"routing,omitempty"`
+	// Tokens : tokens mesurés, part estimée, économies de la vue et énergie
+	// (facteurs déclarés seulement) ; omis si aucun journal ne porte d'Usage.
+	Tokens *Tokens `json:"tokens,omitempty"`
 	// CRA : suivi du Cyber Resilience Act (scans et signalements) ; omis
 	// sans événement CRA. Les échéances dépassées sont signalées sans
 	// changer le code de sortie.

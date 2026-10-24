@@ -95,6 +95,9 @@ markers = ["ACME CONFIDENTIAL"]
 [routing]                                # optional: imposes the local provider
 local = "interne-local"                  # a local preset or a providers.define provider
 
+[budget]                                 # optional: imposes a session token cap
+session_tokens = 1000000
+
 [mcp]
 mode = "allowlist"                       # any (default) | allowlist | off
 allow_hosts = ["mcp.acme.eu"]
@@ -122,6 +125,7 @@ Merge order: defaults, global configuration, project configuration, policy.
 - **Redaction**: policy rules are added to the others.
 - **Classification**: `[classification] paths` and `markers` are added to the user and project lists; nobody can remove one. See [usage.md](usage.md#data-sensitivity-routing).
 - **Routing**: `[routing] local` is imposed and replaces the user `routing.local`, with a notice: `policy <id>: routing.local imposed (<id>)`. It must name a provider whose jurisdiction is `local`: a local preset, one from `providers.define`, or a user `[[providers]]` entry. This is checked when the policy is applied to the configuration, not when the policy file is loaded; otherwise startup fails with `policy violation: routing.local must name a local provider`. Sessions of the policy are therefore routed to that provider when they become sensitive; the compliance export flags any session that reached a non-local provider after classification.
+- **Budget**: `[budget] session_tokens` (positive integer) is imposed; the effective cap is the lowest of global, project and policy, so a user can lower it but never raise it. `warn_at` stays the user's. At the cap, the next turn ends with `budget_exceeded` (exit code 4 under `--strict`). See [usage.md](usage.md#token-sobriety).
 - **Audit level**: `audit.level` of the policy replaces the configuration level, in both directions: an organisation can impose `metadata` (data minimisation) or `full` (traceability). When they differ, a notice is printed: `policy <id>: audit level "<p>" imposed (config: "<c>")`.
 - **Audit timestamping** (<a id="audit-timestamping"></a>`[audit.timestamp]`): `url` replaces the user `url`; `ca` (PEM trust roots, covered by the signature), when present, replaces the user `ca_file`. Without `ca`, the user `ca_file` still applies. When they differ, a notice is printed: `policy <id>: audit timestamp imposed (<url>)`. The policy `ca` comes before `ca_file` in the choice of roots; `--tsa-ca` comes first. tenon ships no TSA preset; the organisation names its authority. On macOS and Windows, give a `ca`: the system roots cannot verify TSA certificates. Under `strict-local` a non-local host is refused. See [usage.md](usage.md#timestamping-rfc-3161).
 - **MCP**: `off` removes every server; `allowlist` keeps a server only if its host (`http`) is in `allow_hosts` (same matching as providers, without `allow_local`) or if `command[0]` (`stdio`) is in `allow_commands` exactly. A removed server is dropped before it starts, with a notice (`policy <id>: MCP server "<sid>" skipped (not allowed)`) and a `McpServerDown` event. The profile MCP check still applies to the servers kept.

@@ -152,6 +152,18 @@ La classification est un garde-fou pour le contenu que vous avez listé, pas un 
 
 Voir [utilisation.md](utilisation.md#routage-par-sensibilité-des-données).
 
+### La vue du contexte n'est pas une protection
+
+La sobriété en tokens (déduplication, masquage, troncature) façonne ce qui part au modèle pour économiser des tokens. Ce n'est pas un contrôle de sécurité.
+
+- La vue est appliquée **après** le scan sortant et le masquage des secrets : elle ne cache rien que ceux-ci n'aient déjà traité, et ne lève jamais une sensibilité.
+- L'historique garde le contenu complet. Le journal d'audit (avec `audit.level = "full"`), `--resume`, `/rewind`, le routage et les points de restauration l'utilisent, pas la vue. Un résultat d'outil masqué reste dans le journal et dans le fichier de session.
+- Le masquage protège les résultats des 3 derniers messages assistant portant des appels d'outils ; le texte de l'utilisateur et de l'assistant et le résumé de compaction ne sont jamais touchés.
+- Les décomptes de tokens sont réels quand le fournisseur les donne, estimés sinon (marqués). L'énergie et le CO2 n'existent qu'avec des facteurs que vous déclarez.
+- Le budget est un plafond souple : des appels de sous-agents en parallèle peuvent le dépasser un peu.
+
+Voir [utilisation.md](utilisation.md#sobriété-en-tokens).
+
 ### Les skills de projet ne sont pas dignes de confiance
 
 Un skill placé dans `.tenon/skills`, `.claude/skills` ou `.agents/skills` d'un dépôt est un contenu écrit par les auteurs du dépôt, comme `AGENTS.md`.

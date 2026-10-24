@@ -21,6 +21,7 @@ Pour un exemple de configuration commenté, voir [config.example.toml](../config
 - [Isolation système](#isolation-système)
 - [Fournisseurs et juridictions](#fournisseurs-et-juridictions)
 - [Routage par sensibilité des données](#routage-par-sensibilité-des-données)
+- [Sobriété en tokens](#sobriété-en-tokens)
 - [Profils de conformité](#profils-de-conformité)
 - [Clés d'API et trousseau](#clés-dapi-et-trousseau)
 - [Serveurs MCP](#serveurs-mcp)
@@ -54,7 +55,7 @@ tenon --help
 |---|---|
 | `-p "<prompt>"` | Exécute un tour sans interface interactive. |
 | `--output text\|json` | Format de sortie du mode non interactif. Défaut : `text`. Refusé sans `-p`. |
-| `--strict` | Code de sortie 4 quand le tour se termine par `max_iterations`, `incomplete`, `stopped_by_hook` ou `cancelled`. Les codes 3 et 1 sont prioritaires. Refusé sans `-p`. |
+| `--strict` | Code de sortie 4 quand le tour se termine par `max_iterations`, `incomplete`, `stopped_by_hook`, `cancelled` ou `budget_exceeded`. Les codes 3 et 1 sont prioritaires. Refusé sans `-p`. |
 | `--config <fichier>` | Fichier de configuration global, à la place de `$XDG_CONFIG_HOME/tenon/config.toml`. Il remplace le fichier global seulement : la configuration projet `.tenon/config.toml` et la politique d'organisation s'appliquent toujours. Le fichier doit exister (sinon `config: <fichier>: no such file or directory`, code 1). `~` n'est pas développé. |
 | `--provider <id>` | Fournisseur à utiliser. Défaut : `default_provider` de la configuration. |
 | `--allow-non-eu` | Accepte l'envoi de données hors de l'UE, pour les fournisseurs et pour les serveurs MCP. |
@@ -75,7 +76,7 @@ L'entrée et la sortie standard doivent être un terminal ; sinon tenon s'arrêt
 
 La barre d'état affiche en permanence :
 `tenon · modèle · fournisseur · pays · juridiction · session · ~jetons/fenêtre`.
-Le nombre de jetons est une estimation.
+Le nombre de jetons est une estimation. Après chaque appel au modèle, la barre affiche aussi l'usage mesuré (voir [Sobriété en tokens](#sobriété-en-tokens)).
 
 ### Touches
 
@@ -187,7 +188,7 @@ Pour les pipelines (GitLab CI, Forgejo/Gitea, GitHub Actions), voir [tenon en CI
 | `0` | Tour terminé. Un tour arrêté par la limite d'itérations ou une réponse incomplète donne aussi 0, avec un message. |
 | `1` | Erreur : configuration, clé absente, fournisseur, contexte trop volumineux, option invalide. |
 | `3` | Une action a été refusée (validation impossible, règle `deny`, contenu classé sans fournisseur local) ou l'envoi au fournisseur a été bloqué (juridiction, classification). |
-| `4` | Avec `--strict` : le tour s'est terminé par `max_iterations`, `incomplete`, `stopped_by_hook` ou `cancelled`. La ligne `strict : tour terminé avec <raison>` va sur la sortie d'erreur (sortie texte seulement). Le code 3 l'emporte sur 4, et le code 1 l'emporte sur les deux. |
+| `4` | Avec `--strict` : le tour s'est terminé par `max_iterations`, `incomplete`, `stopped_by_hook`, `cancelled` ou `budget_exceeded`. La ligne `strict : tour terminé avec <raison>` va sur la sortie d'erreur (sortie texte seulement). Le code 3 l'emporte sur 4, et le code 1 l'emporte sur les deux. |
 | `130` | Second Ctrl+C : sortie immédiate. Le premier annule le tour. |
 
 Les sous-commandes renvoient 0 en cas de succès et 1 en cas d'erreur.
@@ -1169,6 +1170,72 @@ La barre d'état de la TUI affiche `sensible → <local>` une fois la session se
 - `Error` avec `code: "classification"` ou `"jurisdiction"`, et résultats d'outils avec `denied: "classification"`.
 - L'[export de conformité](#export-de-conformité) a une ligne « Routage » (`Routing` en anglais) et une liste `routing`. Une **violation** est un `ProviderSelected` vers un fournisseur non local après le `SessionClassified` de la même session ; une session classée, jamais routée, démarrée sur un fournisseur non local et qui a reçu une réponse du modèle (`AssistantMessage`) après son classement est aussi signalée (sans réponse, rien n'est parti : prompt bloqué par un hook, tour annulé avant l'envoi). Les appels refusés par la classification comptent dans les refus du résumé et dans la colonne `denied_classification` du tableau des permissions. Toute violation fait sortir `tenon audit export` avec le code 2.
 
+## Sobriété en tokens
+
+tenon mesure les tokens qu'il envoie, façonne le contexte envoyé et peut plafonner une session.
+L'historique n'est jamais modifié : le journal d'audit, `--resume`, `/rewind`, le routage et le scan sortant utilisent toujours l'historique complet.
+
+### Mesure
+
+- Chaque requête en flux demande au fournisseur son usage (`stream_options: {"include_usage": true}`). tenon lit `prompt_tokens`, `completion_tokens` et `prompt_tokens_details.cached_tokens` (absent : 0). Les valeurs sont **réelles** quand le fournisseur les envoie.
+- Sinon, elles sont **estimées** et marquées `estimated` dans le journal. Un appel interrompu (annulation, erreur en cours de flux) est compté comme estimé.
+- Un fournisseur qui refuse l'option par un 400 citant `stream_options` reçoit une seule nouvelle tentative sans elle, retenue pour la session. `stream_usage = false` sur un préréglage ou une entrée `[[providers]]` coupe l'option d'emblée.
+- Un événement `Usage` par appel au modèle : `provider`, `model`, `purpose` (`turn`, `compaction`, `subagent`), `input`, `output`, `cached`, `estimated`.
+- Interactif : la ligne d'état affiche `entrée 12,4 k · sortie 1,1 k · session 340 k`.
+- Non interactif, sortie texte : en fin de tour, sur la sortie d'erreur, `tokens: in <n> · out <n> · cached <n> · session <n>`. La sortie JSON n'ajoute rien (les événements suffisent).
+
+### La vue envoyée au modèle
+
+Avant chaque envoi, tenon construit une vue de l'historique. C'est une fonction pure de l'historique, appliquée après le scan sortant et le masquage des secrets.
+
+- **Déduplication** : deux résultats d'outil de même outil, mêmes arguments et même contenu : seul le plus récent reste ; l'ancien devient `[same content as the read at turn <n>]`. Les mêmes octets issus d'arguments différents (deux fichiers identiques) ne sont pas fusionnés.
+- **Masquage sous pression** : au-delà de 50 % de la fenêtre, les résultats d'outils les plus anciens sont remplacés par un talon (`[output hidden to save context: <outil> <arguments>, <n> lines, sha256 <12 hex>; run the tool again if you need it]`) jusqu'à repasser sous 40 %. Les résultats des 3 derniers messages assistant portant des appels d'outils, et tout ce qui suit le plus ancien d'entre eux, ne sont jamais masqués. Les messages de l'utilisateur, le texte de l'assistant et le résumé de compaction ne sont jamais touchés. Un talon qui ne serait pas plus court que le résultat n'est pas appliqué. Le masquage utilise la fenêtre du fournisseur de la session, y compris quand un fournisseur de bascule répond. Si les 3 dernières itérations dépassent à elles seules 40 %, plus rien n'est éligible et la compaction (seuil 0,8, inchangé) prend le relais.
+- **Troncature** : une longue sortie d'outil garde 70 % de début et 30 % de fin de `output_limit`, avec `[… <n> lines omitted …]` (ou `[… <n> characters omitted …]` sur une seule ligne) au milieu. Un caractère UTF-8 n'est jamais coupé.
+- Un événement `ContextShaped` enregistre les appels masqués et dédupliqués et les tokens économisés (estimés), seulement quand les ensembles changent.
+
+### Budget
+
+```toml
+[budget]
+session_tokens = 2000000   # entrée + sortie, compaction et sous-agents compris
+warn_at = 0.8              # 0 < warn_at < 1, 0,8 par défaut
+```
+
+- Le compteur est la somme `input + output` des événements `Usage` de la session. `--resume` le reconstruit depuis le journal.
+- À `warn_at` : un seul avis, `budget : <n> sur <max> tokens utilisés (<pct> %)`, et un événement `BudgetWarning`. Jamais répété.
+- À 100 % : le tour en cours se termine normalement. Le tour suivant ne part pas : son prompt est journalisé comme bloqué (après classification), le tour se termine avec la raison `budget_exceeded`, et les hooks SessionStart ne s'exécutent pas. Avec `--strict`, code de sortie 4.
+- La compaction n'est jamais refusée (elle réduit le contexte). Un nouveau sous-agent est refusé comme un tour. Des appels de sous-agents en parallèle peuvent dépasser un peu le plafond : il est souple.
+- La configuration du projet peut seulement baisser `session_tokens` ; une [politique d'organisation](politique.md) peut l'imposer ; la valeur la plus basse l'emporte.
+- Valeurs invalides : `config: budget.session_tokens must be positive`, `config: budget.warn_at must be between 0 and 1`.
+
+### Petits modèles
+
+```toml
+[routing]
+compaction = "ollama"   # défaut : le fournisseur de la session
+subagents  = "ollama"   # défaut : le fournisseur de la session
+```
+
+- Ces appels passent les mêmes contrôles que la session (profil, listes blanches, politique, consentement hors UE). Un fournisseur refusé au démarrage donne un avis, et le fournisseur de la session est utilisé.
+- Une session sensible utilise toujours `routing.local`, quoi que disent ces clés.
+- Un hook de type prompt évalué dans un sous-agent utilise le routeur de la session.
+- Les appels dédiés apparaissent comme `ProviderSelected` avec un `purpose` (`compaction` ou `subagent`) et dans `Usage.provider`.
+- Identifiant inconnu : `config: routing.<clé>: unknown provider "<id>"`.
+
+### Énergie et CO2
+
+```toml
+[usage]                 # configuration globale seulement
+wh_per_mtoken = 150
+gco2_per_kwh = 55
+```
+
+Les deux facteurs sont les vôtres : tenon n'en fournit aucun par défaut et n'en invente jamais. Seulement quand les deux sont déclarés, l'export de conformité ajoute `≈ <Wh> Wh · ≈ <g> g CO₂e (facteurs déclarés)`, calculé par `(input + output) / 1e6 × wh_per_mtoken` puis `Wh / 1000 × gco2_per_kwh`.
+
+### Dans l'export
+
+Voir [Export de conformité](#export-de-conformité) : la ligne `Tokens` et l'objet `tokens`.
+
 ## Profils de conformité
 
 Un profil restreint, pour toute l'exécution, ce que tenon peut envoyer et à qui.
@@ -1457,6 +1524,7 @@ Elle ne modifie pas le journal et ne le verrouille pas.
 - **Commandes** : nombre d'appels shell par session.
 - **Isolation** (`sandbox`, une liste ; omise pour les journaux écrits avant l'isolation) : par session, `mode`, `mechanism`, `network` (comme dans `SessionStarted.sandbox`), `unconfined` (résultats shell exécutés sans confinement) et `with_network` (résultats shell exécutés confinés **avec** réseau). Les deux compteurs ne se recouvrent jamais. La ligne HTML est « Isolation » (`Sandbox` en anglais), une entrée par session. Avec `audit.level = "metadata"`, le journal ne garde aucun contenu : la ligne est absente. Une session n'est listée que si son `SessionStarted` est dans la plage : une session reprise dont le `SessionStarted` précède `--since` n'est pas comptée.
 - **Routage** (`routing`, une liste ; omise pour les journaux sans classement, sans `[routing]` et sans `ProviderSelected`) : par session, `sensitive`, `reason` (`path` ou `marker`, omis si non sensible), `providers` (identifiants distincts des fournisseurs par ordre de première utilisation, en commençant par celui de `SessionStarted`), `fallbacks` (nombre de `ProviderSelected` de raison `fallback`) et `violation`. Voir [Routage par sensibilité des données](#routage-par-sensibilité-des-données). La ligne HTML est « Routage » (`Routing` en anglais). Absente avec `audit.level = "metadata"`.
+- **Tokens** (`tokens`, un objet ; omis pour les journaux sans événement `Usage`) : `total`, `sessions` et `providers` (fournisseur et modèle qui ont répondu), chacun avec `input`, `output`, `cached`, `estimated_share` (0 à 1, part de l'entrée + sortie qui est estimée) et `saved` (somme des `ContextShaped.saved_tokens` ; par fournisseur, rattachée à l'appel suivant). `energy` (`wh`, `gco2e`) n'apparaît que si `[usage] wh_per_mtoken` et `gco2_per_kwh` sont tous deux déclarés. La ligne HTML est « Tokens ». Voir [Sobriété en tokens](#sobriété-en-tokens).
 - **Sous-agents, hooks, rewinds** : exécutions de sous-agents, hooks qui ont bloqué, échoué, expiré ou demandé une confirmation, rewinds avec les fichiers restaurés, supprimés, conservés, ignorés, en échec ou inchangés.
 - **Incidents** : erreurs, tours terminés pour une raison notable (bloqué, arrêté par un hook, contexte trop grand, limite d'itérations, incomplet, annulé) et lignes illisibles du journal.
 - **Correspondance réglementaire** : quels éléments du rapport aident à documenter le RGPD, NIS2, DORA et l'AI Act. Elle ne cite aucun article.

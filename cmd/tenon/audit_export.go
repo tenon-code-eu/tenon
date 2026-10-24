@@ -130,6 +130,8 @@ func auditExport(args []string, langFlag string, stdout, stderr io.Writer, geten
 		Details:    *details,
 		Generator:  "tenon " + version,
 		Now:        now,
+		WhPerMTok:  st.cfg.Usage.WhPerMTok,
+		GCO2PerKWh: st.cfg.Usage.GCO2PerKWh,
 	})
 	id, err := compliance.ReportID(rep)
 	if err != nil {

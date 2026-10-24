@@ -19,6 +19,7 @@ For a commented configuration example, see [config.example.toml](config.example.
 - [System sandbox](#system-sandbox)
 - [Providers and jurisdictions](#providers-and-jurisdictions)
 - [Data-sensitivity routing](#data-sensitivity-routing)
+- [Token sobriety](#token-sobriety)
 - [Compliance profiles](#compliance-profiles)
 - [API keys and keyring](#api-keys-and-keyring)
 - [MCP servers](#mcp-servers)
@@ -54,7 +55,7 @@ In the synopsis, `<provider>` is the provider ID and `<message-file>` is the com
 |---|---|
 | `-p "<prompt>"` | Runs one turn without the interactive interface. |
 | `--output text\|json` | Output format of the non-interactive mode. Default: `text`. Refused without `-p`. |
-| `--strict` | Exit code 4 when the turn ends with `max_iterations`, `incomplete`, `stopped_by_hook` or `cancelled`. Code 3 and code 1 take precedence. Refused without `-p`. |
+| `--strict` | Exit code 4 when the turn ends with `max_iterations`, `incomplete`, `stopped_by_hook`, `cancelled` or `budget_exceeded`. Code 3 and code 1 take precedence. Refused without `-p`. |
 | `--config <file>` | Global configuration file, instead of `$XDG_CONFIG_HOME/tenon/config.toml`. It replaces the global file only: the project `.tenon/config.toml` and the organisation policy still apply. The file must exist (otherwise `config: <file>: no such file or directory`, code 1). `~` is not expanded. |
 | `--provider <id>` | Provider to use. Default: `default_provider` from the configuration. |
 | `--allow-non-eu` | Accepts sending data outside the EU, for providers and for MCP servers. |
@@ -75,7 +76,7 @@ Standard input and standard output must be a terminal. Otherwise tenon stops wit
 
 The status bar always shows:
 `tenon · model · provider · country · jurisdiction · session · ~tokens/window`.
-The token count is an estimate.
+The token count is an estimate. After each model call, the bar also shows the measured usage (see [Token sobriety](#token-sobriety)).
 
 ### Keys
 
@@ -187,7 +188,7 @@ For pipelines (GitLab CI, Forgejo/Gitea, GitHub Actions), see [tenon in CI](ci.m
 | `0` | Turn completed. A turn stopped by the iteration limit or by an incomplete answer also gives 0, with a message. |
 | `1` | Error: configuration, missing key, provider, context too large, invalid option. |
 | `3` | An action was denied (approval not possible, `deny` rule, classified content without a local provider) or sending to the provider was blocked (jurisdiction, classification). |
-| `4` | With `--strict`: the turn ended with `max_iterations`, `incomplete`, `stopped_by_hook` or `cancelled`. The line `strict: turn ended with <reason>` goes to standard error (text output only). Code 3 wins over 4, and code 1 wins over both. |
+| `4` | With `--strict`: the turn ended with `max_iterations`, `incomplete`, `stopped_by_hook`, `cancelled` or `budget_exceeded`. The line `strict: turn ended with <reason>` goes to standard error (text output only). Code 3 wins over 4, and code 1 wins over both. |
 | `130` | Second Ctrl+C: immediate exit. The first one cancels the turn. |
 
 Subcommands return 0 on success and 1 on error.
@@ -1167,6 +1168,72 @@ The TUI status bar shows `sensitive → <local>` once the session is sensitive.
 - `Error` with `code: "classification"` or `"jurisdiction"`, and tool results with `denied: "classification"`.
 - The [compliance export](#compliance-export) has a `Routing` row (`Routage` in French) and a `routing` list. A **violation** is a `ProviderSelected` towards a non-local provider after the `SessionClassified` of the same session; a session that is classified, never routed, started on a non-local provider, and that received a model reply (`AssistantMessage`) after its classification is also flagged (without a reply, nothing was sent: a prompt blocked by a hook, a turn cancelled before the send). Tool calls refused by classification are counted in the summary's denials and in the `denied_classification` column of the permissions table. Any violation makes `tenon audit export` exit with code 2.
 
+## Token sobriety
+
+tenon measures the tokens it sends, shapes the context it sends, and can cap a session.
+The history is never modified: the audit log, `--resume`, `/rewind`, routing and the outbound scan always use the full history.
+
+### Measurement
+
+- Each streamed request asks the provider for its usage (`stream_options: {"include_usage": true}`). tenon reads `prompt_tokens`, `completion_tokens` and `prompt_tokens_details.cached_tokens` (absent: 0). The values are **real** when the provider sends them.
+- When the provider sends none, the numbers are **estimated** and marked `estimated` in the log. A call interrupted by a cancel or a mid-stream error is counted as estimated too.
+- A provider that rejects the option with a 400 that cites `stream_options` gets one retry without it, remembered for the session. `stream_usage = false` on a preset or a `[[providers]]` entry turns the option off from the start.
+- One `Usage` event per model call: `provider`, `model`, `purpose` (`turn`, `compaction`, `subagent`), `input`, `output`, `cached`, `estimated`.
+- Interactive: the status line shows `in 12.4k · out 1.1k · session 340k`.
+- Non-interactive, text output: at the end of the turn, on standard error, `tokens: in <n> · out <n> · cached <n> · session <n>`. JSON output adds nothing (the events are enough).
+
+### The view sent to the model
+
+Before each send, tenon builds a view of the history. It is a pure function of the history, and it is applied after the outbound scan and redaction.
+
+- **Deduplication**: two tool results with the same tool, the same arguments and the same content: only the most recent stays; the older one becomes `[same content as the read at turn <n>]`. The same bytes from different arguments (two files with the same content) are not merged.
+- **Masking under pressure**: above 50 % of the context window, the oldest tool results are replaced by a stub (`[output hidden to save context: <tool> <arguments>, <n> lines, sha256 <12 hex>; run the tool again if you need it]`) until the view is back under 40 %. The tool results of the last 3 assistant messages that carry tool calls, and everything after the earliest of them, are never masked. User messages, assistant text and the compaction summary are never touched. A stub that would not be shorter than the result is not applied. Masking uses the window of the session provider, also when a fallback provider answers. If the last 3 iterations alone exceed 40 %, nothing more is eligible and compaction (threshold 0.8, unchanged) takes over.
+- **Truncation**: a long tool output keeps 70 % head and 30 % tail of `output_limit`, with `[… <n> lines omitted …]` (or `[… <n> characters omitted …]` on a single line) in the middle. A UTF-8 character is never split.
+- A `ContextShaped` event records the masked and deduplicated calls and the estimated tokens saved, only when the sets change.
+
+### Budget
+
+```toml
+[budget]
+session_tokens = 2000000   # input + output, compaction and sub-agents included
+warn_at = 0.8              # 0 < warn_at < 1, default 0.8
+```
+
+- The counter is the sum of `input + output` of the session `Usage` events. `--resume` rebuilds it from the log.
+- At `warn_at`: one notice, `budget: <used> of <max> tokens used (<pct> %)`, and a `BudgetWarning` event. Not repeated.
+- At 100 %: the current turn ends normally. The next turn does not start: its prompt is logged as blocked (after classification), the turn ends with the reason `budget_exceeded`, and SessionStart hooks do not run. With `--strict`, exit code 4.
+- Compaction is never refused (it shrinks the context). A new sub-agent is refused like a turn. Sub-agent calls running in parallel may exceed the cap slightly: it is a soft cap.
+- A project configuration can only lower `session_tokens`; an [organisation policy](policy.md) can impose it; the lowest value wins.
+- Invalid values: `config: budget.session_tokens must be positive`, `config: budget.warn_at must be between 0 and 1`.
+
+### Small models
+
+```toml
+[routing]
+compaction = "ollama"   # default: the session provider
+subagents  = "ollama"   # default: the session provider
+```
+
+- These calls pass the same guards as the session (profile, allowlists, policy, non-EU consent). A provider refused at startup gives a notice, and the session provider is used.
+- A sensitive session always uses `routing.local`, whatever these keys say.
+- A prompt hook evaluated inside a sub-agent uses the session router.
+- Dedicated calls appear as `ProviderSelected` with a `purpose` (`compaction` or `subagent`) and in `Usage.provider`.
+- Unknown id: `config: routing.<key>: unknown provider "<id>"`.
+
+### Energy and CO2
+
+```toml
+[usage]                 # global configuration only
+wh_per_mtoken = 150
+gco2_per_kwh = 55
+```
+
+Both factors are yours: tenon ships no default and never invents one. Only when both are declared, the compliance export adds `≈ <Wh> Wh · ≈ <g> g CO₂e (declared factors)`, computed as `(input + output) / 1e6 × wh_per_mtoken` and `Wh / 1000 × gco2_per_kwh`.
+
+### In the export
+
+See [Compliance export](#compliance-export): the `Tokens` row and the `tokens` object.
+
 ## Compliance profiles
 
 A profile restricts, for the whole run, what tenon may send and to whom.
@@ -1455,6 +1522,7 @@ It does not modify the log and does not lock it.
 - **Commands**: number of shell calls per session.
 - **Sandbox** (`sandbox`, a list; omitted for logs written before the sandbox existed): per session, `mode`, `mechanism`, `network` (as in `SessionStarted.sandbox`), `unconfined` (shell results that ran unconfined) and `with_network` (shell results that ran confined **with** network). The two counters never overlap. The HTML row is `Sandbox` (`Isolation` in French), one entry per session. At `audit.level = "metadata"` the log keeps no payload, so the row is absent. A session is listed only if its `SessionStarted` is in the range: a resumed session whose `SessionStarted` is before `--since` is not counted.
 - **Routing** (`routing`, a list; omitted for logs with no classification, no `[routing]` and no `ProviderSelected`): per session, `sensitive`, `reason` (`path` or `marker`, omitted when not sensitive), `providers` (distinct provider ids in order of first use, starting with the provider of `SessionStarted`), `fallbacks` (number of `ProviderSelected` with reason `fallback`) and `violation`. See [Data-sensitivity routing](#data-sensitivity-routing). The HTML row is `Routing` (`Routage` in French). Absent at `audit.level = "metadata"`.
+- **Tokens** (`tokens`, an object; omitted for logs with no `Usage` event): `total`, `sessions` and `providers` (provider and model that answered), each with `input`, `output`, `cached`, `estimated_share` (0 to 1, the part of input + output that is estimated) and `saved` (sum of `ContextShaped.saved_tokens`; per provider, attributed to the next call). `energy` (`wh`, `gco2e`) appears only when `[usage] wh_per_mtoken` and `gco2_per_kwh` are both declared. The HTML row is `Tokens`. See [Token sobriety](#token-sobriety).
 - **Sub-agents, hooks, rewinds**: sub-agent runs, hooks that blocked, failed, timed out or asked for confirmation, rewinds with the files restored, deleted, kept, skipped, failed or unchanged.
 - **Incidents**: errors, turns that ended for a notable reason (blocked, stopped by a hook, context too large, iteration limit, incomplete, cancelled) and unreadable log lines.
 - **Regulatory mapping**: which elements of the report help document GDPR, NIS2, DORA and AI Act requirements. It cites no article.
