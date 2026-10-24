@@ -11,7 +11,7 @@ func TestBudgetInvalid(t *testing.T) {
 		_, err := loadSB(t, "[budget]\nsession_tokens = "+s+"\n", "")
 		wantErr(t, err, "config: budget.session_tokens must be positive")
 	}
-	for _, s := range []string{"0", "1", "1.5", "-0.1"} {
+	for _, s := range []string{"0", "1", "1.5", "-0.1", "nan", "inf", "-inf"} {
 		_, err := loadSB(t, "[budget]\nsession_tokens = 10\nwarn_at = "+s+"\n", "")
 		wantErr(t, err, "config: budget.warn_at must be between 0 and 1")
 	}
@@ -60,6 +60,12 @@ func TestUsage(t *testing.T) {
 	wantErr(t, err, "config: usage.wh_per_mtoken must be positive")
 	_, err = loadSB(t, "[usage]\ngco2_per_kwh = -1\n", "")
 	wantErr(t, err, "config: usage.gco2_per_kwh must be positive")
+	for _, v := range []string{"nan", "inf", "-inf"} {
+		_, err = loadSB(t, "[usage]\nwh_per_mtoken = "+v+"\n", "")
+		wantErr(t, err, "config: usage.wh_per_mtoken must be positive")
+		_, err = loadSB(t, "[usage]\ngco2_per_kwh = "+v+"\n", "")
+		wantErr(t, err, "config: usage.gco2_per_kwh must be positive")
+	}
 	_, err = loadSB(t, "", "[usage]\nwh_per_mtoken = 1\n")
 	wantErr(t, err, "config: usage not allowed in project configuration")
 	_, err = loadSB(t, "", "[usage]\n")

@@ -9,6 +9,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"math"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -156,18 +157,21 @@ func checkBudget(b Budget, md toml.MetaData) error {
 	if md.IsDefined("budget", "session_tokens") && b.SessionTokens <= 0 {
 		return errors.New("config: budget.session_tokens must be positive")
 	}
-	if md.IsDefined("budget", "warn_at") && (b.WarnAt <= 0 || b.WarnAt >= 1) {
+	if md.IsDefined("budget", "warn_at") && !(b.WarnAt > 0 && b.WarnAt < 1) {
 		return errors.New("config: budget.warn_at must be between 0 and 1")
 	}
 	return nil
 }
 
+// badFactor : vrai pour un facteur non positif, NaN ou infini.
+func badFactor(x float64) bool { return !(x > 0) || math.IsInf(x, 0) }
+
 // checkUsage contrôle les facteurs déclarés (positifs s'ils sont présents).
 func checkUsage(u Usage, md toml.MetaData) error {
-	if md.IsDefined("usage", "wh_per_mtoken") && u.WhPerMTok <= 0 {
+	if md.IsDefined("usage", "wh_per_mtoken") && badFactor(u.WhPerMTok) {
 		return errors.New("config: usage.wh_per_mtoken must be positive")
 	}
-	if md.IsDefined("usage", "gco2_per_kwh") && u.GCO2PerKWh <= 0 {
+	if md.IsDefined("usage", "gco2_per_kwh") && badFactor(u.GCO2PerKWh) {
 		return errors.New("config: usage.gco2_per_kwh must be positive")
 	}
 	return nil
@@ -657,8 +661,14 @@ func (c Config) validateFields() error {
 	if c.Budget.SessionTokens < 0 {
 		return errors.New("config: budget.session_tokens must be positive")
 	}
-	if c.Budget.WarnAt != 0 && (c.Budget.WarnAt < 0 || c.Budget.WarnAt >= 1) {
+	if c.Budget.WarnAt != 0 && !(c.Budget.WarnAt > 0 && c.Budget.WarnAt < 1) {
 		return errors.New("config: budget.warn_at must be between 0 and 1")
+	}
+	if c.Usage.WhPerMTok != 0 && badFactor(c.Usage.WhPerMTok) {
+		return errors.New("config: usage.wh_per_mtoken must be positive")
+	}
+	if c.Usage.GCO2PerKWh != 0 && badFactor(c.Usage.GCO2PerKWh) {
+		return errors.New("config: usage.gco2_per_kwh must be positive")
 	}
 	if c.Checkpoints.RetentionDays < 0 {
 		return errors.New("config: retention_days must be >= 0")
