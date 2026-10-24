@@ -126,6 +126,19 @@ type ContextCompactedPayload struct {
 	ParentCallID string `json:"parent_call_id,omitempty"`
 }
 
+// ContextShapedPayload records a change in the projected view sent to the
+// model: the call_ids of the tool results hidden (Masked) or replaced by a
+// reference to a later identical result (Deduplicated), and the estimated
+// tokens saved on that request. The history itself is never changed.
+type ContextShapedPayload struct {
+	Masked       []string `json:"masked"`
+	Deduplicated []string `json:"deduplicated"`
+	SavedTokens  int      `json:"saved_tokens"`
+	// ParentCallID is the call_id of the "agent" tool call that produced this
+	// event inside a sub-agent run; empty for the main agent.
+	ParentCallID string `json:"parent_call_id,omitempty"`
+}
+
 // AssistantDeltaPayload carries a streamed fragment of an assistant reply.
 type AssistantDeltaPayload struct {
 	Text string `json:"text"`
@@ -394,6 +407,9 @@ func WithParent(payload any, parentCallID string) any {
 		p.ParentCallID = parentCallID
 		return p
 	case ContextCompactedPayload:
+		p.ParentCallID = parentCallID
+		return p
+	case ContextShapedPayload:
 		p.ParentCallID = parentCallID
 		return p
 	case RedactionAppliedPayload:

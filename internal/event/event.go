@@ -14,6 +14,7 @@ const (
 	SessionStarted      Type = "SessionStarted"
 	UserMessage         Type = "UserMessage"
 	ContextCompacted    Type = "ContextCompacted"
+	ContextShaped       Type = "ContextShaped"
 	JurisdictionWarning Type = "JurisdictionWarning"
 	RedactionApplied    Type = "RedactionApplied"
 	AssistantDelta      Type = "AssistantDelta"

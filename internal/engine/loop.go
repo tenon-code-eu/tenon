@@ -54,6 +54,10 @@ type turn struct {
 	// prompt ou le tour d'un hook agent (ctx porte alors le délai du hook) ;
 	// nil sinon.
 	outer context.Context
+	// shaped : derniers ensembles émis par ContextShaped pour un tour
+	// imbriqué (sous-agent, hook agent) ; le tour principal utilise
+	// session.shaped.
+	shaped Shaped
 }
 
 // loopResult résume la fin de loop. Reason vaut l'une des raisons de
@@ -420,11 +424,20 @@ func (t *turn) outboundCheck(info llm.ProviderInfo, in []llm.Message) (msgs []ll
 }
 
 // send envoie req (messages non masqués) au premier candidat du routeur qui
-// l'accepte ; voir sendWith.
+// l'accepte, après contrôle sortant puis vue projetée (view) ; voir sendWith.
 func (t *turn) send(req llm.Request, deltas bool) (text string, calls []llm.ToolCall, provErr, err error) {
 	return t.sendWith(req, deltas, func(info llm.ProviderInfo) (prepared, bool, error) {
 		msgs, counts, ok, err := t.outboundCheck(info, req.Messages)
-		return prepared{msgs: msgs, counts: []map[string]int{counts}, raw: req.Messages}, ok, err
+		if err != nil || !ok {
+			return prepared{}, ok, err
+		}
+		// Vue projetée sur les messages masqués réellement envoyés ; le
+		// contrôle des marquages porte sur la requête complète (scan, raw).
+		out, err := t.shapeRequest(msgs, req.Tools)
+		if err != nil {
+			return prepared{}, false, err
+		}
+		return prepared{msgs: out, counts: []map[string]int{counts}, scan: msgs, raw: req.Messages}, true, nil
 	})
 }
 

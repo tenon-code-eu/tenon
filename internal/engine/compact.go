@@ -58,6 +58,12 @@ func isSummary(m llm.Message) bool {
 // estimate approxime le nombre de jetons : (runes des contenus, des arguments
 // d'appels d'outils et des schémas d'outils) / 4.
 func estimate(msgs []llm.Message, defs []llm.ToolDef) int {
+	return runeCount(msgs, defs) / 4
+}
+
+// runeCount compte les runes des contenus, des arguments d'appels d'outils et
+// des schémas d'outils (base de estimate).
+func runeCount(msgs []llm.Message, defs []llm.ToolDef) int {
 	n := 0
 	for _, m := range msgs {
 		n += utf8.RuneCountInString(m.Content)
@@ -68,7 +74,7 @@ func estimate(msgs []llm.Message, defs []llm.ToolDef) int {
 	for _, d := range defs {
 		n += utf8.RuneCount(d.Schema)
 	}
-	return n / 4
+	return n
 }
 
 // tailStart renvoie l'indice, dans conv, du début de la queue conservée : le
@@ -212,6 +218,12 @@ func (t *turn) compact(defs []llm.ToolDef, force bool) (reason string, err error
 			{Role: llm.System, Content: summaryPrompt},
 			{Role: llm.User, Content: summaryInput(old, sumLimit)},
 		})
+		// Vue projetée, comme pour toute requête : la requête de résumé ne
+		// porte aucun résultat d'outil, elle en sort inchangée (ni
+		// ContextShaped). Le résumé travaille sur l'historique complet.
+		if err == nil && ok {
+			msgs, _ = view(msgs, nil, win)
+		}
 		// Le contrôle des marquages porte sur les messages structurés dont le
 		// texte rendu est tiré (même texte, résultats glob exclus).
 		scan := append([]llm.Message{{Role: llm.System, Content: summaryPrompt}}, old...)

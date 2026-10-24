@@ -154,6 +154,8 @@ type session struct {
 	warned     bool
 	remembered map[string]bool
 	history    []llm.Message // non masqué ; le masquage a lieu à chaque envoi
+	// shaped : derniers ensembles émis par ContextShaped (tour principal).
+	shaped Shaped
 	// startCtx : contexte des hooks SessionStart (startup, resume) en attente,
 	// joint au prochain message utilisateur accepté (un prompt bloqué ne le
 	// consomme pas). La note d'un rewind code seul y est jointe.
