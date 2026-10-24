@@ -1027,21 +1027,18 @@ func startEngine(o engineOptions) (started, error) {
 	// local) et replis, construits après les refus et la détection du
 	// fournisseur courant, avant toute session ou serveur MCP.
 	curProv := newProvider(info, apiKey, curNoProxy)
-	router, routingInfo, routingNotices, err := buildRouter(cfg, pc, curProv, routerDeps{ctx: o.ctx, lang: lang, keys: keys})
+	// Candidats construits, partagés par le routeur et les routeurs dédiés.
+	rd := routerDeps{ctx: o.ctx, lang: lang, keys: keys, built: map[string]routing.Candidate{}}
+	router, routingInfo, routingNotices, err := buildRouter(cfg, pc, curProv, rd)
 	if err != nil {
 		return started{}, err
 	}
 
 	// Routeurs dédiés (compaction, sous-agents) : mêmes garde-fous ; un
 	// fournisseur refusé laisse celui de la session, avec un avis.
-	rd := routerDeps{ctx: o.ctx, lang: lang, keys: keys}
-	compRouter, compNotice := buildDedicated(cfg, "compaction", cfg.Routing.Compaction, pc, o.allowNonEU, rd)
-	subRouter, subNotice := buildDedicated(cfg, "subagents", cfg.Routing.Subagents, pc, o.allowNonEU, rd)
-	for _, n := range []string{compNotice, subNotice} {
-		if n != "" {
-			routingNotices = append(routingNotices, n)
-		}
-	}
+	compRouter, compNotices := buildDedicated(cfg, "compaction", cfg.Routing.Compaction, pc, o.allowNonEU, rd)
+	subRouter, subNotices := buildDedicated(cfg, "subagents", cfg.Routing.Subagents, pc, o.allowNonEU, rd)
+	routingNotices = append(append(routingNotices, compNotices...), subNotices...)
 
 	files, err := instructions.Load(wd)
 	if err != nil {

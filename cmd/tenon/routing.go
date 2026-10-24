@@ -32,6 +32,10 @@ type routerDeps struct {
 	lang i18n.Lang
 	// keys : clé d'API de chaque fournisseur configuré (absente : aucune).
 	keys map[string]string
+	// built, s'il n'est pas nil, retient les candidats déjà construits (par
+	// id), partagés entre buildRouter et buildDedicated : un même
+	// fournisseur n'est détecté et signalé qu'une fois.
+	built map[string]routing.Candidate
 }
 
 // buildRouter construit le routeur de la session à partir du fournisseur
@@ -58,7 +62,11 @@ func buildRouter(cfg config.Config, current config.Provider, curProv provider.Pr
 	// Local : le fournisseur local effectif (vide s'il est indisponible).
 	info := &event.RoutingInfo{}
 	var notices []string
-	built := map[string]routing.Candidate{current.ID: cur}
+	built := d.built
+	if built == nil {
+		built = map[string]routing.Candidate{}
+	}
+	built[current.ID] = cur
 
 	var local *routing.Candidate
 	switch {
@@ -127,13 +135,17 @@ func buildRouter(cfg config.Config, current config.Provider, curProv provider.Pr
 // fournisseur de la session : profil, politique, listes blanches, accord
 // hors UE (allowNonEU). Un id vide ou égal au fournisseur courant ne donne
 // aucun routeur. Un fournisseur refusé ou inutilisable donne un routeur nil
-// et un avis : le fournisseur de la session est alors utilisé.
-func buildDedicated(cfg config.Config, kind, id string, current config.Provider, allowNonEU bool, d routerDeps) (*routing.Router, string) {
+// et un avis : le fournisseur de la session est alors utilisé. Un candidat
+// déjà construit (d.built : fournisseur local ou repli du routage, autre
+// routeur dédié) est réutilisé, sans nouvelle détection ni nouvel avis ;
+// sinon les avis de sa construction sont renvoyés (hôte non local d'un
+// fournisseur « local », détection).
+func buildDedicated(cfg config.Config, kind, id string, current config.Provider, allowNonEU bool, d routerDeps) (*routing.Router, []string) {
 	if id == "" || id == current.ID {
-		return nil, ""
+		return nil, nil
 	}
-	refused := func(reason any) (*routing.Router, string) {
-		return nil, i18n.T(d.lang, "routing.dedicated_refused", kind, id, reason)
+	refused := func(reason any) (*routing.Router, []string) {
+		return nil, []string{i18n.T(d.lang, "routing.dedicated_refused", kind, id, reason)}
 	}
 	pc, ok := cfg.Provider(id)
 	if !ok {
@@ -142,15 +154,28 @@ func buildDedicated(cfg config.Config, kind, id string, current config.Provider,
 	if err := providerErr(d.lang, cfg, pc); err != nil {
 		return refused(err)
 	}
+	local := pc.Jurisdiction == string(llm.Local)
 	if j := llm.Jurisdiction(pc.Jurisdiction); j != llm.EU && j != llm.Local && !allowNonEU {
 		return refused(i18n.T(d.lang, "routing.reason_non_eu"))
 	}
-	c, notices, err := routeCandidate(cfg, pc, d, pc.Jurisdiction == string(llm.Local) || providerNoProxy(cfg.Profile, pc))
-	if err != nil {
-		return refused(err)
+	if c, ok := d.built[id]; ok {
+		return routing.New(c, nil, nil), nil
 	}
-	_ = notices // détection locale : avis déjà portés par le fournisseur de la session
-	return routing.New(c, nil, nil), ""
+	var notices []string
+	// Comme pour routing.local : un fournisseur « local » joint par un hôte
+	// non local est signalé, sans refus.
+	if h := urlHost(pc.BaseURL); local && !profile.IsLocalHost(h) {
+		notices = append(notices, i18n.T(d.lang, "routing.non_loopback", pc.ID, h))
+	}
+	c, n, err := routeCandidate(cfg, pc, d, local || providerNoProxy(cfg.Profile, pc))
+	if err != nil {
+		r, refusal := refused(err)
+		return r, append(notices, refusal...)
+	}
+	if d.built != nil {
+		d.built[id] = c
+	}
+	return routing.New(c, nil, nil), append(notices, n...)
 }
 
 // routeCandidate construit le fournisseur candidat pc. Comme pour le

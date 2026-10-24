@@ -460,3 +460,86 @@ local = "gpu"
 		t.Fatalf("SessionStarted.routing : %+v", st)
 	}
 }
+
+// countDetections remplace la détection Ollama par une détection fixe et
+// compte ses appels par URL de base.
+func countDetections(t *testing.T) func(base string) int {
+	t.Helper()
+	var mu sync.Mutex
+	n := map[string]int{}
+	old := detectFuncs["ollama"]
+	t.Cleanup(func() { detectFuncs["ollama"] = old })
+	detectFuncs["ollama"] = func(_ context.Context, _ *http.Client, base, _ string) (provider.Detected, error) {
+		mu.Lock()
+		n[base]++
+		mu.Unlock()
+		return provider.Detected{Model: "llama", ContextWindow: 64000}, nil
+	}
+	return func(base string) int {
+		mu.Lock()
+		defer mu.Unlock()
+		return n[base]
+	}
+}
+
+// Un fournisseur dédié « local » joint par un hôte non local est signalé ;
+// les avis de sa détection sont affichés.
+func TestDedicatedLocalNonLoopbackNotice(t *testing.T) {
+	count := countDetections(t)
+	remote := newFakeLLM(t, sseText("bonjour"))
+	e := newEnvExtra(t, remote, "eu", `
+[[providers]]
+id = "gpu"
+name = "GPU"
+base_url = "http://gpu.invalid:11434/v1"
+detect = "ollama"
+jurisdiction = "local"
+
+[routing]
+compaction = "gpu"
+`)
+	code, _, errb := e.run("--lang", "en", "-p", "salut")
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, errb)
+	}
+	for _, want := range []string{
+		`routing: local provider "gpu" uses non-loopback host "gpu.invalid"`,
+		"GPU: model llama, context window 64000 tokens (read from the server)",
+	} {
+		if strings.Count(errb, want) != 1 {
+			t.Fatalf("avis %q absent ou répété : %q", want, errb)
+		}
+	}
+	if n := count("http://gpu.invalid:11434/v1"); n != 1 {
+		t.Fatalf("%d détections", n)
+	}
+}
+
+// Le fournisseur local du routage, réutilisé pour la compaction et les
+// sous-agents, n'est détecté et signalé qu'une fois.
+func TestDedicatedReusesLocalCandidate(t *testing.T) {
+	count := countDetections(t)
+	remote := newFakeLLM(t, sseText("bonjour"))
+	e := newEnvExtra(t, remote, "eu", `
+[[providers]]
+id = "gpu"
+base_url = "http://gpu.invalid:11434/v1"
+detect = "ollama"
+jurisdiction = "local"
+
+[routing]
+local = "gpu"
+compaction = "gpu"
+subagents = "gpu"
+`)
+	code, _, errb := e.run("--lang", "en", "-p", "salut")
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, errb)
+	}
+	if n := strings.Count(errb, `uses non-loopback host "gpu.invalid"`); n != 1 {
+		t.Fatalf("avis non local x%d : %q", n, errb)
+	}
+	if n := count("http://gpu.invalid:11434/v1"); n != 1 {
+		t.Fatalf("%d détections", n)
+	}
+}
