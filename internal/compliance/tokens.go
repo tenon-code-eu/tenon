@@ -10,7 +10,9 @@ import (
 
 // TokenCounts regroupe les tokens d'un périmètre. EstimatedShare est la part
 // (0 à 1) d'entrée + sortie qui vient d'estimations et non du fournisseur ;
-// Saved est la somme des ContextShaped.saved_tokens.
+// Saved est un indicateur estimé : la somme des économies estimées inscrites
+// à chaque changement de la vue (ContextShaped), pas un total sur toutes les
+// requêtes.
 type TokenCounts struct {
 	Input          int     `json:"input"`
 	Output         int     `json:"output"`
