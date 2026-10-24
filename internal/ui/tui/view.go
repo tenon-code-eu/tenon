@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -186,6 +187,9 @@ func (m Model) statusBar() string {
 		tail = append(tail, ind)
 	}
 	tail = append(tail, m.opts.SessionID, i18n.T(m.lang, "tui.status_tokens", m.estimateTokens(), m.opts.ContextWindow))
+	if t := m.tr; t.usageSeen {
+		tail = append(tail, i18n.T(m.lang, "tui.status_usage", compactCount(m.lang, t.turnIn), compactCount(m.lang, t.turnOut), compactCount(m.lang, t.sessionTokens)))
+	}
 	sep := " · "
 	var b strings.Builder
 	write := func(ss []string) {
@@ -230,4 +234,22 @@ func (m Model) estimateTokens() int {
 		n += utf8.RuneCountInString(it.Text)
 	}
 	return n / tokenRuneRatio
+}
+
+// compactCount écrit n en forme courte : entier sous 1000, puis milliers
+// (« 12,4 k » en français, « 12.4k » en anglais), sans décimale dès 100 k.
+func compactCount(l i18n.Lang, n int64) string {
+	if n < 1000 {
+		return strconv.FormatInt(n, 10)
+	}
+	k := float64(n) / 1000
+	s := strconv.FormatFloat(k, 'f', 1, 64)
+	if k >= 100 {
+		s = strconv.FormatFloat(k, 'f', 0, 64)
+	}
+	s = strings.TrimSuffix(s, ".0")
+	if l == i18n.EN {
+		return s + "k"
+	}
+	return strings.Replace(s, ".", ",", 1) + " k"
 }

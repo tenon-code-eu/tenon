@@ -66,6 +66,10 @@ type Transcript struct {
 	// selected est le dernier fournisseur retenu (ProviderSelected) ; nil :
 	// celui du démarrage.
 	selected *llm.ProviderInfo
+	// Jetons : sommes du dernier tour (entrée, sortie), total de la session,
+	// et tour clos (la prochaine consommation repart de zéro).
+	turnIn, turnOut, sessionTokens int64
+	turnClosed, usageSeen          bool
 }
 
 // hookRun est le hook d'un HookStarted : événement et libellé court.
@@ -279,8 +283,11 @@ func (t *Transcript) Apply(ev event.Event) {
 		if !t.decode(ev, &p) {
 			return
 		}
-		info := p.Provider
-		t.selected = &info
+		// Un routeur dédié (petit modèle) n'est pas une bascule de la session.
+		if p.Purpose == "" {
+			info := p.Provider
+			t.selected = &info
+		}
 		if n := t.routing.Selected(t.lang, p); n != "" {
 			t.notice(n)
 		}
@@ -296,6 +303,26 @@ func (t *Transcript) Apply(ev event.Event) {
 			return
 		}
 		t.notice(i18n.T(t.lang, "compaction.done", p.Replaced))
+	case event.Usage:
+		var p event.UsagePayload
+		if !t.decode(ev, &p) {
+			return
+		}
+		if t.turnClosed {
+			t.turnIn, t.turnOut, t.turnClosed = 0, 0, false
+		}
+		t.turnIn += int64(p.Input)
+		t.turnOut += int64(p.Output)
+		t.sessionTokens += int64(p.Input) + int64(p.Output)
+		t.usageSeen = true
+	case event.BudgetWarning:
+		var p event.BudgetWarningPayload
+		if !t.decode(ev, &p) {
+			return
+		}
+		if p.Max > 0 {
+			t.notice(i18n.T(t.lang, "budget.warning", p.Used, p.Max, p.Used*100/p.Max))
+		}
 	case event.RedactionApplied:
 		var p event.RedactionAppliedPayload
 		if !t.decode(ev, &p) {
@@ -323,9 +350,10 @@ func (t *Transcript) Apply(ev event.Event) {
 			return
 		}
 		t.busy = false
+		t.turnClosed = true
 		t.endStreaming()
 		switch p.Reason {
-		case "max_iterations", "incomplete", "blocked", "cancelled", "context_too_large":
+		case "max_iterations", "incomplete", "blocked", "cancelled", "context_too_large", "budget_exceeded":
 			t.notice(i18n.T(t.lang, "tui.turn_reason."+p.Reason))
 		case "blocked_by_hook":
 			t.notice(i18n.T(t.lang, "turn.blocked_by_hook"))

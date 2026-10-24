@@ -329,6 +329,10 @@ type ProviderSelectedPayload struct {
 	Provider llm.ProviderInfo `json:"provider"`
 	Reason   string           `json:"reason"`
 	Error    string           `json:"error,omitempty"`
+	// Purpose is "compaction" or "subagent" when the selection comes from a
+	// dedicated router (a small model): not a switch of the session provider.
+	// Empty for the turns.
+	Purpose string `json:"purpose,omitempty"`
 }
 
 // SubagentStartedPayload opens a sub-agent run launched by the "agent" tool call CallID.

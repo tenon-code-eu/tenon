@@ -122,6 +122,37 @@ func buildRouter(cfg config.Config, current config.Provider, curProv provider.Pr
 	return routing.New(cur, local, fallback), info, notices, nil
 }
 
+// buildDedicated construit le routeur dédié de l'objet kind (« compaction »
+// ou « subagents ») pour le fournisseur id, avec les garde-fous du
+// fournisseur de la session : profil, politique, listes blanches, accord
+// hors UE (allowNonEU). Un id vide ou égal au fournisseur courant ne donne
+// aucun routeur. Un fournisseur refusé ou inutilisable donne un routeur nil
+// et un avis : le fournisseur de la session est alors utilisé.
+func buildDedicated(cfg config.Config, kind, id string, current config.Provider, allowNonEU bool, d routerDeps) (*routing.Router, string) {
+	if id == "" || id == current.ID {
+		return nil, ""
+	}
+	refused := func(reason any) (*routing.Router, string) {
+		return nil, i18n.T(d.lang, "routing.dedicated_refused", kind, id, reason)
+	}
+	pc, ok := cfg.Provider(id)
+	if !ok {
+		return refused(i18n.T(d.lang, "err.unknown_provider", id))
+	}
+	if err := providerErr(d.lang, cfg, pc); err != nil {
+		return refused(err)
+	}
+	if j := llm.Jurisdiction(pc.Jurisdiction); j != llm.EU && j != llm.Local && !allowNonEU {
+		return refused(i18n.T(d.lang, "routing.reason_non_eu"))
+	}
+	c, notices, err := routeCandidate(cfg, pc, d, pc.Jurisdiction == string(llm.Local) || providerNoProxy(cfg.Profile, pc))
+	if err != nil {
+		return refused(err)
+	}
+	_ = notices // détection locale : avis déjà portés par le fournisseur de la session
+	return routing.New(c, nil, nil), ""
+}
+
 // routeCandidate construit le fournisseur candidat pc. Comme pour le
 // fournisseur courant, la détection d'un modèle local ne contacte l'hôte
 // qu'après les contrôles du profil et des listes blanches ; un candidat

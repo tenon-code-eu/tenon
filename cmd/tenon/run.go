@@ -36,6 +36,7 @@ import (
 	"github.com/tenon-code-eu/tenon/internal/orgpolicy"
 	"github.com/tenon-code-eu/tenon/internal/policy"
 	"github.com/tenon-code-eu/tenon/internal/profile"
+	"github.com/tenon-code-eu/tenon/internal/routing"
 	"github.com/tenon-code-eu/tenon/internal/sandbox"
 	"github.com/tenon-code-eu/tenon/internal/secrets"
 	"github.com/tenon-code-eu/tenon/internal/session"
@@ -1030,6 +1031,17 @@ func startEngine(o engineOptions) (started, error) {
 		return started{}, err
 	}
 
+	// Routeurs dédiés (compaction, sous-agents) : mêmes garde-fous ; un
+	// fournisseur refusé laisse celui de la session, avec un avis.
+	rd := routerDeps{ctx: o.ctx, lang: lang, keys: keys}
+	compRouter, compNotice := buildDedicated(cfg, "compaction", cfg.Routing.Compaction, pc, o.allowNonEU, rd)
+	subRouter, subNotice := buildDedicated(cfg, "subagents", cfg.Routing.Subagents, pc, o.allowNonEU, rd)
+	for _, n := range []string{compNotice, subNotice} {
+		if n != "" {
+			routingNotices = append(routingNotices, n)
+		}
+	}
+
 	files, err := instructions.Load(wd)
 	if err != nil {
 		return started{}, errors.New(i18n.T(lang, "err.instructions", err))
@@ -1123,6 +1135,14 @@ func startEngine(o engineOptions) (started, error) {
 				out.Consent(c.ID)
 			}
 		}
+		// Les routeurs dédiés ne sont construits hors UE qu'avec cet accord.
+		for _, r := range []*routing.Router{compRouter, subRouter} {
+			if r != nil {
+				for _, c := range r.Candidates(false) {
+					out.Consent(c.ID)
+				}
+			}
+		}
 	}
 
 	// grep et glob ne révèlent que les fichiers que read_file pourrait lire
@@ -1206,6 +1226,9 @@ func startEngine(o engineOptions) (started, error) {
 	eng := engine.New(engine.Deps{
 		Provider:            curProv,
 		Router:              router,
+		CompactionRouter:    compRouter,
+		SubagentRouter:      subRouter,
+		Budget:              engine.Budget{SessionTokens: cfg.Budget.SessionTokens, WarnAt: cfg.Budget.WarnAt},
 		Routing:             routingInfo,
 		Classify:            cfg.ClassifyRules(),
 		Tools:               tools.NewRegistry(ts...),

@@ -669,7 +669,7 @@ func (t *turn) try(c routing.Candidate, info llm.ProviderInfo, req llm.Request, 
 	case fellBack:
 		reason = "fallback"
 	}
-	if err := t.selectProvider(info, reason, failed); err != nil {
+	if err := t.selectProvider(info, reason, failed, purpose); err != nil {
 		s.classMu.Unlock()
 		return res, err
 	}
@@ -771,13 +771,16 @@ func (t *turn) try(c routing.Candidate, info llm.ProviderInfo, req llm.Request, 
 
 // selectProvider émet ProviderSelected si le fournisseur retenu change (ou
 // au premier envoi d'une session avec routage). classMu tenu.
-func (t *turn) selectProvider(info llm.ProviderInfo, reason string, failed error) error {
+func (t *turn) selectProvider(info llm.ProviderInfo, reason string, failed error, purpose string) error {
 	s := t.s
 	if s.provider == info.ID {
 		return nil
 	}
 	s.provider = info.ID
 	p := event.ProviderSelectedPayload{Provider: info, Reason: reason}
+	if purpose == purposeCompaction || purpose == purposeSubagent {
+		p.Purpose = purpose
+	}
 	if reason == "fallback" && failed != nil {
 		p.Error = failed.Error()
 	}

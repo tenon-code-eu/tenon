@@ -693,3 +693,65 @@ func TestHeadlessAskNetworkRule(t *testing.T) {
 		t.Fatalf("%d PermissionResolved, attendu 1", resolved)
 	}
 }
+
+func tokensRenderer(lang i18n.Lang) (*renderer, *bytes.Buffer) {
+	var out, errb bytes.Buffer
+	return &renderer{out: Text, lang: lang, redact: func(s string) string { return s },
+		redactText: func(s string) string { return s }, stdout: &out, stderr: &errb}, &errb
+}
+
+func TestTokensLineAtTurnEnd(t *testing.T) {
+	r, errb := tokensRenderer(i18n.FR)
+	r.sessionTokens = 1000 // reprise : total d'avant ce tour
+	r.handle(emitted(t, event.Usage, event.UsagePayload{Purpose: "turn", Input: 100, Output: 20, Cached: 40}))
+	r.handle(emitted(t, event.Usage, event.UsagePayload{Purpose: "compaction", Input: 10, Output: 5, Cached: 0}))
+	r.handle(emitted(t, event.TurnCompleted, event.TurnCompletedPayload{Iterations: 1, Reason: "done"}))
+	want := "tokens: in 110 · out 25 · cached 40 · session 1135\n"
+	if !strings.Contains(errb.String(), want) {
+		t.Fatalf("stderr=%q, attendu %q", errb.String(), want)
+	}
+	// Tour suivant : sommes remises à zéro, session cumulée.
+	r.handle(emitted(t, event.Usage, event.UsagePayload{Purpose: "turn", Input: 1, Output: 2}))
+	r.handle(emitted(t, event.TurnCompleted, event.TurnCompletedPayload{Iterations: 1, Reason: "done"}))
+	if !strings.Contains(errb.String(), "tokens: in 1 · out 2 · cached 0 · session 1138\n") {
+		t.Fatalf("stderr=%q", errb.String())
+	}
+}
+
+func TestNoTokensLineWithoutUsageOrInJSON(t *testing.T) {
+	r, errb := tokensRenderer(i18n.EN)
+	r.handle(emitted(t, event.TurnCompleted, event.TurnCompletedPayload{Reason: "done"}))
+	if strings.Contains(errb.String(), "tokens:") {
+		t.Fatalf("stderr=%q", errb.String())
+	}
+	var out, jerr bytes.Buffer
+	j := &renderer{out: JSON, lang: i18n.EN, redact: func(s string) string { return s },
+		redactText: func(s string) string { return s }, stdout: &out, stderr: &jerr}
+	j.handle(emitted(t, event.Usage, event.UsagePayload{Input: 1, Output: 2}))
+	j.handle(emitted(t, event.TurnCompleted, event.TurnCompletedPayload{Reason: "done"}))
+	if strings.Contains(jerr.String(), "tokens:") || strings.Count(out.String(), "\n") != 2 {
+		t.Fatalf("stdout=%q stderr=%q", out.String(), jerr.String())
+	}
+}
+
+func TestBudgetWarningNotice(t *testing.T) {
+	r, errb := tokensRenderer(i18n.EN)
+	r.handle(emitted(t, event.BudgetWarning, event.BudgetWarningPayload{Used: 800, Max: 1000}))
+	if !strings.Contains(errb.String(), "budget: 800 of 1000 tokens used (80 %)\n") {
+		t.Fatalf("stderr=%q", errb.String())
+	}
+}
+
+func TestBudgetExceededStrictExit4(t *testing.T) {
+	for _, strict := range []bool{true, false} {
+		r, errb := tokensRenderer(i18n.EN)
+		r.handle(emitted(t, event.TurnCompleted, event.TurnCompletedPayload{Reason: "budget_exceeded"}))
+		code := r.exitCode(strict)
+		if want := map[bool]int{true: 4, false: 0}[strict]; code != want {
+			t.Fatalf("strict=%v code=%d", strict, code)
+		}
+		if strict && !strings.Contains(errb.String(), "strict: turn ended with budget_exceeded") {
+			t.Fatalf("stderr=%q", errb.String())
+		}
+	}
+}

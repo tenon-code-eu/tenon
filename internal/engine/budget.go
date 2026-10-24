@@ -134,6 +134,19 @@ func (s *session) addUsage(n int64, b Budget) (used int64, warn bool) {
 	return s.used, warn
 }
 
+// SessionTokens renvoie le compteur de jetons (input + output) de la session
+// sessionID : 0 si elle est inconnue. Sert à l'affichage du total cumulé,
+// reprise comprise.
+func (e *Engine) SessionTokens(sessionID string) int64 {
+	s := e.lookup(sessionID)
+	if s == nil {
+		return 0
+	}
+	s.classMu.Lock()
+	defer s.classMu.Unlock()
+	return s.used
+}
+
 // overBudget indique que le budget b de la session est épuisé.
 func (s *session) overBudget(b Budget) (used, max int64, over bool) {
 	s.classMu.Lock()

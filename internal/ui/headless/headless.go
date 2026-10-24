@@ -40,7 +40,7 @@ type Options struct {
 	// messages écrits sur stderr. nil : Redact est utilisé.
 	RedactText func(string) string
 	// Strict : un tour terminé par max_iterations, incomplete,
-	// stopped_by_hook ou cancelled donne le code 4 (3 et 1 l'emportent).
+	// stopped_by_hook, budget_exceeded ou cancelled donne le code 4 (3 et 1 l'emportent).
 	Strict bool
 	// Local est le fournisseur local du routage ("" : celui de
 	// SessionStarted, ou aucun).
@@ -74,11 +74,13 @@ func Run(ctx context.Context, eng *engine.Engine, sessionID string, in engine.In
 	if lang != i18n.EN {
 		lang = i18n.FR
 	}
+	// Total d'avant le tour (session reprise), lu avant de le lancer.
+	base := eng.SessionTokens(sessionID)
 	ch := eng.Subscribe()
 	errc := make(chan error, 1)
 	go func() { errc <- eng.SubmitInput(ctx, sessionID, in) }()
 
-	r := &renderer{routing: Routing{Local: opts.Local}, hookLabels: map[string]string{}, eng: eng, out: out, lang: lang, redact: redact, redactText: redactText, stdout: stdout, stderr: stderr}
+	r := &renderer{sessionTokens: base, routing: Routing{Local: opts.Local}, hookLabels: map[string]string{}, eng: eng, out: out, lang: lang, redact: redact, redactText: redactText, stdout: stdout, stderr: stderr}
 	var err error
 loop:
 	for {
@@ -137,6 +139,12 @@ type renderer struct {
 	refused bool
 	failed  bool   // le tour n'a pas pu tourner (context_too_large)
 	ended   string // raison d'un tour non terminé proprement (--strict)
+
+	// Jetons : sommes du tour en cours (Usage, tous objets confondus) et
+	// total cumulé de la session (reprise comprise).
+	turnIn, turnOut, turnCached int64
+	turnUsed                    bool
+	sessionTokens               int64
 
 	// routing suit le fournisseur local et le fournisseur effectif.
 	routing Routing
@@ -221,6 +229,7 @@ func (r *renderer) handle(ev event.Event) {
 	case event.TurnCompleted:
 		var p event.TurnCompletedPayload
 		if r.decode(ev, &p) {
+			r.tokensLine()
 			switch p.Reason {
 			case "blocked":
 				r.refused = true
@@ -232,7 +241,7 @@ func (r *renderer) handle(ev event.Event) {
 			case "blocked_by_hook":
 				r.refused = true
 				r.text("%s\n", i18n.T(r.lang, "turn.blocked_by_hook"))
-			case "max_iterations", "incomplete", "cancelled", "stopped_by_hook":
+			case "max_iterations", "incomplete", "cancelled", "stopped_by_hook", "budget_exceeded":
 				r.ended = p.Reason
 				r.text("%s\n", i18n.T(r.lang, "turn.ended", p.Reason))
 			}
@@ -251,7 +260,32 @@ func (r *renderer) handle(ev event.Event) {
 		if r.decode(ev, &p) {
 			r.text("%s\n", i18n.T(r.lang, "compaction.done", p.Replaced))
 		}
+	case event.Usage:
+		var p event.UsagePayload
+		if r.decode(ev, &p) {
+			r.turnIn += int64(p.Input)
+			r.turnOut += int64(p.Output)
+			r.turnCached += int64(p.Cached)
+			r.turnUsed = true
+			r.sessionTokens += int64(p.Input) + int64(p.Output)
+		}
+	case event.BudgetWarning:
+		var p event.BudgetWarningPayload
+		if r.decode(ev, &p) && p.Max > 0 {
+			r.text("%s\n", i18n.T(r.lang, "budget.warning", p.Used, p.Max, p.Used*100/p.Max))
+		}
 	}
+}
+
+// tokensLine écrit sur stderr (sortie texte) les jetons du tour qui se
+// termine et le total de la session, puis remet les sommes du tour à zéro.
+// Rien si le tour n'a émis aucun Usage.
+func (r *renderer) tokensLine() {
+	if !r.turnUsed {
+		return
+	}
+	r.text("%s\n", i18n.T(r.lang, "headless.tokens", r.turnIn, r.turnOut, r.turnCached, r.sessionTokens))
+	r.turnIn, r.turnOut, r.turnCached, r.turnUsed = 0, 0, 0, false
 }
 
 // hookCompleted affiche sur stderr (sortie texte) ce qu'un hook a signalé :
