@@ -12,31 +12,15 @@
 
 # tenon
 
-tenon is a terminal coding agent, written in Go.
+**An open-source coding agent for the terminal, built for Europe.**
 It reads your project, proposes changes and runs commands, under your control.
 
-It is designed for Europe:
-
-- the preconfigured providers are European (Mistral AI, Codestral, Scaleway, OVHcloud, Albert API of the French State) or local (Ollama, vLLM);
-- any data sent outside the EU requires your explicit consent;
-- by default, writes, commands and MCP tool calls wait for your approval;
-- everything is recorded in a hash-chained, verifiable audit log;
-- secrets and some personal data are masked before anything is sent;
-- commits that contain code written by the agent can be marked;
-- reusable skills in the open Agent Skills format (`SKILL.md`), loaded by the model or with `/<name>`, never able to widen permissions;
-- sub-agents (`.claude/agents/*.md` format) that the model launches for a self-contained task, with the same permissions, masking and audit as the main agent;
-- hooks (Claude Code format) that run your commands before and after tools, on prompts and at session start and end, to block, ask, add context or change a tool input, without widening permissions; project hooks never run;
-- compliance profiles (`eu-only`, `secnumcloud`, `strict-local`): the provider and MCP servers are checked against the profile at startup and before each send, and the profile is recorded in the audit log; `secnumcloud` relies on a declared, never verified, qualification; a `[provider_allowlist]` restricts provider hosts;
-- system sandbox: shell commands and stdio MCP servers are confined by the system (Landlock and user namespaces on Linux, `sandbox-exec` on macOS): writes limited to the project, credentials directories unreadable, network closed unless a rule or your answer opens it; `[sandbox] mode = "required"` refuses to run without it ([docs/usage.md](docs/usage.md#system-sandbox), [limits](docs/security.md#the-sandbox-and-its-limits));
-- data-sensitivity routing: paths and markers (`DIFFUSION RESTREINTE`, `EU RESTRICTED`, your own) classify a session as sensitive, and from then on it is sent only to a local model, with an ordered fallback to other providers for the rest; the audit log proves each decision and the export flags any violation ([docs/usage.md](docs/usage.md#data-sensitivity-routing), [limits](docs/security.md#data-sensitivity-routing-and-its-limits));
-- signed organisation policy (minisign): an administrator imposes a floor (profile, allowed provider hosts, permission and redaction rules, audit level, MCP servers) that users cannot loosen; it is verified at every startup and recorded in the audit log ([docs/policy.md](docs/policy.md));
-- RFC 3161 timestamping of the audit log: `[audit.timestamp]` has a timestamp authority sign the head hash, so a log rewritten afterwards is detected by `tenon audit verify` and by the export (no authority is built in, none is called unless you configure one);
-- `tenon audit export`: an HTML and JSON compliance report built from the audit log (providers, consents, permissions, modified files, incidents), with no conversation data unless you ask for it;
-- Cyber Resilience Act assistant: `tenon cra` keeps an SBOM, a VEX, reporting deadlines (article 14) and an exportable technical dossier in the repository, with an offline OSV vulnerability scan usable in CI (`tenon cra scan --fail-on open`) and four built-in skills; nothing is sent to ENISA ([docs/cra.md](docs/cra.md));
-- checkpoints: each prompt is a restore point, and `/rewind` (or Esc twice) restores the files an agent wrote, the conversation, or both, never overwriting a file you changed without asking.
-
-Any OpenAI-compatible endpoint works.
-tenon runs on Linux and macOS.
+- **European or local models:** Mistral AI, Scaleway, OVHcloud, Albert API, Ollama, vLLM. Nothing leaves the EU without your consent.
+- **You approve:** writes, commands and MCP calls wait for your answer by default.
+- **Confined commands:** shell commands run in a system sandbox (Landlock, `sandbox-exec`): project-only writes, no network unless allowed.
+- **Classified data stays home:** `DIFFUSION RESTREINTE` content goes only to a local model.
+- **Proof, not promises:** a hash-chained audit log, RFC 3161 timestamps, and an HTML/JSON report for your DPO.
+- **Organisation-ready:** signed policies, compliance profiles, a Cyber Resilience Act assistant, CI templates.
 
 <p align="center"><img src="docs/assets/demo.gif" alt="Demo: tenon reads main.go, proposes a fix approved in the panel, runs go run . then fixes a second error until it prints 5" width="900"></p>
 
@@ -130,6 +114,46 @@ To mark the commits that contain code written by the agent:
 ```
 tenon git install-hook
 ```
+
+## Why tenon
+
+| | **tenon** | Claude Code | Aider | OpenCode | Mistral Vibe |
+|---|---|---|---|---|---|
+| Licence | EUPL-1.2 | Proprietary | Apache-2.0 | MIT | Apache-2.0 |
+| European and local providers built in | ✅ | — | via LiteLLM | via 75+ providers | Mistral |
+| Consent before data leaves the EU | ✅ | — | — | — | — |
+| Approval before writes and commands | ✅ by default | ✅ | partial | configurable | ✅ |
+| System sandbox for commands | ✅ Landlock, sandbox-exec | ✅ bubblewrap, Seatbelt | — | — | via Docker Sandboxes |
+| Classified data kept on a local model | ✅ | — | — | — | — |
+| Hash-chained, verifiable audit log | ✅ | — | — | — | — |
+| Compliance report and RFC 3161 timestamps | ✅ | — | — | — | — |
+| Signed organisation policy | ✅ minisign | managed settings | — | — | — |
+
+“—” means not documented, to our knowledge, on 2026-10-24. Corrections are welcome: open an issue.
+Sources: [Claude Code sandboxing](https://code.claude.com/docs/en/sandboxing), [Aider](https://aider.chat/), [OpenCode](https://opencode.ai/), [Mistral Vibe](https://mistral.ai/news/devstral-2-vibe-cli), [Docker Sandboxes for Vibe](https://docs.docker.com/guides/mistral-vibe-sandbox/).
+
+## Features
+
+- the preconfigured providers are European (Mistral AI, Codestral, Scaleway, OVHcloud, Albert API of the French State) or local (Ollama, vLLM);
+- any data sent outside the EU requires your explicit consent;
+- by default, writes, commands and MCP tool calls wait for your approval;
+- everything is recorded in a hash-chained, verifiable audit log;
+- secrets and some personal data are masked before anything is sent;
+- commits that contain code written by the agent can be marked;
+- reusable skills in the open Agent Skills format (`SKILL.md`), loaded by the model or with `/<name>`, never able to widen permissions;
+- sub-agents (`.claude/agents/*.md` format) that the model launches for a self-contained task, with the same permissions, masking and audit as the main agent;
+- hooks (Claude Code format) that run your commands before and after tools, on prompts and at session start and end, to block, ask, add context or change a tool input, without widening permissions; project hooks never run;
+- compliance profiles (`eu-only`, `secnumcloud`, `strict-local`): the provider and MCP servers are checked against the profile at startup and before each send, and the profile is recorded in the audit log; `secnumcloud` relies on a declared, never verified, qualification; a `[provider_allowlist]` restricts provider hosts;
+- system sandbox: shell commands and stdio MCP servers are confined by the system (Landlock and user namespaces on Linux, `sandbox-exec` on macOS): writes limited to the project, credentials directories unreadable, network closed unless a rule or your answer opens it; `[sandbox] mode = "required"` refuses to run without it ([docs/usage.md](docs/usage.md#system-sandbox), [limits](docs/security.md#the-sandbox-and-its-limits));
+- data-sensitivity routing: paths and markers (`DIFFUSION RESTREINTE`, `EU RESTRICTED`, your own) classify a session as sensitive, and from then on it is sent only to a local model, with an ordered fallback to other providers for the rest; the audit log proves each decision and the export flags any violation ([docs/usage.md](docs/usage.md#data-sensitivity-routing), [limits](docs/security.md#data-sensitivity-routing-and-its-limits));
+- signed organisation policy (minisign): an administrator imposes a floor (profile, allowed provider hosts, permission and redaction rules, audit level, MCP servers) that users cannot loosen; it is verified at every startup and recorded in the audit log ([docs/policy.md](docs/policy.md));
+- RFC 3161 timestamping of the audit log: `[audit.timestamp]` has a timestamp authority sign the head hash, so a log rewritten afterwards is detected by `tenon audit verify` and by the export (no authority is built in, none is called unless you configure one);
+- `tenon audit export`: an HTML and JSON compliance report built from the audit log (providers, consents, permissions, modified files, incidents), with no conversation data unless you ask for it;
+- Cyber Resilience Act assistant: `tenon cra` keeps an SBOM, a VEX, reporting deadlines (article 14) and an exportable technical dossier in the repository, with an offline OSV vulnerability scan usable in CI (`tenon cra scan --fail-on open`) and four built-in skills; nothing is sent to ENISA ([docs/cra.md](docs/cra.md));
+- checkpoints: each prompt is a restore point, and `/rewind` (or Esc twice) restores the files an agent wrote, the conversation, or both, never overwriting a file you changed without asking.
+
+Any OpenAI-compatible endpoint works.
+tenon runs on Linux and macOS.
 
 ## Documentation
 
