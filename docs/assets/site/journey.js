@@ -31,13 +31,17 @@
 
   /* ── Le plan (monde ≈ 2600 × 1700) : le plateau est votre machine ── */
   var BOARD = { x0: 300, y0: 150, x1: 2110, y1: 1640 };
+  /* Zone confinée par le système : le shell et les serveurs MCP stdio. */
+  var CAGE = { x0: 345, y0: 870, x1: 690, y1: 1345 };
   var P = {
     you:         { x: 130,  y: 760,  w: 220, h: 120, d: 0 },
     ci:          { x: 130,  y: 1100, w: 220, h: 100, d: 0 },
     hooks:       { x: 560,  y: 340,  w: 240, h: 120, d: 18 },
     skills:      { x: 1150, y: 330,  w: 260, h: 130, d: 18 },
     subagents:   { x: 1700, y: 330,  w: 300, h: 130, d: 18 },
-    tools:       { x: 470,  y: 760,  w: 230, h: 140, d: 18 },
+    tools:       { x: 470,  y: 600,  w: 230, h: 120, d: 18 },
+    sandbox:     { x: 690,  y: 990,  w: 120, h: 130, d: 14 },
+    shell:       { x: 490,  y: 990,  w: 230, h: 130, d: 18 },
     permissions: { x: 810,  y: 760,  w: 240, h: 130, d: 18 },
     engine:      { x: 1160, y: 760,  w: 300, h: 210, d: 34 },
     redaction:   { x: 1520, y: 760,  w: 250, h: 130, d: 18 },
@@ -45,7 +49,7 @@
     gate:        { x: 2110, y: 540,  w: 170, h: 100, d: 14 },
     local:       { x: 1860, y: 1130, w: 240, h: 120, d: 22 },
     eu:          { x: 2400, y: 540,  w: 300, h: 300, d: 0 },
-    mcp:         { x: 470,  y: 1170, w: 230, h: 120, d: 18 },
+    mcp:         { x: 490,  y: 1245, w: 230, h: 100, d: 18 },
     checkpoints: { x: 840,  y: 1170, w: 240, h: 120, d: 18 },
     audit:       { x: 1330, y: 1170, w: 420, h: 130, d: 18 },
     tsa:         { x: 2400, y: 1300, w: 240, h: 150, d: 0 },
@@ -62,7 +66,7 @@
     ["engine", 0.8, 9], ["redaction", 0.35, 9], ["routing", 0.35, 9], ["local", 1.0, 10], ["engine", 0.6, 10],
     ["permissions", 1.1, 11], ["checkpoints", 1.0, 12], ["tools", 0.9, 12],
     ["engine", 0.7, 13], ["redaction", 0.35, 13], ["routing", 0.35, 13], ["local", 1.0, 13], ["engine", 0.6, 13],
-    ["permissions", 1.0, 14], ["tools", 1.2, 14],
+    ["permissions", 1.0, 14], ["sandbox", 1.0, 21], ["shell", 1.5, 22],
     ["engine", 0.7, 15], ["redaction", 0.35, 15], ["routing", 0.35, 15], ["local", 1.0, 15], ["engine", 0.6, 15],
     ["you", 1.1, 16], ["audit", 1.1, 17], ["tsa", 1.1, 18], ["export", 1.3, 19]
   ];
@@ -302,10 +306,24 @@
     },
     tools: function (c, t) {
       var L = last("tools", t);
-      if (L.nth < 0) { text("read · write · shell", c.x, c.y, 15, C["on-night-muted"], F.mono, "center", 500); return; }
-      var show = L.p > 0.4;
-      text(L.nth === 0 ? "read_file" : L.nth === 1 ? "write_file" : "shell", c.x - c.w / 2 + 22, c.y - 22, 16, C["on-night"], F.mono, "left", 500);
-      if (show) text(TXT.tool[L.nth], c.x - c.w / 2 + 22, c.y + 18, 15, C.gold, F.mono, "left", 500);
+      if (L.nth < 0) { text("read · write · search", c.x, c.y, 15, C["on-night-muted"], F.mono, "center", 500); return; }
+      text(L.nth === 0 ? "read_file" : "write_file", c.x - c.w / 2 + 22, c.y - 20, 16, C["on-night"], F.mono, "left", 500);
+      if (L.p > 0.4) text(TXT.tool[L.nth], c.x - c.w / 2 + 22, c.y + 18, 15, C.gold, F.mono, "left", 500);
+    },
+    shell: function (c, t) {
+      var L = last("shell", t);
+      text("$ go test ./...", c.x - c.w / 2 + 20, c.y - 20, 16, L.nth >= 0 ? C["on-night"] : C["on-night-muted"], F.mono, "left", 500);
+      if (L.nth >= 0 && L.p > 0.75) text("ok", c.x - c.w / 2 + 20, c.y + 18, 16, C.gold, F.mono, "left", 500);
+    },
+    sandbox: function (c, t) {
+      var L = last("sandbox", t), k = spring(L.p), on = L.nth >= 0;
+      /* cadenas : l'anse se referme au passage */
+      var lx = c.x, ly = c.y - 18;
+      ctx.lineWidth = 5; ctx.strokeStyle = on ? C.gold : C["3d-edge"]; ctx.lineCap = "round";
+      ctx.beginPath(); ctx.arc(lx, ly - 4 - 10 * (1 - clamp(k, 0, 1)), 14, Math.PI, 0); ctx.stroke();
+      rr(lx - 20, ly - 4, 40, 30, 5); ctx.fillStyle = on ? C.gold : C["3d-post"]; ctx.fill();
+      text(TXT.sb[0], c.x + 74, c.y + 30, 13, on ? C.gold : C["on-night-muted"], F.mono, "left", 500);
+      text(TXT.sb[1], c.x + 74, c.y + 50, 13, on ? C.gold : C["on-night-muted"], F.mono, "left", 500);
     },
     mcp: function (c) {
       rr(c.x - 50, c.y - 24, 100, 48, 8); ctx.fillStyle = C["3d-post"]; ctx.fill();
@@ -425,12 +443,35 @@
     ctx.translate(W / 2, Hh / 2); ctx.rotate(rot); ctx.scale(sc, sc); ctx.translate(-c.x, -c.y);
     boardAndFence(sc);
     traces();
-    /* la cage d'isolation entoure les outils et s'allume pour la commande shell */
-    var T3 = last("tools", t), cage = T3.nth === 2 ? T3.p : 0, tl = P.tools;
-    for (var bI = 0; bI < 8; bI++) {
-      var bx = tl.x - tl.w / 2 - 20 + bI * (tl.w + 40) / 7, on = cage * 8 > bI;
-      ctx.fillStyle = on ? C.gold : C["3d-edge"]; ctx.globalAlpha = on ? 0.8 : 0.35;
-      ctx.fillRect(bx - 2, tl.y - tl.h / 2 - 40, 4, tl.h + 80 + tl.d); ctx.globalAlpha = 1;
+    /* la zone d'isolation système : shell et MCP stdio, confinés par le noyau */
+    var SB = last("sandbox", t), SH = last("shell", t), act = Math.max(SB.lit, SH.lit);
+    rr(CAGE.x0, CAGE.y0, CAGE.x1 - CAGE.x0, CAGE.y1 - CAGE.y0, 18);
+    ctx.fillStyle = C.night; ctx.globalAlpha = 0.55; ctx.fill(); ctx.globalAlpha = 1;
+    if (act > 0.05) { ctx.strokeStyle = C.gold; ctx.lineWidth = 3 + 3 * act; ctx.setLineDash([]); }
+    else { ctx.strokeStyle = C["3d-edge"]; ctx.lineWidth = 3; ctx.setLineDash([14, 10]); }
+    ctx.stroke(); ctx.setLineDash([]);
+    for (var bI = 0; bI < 9; bI++) {          /* barreaux le long des parois */
+      var bx = CAGE.x0 + 20 + bI * (CAGE.x1 - CAGE.x0 - 40) / 8;
+      ctx.fillStyle = act > 0.05 ? C.gold : C["3d-edge"]; ctx.globalAlpha = act > 0.05 ? 0.35 + 0.4 * act : 0.25;
+      ctx.fillRect(bx - 2, CAGE.y0 - 10, 4, 22); ctx.fillRect(bx - 2, CAGE.y1 - 12, 4, 22);
+    }
+    ctx.globalAlpha = 1;
+    text(TXT.cage, CAGE.x0 + 16, CAGE.y0 + 26, 15, act > 0.05 ? C.gold : C["on-night-muted"], F.mono, "left", 500);
+    /* tentatives de sortie pendant la commande : elles butent contre la paroi */
+    if (SH.nth >= 0 && SH.lit > 0.05) {
+      var tr = [[CAGE.x0, P.shell.y - 30, TXT.escape[0]], [CAGE.x0, P.mcp.y - 40, TXT.escape[1]]];
+      for (var e = 0; e < tr.length; e++) {
+        var k0 = clamp((SH.p - 0.15 - e * 0.25) / 0.35, 0, 1);
+        if (k0 <= 0) continue;
+        var sx0 = P.shell.x - 60, sy0 = P.shell.y + 10, ex = lerp(sx0, tr[e][0] + 8, easeOut(k0)), ey = lerp(sy0, tr[e][1], easeOut(k0));
+        ctx.setLineDash([6, 6]); ctx.strokeStyle = C["on-night"]; ctx.lineWidth = 2.5;
+        ctx.beginPath(); ctx.moveTo(sx0, sy0); ctx.lineTo(ex, ey); ctx.stroke(); ctx.setLineDash([]);
+        if (k0 >= 1) {
+          ctx.strokeStyle = C.gold; ctx.lineWidth = 4; ctx.beginPath();
+          ctx.moveTo(tr[e][0] - 9, tr[e][1] - 9); ctx.lineTo(tr[e][0] + 9, tr[e][1] + 9); ctx.moveTo(tr[e][0] + 9, tr[e][1] - 9); ctx.lineTo(tr[e][0] - 9, tr[e][1] + 9); ctx.stroke();
+          text(tr[e][2] + " · " + TXT.refused, tr[e][0] - 16, tr[e][1], 14, C.gold, F.mono, "right", 500);
+        }
+      }
     }
     Object.keys(P).forEach(function (id) {
       var L = last(id, t), dim = !VISITED[id];
@@ -440,7 +481,6 @@
       ctx.globalAlpha = dim ? 0.6 : 1; FACE[id](P[id], t); ctx.globalAlpha = 1;
       name(id, L.lit > 0.5, dim);
     });
-    text(TXT.n.sandbox, tl.x - tl.w / 2 - 20, tl.y - tl.h / 2 - 58, 18, cage > 0 ? C.gold : C["on-night-muted"], F.mono, "left", 500);
     sparks(t);
 
     var h = hero(t), sqx = 1, sqy = 1;
