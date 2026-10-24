@@ -1,14 +1,12 @@
 package engine
 
 import (
-	"errors"
 	"fmt"
 	"slices"
 	"strings"
 
 	"github.com/tenon-code-eu/tenon/internal/event"
 	"github.com/tenon-code-eu/tenon/internal/llm"
-	"github.com/tenon-code-eu/tenon/internal/provider"
 	"github.com/tenon-code-eu/tenon/internal/routing"
 )
 
@@ -89,29 +87,33 @@ func sortedDefs(defs []llm.ToolDef) []llm.ToolDef {
 	return out
 }
 
-// usage émet l'événement Usage d'un appel au fournisseur info qui a répondu :
-// consommation rapportée par le flux (u), ou à défaut estimée (requête
-// envoyée en entrée, texte et arguments d'appels de la réponse en sortie).
-// Un appel sans réponse (erreur du fournisseur sans rapport, flux incomplet
-// vide) n'émet rien. Le compteur de la session est ensuite mis à jour, et
-// l'avis BudgetWarning émis au premier franchissement du seuil.
+// usage émet l'événement Usage d'un appel au fournisseur info : consommation
+// rapportée par le flux (u), ou à défaut estimée (requête envoyée en entrée,
+// texte et arguments d'appels reçus en sortie) dès que le flux a commencé
+// ou a livré du texte ou des appels, quelle que soit l'erreur qui l'a
+// terminé (annulation, coupure réseau, flux incomplet) : le fournisseur a
+// consommé l'entrée. Seul un appel resté sans aucune réponse n'émet rien.
+// L'émission ne dépend pas du contexte du tour (elle a lieu aussi après une
+// annulation). Le compteur de la session est ensuite mis à jour, et l'avis
+// BudgetWarning émis au premier franchissement du seuil.
 func (t *turn) usage(info llm.ProviderInfo, purpose string, req llm.Request, res tryResult, u *llm.Usage) error {
 	p := event.UsagePayload{Provider: info.ID, Model: info.Model, Purpose: purpose}
 	switch {
 	case u != nil:
 		p.Input, p.Output, p.Cached = u.Input, u.Output, u.Cached
-	case res.provErr == nil || (errors.Is(res.provErr, provider.ErrIncomplete) && res.text != ""):
+	case res.started || res.text != "" || len(res.calls) > 0:
 		p.Input = estimate(req.Messages, req.Tools)
 		p.Output = estimate([]llm.Message{{Content: res.text, ToolCalls: res.calls}}, nil)
 		p.Estimated = true
 	default:
 		return nil
 	}
+	// Compteur d'abord : il compte l'appel même si l'émission échoue.
+	b := t.e.d.Budget
+	used, warn := t.s.addUsage(int64(p.Input)+int64(p.Output), b)
 	if err := t.emit(event.Usage, p); err != nil {
 		return err
 	}
-	b := t.e.d.Budget
-	used, warn := t.s.addUsage(int64(p.Input)+int64(p.Output), b)
 	if !warn {
 		return nil
 	}

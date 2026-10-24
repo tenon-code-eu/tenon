@@ -111,8 +111,16 @@ func (t *turn) run(in Input) error {
 			}
 		}
 	}
-	// Budget épuisé : le tour ne part pas (ni hook, ni message, ni envoi).
+	// Budget épuisé : le tour ne part pas (ni hook, ni envoi). Le prompt
+	// est journalisé comme bloqué, comme un prompt bloqué par un hook (avec
+	// le contexte SessionStart encore en attente, pour la reprise).
 	if _, _, over := t.s.overBudget(d.Budget); over {
+		if err := t.emit(event.UserMessage, event.UserMessagePayload{
+			Text: in.Text, Typed: in.Typed, Skill: in.Skill, SkillSHA256: in.SkillSHA256,
+			Blocked: true, HookContext: t.s.startCtx,
+		}); err != nil {
+			return err
+		}
 		return t.done(0, reasonBudget)
 	}
 	if first {
@@ -722,6 +730,10 @@ func (t *turn) try(c routing.Candidate, info llm.ProviderInfo, req llm.Request, 
 					for range ch {
 					}
 				}()
+				// Échec d'émission (audit) : l'Usage ne peut plus être
+				// journalisé, mais le compteur de la session le compte.
+				r := tryResult{sent: true, started: true, text: sb.String(), provErr: err}
+				_ = t.usage(info, purpose, req, r, nil)
 				return tryResult{sent: true, started: true}, err
 			}
 		}

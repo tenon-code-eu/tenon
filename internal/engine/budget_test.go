@@ -2,7 +2,9 @@ package engine
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -166,11 +168,31 @@ func TestBudgetRefusesNextTurn(t *testing.T) {
 	if n := len(h.prov.reqs()); n != 2 {
 		t.Fatalf("%d requêtes : fournisseur contacté", n)
 	}
-	if n := len(ofType(evs, event.UserMessage)); n != 0 {
+	// Le prompt refusé est journalisé comme bloqué (audit), comme un prompt
+	// bloqué par un hook.
+	if !slices.Equal(types(evs), []event.Type{event.UserMessage, event.TurnCompleted}) {
 		t.Fatalf("events %v", types(evs))
 	}
-	if !slices.Equal(types(evs), []event.Type{event.TurnCompleted}) {
-		t.Fatalf("events %v", types(evs))
+	if um := decode[event.UserMessagePayload](t, evs[0]); !um.Blocked || um.Text != "encore" {
+		t.Fatalf("UserMessage %+v", um)
+	}
+
+	// Reprise avec un budget plus large : le prompt refusé n'entre pas dans
+	// l'historique, le compteur repart de 1100.
+	h2 := newHarness(t, euInfo, [][]llm.Chunk{text("ok")}, budgetOpt(5000, 0.8))
+	if err := h2.eng.Restore("s_1", h.sink.events); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h2.submit(t, "s_1", "suite", nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range h2.prov.reqs()[0].Messages {
+		if m.Content == "encore" {
+			t.Fatal("prompt refusé rejoué dans l'historique")
+		}
+	}
+	if used, _, _ := h2.eng.session("s_1").overBudget(Budget{}); used < 1100 {
+		t.Fatalf("compteur repris %d", used)
 	}
 }
 
@@ -293,7 +315,7 @@ func TestBudgetResume(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !slices.Equal(types(evs), []event.Type{event.SessionStarted, event.TurnCompleted}) {
+		if !slices.Equal(types(evs), []event.Type{event.SessionStarted, event.UserMessage, event.TurnCompleted}) {
 			t.Fatalf("events %v", types(evs))
 		}
 		if tc := lastTurn(t, evs); tc.Reason != "budget_exceeded" || tc.Iterations != 0 {
@@ -520,5 +542,77 @@ func TestUsagePromptHookCountsAsTurn(t *testing.T) {
 	}
 	if used, _, _ := h.eng.session("s_1").overBudget(Budget{}); used != 2033+int64(us[2].Input+us[2].Output) {
 		t.Fatalf("compteur %d", used)
+	}
+}
+
+// partialProvider envoie un premier fragment de texte puis, si fail n'est
+// pas nil, termine le flux sur cette erreur ; sinon attend l'annulation.
+type partialProvider struct {
+	info llm.ProviderInfo
+	fail error
+}
+
+func (p *partialProvider) Info() llm.ProviderInfo { return p.info }
+
+func (p *partialProvider) Stream(ctx context.Context, _ llm.Request) (<-chan llm.Chunk, error) {
+	ch := make(chan llm.Chunk)
+	go func() {
+		defer close(ch)
+		select {
+		case ch <- llm.Chunk{Text: "début de réponse"}:
+		case <-ctx.Done():
+			return
+		}
+		err := p.fail
+		if err == nil {
+			<-ctx.Done()
+			err = ctx.Err()
+		}
+		select {
+		case ch <- llm.Chunk{Done: true, Err: err}:
+		case <-ctx.Done():
+		}
+	}()
+	return ch, nil
+}
+
+func TestUsageInterruptedCall(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		fail error
+	}{
+		{"cancelled", nil},
+		{"transport error", errors.New("connection reset by peer")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pp := &partialProvider{info: euInfo, fail: tc.fail}
+			h := newHarness(t, euInfo, nil, func(d *Deps) { d.Provider = pp }, budgetOpt(1000, 0.8))
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			go func() {
+				for ev := range h.sub {
+					if ev.Type == event.AssistantDelta && tc.fail == nil {
+						cancel()
+					}
+				}
+			}()
+			err := h.eng.Submit(ctx, "s_1", "salut")
+			if tc.fail == nil && !errors.Is(err, context.Canceled) {
+				t.Fatalf("err %v", err)
+			}
+			if tc.fail != nil && (err == nil || !strings.Contains(err.Error(), "connection reset")) {
+				t.Fatalf("err %v", err)
+			}
+			h.sink.mu.Lock()
+			evs := append([]event.Event(nil), h.sink.events...)
+			h.sink.mu.Unlock()
+			us := usages(t, evs)
+			if len(us) != 1 || !us[0].Estimated || us[0].Input <= 0 || us[0].Output <= 0 || us[0].Purpose != "turn" {
+				t.Fatalf("usages %+v, events %v", us, types(evs))
+			}
+			if used, _, _ := h.eng.session("s_1").overBudget(Budget{}); used != int64(us[0].Input+us[0].Output) {
+				t.Fatalf("compteur %d", used)
+			}
+		})
 	}
 }
