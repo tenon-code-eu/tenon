@@ -61,3 +61,69 @@ func TestTruncateShort(t *testing.T) {
 		}
 	}
 }
+
+// Un alignement sur les lignes qui ne garderait presque rien retombe sur la
+// forme en caractères.
+func TestTruncateAlignmentKeepsTooLittle(t *testing.T) {
+	x := strings.Repeat("x", 10000)
+	got := Truncate("{\n"+x+"\n}", 1000)
+	want := "{\n" + x[:698] + "\n[… 9004 characters omitted …]\n" + x[:298] + "\n}"
+	if got != want {
+		t.Fatalf("got %.120q…", got)
+	}
+}
+
+// numbered renvoie n lignes « ligne NNN » terminées par eol.
+func numbered(n int, eol string) string {
+	var b strings.Builder
+	for i := 1; i <= n; i++ {
+		fmt.Fprintf(&b, "ligne %03d%s", i, eol)
+	}
+	return b.String()
+}
+
+// checkLines vérifie que got garde des lignes entières de in (terminées par
+// eol) et que le marqueur compte exactement les lignes omises.
+func checkLines(t *testing.T, got string, n int, eol string) {
+	t.Helper()
+	kept, omitted := 0, -1
+	for _, l := range strings.Split(strings.TrimSuffix(got, "\n"), "\n") {
+		if _, err := fmt.Sscanf(l, "[… %d lines omitted …]", &omitted); err == nil {
+			continue
+		}
+		if !strings.HasPrefix(l, "ligne ") || l != strings.TrimSuffix(l, "\r")+strings.TrimSuffix(eol, "\n") {
+			t.Fatalf("ligne coupée %q dans %q", l, got)
+		}
+		kept++
+	}
+	if omitted <= 0 || kept+omitted != n {
+		t.Fatalf("gardées %d, omises %d, attendu %d au total", kept, omitted, n)
+	}
+}
+
+func TestTruncateTrailingNewline(t *testing.T) {
+	got := Truncate(numbered(200, "\n"), 200)
+	if !strings.HasPrefix(got, "ligne 001\n") || !strings.HasSuffix(got, "ligne 200\n") {
+		t.Fatalf("got %q", got)
+	}
+	checkLines(t, got, 200, "\n")
+}
+
+func TestTruncateCRLF(t *testing.T) {
+	got := Truncate(numbered(200, "\r\n"), 220)
+	if !strings.HasPrefix(got, "ligne 001\r\n") || !strings.HasSuffix(got, "ligne 200\r\n") {
+		t.Fatalf("got %q", got)
+	}
+	checkLines(t, got, 200, "\r\n")
+}
+
+func TestTruncateKeepsFailureOnLastLine(t *testing.T) {
+	in := numbered(300, "\n") + "FAIL\tgithub.com/x/y\t0.123s"
+	got := Truncate(in, 300)
+	if !strings.HasSuffix(got, "\nFAIL\tgithub.com/x/y\t0.123s") || !strings.HasPrefix(got, "ligne 001\n") {
+		t.Fatalf("got %q", got)
+	}
+	if !strings.Contains(got, "lines omitted") {
+		t.Fatalf("forme en caractères : %q", got)
+	}
+}

@@ -19,6 +19,9 @@ func Truncate(s string, limit int) string {
 
 	// Forme multi-lignes : la tête finit en fin de ligne, la queue commence
 	// en début de ligne, pour que le nombre de lignes omises soit exact.
+	// Elle n'est retenue que si la tête et la queue alignées gardent chacune
+	// au moins la moitié de leur part (une très longue ligne au milieu ne
+	// doit pas tout emporter).
 	p := head // la tête est r[:p], r[p] est un saut de ligne
 	for p >= 0 && (p >= n || r[p] != '\n') {
 		p--
@@ -27,7 +30,7 @@ func Truncate(s string, limit int) string {
 	for q <= n && (q == 0 || r[q-1] != '\n') {
 		q++
 	}
-	if p >= 0 && q < n && q-1 > p {
+	if p >= 0 && q < n && q-1 > p && 2*p >= head && 2*(n-q) >= tail {
 		omitted := 1
 		for _, c := range r[p+1 : q-1] {
 			if c == '\n' {
@@ -37,6 +40,7 @@ func Truncate(s string, limit int) string {
 		return string(r[:p]) + fmt.Sprintf("\n[… %d lines omitted …]\n", omitted) + string(r[q:])
 	}
 
-	// Une seule ligne (ou aucune coupe propre) : forme en caractères.
+	// Une seule ligne (ou aucune coupe propre qui garde assez) : forme en
+	// caractères.
 	return string(r[:head]) + fmt.Sprintf("\n[… %d characters omitted …]\n", n-limit) + string(r[n-tail:])
 }
