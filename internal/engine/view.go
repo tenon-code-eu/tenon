@@ -17,8 +17,9 @@ const (
 	// fenêtre (en dixièmes) ; maskStop : il s'arrête sous cette part.
 	maskStart = 5
 	maskStop  = 4
-	// protectedTurns : nombre de derniers tours utilisateur jamais masqués.
-	protectedTurns = 3
+	// protectedIters : nombre de dernières itérations (messages assistant
+	// portant des appels d'outils) dont les résultats ne sont jamais masqués.
+	protectedIters = 3
 	// maskArgsRunes : longueur maximale des arguments rappelés dans le talon.
 	maskArgsRunes = 60
 )
@@ -40,8 +41,8 @@ func (a Shaped) sameSets(b Shaped) bool {
 // outil, mêmes arguments, même SHA-256 du contenu), seul le plus récent reste ;
 // (2) si l'estimation dépasse 50 % de window, masquage des plus anciens
 // résultats d'outils, un par un, jusqu'à repasser sous 40 %. Seul le contenu
-// des messages tool change ; les résultats des 3 derniers tours utilisateur ne
-// sont jamais masqués. Un talon qui ne raccourcit pas le résultat n'est pas
+// des messages tool change ; les résultats des 3 dernières itérations
+// (messages assistant à appels d'outils) ne sont jamais masqués. Un talon qui ne raccourcit pas le résultat n'est pas
 // appliqué. Déterministe.
 func view(history []llm.Message, defs []llm.ToolDef, window int) ([]llm.Message, Shaped) {
 	out := slices.Clone(history)
@@ -51,22 +52,26 @@ func view(history []llm.Message, defs []llm.ToolDef, window int) ([]llm.Message,
 	// de chaque message : nombre de messages user jusqu'à lui inclus.
 	calls := map[string]llm.ToolCall{}
 	turnOf := make([]int, len(out))
-	users := []int{}
+	iters := []int{}
 	n := 0
 	for i, m := range out {
 		if m.Role == llm.User {
 			n++
-			users = append(users, i)
+		}
+		if m.Role == llm.Assistant && len(m.ToolCalls) > 0 {
+			iters = append(iters, i)
 		}
 		turnOf[i] = n
 		for _, c := range m.ToolCalls {
 			calls[c.ID] = c
 		}
 	}
-	// Début de la zone protégée : l'avant-avant-dernier message user.
+	// Début de la zone protégée : le plus ancien des 3 derniers messages
+	// assistant à appels d'outils ; rien n'est masqué à partir de lui (un
+	// long tour agentique ou un sous-agent n'a qu'un message user).
 	protect := len(out)
-	if len(users) > 0 {
-		protect = users[max(0, len(users)-protectedTurns)]
+	if len(iters) > 0 {
+		protect = iters[max(0, len(iters)-protectedIters)]
 	}
 
 	deduped := make([]bool, len(out))

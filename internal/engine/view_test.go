@@ -184,7 +184,7 @@ func TestViewSparesRecentAndSummary(t *testing.T) {
 	}
 	h[len(h)-4].Content = runes(4000) // message utilisateur volumineux
 	out, sh := view(h, nil, 100)
-	// Derniers tours utilisateur : u2, u3, u4 ; seul c1 est éligible.
+	// 3 dernières itérations : c2, c3, c4 ; seul c1 est éligible.
 	if !reflect.DeepEqual(sh.Masked, []string{"c1"}) {
 		t.Fatalf("masked %v", sh.Masked)
 	}
@@ -308,5 +308,66 @@ func TestContextShapedOnChange(t *testing.T) {
 	}
 	if c := toolContent(t, h.prov.reqs()[5].Messages, "c2"); c != "[same content as the read at turn 3]" {
 		t.Fatalf("requête : c2 %q", c)
+	}
+}
+
+// iterations renvoie n itérations d'un même tour : appel read_file c<i> puis
+// son résultat volumineux.
+func iterations(n int) []llm.Message {
+	var out []llm.Message
+	for i := 1; i <= n; i++ {
+		id := fmt.Sprintf("c%d", i)
+		out = append(out,
+			llm.Message{Role: llm.Assistant, ToolCalls: []llm.ToolCall{{ID: id, Name: "read_file", Args: json.RawMessage(fmt.Sprintf(`{"path":"f%d"}`, i))}}},
+			llm.Message{Role: llm.Tool, ToolCallID: id, Content: bigResult(i)})
+	}
+	return out
+}
+
+func TestViewSingleTurnIterations(t *testing.T) {
+	h := viewHistory([]llm.Message{{Role: llm.User, Content: "fais tout"}}, iterations(10),
+		[]llm.Message{{Role: llm.Assistant, Content: "fini"}})
+	out, sh := view(h, nil, 6000)
+	// Au-delà de 50 % : les plus anciens sont masqués jusqu'à 40 %
+	// (2400 jetons), les 3 dernières itérations (c8, c9, c10) jamais.
+	if !reflect.DeepEqual(sh.Masked, []string{"c1", "c2", "c3", "c4", "c5", "c6", "c7"}) {
+		t.Fatalf("masked %v", sh.Masked)
+	}
+	for i := 8; i <= 10; i++ {
+		if c := toolContent(t, out, fmt.Sprintf("c%d", i)); c != bigResult(i) {
+			t.Fatalf("c%d masqué : %.40q", i, c)
+		}
+	}
+	// Fenêtre moins serrée : arrêt sous 40 % dès c4 masqué.
+	_, sh = view(h, nil, 16000)
+	if !reflect.DeepEqual(sh.Masked, []string{"c1", "c2", "c3", "c4"}) {
+		t.Fatalf("masked (16000) %v", sh.Masked)
+	}
+}
+
+func TestViewSubagentHistory(t *testing.T) {
+	// Historique d'un sous-agent : prompt système, un seul message user, des
+	// itérations dont une à deux appels parallèles.
+	h := []llm.Message{{Role: llm.System, Content: "agent"}, {Role: llm.User, Content: "tâche"}}
+	h = append(h, iterations(4)...)
+	h = append(h,
+		llm.Message{Role: llm.Assistant, Content: "deux lectures", ToolCalls: []llm.ToolCall{
+			{ID: "p1", Name: "read_file", Args: json.RawMessage(`{"path":"p1"}`)},
+			{ID: "p2", Name: "read_file", Args: json.RawMessage(`{"path":"p2"}`)}}},
+		llm.Message{Role: llm.Tool, ToolCallID: "p1", Content: bigResult(7)},
+		llm.Message{Role: llm.Tool, ToolCallID: "p2", Content: bigResult(8)},
+	)
+	out, sh := view(h, nil, 100)
+	// 3 dernières itérations : c3, c4, (p1, p2) ; c1 et c2 masqués.
+	if !reflect.DeepEqual(sh.Masked, []string{"c1", "c2"}) {
+		t.Fatalf("masked %v", sh.Masked)
+	}
+	for _, id := range []string{"c3", "c4", "p1", "p2"} {
+		if c := toolContent(t, out, id); strings.HasPrefix(c, "[output hidden") {
+			t.Fatalf("%s masqué", id)
+		}
+	}
+	if out[len(out)-3].Content != "deux lectures" || out[1].Content != "tâche" {
+		t.Fatal("texte modifié")
 	}
 }

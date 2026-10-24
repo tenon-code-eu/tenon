@@ -21,7 +21,7 @@ Critères de succès :
 | Sujet | Décision | Raison |
 |---|---|---|
 | Où façonner le contexte | Vue projetée, fonction pure de l'historique, calculée avant chaque envoi | L'historique reste complet pour l'audit, la reprise, le retour arrière et le routage |
-| Masquage | Sous pression : au-delà de 50 % de la fenêtre, du plus ancien, jusqu'à 40 % ; 3 derniers tours intacts | Gain fort, risque faible ; la compaction reste le dernier recours |
+| Masquage | Sous pression : au-delà de 50 % de la fenêtre, du plus ancien, jusqu'à 40 % ; 3 dernières itérations d'outils intactes | Gain fort, risque faible ; la compaction reste le dernier recours |
 | Mesure | `stream_options.include_usage`, repli sur l'estimation marquée | Chiffres réels quand le fournisseur les donne, jamais de trou |
 | Énergie, CO₂ | Seulement avec des facteurs déclarés par l'utilisateur | Aucun chiffre inventé |
 | Budget | Avis à 80 %, refus du tour suivant à 100 % (`budget_exceeded`, code 4 sous `--strict`) | Ne coupe jamais un outil en cours |
@@ -59,7 +59,7 @@ warn_at = 0.8              # 0 < warn_at < 1
 Étapes, dans l'ordre :
 
 1. **Déduplication.** Deux résultats d'outil identiques (même outil, mêmes arguments, même SHA-256 de contenu) : seul le plus récent reste ; l'ancien devient `[same content as the read at turn <n>]`.
-2. **Masquage sous pression.** Si l'estimation de la vue dépasse 50 % de la fenêtre, les résultats d'outils les plus anciens sont remplacés, un par un, jusqu'à repasser sous 40 %. Jamais masqués : les résultats des 3 derniers tours utilisateur, le message de résumé de compaction, les messages de l'utilisateur et de l'assistant. Talon : `[output hidden to save context: <tool> <arguments abrégés à 60 car.>, <n> lines, sha256 <12 hex>; run the tool again if you need it]`.
+2. **Masquage sous pression.** Si l'estimation de la vue dépasse 50 % de la fenêtre, les résultats d'outils les plus anciens sont remplacés, un par un, jusqu'à repasser sous 40 %. Jamais masqués : les résultats des 3 derniers messages assistant portant des appels d'outils (les 3 dernières itérations) et tout message qui suit le plus ancien d'entre eux, le message de résumé de compaction, les messages de l'utilisateur et de l'assistant. Protéger des itérations plutôt que des tours utilisateur permet de masquer dans un long tour agentique et dans un sous-agent (un seul message utilisateur). Talon : `[output hidden to save context: <tool> <arguments abrégés à 60 car.>, <n> lines, sha256 <12 hex>; run the tool again if you need it]`.
 3. Si la vue dépasse encore le seuil de compaction (0,8), la compaction actuelle s'applique (inchangée, sur l'historique).
 
 - Événement `ContextShaped` quand l'ensemble des appels masqués ou dédupliqués change : `{masked: [call_id], deduplicated: [call_id], saved_tokens}`.
@@ -96,7 +96,7 @@ subagents  = "ollama"   # défaut : fournisseur de la session
 ## 9. Tests
 
 - `provider` : `usage` lu sur le dernier fragment ; `cached_tokens` absent → 0 ; 400 citant `stream_options` → relance sans l'option, une seule fois ; `stream_usage = false` → option absente ; réponse sans `usage` → estimation marquée.
-- `engine/view` : déduplication garde le plus récent ; masquage seulement au-delà de 50 %, s'arrête sous 40 %, épargne les 3 derniers tours et le résumé ; vue déterministe ; historique inchangé ; `ContextShaped` émis seulement sur changement.
+- `engine/view` : déduplication garde le plus récent ; masquage seulement au-delà de 50 %, s'arrête sous 40 %, épargne les 3 dernières itérations d'outils et le résumé ; un seul tour de 10 itérations est masqué ; historique de sous-agent ; vue déterministe ; historique inchangé ; `ContextShaped` émis seulement sur changement.
 - `engine` : `Usage` par appel (tour, compaction, sous-agent) ; budget : avis à 80 % une fois, refus du tour suivant à 100 %, compteur reconstruit à la reprise ; session sensible → compaction et sous-agents au fournisseur local.
 - `tools` : coupe 70/30 sur plusieurs lignes et sur une ligne, UTF-8 préservé.
 - Préfixe stable : deux requêtes successives d'une même session ont un préfixe identique octet pour octet (prompt système et outils).
