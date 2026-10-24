@@ -73,6 +73,7 @@ model = "mistral-small-latest"
 country = "FR"
 jurisdiction = "eu"
 context_window = 32000                     # in tokens; 32000 if missing
+# stream_usage = false                     # do not ask for real token usage (stream_options); default true
 
 # --- Permissions ----------------------------------------------------------
 #

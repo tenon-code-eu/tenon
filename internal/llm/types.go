@@ -59,6 +59,15 @@ type Chunk struct {
 	// compter comme une sortie (un repli reste possible). Le moteur l'ignore
 	// pour l'affichage et l'historique.
 	Heartbeat bool
+	// Usage : consommation réelle de l'appel, portée par le chunk Done quand
+	// le flux l'a fournie (nil sinon : le moteur estime).
+	Usage *Usage
+}
+
+// Usage : jetons réellement comptés par le fournisseur pour un appel.
+// Cached est inclus dans Input.
+type Usage struct {
+	Input, Output, Cached int
 }
 
 // Jurisdiction is the legal zone in which a provider processes data.
@@ -80,4 +89,7 @@ type ProviderInfo struct {
 	Jurisdiction Jurisdiction `json:"jurisdiction"`
 	// Qualifications déclarées (ex. "secnumcloud") ; jamais déduites.
 	Qualifications []string `json:"qualifications,omitempty"`
+	// NoStreamUsage : n'envoie pas stream_options.include_usage
+	// (stream_usage = false). Jamais sérialisé.
+	NoStreamUsage bool `json:"-"`
 }

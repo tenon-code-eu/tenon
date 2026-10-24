@@ -403,3 +403,125 @@ func TestStreamTextNoHeartbeat(t *testing.T) {
 		}
 	}
 }
+
+// bodyOf lit le corps de la requête reçue, décodé en objet générique.
+func bodyOf(t *testing.T, r *http.Request) map[string]any {
+	t.Helper()
+	var m map[string]any
+	if err := json.NewDecoder(r.Body).Decode(&m); err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
+func hasUsageOpt(m map[string]any) bool {
+	so, ok := m["stream_options"].(map[string]any)
+	return ok && so["include_usage"] == true
+}
+
+func TestStreamUsageRequested(t *testing.T) {
+	var got map[string]any
+	p, _ := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+		got = bodyOf(t, r)
+		sse(w, `{"choices":[{"delta":{"content":"a"},"finish_reason":"stop"}]}`, `[DONE]`)
+	})
+	ch, err := p.Stream(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	collect(t, ch)
+	if !hasUsageOpt(got) {
+		t.Fatalf("stream_options manquant : %v", got)
+	}
+}
+
+func TestStreamUsageParsed(t *testing.T) {
+	p, _ := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+		sse(w, `{"choices":[{"delta":{"content":"a"},"finish_reason":"stop"}]}`,
+			`{"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":5,"prompt_tokens_details":{"cached_tokens":3}}}`, `[DONE]`)
+	})
+	ch, _ := p.Stream(context.Background(), req)
+	_, last := collect(t, ch)
+	if last.Usage == nil || *last.Usage != (llm.Usage{Input: 10, Output: 5, Cached: 3}) {
+		t.Fatalf("usage = %+v", last.Usage)
+	}
+	p2, _ := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+		sse(w, `{"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5}}`, `[DONE]`)
+	})
+	ch, _ = p2.Stream(context.Background(), req)
+	_, last = collect(t, ch)
+	if last.Usage == nil || *last.Usage != (llm.Usage{Input: 10, Output: 5}) {
+		t.Fatalf("usage sans détails = %+v", last.Usage)
+	}
+}
+
+func TestStreamUsageLastWins(t *testing.T) {
+	p, _ := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+		sse(w, `{"choices":[{"delta":{"content":"a"}}],"usage":{"prompt_tokens":1,"completion_tokens":1}}`,
+			`{"choices":[{"delta":{},"finish_reason":"stop"}]}`,
+			`{"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":5,"prompt_tokens_details":{"cached_tokens":2}}}`, `[DONE]`)
+	})
+	ch, _ := p.Stream(context.Background(), req)
+	n := 0
+	var last llm.Chunk
+	for c := range ch {
+		if c.Usage != nil {
+			n++
+		}
+		last = c
+	}
+	if n != 1 || !last.Done || last.Usage == nil || *last.Usage != (llm.Usage{Input: 10, Output: 5, Cached: 2}) {
+		t.Fatalf("n=%d last=%+v", n, last)
+	}
+}
+
+func TestStreamUsageRetry400(t *testing.T) {
+	var bodies []bool
+	p, _ := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+		with := hasUsageOpt(bodyOf(t, r))
+		bodies = append(bodies, with)
+		if with {
+			http.Error(w, `{"error":"unknown field stream_options"}`, 400)
+			return
+		}
+		sse(w, `{"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}`, `[DONE]`)
+	})
+	for i := 0; i < 2; i++ {
+		ch, err := p.Stream(context.Background(), req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if text, _ := collect(t, ch); text != "ok" {
+			t.Fatalf("text = %q", text)
+		}
+	}
+	if !reflect.DeepEqual(bodies, []bool{true, false, false}) {
+		t.Fatalf("bodies = %v", bodies)
+	}
+}
+
+func TestStreamUsageDisabled(t *testing.T) {
+	var got map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = bodyOf(t, r)
+		sse(w, `{"choices":[{"delta":{"content":"a"},"finish_reason":"stop"}]}`, `[DONE]`)
+	}))
+	t.Cleanup(srv.Close)
+	p := NewOpenAICompat(llm.ProviderInfo{ID: "t", BaseURL: srv.URL, Model: "m", NoStreamUsage: true}, "k")
+	ch, _ := p.Stream(context.Background(), req)
+	collect(t, ch)
+	if _, ok := got["stream_options"]; ok {
+		t.Fatalf("stream_options présent : %v", got)
+	}
+}
+
+func TestStreamNoUsage(t *testing.T) {
+	p, _ := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+		sse(w, `{"choices":[{"delta":{"content":"a"},"finish_reason":"stop"}]}`, `[DONE]`)
+	})
+	ch, _ := p.Stream(context.Background(), req)
+	_, last := collect(t, ch)
+	if !last.Done || last.Usage != nil {
+		t.Fatalf("last = %+v", last)
+	}
+}

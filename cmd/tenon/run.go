@@ -712,6 +712,7 @@ func providerInfo(pc config.Provider) llm.ProviderInfo {
 		ID: pc.ID, Name: pc.Name, BaseURL: pc.BaseURL, Model: pc.Model,
 		Country: pc.Country, Jurisdiction: llm.Jurisdiction(pc.Jurisdiction),
 		Qualifications: slices.Clone(pc.Qualifications),
+		NoStreamUsage:  pc.StreamUsage != nil && !*pc.StreamUsage,
 	}
 }
 

@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/tenon-code-eu/tenon/internal/llm"
@@ -56,7 +58,14 @@ type OpenAICompat struct {
 	client  *http.Client
 	sleep   func(context.Context, time.Duration) error
 	noProxy bool
+	// noUsage : le fournisseur a refusé stream_options (400) ou
+	// info.NoStreamUsage : l'option n'est plus envoyée pour la session.
+	noUsage atomic.Bool
 }
+
+// errStreamOptions : 400 qui cite stream_options alors que l'option était
+// envoyée ; Stream réessaie une fois sans elle.
+var errStreamOptions = errors.New("provider: stream_options refused")
 
 // NewOpenAICompat builds a provider for info.BaseURL.
 func NewOpenAICompat(info llm.ProviderInfo, apiKey string, opts ...Option) *OpenAICompat {
@@ -66,6 +75,7 @@ func NewOpenAICompat(info llm.ProviderInfo, apiKey string, opts ...Option) *Open
 		return http.ErrUseLastResponse
 	}}
 	o := &OpenAICompat{info: info, apiKey: apiKey, client: client, sleep: sleepCtx}
+	o.noUsage.Store(info.NoStreamUsage)
 	for _, opt := range opts {
 		opt(o)
 	}
@@ -111,6 +121,12 @@ type wireRequest struct {
 	Messages []wireMessage `json:"messages"`
 	Tools    []wireToolDef `json:"tools,omitempty"`
 	Stream   bool          `json:"stream"`
+	// StreamOptions : demande l'usage réel dans le dernier fragment.
+	StreamOptions *wireStreamOptions `json:"stream_options,omitempty"`
+}
+
+type wireStreamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
 }
 
 func orEmptyObject(b []byte) string {
@@ -120,8 +136,11 @@ func orEmptyObject(b []byte) string {
 	return string(b)
 }
 
-func buildBody(req llm.Request) ([]byte, error) {
+func buildBody(req llm.Request, includeUsage bool) ([]byte, error) {
 	w := wireRequest{Model: req.Model, Stream: true}
+	if includeUsage {
+		w.StreamOptions = &wireStreamOptions{IncludeUsage: true}
+	}
 	for _, m := range req.Messages {
 		wm := wireMessage{Role: string(m.Role), Content: m.Content, ToolCallID: m.ToolCallID}
 		for _, tc := range m.ToolCalls {
@@ -143,7 +162,7 @@ func buildBody(req llm.Request) ([]byte, error) {
 
 // connect sends the request, retrying 429, 5xx and network errors before the
 // first byte of the stream. It returns an open 200 response.
-func (o *OpenAICompat) connect(ctx context.Context, body []byte) (*http.Response, error) {
+func (o *OpenAICompat) connect(ctx context.Context, body []byte, withUsage bool) (*http.Response, error) {
 	url := strings.TrimRight(o.info.BaseURL, "/") + "/chat/completions"
 	var lastErr error
 	for attempt := 0; ; attempt++ {
@@ -193,6 +212,9 @@ func (o *OpenAICompat) connect(ctx context.Context, body []byte) (*http.Response
 					if strings.Contains(s, "context_length_exceeded") || strings.Contains(s, "maximum context length") {
 						return nil, ErrContextLength
 					}
+					if withUsage && strings.Contains(s, "stream_options") {
+						return nil, errStreamOptions
+					}
 				}
 				return nil, fmt.Errorf("provider: HTTP status %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
 			}
@@ -227,15 +249,31 @@ type streamEvent struct {
 		} `json:"delta"`
 		FinishReason *string `json:"finish_reason"`
 	} `json:"choices"`
+	Usage *struct {
+		PromptTokens     int `json:"prompt_tokens"`
+		CompletionTokens int `json:"completion_tokens"`
+		Details          *struct {
+			CachedTokens int `json:"cached_tokens"`
+		} `json:"prompt_tokens_details"`
+	} `json:"usage"`
 }
 
 // Stream starts a streamed completion.
 func (o *OpenAICompat) Stream(ctx context.Context, req llm.Request) (<-chan llm.Chunk, error) {
-	body, err := buildBody(req)
+	withUsage := !o.noUsage.Load()
+	body, err := buildBody(req, withUsage)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := o.connect(ctx, body)
+	resp, err := o.connect(ctx, body, withUsage)
+	if errors.Is(err, errStreamOptions) {
+		// Une seule nouvelle tentative, sans l'option, retenue pour la session.
+		o.noUsage.Store(true)
+		if body, err = buildBody(req, false); err != nil {
+			return nil, err
+		}
+		resp, err = o.connect(ctx, body, false)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -285,6 +323,9 @@ func (o *OpenAICompat) pump(ctx context.Context, resp *http.Response, ch chan<- 
 	// d'outils, rôle seul...) émet un unique battement de cœur
 	// (llm.Chunk.Heartbeat) : le moteur sait que le flux vit.
 	emitted := false
+	// usage : dernière valeur vue ; un fournisseur peut la répéter ou la
+	// joindre à un chunk de texte, seule la dernière compte (une fois).
+	var usage *llm.Usage
 
 	// beat émet le battement de cœur si aucun chunk n'est encore parti.
 	// Faux : contexte annulé.
@@ -314,6 +355,13 @@ func (o *OpenAICompat) pump(ctx context.Context, resp *http.Response, ch chan<- 
 		var ev streamEvent
 		if json.Unmarshal([]byte(data), &ev) != nil {
 			return beat()
+		}
+		if ev.Usage != nil {
+			u := llm.Usage{Input: ev.Usage.PromptTokens, Output: ev.Usage.CompletionTokens}
+			if ev.Usage.Details != nil {
+				u.Cached = ev.Usage.Details.CachedTokens
+			}
+			usage = &u
 		}
 		for _, c := range ev.Choices {
 			if c.Delta.Content != "" {
@@ -368,5 +416,5 @@ func (o *OpenAICompat) pump(ctx context.Context, resp *http.Response, ch chan<- 
 		a := calls[i]
 		out = append(out, llm.ToolCall{ID: a.id, Name: a.name, Args: json.RawMessage(orEmptyObject([]byte(a.args.String())))})
 	}
-	final(llm.Chunk{ToolCalls: out})
+	final(llm.Chunk{ToolCalls: out, Usage: usage})
 }

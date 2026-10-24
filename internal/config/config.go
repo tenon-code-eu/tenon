@@ -425,6 +425,9 @@ type Provider struct {
 	// Qualifications : qualifications déclarées (« secnumcloud »). Déclaratif,
 	// jamais vérifié ; ignoré sous politique d'organisation (sauf define).
 	Qualifications []string `toml:"qualifications"`
+	// StreamUsage : false n'envoie pas stream_options.include_usage ; absent
+	// : vrai (l'usage réel est demandé au fournisseur).
+	StreamUsage *bool `toml:"stream_usage"`
 }
 
 // defaultWindow : fenêtre de contexte (jetons) si le fournisseur n'en déclare pas.
