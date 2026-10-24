@@ -113,7 +113,28 @@ type Deps struct {
 	// Routing décrit le routage configuré, recopié dans SessionStarted
 	// (nil : omis).
 	Routing *event.RoutingInfo
+	// Budget est le plafond de jetons de la session (SessionTokens 0 : aucun).
+	Budget Budget
+	// CompactionRouter et SubagentRouter ordonnent les fournisseurs des
+	// requêtes de résumé et des sous-agents (nil : Router). Les candidats de
+	// Router suivent les leurs : un fournisseur dédié refusé par les
+	// garde-fous laisse la place au fournisseur de la session. Une session
+	// sensible les ignore : le fournisseur local de Router seul.
+	CompactionRouter, SubagentRouter *routing.Router
 }
+
+// Budget est le plafond de jetons d'une session : somme input + output des
+// événements Usage (compaction et sous-agents compris).
+type Budget struct {
+	// SessionTokens est le plafond (0 ou moins : aucun).
+	SessionTokens int64
+	// WarnAt est la fraction du plafond qui déclenche l'avis unique
+	// BudgetWarning (hors ]0, 1[ : DefaultWarnAt).
+	WarnAt float64
+}
+
+// DefaultWarnAt s'applique quand Budget.WarnAt est hors de ]0, 1[.
+const DefaultWarnAt = 0.8
 
 // Reply répond à un PermissionRequested. Network accorde le réseau à la
 // commande shell isolée pour cet appel seulement : Remember ne le mémorise
@@ -176,6 +197,11 @@ type session struct {
 	// refused : fournisseurs dont l'accord de juridiction a été refusé dans
 	// la session (plus de demande), protégé par classMu.
 	refused map[string]bool
+	// used : somme input + output des Usage de la session (sous-agents et
+	// hooks compris) ; budgetWarned : BudgetWarning déjà émis. Protégés par
+	// classMu, reconstruits par Restore.
+	used         int64
+	budgetWarned bool
 }
 
 // consentRefused indique que l'accord de juridiction pour id a été refusé.
@@ -224,6 +250,9 @@ func New(d Deps) *Engine {
 	}
 	if d.Lang == "" {
 		d.Lang = i18n.FR
+	}
+	if d.Budget.WarnAt <= 0 || d.Budget.WarnAt >= 1 {
+		d.Budget.WarnAt = DefaultWarnAt
 	}
 	// Deps.Profile est la seule source du profil : Outbound le revérifie
 	// avant chaque envoi.

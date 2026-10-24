@@ -212,7 +212,7 @@ func TestTextOnlyTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []event.Type{event.SessionStarted, event.UserMessage, event.AssistantDelta,
-		event.AssistantDelta, event.AssistantMessage, event.TurnCompleted}
+		event.AssistantDelta, event.Usage, event.AssistantMessage, event.TurnCompleted}
 	if got := types(evs); !equalTypes(got, want) {
 		t.Fatalf("types %v, want %v", got, want)
 	}
@@ -491,7 +491,7 @@ func TestNonEUConsentAsked(t *testing.T) {
 	}
 	want := []event.Type{event.SessionStarted, event.UserMessage, event.PermissionRequested,
 		event.PermissionResolved, event.JurisdictionWarning, event.AssistantDelta,
-		event.AssistantMessage, event.TurnCompleted}
+		event.Usage, event.AssistantMessage, event.TurnCompleted}
 	if got := types(evs); !equalTypes(got, want) {
 		t.Fatalf("types %v, want %v", got, want)
 	}

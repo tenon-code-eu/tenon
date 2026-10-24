@@ -15,6 +15,8 @@ const (
 	UserMessage         Type = "UserMessage"
 	ContextCompacted    Type = "ContextCompacted"
 	ContextShaped       Type = "ContextShaped"
+	Usage               Type = "Usage"
+	BudgetWarning       Type = "BudgetWarning"
 	JurisdictionWarning Type = "JurisdictionWarning"
 	RedactionApplied    Type = "RedactionApplied"
 	AssistantDelta      Type = "AssistantDelta"

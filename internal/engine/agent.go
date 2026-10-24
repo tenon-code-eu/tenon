@@ -73,6 +73,10 @@ func (t *turn) runSubagent(c llm.ToolCall) (tools.Result, error) {
 	if !ok {
 		return toolError("unknown agent: %s", args.Agent), nil
 	}
+	// Budget épuisé : le sous-agent ne démarre pas, comme un tour.
+	if used, max, over := t.s.overBudget(d.Budget); over {
+		return toolError("%s", budgetRefused(used, max)), nil
+	}
 	if err := t.emit(event.SubagentStarted, event.SubagentStartedPayload{
 		CallID: c.ID, Agent: a.Name, Description: args.Description,
 	}); err != nil {
@@ -88,7 +92,7 @@ func (t *turn) runSubagent(c llm.ToolCall) (tools.Result, error) {
 		{Role: llm.System, Content: agents.SystemPrompt(d.Lang, d.BasePrompt, d.SkillsSection, a, withSkills)},
 		{Role: llm.User, Content: args.Prompt},
 	}
-	child := &turn{e: t.e, s: t.s, ctx: t.ctx, h: &h, tools: reg, parent: c.ID, agent: a.Name}
+	child := &turn{e: t.e, s: t.s, ctx: t.ctx, h: &h, tools: reg, parent: c.ID, agent: a.Name, purpose: purposeSubagent}
 	res, err := child.loop()
 	if err != nil {
 		if t.ctx.Err() != nil {

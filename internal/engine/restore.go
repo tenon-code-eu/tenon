@@ -41,7 +41,9 @@ const interruptedMsg = "cancelled: session interrupted"
 // réponses et résumés produits par un fournisseur non local sont marqués
 // llm.Message.Remote (exclus du contrôle sortant des marquages).
 // Un SessionClassified rend la session sensible (définitivement, quel que soit
-// son parent_call_id). Les autres types sont ignorés.
+// son parent_call_id). Le compteur de jetons du budget est la somme input +
+// output de tous les Usage (sous-agents et hooks compris) ; un BudgetWarning
+// du journal empêche un second avis. Les autres types sont ignorés.
 func (e *Engine) Restore(sessionID string, events []event.Event) error {
 	s := e.session(sessionID)
 	s.turn.Lock()
@@ -65,6 +67,10 @@ func (e *Engine) Restore(sessionID string, events []event.Event) error {
 	// sont marqués llm.Message.Remote (exclus du contrôle sortant). Un
 	// journal sans ces événements laisse remote faux : tout est contrôlé.
 	var remote bool
+	// used, budgetWarned : compteur de jetons (somme input + output des
+	// Usage) et avis de budget déjà émis.
+	var used int64
+	var budgetWarned bool
 	closePending := func() {
 		for _, c := range pending {
 			history = append(history, llm.Message{Role: llm.Tool, Content: interruptedMsg, ToolCallID: c.ID})
@@ -94,6 +100,18 @@ func (e *Engine) Restore(sessionID string, events []event.Event) error {
 				return err
 			}
 			rw.addResult(ev.Seq, p)
+		}
+		// Compteur de jetons et avis de budget : agent principal, sous-agents
+		// et hooks.
+		switch ev.Type {
+		case event.Usage:
+			var p event.UsagePayload
+			if err := unmarshalPayload(ev, &p); err != nil {
+				return err
+			}
+			used += int64(p.Input) + int64(p.Output)
+		case event.BudgetWarning:
+			budgetWarned = true
 		}
 		if meta.ParentCallID != "" && ev.Type != event.PermissionRequested && ev.Type != event.SessionClassified {
 			continue
@@ -231,6 +249,7 @@ func (e *Engine) Restore(sessionID string, events []event.Event) error {
 	s.remembered = map[string]bool{}
 	s.classMu.Lock()
 	s.sensitive, s.sensitiveReason = sensitive, sensitiveReason
+	s.used, s.budgetWarned = used, budgetWarned
 	s.classMu.Unlock()
 	return nil
 }

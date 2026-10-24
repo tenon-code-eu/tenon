@@ -261,7 +261,36 @@ type RedactionAppliedPayload struct {
 	ParentCallID string `json:"parent_call_id,omitempty"`
 }
 
-// TurnCompletedPayload ends a turn. Reason is "done", "max_iterations", "incomplete", "blocked", "cancelled" or "context_too_large".
+// UsagePayload records the tokens of one model call. Provider and Model
+// are those of the provider that actually answered (after a fallback).
+// Purpose is "turn" (a turn iteration, or a prompt or agent hook evaluated
+// inside a turn), "compaction" (summary request) or "subagent" (an
+// iteration of an "agent" tool call). Input, Output and Cached come from the
+// provider's usage report; when the stream carried none, Input and Output are
+// estimated from the request sent and the reply (Estimated, Cached 0). The
+// session token counter is the sum of Input + Output.
+type UsagePayload struct {
+	Provider  string `json:"provider"`
+	Model     string `json:"model"`
+	Purpose   string `json:"purpose"`
+	Input     int    `json:"input"`
+	Output    int    `json:"output"`
+	Cached    int    `json:"cached"`
+	Estimated bool   `json:"estimated"`
+	// ParentCallID is the call_id of the "agent" tool call that produced this
+	// event inside a sub-agent run (or the run id of an agent hook); empty
+	// for the main agent.
+	ParentCallID string `json:"parent_call_id,omitempty"`
+}
+
+// BudgetWarningPayload is emitted once per session, when the session token
+// counter (Used) first reaches the warning threshold of the budget (Max).
+type BudgetWarningPayload struct {
+	Used int64 `json:"used"`
+	Max  int64 `json:"max"`
+}
+
+// TurnCompletedPayload ends a turn. Reason is "done", "max_iterations", "incomplete", "blocked", "cancelled", "context_too_large" or "budget_exceeded" (the session token budget was used up before the turn: nothing was sent).
 type TurnCompletedPayload struct {
 	Iterations int    `json:"iterations"`
 	Reason     string `json:"reason"`
@@ -410,6 +439,9 @@ func WithParent(payload any, parentCallID string) any {
 		p.ParentCallID = parentCallID
 		return p
 	case ContextShapedPayload:
+		p.ParentCallID = parentCallID
+		return p
+	case UsagePayload:
 		p.ParentCallID = parentCallID
 		return p
 	case RedactionAppliedPayload:

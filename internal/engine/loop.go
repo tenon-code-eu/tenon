@@ -61,6 +61,9 @@ type turn struct {
 	// noShape : requête hors conversation (évaluation d'un hook prompt) ;
 	// la vue s'applique sans lire ni écrire shaped, sans ContextShaped.
 	noShape bool
+	// purpose : objet des envois du tour (Usage.purpose, routeur dédié) ;
+	// "" vaut purposeTurn.
+	purpose string
 }
 
 // loopResult résume la fin de loop. Reason vaut l'une des raisons de
@@ -89,7 +92,8 @@ func (t *turn) done(iter int, reason string) error {
 func (t *turn) run(in Input) error {
 	d := t.e.d
 	info := d.Provider.Info()
-	if !t.s.started {
+	first := !t.s.started
+	if first {
 		started := event.SessionStartedPayload{
 			Provider: info, ProjectRoot: d.ProjectRoot, Resumed: t.s.resumed, Instructions: d.Instructions,
 			MCP: d.MCP, Profile: string(d.Profile), Sandbox: d.Sandbox, Routing: d.Routing,
@@ -106,6 +110,12 @@ func (t *turn) run(in Input) error {
 				return err
 			}
 		}
+	}
+	// Budget épuisé : le tour ne part pas (ni hook, ni message, ni envoi).
+	if _, _, over := t.s.overBudget(d.Budget); over {
+		return t.done(0, reasonBudget)
+	}
+	if first {
 		source := "startup"
 		if t.s.resumed {
 			source = "resume"
@@ -429,7 +439,7 @@ func (t *turn) outboundCheck(info llm.ProviderInfo, in []llm.Message) (msgs []ll
 // send envoie req (messages non masqués) au premier candidat du routeur qui
 // l'accepte, après contrôle sortant puis vue projetée (view) ; voir sendWith.
 func (t *turn) send(req llm.Request, deltas bool) (text string, calls []llm.ToolCall, provErr, err error) {
-	return t.sendWith(req, deltas, func(info llm.ProviderInfo) (prepared, bool, error) {
+	return t.sendWith(req, deltas, t.callPurpose(), func(info llm.ProviderInfo) (prepared, bool, error) {
 		msgs, counts, ok, err := t.outboundCheck(info, req.Messages)
 		if err != nil || !ok {
 			return prepared{}, ok, err
@@ -455,17 +465,19 @@ func (t *turn) send(req llm.Request, deltas bool) (text string, calls []llm.Tool
 // modèle du candidat. provErr vaut errNotSent si rien n'est parti (aucun
 // candidat accepté, ou arrêt demandé par un hook), sinon l'erreur du dernier
 // fournisseur essayé ; err est fatale (audit, annulation).
-func (t *turn) sendWith(req llm.Request, deltas bool, prep prepFunc) (text string, calls []llm.ToolCall, provErr, err error) {
+func (t *turn) sendWith(req llm.Request, deltas bool, purpose string, prep prepFunc) (text string, calls []llm.ToolCall, provErr, err error) {
 	if t.e.router == nil {
 		return "", nil, nil, errors.New("no provider")
 	}
+	// Préfixe stable : définitions d'outils triées par nom (MCP compris).
+	req.Tools = sortedDefs(req.Tools)
 	stop := t.stopReason
 	t.jurSkipped = nil
 	tried := map[string]bool{}
 	var failed error // dernière erreur réessayable de cet envoi
 	for {
 		sens := t.s.isSensitive()
-		cands := t.e.router.Candidates(sens)
+		cands := t.candidates(purpose, sens)
 		if sens && len(cands) == 0 {
 			// Session sensible sans fournisseur local : aucun envoi.
 			if _, err := t.blockSensitive(); err != nil {
@@ -518,7 +530,7 @@ func (t *turn) sendWith(req llm.Request, deltas bool, prep prepFunc) (text strin
 			r := req
 			r.Model = info.Model
 			r.Messages = p.msgs
-			res, err := t.try(c, info, r, p.counts, i > 0, failed, deltas, laterCandidate(cands[i+1:], tried))
+			res, err := t.try(c, info, r, p.counts, i > 0, failed, deltas, laterCandidate(cands[i+1:], tried), purpose)
 			if err != nil {
 				return "", nil, nil, err
 			}
@@ -627,7 +639,7 @@ type tryResult struct {
 // annulé et provErr vaut routing.ErrNoFirstChunk. Un chunk déjà arrivé quand
 // le délai expire l'emporte : un flux sain n'est jamais annulé. err est une
 // erreur d'émission (fatale).
-func (t *turn) try(c routing.Candidate, info llm.ProviderInfo, req llm.Request, counts []map[string]int, fellBack bool, failed error, deltas bool, arm bool) (res tryResult, err error) {
+func (t *turn) try(c routing.Candidate, info llm.ProviderInfo, req llm.Request, counts []map[string]int, fellBack bool, failed error, deltas bool, arm bool, purpose string) (res tryResult, err error) {
 	ctx, cancel := context.WithCancel(t.ctx)
 	defer cancel()
 
@@ -669,6 +681,7 @@ func (t *turn) try(c routing.Candidate, info llm.ProviderInfo, req llm.Request, 
 	}
 	var sb strings.Builder
 	final, timedOut := false, false
+	var usage *llm.Usage
 	for {
 		var ck llm.Chunk
 		var ok bool
@@ -716,6 +729,7 @@ func (t *turn) try(c routing.Candidate, info llm.ProviderInfo, req llm.Request, 
 			final = true
 			res.provErr = ck.Err
 			res.calls = ck.ToolCalls
+			usage = ck.Usage
 		}
 	}
 	switch {
@@ -732,6 +746,9 @@ func (t *turn) try(c routing.Candidate, info llm.ProviderInfo, req llm.Request, 
 		res.calls = nil
 	}
 	res.text = sb.String()
+	if err := t.usage(info, purpose, req, res, usage); err != nil {
+		return res, err
+	}
 	return res, nil
 }
 

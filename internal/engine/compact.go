@@ -205,6 +205,11 @@ func (t *turn) compact(defs []llm.ToolDef, force bool) (reason string, err error
 	if l := int(d.CompactionThreshold * float64(win)); l < sumLimit {
 		sumLimit = l
 	}
+	// Et sous celui de la fenêtre du fournisseur de compaction (petit
+	// modèle dédié).
+	if l := int(d.CompactionThreshold * float64(t.windowFor(purposeCompaction))); l < sumLimit {
+		sumLimit = l
+	}
 	// Pour chaque candidat : premier passage par le contrôle sortant (les
 	// arguments d'appels d'outils sont masqués par RedactJSON avant d'être
 	// rendus en texte, comme sur le chemin normal), puis la requête entière
@@ -231,7 +236,8 @@ func (t *turn) compact(defs []llm.ToolDef, force bool) (reason string, err error
 		return prepared{msgs: msgs, counts: []map[string]int{c1, c2}, scan: scan, raw: raw}, ok, err
 	}
 	stop := t.stopReason
-	summary, _, provErr, err := t.sendWith(llm.Request{}, false, prep)
+	// Jamais refusée par le budget : elle réduit le contexte.
+	summary, _, provErr, err := t.sendWith(llm.Request{}, false, purposeCompaction, prep)
 	if err != nil {
 		return "", err
 	}
@@ -311,13 +317,8 @@ func (t *turn) tooLarge() (string, error) {
 	return reasonTooLarge, nil
 }
 
-// window renvoie la fenêtre de contexte du premier candidat de l'envoi
-// (Deps.ContextWindow si elle est inconnue).
+// window renvoie la fenêtre de contexte du premier candidat des envois du
+// tour (Deps.ContextWindow si elle est inconnue).
 func (t *turn) window() int {
-	if r := t.e.router; r != nil {
-		if c := r.Candidates(t.s.isSensitive()); len(c) > 0 && c[0].Window > 0 {
-			return c[0].Window
-		}
-	}
-	return t.e.d.ContextWindow
+	return t.windowFor(t.callPurpose())
 }

@@ -382,7 +382,7 @@ func TestTryRechecksSensitive(t *testing.T) {
 	s.sensitive = true
 	tr := &turn{e: h.eng, s: s, ctx: context.Background(), h: &s.history}
 	cur := routing.Candidate{ID: euInfo.ID, Provider: h.prov}
-	res, err := tr.try(cur, euInfo, llm.Request{Messages: s.history}, nil, false, nil, false, true)
+	res, err := tr.try(cur, euInfo, llm.Request{Messages: s.history}, nil, false, nil, false, true, purposeTurn)
 	if err != nil || res.sent || len(h.prov.reqs()) != 0 {
 		t.Fatalf("res %+v, err %v, remote %d requêtes", res, err, len(h.prov.reqs()))
 	}
@@ -444,7 +444,7 @@ func TestFirstChunkTimerAfterLock(t *testing.T) {
 	s.classMu.Lock()
 	done := make(chan tryResult, 1)
 	go func() {
-		res, err := tr.try(cur, euInfo, llm.Request{Messages: s.history}, nil, false, nil, false, true)
+		res, err := tr.try(cur, euInfo, llm.Request{Messages: s.history}, nil, false, nil, false, true, purposeTurn)
 		if err != nil {
 			t.Error(err)
 		}
@@ -718,7 +718,7 @@ func TestTimerRaceKeepsHealthyStream(t *testing.T) {
 	tr := &turn{e: h.eng, s: s, ctx: context.Background(), h: &s.history}
 	cur := routing.Candidate{ID: euInfo.ID, Provider: h.eng.d.Provider}
 	for i := 0; i < 50; i++ {
-		res, err := tr.try(cur, euInfo, llm.Request{}, nil, false, nil, false, true)
+		res, err := tr.try(cur, euInfo, llm.Request{}, nil, false, nil, false, true, purposeTurn)
 		if err != nil || res.provErr != nil || res.text != "ok" {
 			t.Fatalf("essai %d : res %+v, err %v", i, res, err)
 		}

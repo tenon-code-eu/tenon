@@ -116,15 +116,19 @@ func TestSubagentDelegation(t *testing.T) {
 		got = append(got, step{e.Type, parentOf(t, e)})
 	}
 	want := []step{
+		{event.Usage, ""},
 		{event.AssistantMessage, ""},
 		{event.ToolCallRequested, ""},
 		{event.SubagentStarted, ""},
+		{event.Usage, "m1"},
 		{event.AssistantMessage, "m1"},
 		{event.ToolCallRequested, "m1"},
 		{event.ToolResult, "m1"},
+		{event.Usage, "m1"},
 		{event.AssistantMessage, "m1"},
 		{event.SubagentCompleted, ""},
 		{event.ToolResult, ""},
+		{event.Usage, ""},
 		{event.AssistantMessage, ""},
 		{event.TurnCompleted, ""},
 	}
