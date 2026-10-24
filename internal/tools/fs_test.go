@@ -126,7 +126,7 @@ func TestTruncate(t *testing.T) {
 		t.Fatal("court")
 	}
 	got := Truncate("abcdef", 3)
-	if got != "abc\n[… output truncated to 3 characters]" {
+	if got != "ab\n[… 3 characters omitted …]\nf" {
 		t.Fatalf("got %q", got)
 	}
 }

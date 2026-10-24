@@ -429,7 +429,7 @@ func (m mcpTool) Run(context.Context, json.RawMessage) (tools.Result, error) {
 // Un marquage au-delà de la troncature d'un résultat MCP est reconnu.
 func TestMCPResultMarkerBeyondTruncation(t *testing.T) {
 	withMCP := func(d *Deps) {
-		d.Tools = tools.NewRegistry(mcpTool{content: "Rapport\n[… output truncated to 7 characters]", full: "Rapport — Restreint UE — budget 12 M€"})
+		d.Tools = tools.NewRegistry(mcpTool{content: "Rapport\n[… 30 characters omitted …]", full: "Rapport — Restreint UE — budget 12 M€"})
 	}
 	script := [][]llm.Chunk{call("c1", "mcp__docs__fetch", `{}`), text("ok")}
 	h := newClassifyHarness(t, false, script, withMCP)

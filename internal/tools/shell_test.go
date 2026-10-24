@@ -99,7 +99,7 @@ func TestShellBackgroundChildDoesNotHang(t *testing.T) {
 
 func TestShellOutputCapped(t *testing.T) {
 	res := runShell(t, Shell(t.TempDir(), time.Second, 1000, ShellOptions{}), `{"command":"yes"}`)
-	if len(res.Content) > 1200 || !strings.Contains(res.Content, "output truncated") {
+	if len(res.Content) > 1200 || !strings.Contains(res.Content, "omitted") {
 		t.Fatalf("len=%d, contenu inattendu : %.200q", len(res.Content), res.Content)
 	}
 }

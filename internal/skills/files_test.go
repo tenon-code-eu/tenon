@@ -102,7 +102,7 @@ func TestReadFileLimit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasSuffix(got, "\n[… output truncated to 1000 characters]") || len([]rune(got)) < 1000 {
+	if !strings.Contains(got, "characters omitted …]") || len([]rune(got)) < 1000 {
 		t.Fatalf("got %d runes, tail %q", len([]rune(got)), got[len(got)-50:])
 	}
 	if len(sum) != 64 {

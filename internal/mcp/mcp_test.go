@@ -242,7 +242,7 @@ func TestNonTextContentSummarised(t *testing.T) {
 	// Troncature de la sortie.
 	m2, _ := start(t, []config.MCPServer{httpDecl("mem")}, Options{dial: memServer(t, setup), OutputLimit: 3})
 	res = run(t, toolByName(t, m2, "mcp__mem__mix"), `{}`)
-	if !strings.HasPrefix(res.Content, "déb\n[… output truncated") {
+	if !strings.HasPrefix(res.Content, "dé\n[… ") {
 		t.Fatalf("troncature %q", res.Content)
 	}
 	// Texte complet gardé pour le contrôle de classification.
