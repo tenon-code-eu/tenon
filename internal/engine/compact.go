@@ -157,8 +157,10 @@ func summaryInput(old []llm.Message, limit int) string {
 	return string(r) + truncatedMark
 }
 
-// compact compacte l'historique si son estimation dépasse le seuil, ou sans
-// condition si force est vrai (le fournisseur a renvoyé ErrContextLength).
+// compact compacte l'historique si l'estimation de sa vue (ce qui est
+// réellement envoyé, ruling R11) dépasse le seuil, ou sans condition si force
+// est vrai (le fournisseur a renvoyé ErrContextLength). Le résumé porte sur
+// l'historique complet.
 // reason, si non vide, termine le tour : reasonTooLarge, reasonBlocked
 // (juridiction refusée) ou reasonCancelled (err est alors l'erreur du
 // contexte). Une err seule est fatale pour le tour.
@@ -168,11 +170,12 @@ func (t *turn) compact(defs []llm.ToolDef, force bool) (reason string, err error
 	window := t.window()
 	limit := int(d.CompactionThreshold * float64(window))
 	h := *t.h
-	before := estimate(h, defs)
+	before := t.viewSize(h, defs)
 	if !force && before <= limit {
 		return "", nil
 	}
-	// Après un refus du fournisseur, la taille rejetée borne la fenêtre réelle.
+	// Après un refus du fournisseur, la taille rejetée (celle de la vue
+	// envoyée) borne la fenêtre réelle.
 	win := window
 	if force && before < win {
 		win = before
@@ -180,10 +183,10 @@ func (t *turn) compact(defs []llm.ToolDef, force bool) (reason string, err error
 	// h[0] est le prompt système, jamais compacté.
 	conv := h[1:]
 	start := tailStart(conv, int(tailFraction*float64(win)))
-	// Trop volumineux : rien à résumer, une queue qui ne tient pas sous le
-	// seuil avec le prompt système et les outils, ou seulement un résumé
-	// précédent à résumer de nouveau (aucun gain possible).
-	if start <= 0 || estimate(h[:1], defs)+estimate(conv[start:], nil) > limit ||
+	// Trop volumineux : rien à résumer, une queue dont la vue ne tient pas
+	// sous le seuil avec le prompt système et les outils, ou seulement un
+	// résumé précédent à résumer de nouveau (aucun gain possible).
+	if start <= 0 || t.viewSize(append(h[:1:1], conv[start:]...), defs) > limit ||
 		(start == 1 && isSummary(conv[0])) {
 		return t.tooLarge()
 	}
@@ -219,16 +222,13 @@ func (t *turn) compact(defs []llm.ToolDef, force bool) (reason string, err error
 		if err != nil || !ok {
 			return prepared{}, ok, err
 		}
+		// Pas de vue projetée : la requête de résumé ne porte aucun résultat
+		// d'outil (elle en sortirait inchangée) ; le résumé travaille sur
+		// l'historique complet.
 		msgs, c2, ok, err := t.outboundCheck(info, []llm.Message{
 			{Role: llm.System, Content: summaryPrompt},
 			{Role: llm.User, Content: summaryInput(old, sumLimit)},
 		})
-		// Vue projetée, comme pour toute requête : la requête de résumé ne
-		// porte aucun résultat d'outil, elle en sort inchangée (ni
-		// ContextShaped). Le résumé travaille sur l'historique complet.
-		if err == nil && ok {
-			msgs, _ = view(msgs, nil, win)
-		}
 		// Le contrôle des marquages porte sur les messages structurés dont le
 		// texte rendu est tiré (même texte, résultats glob exclus).
 		scan := append([]llm.Message{{Role: llm.System, Content: summaryPrompt}}, old...)
@@ -285,7 +285,7 @@ func (t *turn) compact(defs []llm.ToolDef, force bool) (reason string, err error
 	nh = append(nh, h[0], sm)
 	nh = append(nh, conv[start:]...)
 	if err := t.emit(event.ContextCompacted, event.ContextCompactedPayload{
-		Summary: summary, Replaced: start, TokensBefore: before, TokensAfter: estimate(nh, defs),
+		Summary: summary, Replaced: start, TokensBefore: before, TokensAfter: t.viewSize(nh, defs),
 		HookContext: hc,
 	}); err != nil {
 		return "", err

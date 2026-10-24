@@ -76,7 +76,7 @@ func TestViewDedupKeepsLatest(t *testing.T) {
 		readTurn(2, `{"path":"a"}`, content),
 		readTurn(3, `{"path":"a"}`, content),
 	)
-	out, sh := view(h, nil, 1_000_000)
+	out, sh := view(h, nil, 1_000_000, nil)
 	want := "[same content as the read at turn 3]"
 	if c := toolContent(t, out, "c1"); c != want {
 		t.Fatalf("c1 %q", c)
@@ -111,7 +111,7 @@ func TestViewDedupNeedsSameArgs(t *testing.T) {
 		llm.Message{Role: llm.Assistant, ToolCalls: []llm.ToolCall{{ID: "c5", Name: "grep", Args: json.RawMessage(`{"path":"b"}`)}}},
 		llm.Message{Role: llm.Tool, ToolCallID: "c5", Content: content},
 	)
-	out, sh := view(h, nil, 1_000_000)
+	out, sh := view(h, nil, 1_000_000, nil)
 	if !reflect.DeepEqual(out, h) || len(sh.Deduplicated) != 0 || len(sh.Masked) != 0 || sh.SavedTokens != 0 {
 		t.Fatalf("vue modifiée : %+v", sh)
 	}
@@ -125,12 +125,12 @@ func TestViewMaskOnlyAbove50(t *testing.T) {
 	h := viewHistory(turns...)
 	est := estimate(h, nil)
 	// Exactement 50 % : pas au-delà, rien n'est masqué.
-	out, sh := view(h, nil, 2*est)
+	out, sh := view(h, nil, 2*est, nil)
 	if !reflect.DeepEqual(out, h) || len(sh.Masked) != 0 || sh.SavedTokens != 0 {
 		t.Fatalf("masqué à 50 %% : %+v", sh)
 	}
 	// Juste au-delà : masquage.
-	if _, sh := view(h, nil, 2*est-2); len(sh.Masked) == 0 {
+	if _, sh := view(h, nil, 2*est-2, nil); len(sh.Masked) == 0 {
 		t.Fatal("rien masqué au-delà de 50 %")
 	}
 }
@@ -146,7 +146,7 @@ func TestViewMaskOldestUntil40(t *testing.T) {
 	if est := estimate(h, nil); 2*est <= w {
 		t.Fatalf("préalable : estimation %d pas au-delà de 50 %%", est)
 	}
-	out, sh := view(h, nil, w)
+	out, sh := view(h, nil, w, nil)
 	if !reflect.DeepEqual(sh.Masked, []string{"c1", "c2"}) || len(sh.Deduplicated) != 0 {
 		t.Fatalf("shaped %+v", sh)
 	}
@@ -183,7 +183,7 @@ func TestViewSparesRecentAndSummary(t *testing.T) {
 		h = append(h, tt...)
 	}
 	h[len(h)-4].Content = runes(4000) // message utilisateur volumineux
-	out, sh := view(h, nil, 100)
+	out, sh := view(h, nil, 100, nil)
 	// 3 dernières itérations : c2, c3, c4 ; seul c1 est éligible.
 	if !reflect.DeepEqual(sh.Masked, []string{"c1"}) {
 		t.Fatalf("masked %v", sh.Masked)
@@ -204,13 +204,13 @@ func TestViewNothingEligible(t *testing.T) {
 		turns = append(turns, readTurn(i, fmt.Sprintf(`{"path":"f%d"}`, i), bigResult(i)))
 	}
 	h := viewHistory(turns...)
-	out, sh := view(h, nil, 10)
+	out, sh := view(h, nil, 10, nil)
 	if !reflect.DeepEqual(out, h) || len(sh.Masked) != 0 {
 		t.Fatalf("vue modifiée : %+v", sh)
 	}
 	// Un tour de plus : c1 seul est masqué, la vue reste au-dessus de 40 %.
 	h = append(h, readTurn(4, `{"path":"f4"}`, bigResult(4))...)
-	out, sh = view(h, nil, 10)
+	out, sh = view(h, nil, 10, nil)
 	if !reflect.DeepEqual(sh.Masked, []string{"c1"}) {
 		t.Fatalf("masked %v", sh.Masked)
 	}
@@ -220,7 +220,7 @@ func TestViewNothingEligible(t *testing.T) {
 	// Résultat plus court que son talon : jamais masqué (aucun gain).
 	h = viewHistory(readTurn(1, `{"path":"p"}`, "x"), readTurn(2, `{"path":"q"}`, "y"),
 		readTurn(3, `{"path":"r"}`, "z"), readTurn(4, `{"path":"s"}`, "w"))
-	if out, sh := view(h, nil, 1); !reflect.DeepEqual(out, h) || len(sh.Masked) != 0 {
+	if out, sh := view(h, nil, 1, nil); !reflect.DeepEqual(out, h) || len(sh.Masked) != 0 {
 		t.Fatalf("petit résultat masqué : %+v", sh)
 	}
 }
@@ -234,8 +234,8 @@ func TestViewPure(t *testing.T) {
 	turns = append(turns, readTurn(6, `{"path":"b"}`, bigResult(6)))
 	h := viewHistory(turns...)
 	orig := cloneHistory(h)
-	out1, sh1 := view(h, nil, 3000)
-	out2, sh2 := view(h, nil, 3000)
+	out1, sh1 := view(h, nil, 3000, nil)
+	out2, sh2 := view(h, nil, 3000, nil)
 	if !reflect.DeepEqual(h, orig) {
 		t.Fatal("historique modifié")
 	}
@@ -327,7 +327,7 @@ func iterations(n int) []llm.Message {
 func TestViewSingleTurnIterations(t *testing.T) {
 	h := viewHistory([]llm.Message{{Role: llm.User, Content: "fais tout"}}, iterations(10),
 		[]llm.Message{{Role: llm.Assistant, Content: "fini"}})
-	out, sh := view(h, nil, 6000)
+	out, sh := view(h, nil, 6000, nil)
 	// Au-delà de 50 % : les plus anciens sont masqués jusqu'à 40 %
 	// (2400 jetons), les 3 dernières itérations (c8, c9, c10) jamais.
 	if !reflect.DeepEqual(sh.Masked, []string{"c1", "c2", "c3", "c4", "c5", "c6", "c7"}) {
@@ -339,7 +339,7 @@ func TestViewSingleTurnIterations(t *testing.T) {
 		}
 	}
 	// Fenêtre moins serrée : arrêt sous 40 % dès c4 masqué.
-	_, sh = view(h, nil, 16000)
+	_, sh = view(h, nil, 16000, nil)
 	if !reflect.DeepEqual(sh.Masked, []string{"c1", "c2", "c3", "c4"}) {
 		t.Fatalf("masked (16000) %v", sh.Masked)
 	}
@@ -357,7 +357,7 @@ func TestViewSubagentHistory(t *testing.T) {
 		llm.Message{Role: llm.Tool, ToolCallID: "p1", Content: bigResult(7)},
 		llm.Message{Role: llm.Tool, ToolCallID: "p2", Content: bigResult(8)},
 	)
-	out, sh := view(h, nil, 100)
+	out, sh := view(h, nil, 100, nil)
 	// 3 dernières itérations : c3, c4, (p1, p2) ; c1 et c2 masqués.
 	if !reflect.DeepEqual(sh.Masked, []string{"c1", "c2"}) {
 		t.Fatalf("masked %v", sh.Masked)
@@ -401,5 +401,73 @@ func TestContextShapedIgnoresPromptHook(t *testing.T) {
 	}
 	if s := h.eng.session("s_1").shaped; !reflect.DeepEqual(s.Deduplicated, []string{"c1"}) {
 		t.Fatalf("état de la session %+v", s)
+	}
+}
+
+// Ruling R12 : le masquage est collant. L'ensemble masqué précédent est
+// réappliqué ; il n'est étendu (jusqu'à 40 %) qu'au-delà de 50 %.
+func TestViewStickyMask(t *testing.T) {
+	var turns [][]llm.Message
+	for i := 1; i <= 6; i++ {
+		turns = append(turns, readTurn(i, fmt.Sprintf(`{"path":"f%d"}`, i), bigResult(i)))
+	}
+	const w = 10500
+	_, sh := view(viewHistory(turns...), nil, w, nil)
+	if !reflect.DeepEqual(sh.Masked, []string{"c1", "c2"}) {
+		t.Fatalf("préalable : masked %v", sh.Masked)
+	}
+	// Un tour de plus : la vue avec {c1, c2} est entre 40 et 50 % ; rien de
+	// nouveau n'est masqué (sans l'ensemble précédent, c3 le serait).
+	turns = append(turns, readTurn(7, `{"path":"f7"}`, bigResult(7)))
+	h := viewHistory(turns...)
+	out, sh2 := view(h, nil, w, sh.Masked)
+	if !reflect.DeepEqual(sh2.Masked, []string{"c1", "c2"}) {
+		t.Fatalf("masked %v", sh2.Masked)
+	}
+	if e := estimate(out, nil); 10*e < 4*w || 10*e > 5*w {
+		t.Fatalf("préalable : vue %d hors de 40-50 %%", e)
+	}
+	if _, fresh := view(h, nil, w, nil); reflect.DeepEqual(fresh.Masked, sh2.Masked) {
+		t.Fatalf("préalable : sans ensemble précédent, masked %v", fresh.Masked)
+	}
+	// Encore un tour : au-delà de 50 %, extension jusqu'à 40 %.
+	turns = append(turns, readTurn(8, `{"path":"f8"}`, bigResult(8)))
+	h = viewHistory(turns...)
+	out, sh3 := view(h, nil, w, sh2.Masked)
+	if !reflect.DeepEqual(sh3.Masked[:2], []string{"c1", "c2"}) || len(sh3.Masked) <= 2 {
+		t.Fatalf("masked %v", sh3.Masked)
+	}
+	if e := estimate(out, nil); 10*e >= 4*w {
+		t.Fatalf("vue %d pas sous 40 %%", e)
+	}
+	// Un call_id inconnu ou protégé de l'ensemble précédent est ignoré.
+	if _, sh4 := view(h, nil, 1_000_000, []string{"zz", "c8"}); len(sh4.Masked) != 0 {
+		t.Fatalf("masked %v", sh4.Masked)
+	}
+}
+
+// Ruling R13 : les résultats de l'outil agent ne sont jamais masqués ; la
+// déduplication s'applique.
+func TestViewNeverMasksAgent(t *testing.T) {
+	agentTurn := func(i int, content string) []llm.Message {
+		tt := readTurn(i, `{"description":"d","prompt":"p"}`, content)
+		tt[1].ToolCalls[0].Name = "agent"
+		return tt
+	}
+	h := viewHistory(agentTurn(1, bigResult(1)), agentTurn(2, bigResult(1)), agentTurn(3, bigResult(3)))
+	for i := 4; i <= 7; i++ {
+		h = append(h, readTurn(i, fmt.Sprintf(`{"path":"f%d"}`, i), bigResult(i))...)
+	}
+	out, sh := view(h, nil, 100, []string{"c3"})
+	if !reflect.DeepEqual(sh.Deduplicated, []string{"c1"}) {
+		t.Fatalf("deduplicated %v", sh.Deduplicated)
+	}
+	if !reflect.DeepEqual(sh.Masked, []string{"c4"}) {
+		t.Fatalf("masked %v", sh.Masked)
+	}
+	for _, id := range []string{"c2", "c3"} {
+		if c := toolContent(t, out, id); strings.HasPrefix(c, "[output hidden") {
+			t.Fatalf("%s masqué", id)
+		}
 	}
 }

@@ -583,3 +583,84 @@ func TestSummaryContextLengthIsTooLarge(t *testing.T) {
 		t.Fatalf("TurnCompleted %+v", tc)
 	}
 }
+
+// longReads renvoie un fournisseur qui, pour les requêtes avec outils,
+// demande d'abord pre (dans l'ordre), puis n lectures de fichiers distincts
+// f1..fn, puis répond par les textes post ; les requêtes sans outils
+// (résumé) reçoivent "R".
+func longReads(n int, pre []llm.Chunk, post ...string) *funcProvider {
+	i := 0
+	return &funcProvider{info: euInfo, f: func(req llm.Request) []llm.Chunk {
+		if len(req.Tools) == 0 {
+			return text("R")
+		}
+		i++
+		switch k := i - len(pre); {
+		case pre != nil && i == 1:
+			return pre
+		case k >= 1 && k <= n:
+			return call(fmt.Sprintf("c%d", k), "read_file", fmt.Sprintf(`{"path":"f%d.txt"}`, k))
+		case k-n-1 < len(post):
+			return text(post[k-n-1])
+		}
+		return text("fin")
+	}}
+}
+
+// writeReads écrit f1..fn dans root, environ 1000 jetons estimés chacun.
+func writeReads(t *testing.T, root string, n int) {
+	t.Helper()
+	for k := 1; k <= n; k++ {
+		if err := os.WriteFile(filepath.Join(root, fmt.Sprintf("f%d.txt", k)), []byte(bigResult(k)), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// Ruling R11 : un long tour dont l'historique dépasse le seuil mais dont la
+// vue envoyée reste en deçà se termine sans compaction.
+func TestLongTurnCompactionDecidedOnView(t *testing.T) {
+	fp := longReads(12, nil, "fini")
+	h := newHarness(t, euInfo, nil, window(10000), func(d *Deps) { d.Provider = fp })
+	writeReads(t, h.root, 12)
+	evs, err := h.submit(t, "s_1", "lis tout", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tc := lastTurn(t, evs); tc.Reason != "done" {
+		t.Fatalf("TurnCompleted %+v, events %v", tc, types(evs))
+	}
+	if n := len(ofType(evs, event.ContextCompacted)); n != 0 {
+		t.Fatalf("%d compactions", n)
+	}
+	hist := h.eng.session("s_1").history
+	if est := estimate(hist, nil); est <= 8000 {
+		t.Fatalf("préalable : historique %d sous le seuil", est)
+	}
+	// Ruling R12 : le masquage est collant, pas un événement par requête.
+	reqs := len(fp.reqs())
+	if n := len(ofType(evs, event.ContextShaped)); n == 0 || 2*n > reqs {
+		t.Fatalf("ContextShaped x%d pour %d requêtes", n, reqs)
+	}
+}
+
+// Ruling R11, sous-agent : même tour long, dans un sous-agent.
+func TestSubagentCompactionDecidedOnView(t *testing.T) {
+	fp := longReads(12, call("m1", "agent", agentCall), "sous-agent fini", "fini")
+	h := newAgentEngine(t, nil, nil, window(10000), func(d *Deps) { d.Provider = fp })
+	writeReads(t, h.root, 12)
+	evs, err := h.submit(t, "s_1", "délègue", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cp := decode[event.SubagentCompletedPayload](t, ofType(evs, event.SubagentCompleted)[0])
+	if cp.Status != "ok" || cp.Iterations != 13 {
+		t.Fatalf("SubagentCompleted %+v, events %v", cp, types(evs))
+	}
+	if n := len(ofType(evs, event.ContextCompacted)); n != 0 {
+		t.Fatalf("%d compactions", n)
+	}
+	if tc := lastTurn(t, evs); tc.Reason != "done" {
+		t.Fatalf("TurnCompleted %+v", tc)
+	}
+}

@@ -120,3 +120,96 @@ subagents = "petit"
 		t.Fatalf("main=%d small=%d", len(main.requests()), len(small.requests()))
 	}
 }
+
+// compactionRun : fournisseur de session « tiny » (fenêtre de 20000 jetons)
+// servi par main, et fournisseur de compaction dédié extra. Deux tours de
+// 10000 puis 8000 jetons estimés forcent une compaction au second.
+func compactionRun(t *testing.T, main *fakeLLM, extra string) (*env, string) {
+	t.Helper()
+	e := newEnvExtra(t, main, "eu", fmt.Sprintf(`
+[[providers]]
+id = "tiny"
+name = "Tiny SAS"
+base_url = %q
+api_key_env = "TEST_KEY"
+model = "m-tiny"
+context_window = 20000
+country = "FR"
+jurisdiction = "eu"
+`, main.srv.URL)+extra)
+	code, _, errb := e.run("--lang", "en", "--provider", "tiny", "-p", strings.Repeat("a", 40000))
+	if code != 0 {
+		t.Fatalf("tour 1 : code=%d stderr=%q", code, errb)
+	}
+	code, _, errb = e.run("--lang", "en", "--provider", "tiny", "--resume", "last", "-p", strings.Repeat("b", 32000))
+	if code != 0 {
+		t.Fatalf("tour 2 : code=%d stderr=%q", code, errb)
+	}
+	if n := len(payloadsOf[event.ContextCompactedPayload](t, e.journalEvents(), event.ContextCompacted)); n != 1 {
+		t.Fatalf("%d compactions, stderr=%q", n, errb)
+	}
+	return e, errb
+}
+
+// summaries compte les requêtes de résumé reçues par f.
+func summaries(f *fakeLLM) int {
+	n := 0
+	for _, r := range f.requests() {
+		if strings.Contains(r, "Faithfully summarize") {
+			n++
+		}
+	}
+	return n
+}
+
+func TestCompactionE2EDedicatedProvider(t *testing.T) {
+	main := newFakeLLM(t, sseText("ok"))
+	small := newFakeLLM(t, sseText("résumé"))
+	compactionRun(t, main, fmt.Sprintf(`
+[[providers]]
+id = "petit"
+name = "Petit SAS"
+base_url = %q
+api_key_env = "TEST_KEY"
+model = "m-small"
+context_window = 64000
+country = "FR"
+jurisdiction = "eu"
+
+[routing]
+compaction = "petit"
+`, small.srv.URL))
+	if len(small.requests()) != 1 || summaries(small) != 1 {
+		t.Fatalf("petit : %d requêtes, %d résumés", len(small.requests()), summaries(small))
+	}
+	if summaries(main) != 0 || len(main.requests()) != 2 {
+		t.Fatalf("session : %d requêtes, %d résumés", len(main.requests()), summaries(main))
+	}
+}
+
+func TestCompactionE2ERefusedProviderUsesSession(t *testing.T) {
+	main := newFakeLLM(t, sseText("ok"))
+	us := newFakeLLM(t, sseText("jamais"))
+	_, errb := compactionRun(t, main, fmt.Sprintf(`
+[[providers]]
+id = "us"
+name = "US Inc"
+base_url = %q
+api_key_env = "TEST_KEY"
+model = "m-us"
+country = "US"
+jurisdiction = "non-eu"
+
+[routing]
+compaction = "us"
+`, us.srv.URL))
+	if !strings.Contains(errb, `routing: compaction provider "us" refused`) {
+		t.Fatalf("avis absent : %q", errb)
+	}
+	if len(us.requests()) != 0 {
+		t.Fatal("le fournisseur refusé a reçu une requête")
+	}
+	if summaries(main) != 1 || len(main.requests()) != 3 {
+		t.Fatalf("session : %d requêtes, %d résumés", len(main.requests()), summaries(main))
+	}
+}

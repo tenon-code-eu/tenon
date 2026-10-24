@@ -39,12 +39,16 @@ func (a Shaped) sameSets(b Shaped) bool {
 // view projette history en messages à envoyer, sans jamais modifier history
 // ni ses messages : (1) déduplication des résultats d'outils identiques (même
 // outil, mêmes arguments, même SHA-256 du contenu), seul le plus récent reste ;
-// (2) si l'estimation dépasse 50 % de window, masquage des plus anciens
-// résultats d'outils, un par un, jusqu'à repasser sous 40 %. Seul le contenu
-// des messages tool change ; les résultats des 3 dernières itérations
-// (messages assistant à appels d'outils) ne sont jamais masqués. Un talon qui ne raccourcit pas le résultat n'est pas
-// appliqué. Déterministe.
-func view(history []llm.Message, defs []llm.ToolDef, window int) ([]llm.Message, Shaped) {
+// (2) masquage collant (ruling R12) : les résultats de prev (call_id masqués
+// par la vue précédente) restent masqués, puis, si l'estimation dépasse
+// encore 50 % de window, les plus anciens résultats d'outils sont masqués un
+// par un jusqu'à repasser sous 40 %. Entre 40 et 50 %, rien de nouveau n'est
+// masqué : le préfixe envoyé reste stable (cache du fournisseur). Seul le
+// contenu des messages tool change ; les résultats des 3 dernières
+// itérations (messages assistant à appels d'outils) et ceux de l'outil agent
+// (ruling R13) ne sont jamais masqués. Un talon qui ne raccourcit pas le
+// résultat n'est pas appliqué. Déterministe pour history et prev donnés.
+func view(history []llm.Message, defs []llm.ToolDef, window int, prev []string) ([]llm.Message, Shaped) {
 	out := slices.Clone(history)
 	var sh Shaped
 
@@ -105,24 +109,42 @@ func view(history []llm.Message, defs []llm.ToolDef, window int) ([]llm.Message,
 		}
 	}
 
-	// 2. Masquage sous pression, du plus ancien au plus récent, hors zone
-	// protégée. L'estimation est tenue en runes (estimate = runes / 4).
+	// 2. Masquage, hors zone protégée, des résultats d'outils autres que
+	// agent. L'estimation est tenue en runes (estimate = runes / 4).
 	r := runeCount(out, defs)
+	masked := make([]bool, len(out))
+	mask := func(i int) {
+		m := out[i]
+		c, ok := calls[m.ToolCallID]
+		if m.Role != llm.Tool || !ok || deduped[i] || masked[i] || c.Name == agentToolName {
+			return
+		}
+		stub := maskStub(c, m.Content)
+		old, nw := utf8.RuneCountInString(m.Content), utf8.RuneCountInString(stub)
+		if nw >= old {
+			return
+		}
+		out[i].Content = stub
+		r -= old - nw
+		masked[i] = true
+	}
+	// 2a. Ensemble précédent réappliqué tel quel.
+	if len(prev) > 0 {
+		for i := 0; i < protect; i++ {
+			if out[i].Role == llm.Tool && slices.Contains(prev, out[i].ToolCallID) {
+				mask(i)
+			}
+		}
+	}
+	// 2b. Extension sous pression, du plus ancien au plus récent.
 	if window > 0 && 10*(r/4) > maskStart*window {
 		for i := 0; i < protect && 10*(r/4) >= maskStop*window; i++ {
-			m := out[i]
-			c, ok := calls[m.ToolCallID]
-			if m.Role != llm.Tool || !ok || deduped[i] {
-				continue
-			}
-			stub := maskStub(c, m.Content)
-			old, nw := utf8.RuneCountInString(m.Content), utf8.RuneCountInString(stub)
-			if nw >= old {
-				continue
-			}
-			out[i].Content = stub
-			r -= old - nw
-			sh.Masked = append(sh.Masked, m.ToolCallID)
+			mask(i)
+		}
+	}
+	for i, m := range masked {
+		if m {
+			sh.Masked = append(sh.Masked, out[i].ToolCallID)
 		}
 	}
 	sh.SavedTokens = before - estimate(out, defs)
@@ -155,13 +177,10 @@ func lineCount(s string) int {
 // tour principal). Une requête hors conversation (noShape) n'émet rien et
 // laisse cet état intact.
 func (t *turn) shapeRequest(msgs []llm.Message, defs []llm.ToolDef) ([]llm.Message, error) {
-	out, sh := view(msgs, defs, t.window())
+	last := t.lastShaped()
+	out, sh := view(msgs, defs, t.window(), last.Masked)
 	if t.noShape {
 		return out, nil
-	}
-	last := &t.shaped
-	if t.parent == "" {
-		last = &t.s.shaped
 	}
 	if sh.sameSets(*last) {
 		return out, nil
@@ -175,4 +194,22 @@ func (t *turn) shapeRequest(msgs []llm.Message, defs []llm.ToolDef) ([]llm.Messa
 		return nil, err
 	}
 	return out, nil
+}
+
+// lastShaped renvoie les derniers ensembles de la vue de ce tour (la session
+// pour le tour principal) : leur ensemble masqué est réappliqué par la vue
+// suivante (ruling R12).
+func (t *turn) lastShaped() *Shaped {
+	if t.parent == "" {
+		return &t.s.shaped
+	}
+	return &t.shaped
+}
+
+// viewSize renvoie l'estimation de la vue de msgs (ensemble masqué collant
+// du tour, sans le modifier ni émettre d'événement) : base des décisions de
+// compaction (ruling R11).
+func (t *turn) viewSize(msgs []llm.Message, defs []llm.ToolDef) int {
+	v, _ := view(msgs, defs, t.window(), t.lastShaped().Masked)
+	return estimate(v, defs)
 }

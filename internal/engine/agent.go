@@ -21,7 +21,10 @@ type agentArgs struct {
 	Prompt      string `json:"prompt"`
 }
 
-func (agentTool) Name() string { return "agent" }
+// agentToolName est le nom de l'outil de délégation à un sous-agent.
+const agentToolName = "agent"
+
+func (agentTool) Name() string { return agentToolName }
 func (agentTool) Description() string {
 	return "Launch a sub-agent for a self-contained task. It does not see this conversation; it returns its final answer."
 }
