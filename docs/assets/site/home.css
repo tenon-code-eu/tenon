@@ -241,6 +241,35 @@ body:has(.h-page) { background: var(--color-paper); color: var(--color-ink-2);
 .h-cmdk__foot { display: flex; gap: var(--space-md); padding: var(--space-xs) var(--space-md); border-top: var(--rule-hair) solid var(--color-rule);
   font-size: 0.75rem; color: var(--color-muted); }
 
+
+/* ── Le voyage d'une requête (animation en une prise) ────────────── */
+.h-journey { background: var(--color-night); color: var(--color-on-night); padding-block: var(--space-3xl) var(--space-2xl); }
+.h-journey .h-h2 { color: var(--color-on-night); }
+.h-journey .h-lede { color: var(--color-on-night-muted); }
+.h-jr { margin: 0; display: grid; gap: var(--space-sm); }
+.h-jr__canvas { display: none; width: 100%; aspect-ratio: 1 / 1; border-radius: var(--radius-md);
+  border: var(--rule-hair) solid var(--color-night-rule); background: var(--color-night); }
+.h-jr__bar { display: none; align-items: center; gap: var(--space-xs); }
+.h-jr__btn { flex: none; min-height: 34px; padding: 0 var(--space-sm); border-radius: var(--radius-sm); cursor: pointer;
+  font: 600 var(--text-sm)/1 var(--font-body); white-space: nowrap; color: var(--color-on-night);
+  background: transparent; border: var(--rule-hair) solid var(--color-night-rule);
+  transition: border-color var(--dur-micro) var(--ease-out); }
+.h-jr__btn:hover { border-color: var(--color-gold); }
+.h-jr__track { flex: 1; height: 3px; background: var(--color-night-rule); border-radius: 2px; overflow: hidden; }
+.h-jr__fill { display: block; height: 100%; background: var(--color-gold); transform-origin: left; transform: scaleX(0); }
+.h-jr__canvas { order: 0; } .h-jr__cap { order: 1; } .h-jr__bar { order: 2; }
+.h-jr__cap { display: none; margin: 0; min-height: 3.2em; font-family: var(--font-display); font-weight: 700; font-size: var(--text-lg);
+  line-height: 1.3; color: var(--color-on-night); border-left: 3px solid var(--color-gold); padding-inline-start: var(--space-md); }
+.h-jr.is-live .h-jr__cap { display: block; }
+.h-jr__steps { margin: 0; padding-inline-start: var(--space-lg); font-size: var(--text-sm); color: var(--color-on-night-muted); }
+.h-jr__steps li { margin-bottom: var(--space-2xs); }
+.h-jr__steps strong { color: var(--color-on-night); }
+.h-jr.is-live .h-jr__canvas { display: block; }
+.h-jr.is-live .h-jr__bar { display: flex; }
+.h-jr.is-live .h-jr__steps { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+@media (min-width: 40rem) { .h-jr__canvas { aspect-ratio: 16 / 9; } }
+@media (pointer: coarse) { .h-jr__btn { min-height: 44px; } }
+
 /* ── Points de rupture (mobile d'abord) ──────────────────────────── */
 @media (min-width: 40rem) {
   .h-nav__link--hide, .h-nav__link--docs { display: inline; }

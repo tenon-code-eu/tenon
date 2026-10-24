@@ -99,3 +99,12 @@ func TestSeatbeltDenyWrite(t *testing.T) {
 		t.Error("règle DenyWrite sans DenyWrite")
 	}
 }
+
+func TestSbplPathDevices(t *testing.T) {
+	if got := sbplPath("/dev/null"); got != `(literal "/dev/null")` {
+		t.Errorf("/dev/null: %s", got)
+	}
+	if got := sbplPath("/dev/shm"); got != `(subpath "/dev/shm")` {
+		t.Errorf("/dev/shm doit rester un dossier inscriptible: %s", got)
+	}
+}

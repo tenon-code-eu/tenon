@@ -175,6 +175,10 @@ func denyAncestors(deny []string) []string {
 	seen := map[string]bool{}
 	var out []string
 	for _, d := range Canonical(deny) {
+		// Interdire / n'a pas d'ancêtre à lister.
+		if d == "/" {
+			continue
+		}
 		if _, err := os.Lstat(d); err != nil {
 			continue
 		}

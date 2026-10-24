@@ -1,8 +1,32 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="tenon">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="tenon">
   <title>tenon</title>
-  <!-- Montant (mortaise) bleu nuit, tenon doré qui s'y emboîte -->
-  <path d="M4 3h12v26H4z" fill="#22357f"/>
-  <path d="M10 12.5h18v7H10z" fill="#f6efe2"/>
-  <path d="M10 13.5h6v5h-6z" fill="#f5c400"/>
-  <path d="M10 12.5v7" stroke="#0f1a3d" stroke-width="1"/>
+  <defs>
+    <linearGradient id="t-hex" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1f4bb0"/>
+      <stop offset="1" stop-color="#0c1f52"/>
+    </linearGradient>
+    <linearGradient id="t-trace" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5fd8ff"/>
+      <stop offset="1" stop-color="#2f7bea"/>
+    </linearGradient>
+  </defs>
+  <!-- Bouclier hexagonal -->
+  <path d="M32 2.5 57.5 17.2v29.6L32 61.5 6.5 46.8V17.2Z" fill="url(#t-hex)"/>
+  <path d="M32 2.5 57.5 17.2v29.6L32 61.5 6.5 46.8V17.2Z" fill="none" stroke="#5fd8ff" stroke-opacity=".9" stroke-width="2"/>
+  <!-- Toit en chevron -->
+  <path d="M21 14.5 32 8.6l11 5.9" fill="none" stroke="url(#t-trace)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Pistes : un tronc central (le tenon) et des circuits symétriques -->
+  <g fill="none" stroke="url(#t-trace)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+    <path id="t-left" d="M30 21.5H21.5L18.5 18.5 M29 26H18.5 M28 30.5H23v12l4 4 M19.5 31.5v12.5l5.5 5.5 M15.5 33v9.5"/>
+    <use href="#t-left" transform="matrix(-1 0 0 1 64 0)"/>
+    <path d="M24.5 16.5 32 22.5l7.5-6 M32 22.5V32 M32 40.5V56"/>
+  </g>
+  <g fill="#0c1f52" stroke="url(#t-trace)" stroke-width="1.6">
+    <circle cx="17.3" cy="17.3" r="1.7"/><circle cx="46.7" cy="17.3" r="1.7"/>
+    <circle cx="17" cy="26" r="1.7"/><circle cx="47" cy="26" r="1.7"/>
+    <circle cx="23" cy="28.8" r="1.5"/><circle cx="41" cy="28.8" r="1.5"/>
+  </g>
+  <!-- Nœud central -->
+  <rect x="28.6" y="32" width="6.8" height="8.5" rx="3.4" fill="#0c1f52" stroke="#7fe3ff" stroke-width="2"/>
+  <circle cx="32" cy="36.25" r="1.5" fill="#7fe3ff"/>
 </svg>

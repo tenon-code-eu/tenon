@@ -808,7 +808,9 @@ func (t *turn) ask(p event.PermissionRequestedPayload, ruleNet bool) (Reply, err
 		}
 		return Reply{}, t.ctx.Err()
 	}
-	r.Network = r.Allow && p.Kind == "tool" && (r.Network || ruleNet)
+	// Le réseau ne vient que d'une règle shell, ou d'une réponse à une demande
+	// pour une commande isolée : jamais pour un autre outil.
+	r.Network = r.Allow && p.Kind == "tool" && ((r.Network && p.Sandboxed) || ruleNet)
 	if err := t.emit(event.PermissionResolved, event.PermissionResolvedPayload{
 		PermissionID: id, Allowed: r.Allow, Remember: r.Remember, Network: r.Network,
 	}); err != nil {

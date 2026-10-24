@@ -126,6 +126,8 @@ func confineAndExec(argv []string) error {
 		return fmt.Errorf("landlock_create_ruleset: %w", errno)
 	}
 	ruleset := int(fd)
+	// Inutile si execve réussit (le noyau ferme le descripteur, O_CLOEXEC) ;
+	// ferme le ruleset sur les chemins d'échec qui rendent 126.
 	defer unix.Close(ruleset)
 
 	reads, err := splitAround("/", s.DenyRead)

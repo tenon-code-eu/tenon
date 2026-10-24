@@ -155,10 +155,11 @@ func configDeny(globalPath, wd string, getenv func(string) string) []string {
 	if err != nil {
 		return nil
 	}
-	if rel, err := filepath.Rel(canonicalPath(wd), canonicalPath(abs)); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+	target := canonicalPath(abs)
+	if rel, err := filepath.Rel(canonicalPath(wd), target); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return nil
 	}
-	return []string{abs}
+	return []string{target}
 }
 
 // canonicalPath résout les liens symboliques du plus long préfixe existant de

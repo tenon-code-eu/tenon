@@ -82,7 +82,7 @@ func TestMCPMessages(t *testing.T) {
 		{FR, "mcp.down", "serveur MCP gh indisponible : x", []any{"gh", "x"}},
 		{EN, "mcp.down", "MCP server gh unavailable: x", []any{"gh", "x"}},
 		// R22 : « pour la session » garde le réseau accordé par la règle.
-		{EN, "tui.perm.keys_tool_rule_network", "y: yes once (with network) · a: always for this session (with network) · n: no", nil},
+		{EN, "tui.perm.keys_tool_rule_network", "y: yes once (with network) · a: session (with network) · n: no", nil},
 		{FR, "tui.perm.keys_tool_rule_network", "o : oui une fois (avec réseau) · s : pour la session (avec réseau) · n : non", nil},
 		{EN, "mcp.down_confined", `(confined: risk "read"; see [sandbox] write and risk)`, []any{"read"}},
 		{FR, "mcp.down_confined", `(confiné : risk "read" ; voir [sandbox] write et risk)`, []any{"read"}},

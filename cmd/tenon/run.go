@@ -963,6 +963,13 @@ func startEngine(o engineOptions) (started, error) {
 	home, configDir, dataDir, policyPath := sandboxPaths(getenv)
 	sbSpec, sbInfo, sbNotices, err := sandboxSetup(lang, cfg, wd, home, configDir, dataDir, policyPath, getenv)
 	if err != nil {
+		// Comme pour les autres refus : les avis du profil et de la politique
+		// l'expliquent (profil relevé à strict-local, donc isolation requise).
+		if o.stderr != nil {
+			for _, n := range startNotices {
+				fmt.Fprintln(o.stderr, n)
+			}
+		}
 		return started{}, err
 	}
 	startNotices = append(startNotices, sbNotices...)
