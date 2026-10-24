@@ -35,10 +35,13 @@ type ProviderTokens struct {
 }
 
 // Energy est l'énergie et le CO₂ estimés ; présent seulement quand les deux
-// facteurs sont déclarés (jamais de valeur par défaut).
+// facteurs sont déclarés (jamais de valeur par défaut). Les facteurs utilisés
+// sont enregistrés avec le résultat (ruling R14).
 type Energy struct {
-	Wh    float64 `json:"wh"`
-	GCO2e float64 `json:"gco2e"`
+	Wh         float64 `json:"wh"`
+	GCO2e      float64 `json:"gco2e"`
+	WhPerMTok  float64 `json:"wh_per_mtoken"`
+	GCO2PerKWh float64 `json:"gco2_per_kwh"`
 }
 
 // Tokens est la section tokens du rapport ; omise sans événement Usage.
@@ -143,10 +146,17 @@ func (s *tokenState) section(o Options) *Tokens {
 	})
 	if o.WhPerMTok > 0 && o.GCO2PerKWh > 0 {
 		wh := float64(s.total.in+s.total.out) / 1e6 * o.WhPerMTok
-		t.Energy = &Energy{Wh: round6(wh), GCO2e: round6(wh / 1000 * o.GCO2PerKWh)}
+		t.Energy = &Energy{Wh: roundSig(wh), GCO2e: roundSig(wh / 1000 * o.GCO2PerKWh), WhPerMTok: o.WhPerMTok, GCO2PerKWh: o.GCO2PerKWh}
 	}
 	return t
 }
 
-// round6 écarte le bruit de virgule flottante.
-func round6(f float64) float64 { return math.Round(f*1e6) / 1e6 }
+// roundSig écarte le bruit de virgule flottante en gardant 6 chiffres
+// significatifs (une petite session n'est pas arrondie à zéro).
+func roundSig(f float64) float64 {
+	if f == 0 || math.IsInf(f, 0) || math.IsNaN(f) {
+		return f
+	}
+	p := math.Pow(10, 5-math.Floor(math.Log10(math.Abs(f))))
+	return math.Round(f*p) / p
+}

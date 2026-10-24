@@ -1,6 +1,7 @@
 package compliance
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -51,15 +52,26 @@ func TestExportEnergyOnlyDeclared(t *testing.T) {
 	r := Build(ds, Options{WhPerMTok: 1000, GCO2PerKWh: 50})
 	// (2100+500)/1e6 × 1000 = 2,6 Wh ; 2,6/1000 × 50 = 0,13 g.
 	e := r.Tokens.Energy
-	if e == nil || e.Wh != 2.6 || e.GCO2e != 0.13 {
+	// Ruling R14 : les facteurs utilisés sont enregistrés.
+	if e == nil || *e != (Energy{Wh: 2.6, GCO2e: 0.13, WhPerMTok: 1000, GCO2PerKWh: 50}) {
 		t.Fatalf("energy = %+v", e)
 	}
+	js, err := json.Marshal(e)
+	if err != nil || string(js) != `{"wh":2.6,"gco2e":0.13,"wh_per_mtoken":1000,"gco2_per_kwh":50}` {
+		t.Fatalf("json %s %v", js, err)
+	}
+	// Trois chiffres significatifs.
 	out := render(t, r, i18n.FR)
-	if !strings.Contains(out, "≈ 2,60 Wh · ≈ 0,13 g CO₂e (facteurs déclarés)") {
+	if !strings.Contains(out, "≈ 2,60 Wh · ≈ 0,130 g CO₂e (facteurs déclarés : 1000 Wh/Mtoken, 50 g CO₂e/kWh)") {
 		t.Fatalf("ligne FR absente : %s", out)
 	}
-	if out := render(t, r, i18n.EN); !strings.Contains(out, "≈ 2.60 Wh · ≈ 0.13 g CO₂e (declared factors)") {
+	if out := render(t, r, i18n.EN); !strings.Contains(out, "≈ 2.60 Wh · ≈ 0.130 g CO₂e (declared factors: 1000 Wh/Mtoken, 50 g CO₂e/kWh)") {
 		t.Fatalf("ligne EN absente")
+	}
+	// Petite session : jamais « 0,00 » pour une valeur non nulle.
+	small := Build(ds, Options{WhPerMTok: 0.5, GCO2PerKWh: 52})
+	if out := render(t, small, i18n.FR); !strings.Contains(out, "≈ 0,00130 Wh · ≈ 0,0000676 g CO₂e (facteurs déclarés : 0,5 Wh/Mtoken, 52 g CO₂e/kWh)") {
+		t.Fatalf("petite session : %s", out)
 	}
 	if out := render(t, Build(ds, Options{}), i18n.EN); strings.Contains(out, "Wh") {
 		t.Fatal("énergie rendue sans facteurs")

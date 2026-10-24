@@ -3,9 +3,9 @@ package compliance
 import (
 	"bytes"
 	_ "embed"
-	"fmt"
 	"html/template"
 	"math"
+	"strconv"
 	"strings"
 	"time"
 
@@ -65,14 +65,18 @@ func funcs(lang i18n.Lang) template.FuncMap {
 			}
 			out := strings.Join(parts, "; ")
 			if t.Energy != nil {
-				num := func(f float64) string {
-					s := fmt.Sprintf("%.2f", f)
+				// Résultats en 3 chiffres significatifs (jamais « 0,00 » pour
+				// une valeur non nulle), facteurs tels que déclarés.
+				dec := func(s string) string {
 					if lang == i18n.FR {
 						s = strings.Replace(s, ".", ",", 1)
 					}
 					return s
 				}
-				out += " — " + i18n.T(lang, "report.tokens_energy", num(t.Energy.Wh), num(t.Energy.GCO2e))
+				sig := func(f float64) string { return dec(sig3(f)) }
+				factor := func(f float64) string { return dec(strconv.FormatFloat(f, 'f', -1, 64)) }
+				e := t.Energy
+				out += " — " + i18n.T(lang, "report.tokens_energy", sig(e.Wh), sig(e.GCO2e), factor(e.WhPerMTok), factor(e.GCO2PerKWh))
 			}
 			return out
 		},
@@ -114,4 +118,13 @@ func RenderHTML(r Report, reportID string, lang i18n.Lang) ([]byte, error) {
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+// sig3 écrit f avec 3 chiffres significatifs, sans exposant.
+func sig3(f float64) string {
+	if f == 0 || math.IsInf(f, 0) || math.IsNaN(f) {
+		return strconv.FormatFloat(f, 'f', -1, 64)
+	}
+	d := max(0, 2-int(math.Floor(math.Log10(math.Abs(f)))))
+	return strconv.FormatFloat(f, 'f', d, 64)
 }
