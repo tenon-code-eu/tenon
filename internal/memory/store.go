@@ -274,6 +274,31 @@ func (s *Store) Put(e Entry) (Entry, error) {
 	return e, nil
 }
 
+// Path renvoie le chemin absolu du fichier d'une entrée (sans le lire).
+func (s *Store) Path(sc Scope, id string) string {
+	return filepath.Join(s.dir(sc), id+".md")
+}
+
+// Check vérifie, sans rien écrire, qu'une entrée passerait Put : portée,
+// champs, taille du corps, et plafond de la portée pour une nouvelle entrée.
+func (s *Store) Check(e Entry) error {
+	if _, err := ParseScope(string(e.Scope)); err != nil {
+		return err
+	}
+	if e.Scope == Project && !s.project {
+		return invalid("project memory is disabled")
+	}
+	if err := e.validate(); err != nil {
+		return err
+	}
+	if _, err := os.Lstat(s.Path(e.Scope, e.ID)); errors.Is(err, fs.ErrNotExist) {
+		if part, _ := s.listScope(e.Scope); len(part) >= maxEntries {
+			return fullError{e.Scope}
+		}
+	}
+	return nil
+}
+
 // writeAtomic écrit dans un fichier temporaire du même dossier puis renomme.
 func writeAtomic(path string, data []byte, mode os.FileMode) error {
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".tmp-*")

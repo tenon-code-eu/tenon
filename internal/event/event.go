@@ -37,6 +37,10 @@ const (
 	ProviderSelected    Type = "ProviderSelected"
 	CRAScan             Type = "CRAScan"
 	CRAReport           Type = "CRAReport"
+	MemoryWritten       Type = "MemoryWritten"
+	MemoryRead          Type = "MemoryRead"
+	MemoryForgotten     Type = "MemoryForgotten"
+	MemoryTrusted       Type = "MemoryTrusted"
 )
 
 // Event is one entry of a session log.

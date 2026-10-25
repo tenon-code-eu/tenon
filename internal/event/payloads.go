@@ -319,6 +319,44 @@ type SessionClassifiedPayload struct {
 	Marker string `json:"marker,omitempty"`
 }
 
+// MemoryWrittenPayload records a memory entry written by the model
+// (memory_write, Author "model") or the user (/remember, Author "user").
+// Scope is the scope it was stored in (a sensitive entry goes to "user"),
+// SHA256 the hash of the file bytes; Redacted is true when redaction changed
+// the title or the content. Neither title nor content is recorded.
+// Session-wide: no ParentCallID.
+type MemoryWrittenPayload struct {
+	Scope     string `json:"scope"`
+	ID        string `json:"id"`
+	SHA256    string `json:"sha256"`
+	Author    string `json:"author"`
+	Sensitive bool   `json:"sensitive"`
+	Redacted  bool   `json:"redacted"`
+}
+
+// MemoryReadPayload records a memory entry returned to the model
+// (memory_read). Emitted only when content is returned.
+type MemoryReadPayload struct {
+	Scope     string `json:"scope"`
+	ID        string `json:"id"`
+	Sensitive bool   `json:"sensitive"`
+}
+
+// MemoryForgottenPayload records a deleted memory entry. By is "user",
+// "model" (memory_forget) or "expiry" (retention purge at start).
+type MemoryForgottenPayload struct {
+	Scope string `json:"scope"`
+	ID    string `json:"id"`
+	By    string `json:"by"`
+}
+
+// MemoryTrustedPayload records that a project memory entry was approved on
+// this machine, with the hash of the approved file.
+type MemoryTrustedPayload struct {
+	ID     string `json:"id"`
+	SHA256 string `json:"sha256"`
+}
+
 // ProviderSelectedPayload records a change of the provider that receives the
 // model requests (including the first send of a session with routing).
 // Reason is "default", "fallback" (an earlier candidate failed or was refused

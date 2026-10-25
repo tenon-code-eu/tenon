@@ -91,26 +91,15 @@ func (t *turn) done(iter int, reason string) error {
 
 func (t *turn) run(in Input) error {
 	d := t.e.d
-	info := d.Provider.Info()
-	first := !t.s.started
-	if first {
-		started := event.SessionStartedPayload{
-			Provider: info, ProjectRoot: d.ProjectRoot, Resumed: t.s.resumed, Instructions: d.Instructions,
-			MCP: d.MCP, Profile: string(d.Profile), Sandbox: d.Sandbox, Routing: d.Routing,
-		}
-		if d.Policy != nil {
-			started.Policy = &event.PolicyRef{ID: d.Policy.ID, Version: d.Policy.Version, KeyID: d.Policy.KeyID}
-		}
-		if err := t.emit(event.SessionStarted, started); err != nil {
+	if !t.s.started {
+		if err := t.startSession(); err != nil {
 			return err
 		}
-		t.s.started = true
-		for _, u := range d.UnavailableMCP {
-			if err := t.emit(event.McpServerDown, u); err != nil {
-				return err
-			}
-		}
 	}
+	// Hooks SessionStart : au premier tour après SessionStarted, une seule
+	// fois (même si ce tour est bloqué par le budget).
+	first := t.s.startHooks
+	t.s.startHooks = false
 	// Budget épuisé : le tour ne part pas (ni hook, ni envoi). Le prompt
 	// est d'abord classé comme sur le chemin normal (marquage : refus sans
 	// fournisseur local, sans journaliser le texte ; session sensible
@@ -204,6 +193,30 @@ func (t *turn) run(in Input) error {
 
 // hookFailed traite l'erreur d'un hook de run avant la boucle : après une
 // annulation, le tour est clos (au mieux) avec la raison cancelled.
+// startSession émet SessionStarted, puis un McpServerDown par serveur
+// injoignable et les MemoryForgotten{expiry} de la purge au démarrage.
+func (t *turn) startSession() error {
+	d := t.e.d
+	started := event.SessionStartedPayload{
+		Provider: d.Provider.Info(), ProjectRoot: d.ProjectRoot, Resumed: t.s.resumed, Instructions: d.Instructions,
+		MCP: d.MCP, Profile: string(d.Profile), Sandbox: d.Sandbox, Routing: d.Routing,
+	}
+	if d.Policy != nil {
+		started.Policy = &event.PolicyRef{ID: d.Policy.ID, Version: d.Policy.Version, KeyID: d.Policy.KeyID}
+	}
+	if err := t.emit(event.SessionStarted, started); err != nil {
+		return err
+	}
+	t.s.started = true
+	t.s.startHooks = true
+	for _, u := range d.UnavailableMCP {
+		if err := t.emit(event.McpServerDown, u); err != nil {
+			return err
+		}
+	}
+	return t.emitExpired()
+}
+
 func (t *turn) hookFailed(err error) error {
 	if t.ctx.Err() != nil {
 		t.cancelled(0)
@@ -1040,6 +1053,19 @@ func (t *turn) decideAndRun(c llm.ToolCall) (res tools.Result, denied string, ra
 	// celui accordé par la réponse à la demande. Un Ask levé par un hook
 	// n'ouvre jamais le réseau ; une approbation mémorisée n'ouvre que celui
 	// de la règle ask (network = true), jamais celui d'une réponse.
+	// Mémoire : la chaîne d'avant écriture (masquage, sensibilité, portée
+	// finale, limites) précède la décision, pour que les règles portent sur
+	// la portée effective et que la demande montre ce qui sera écrit.
+	var plan *memoryPlan
+	if isMemoryTool(tool) {
+		var bad *tools.Result
+		if plan, bad = t.planMemory(tool, args); bad != nil {
+			return *bad, "", false, nil, nil
+		}
+		if plan != nil {
+			target = plan.target
+		}
+	}
 	dec, liftable, ruleNet := d.Permissions.DecideNet(policy.Call{Tool: c.Name, Risk: tool.Risk(), Target: target})
 	var prompt, network bool
 	switch dec {
@@ -1070,6 +1096,12 @@ func (t *turn) decideAndRun(c llm.ToolCall) (res tools.Result, denied string, ra
 			}
 			if out.UpdatedInput != nil && !sameJSON(args, c.Args) {
 				p.Args = safeArgs(args)
+			}
+			// Mémoire : fichier de l'entrée et arguments masqués (jamais dans
+			// Target.Paths, qui forcerait la demande hors du projet).
+			if plan != nil {
+				p.Paths = []string{plan.path}
+				p.Args = plan.args
 			}
 			r, err := t.ask(p, ruleNet)
 			if err != nil {
@@ -1102,6 +1134,12 @@ func (t *turn) decideAndRun(c llm.ToolCall) (res tools.Result, denied string, ra
 		run := c
 		run.Args = args
 		res, err = t.runSubagent(run)
+	} else if isMemoryTool(tool) {
+		var refused string
+		res, refused, err = t.runMemory(tool, c.ID, args, plan)
+		if err == nil && refused != "" {
+			return res, refused, false, nil, nil
+		}
 	} else {
 		res, err = tool.Run(tools.WithNetwork(t.ctx, network), args)
 	}

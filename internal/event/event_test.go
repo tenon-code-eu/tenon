@@ -297,3 +297,26 @@ func TestCRAPayloadsJSON(t *testing.T) {
 		t.Errorf("kind non omis : %s", got)
 	}
 }
+
+func TestMemoryPayloadsJSON(t *testing.T) {
+	if MemoryWritten != "MemoryWritten" || MemoryRead != "MemoryRead" || MemoryForgotten != "MemoryForgotten" || MemoryTrusted != "MemoryTrusted" {
+		t.Fatal("types")
+	}
+	for _, c := range []struct {
+		v    any
+		want string
+	}{
+		{MemoryWrittenPayload{Scope: "user", ID: "a", SHA256: "ff", Author: "model", Sensitive: true, Redacted: true},
+			`{"scope":"user","id":"a","sha256":"ff","author":"model","sensitive":true,"redacted":true}`},
+		{MemoryWrittenPayload{Scope: "user", ID: "a", SHA256: "ff", Author: "user"},
+			`{"scope":"user","id":"a","sha256":"ff","author":"user","sensitive":false,"redacted":false}`},
+		{MemoryReadPayload{Scope: "global", ID: "b", Sensitive: true}, `{"scope":"global","id":"b","sensitive":true}`},
+		{MemoryForgottenPayload{Scope: "project", ID: "c", By: "expiry"}, `{"scope":"project","id":"c","by":"expiry"}`},
+		{MemoryTrustedPayload{ID: "d", SHA256: "ee"}, `{"id":"d","sha256":"ee"}`},
+	} {
+		got, err := json.Marshal(c.v)
+		if err != nil || string(got) != c.want {
+			t.Errorf("%T : %s (%v), attendu %s", c.v, got, err, c.want)
+		}
+	}
+}

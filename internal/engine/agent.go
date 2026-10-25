@@ -87,6 +87,10 @@ func (t *turn) runSubagent(c llm.ToolCall) (tools.Result, error) {
 	}
 
 	reg := d.Tools
+	// Un sous-agent ne lit que la mémoire : ni écriture ni oubli.
+	if d.Memory != nil {
+		reg = reg.With(memoryReadTool{st: d.Memory})
+	}
 	if a.Tools != nil {
 		reg = reg.Only(a.Tools)
 	}

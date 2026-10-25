@@ -292,3 +292,40 @@ func TestListNoticeTooLargeExact(t *testing.T) {
 		t.Fatalf("%q", notes)
 	}
 }
+
+func TestPathAndCheck(t *testing.T) {
+	s, root, _ := newStore(t, true)
+	if got, want := s.Path(Project, "x"), filepath.Join(root, ".tenon", "memory", "x.md"); got != want {
+		t.Fatalf("Path %s != %s", got, want)
+	}
+	ok := Entry{Scope: User, ID: "a", Title: "t", Body: "b", Author: "model"}
+	if err := s.Check(ok); err != nil {
+		t.Fatal(err)
+	}
+	big := ok
+	big.Body = strings.Repeat("x", 4097)
+	if err := s.Check(big); err == nil || err.Error() != "memory: entry too large (4097 bytes, max 4096)" {
+		t.Fatalf("too large: %v", err)
+	}
+	bad := ok
+	bad.ID = "Bad"
+	if err := s.Check(bad); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("id: %v", err)
+	}
+	for i := 0; i < 200; i++ {
+		put(t, s, Global, fmt.Sprintf("e%d", i))
+	}
+	g := ok
+	g.Scope = Global
+	if err := s.Check(g); err == nil || err.Error() != "memory: global holds 200 entries; forget some first" {
+		t.Fatalf("full: %v", err)
+	}
+	// Remplacer une entrée existante reste possible.
+	g.ID = "e3"
+	if err := s.Check(g); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Get(User, "a"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Check a écrit : %v", err)
+	}
+}

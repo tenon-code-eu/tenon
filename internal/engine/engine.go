@@ -18,6 +18,7 @@ import (
 	"github.com/tenon-code-eu/tenon/internal/hostmatch"
 	"github.com/tenon-code-eu/tenon/internal/i18n"
 	"github.com/tenon-code-eu/tenon/internal/llm"
+	"github.com/tenon-code-eu/tenon/internal/memory"
 	"github.com/tenon-code-eu/tenon/internal/orgpolicy"
 	"github.com/tenon-code-eu/tenon/internal/policy"
 	"github.com/tenon-code-eu/tenon/internal/profile"
@@ -121,6 +122,17 @@ type Deps struct {
 	// garde-fous laisse la place au fournisseur de la session. Une session
 	// sensible les ignore : le fournisseur local de Router seul.
 	CompactionRouter, SubagentRouter *routing.Router
+	// Memory est le store de la mémoire gouvernée (nil : ni outils mémoire
+	// ni Remember).
+	Memory *memory.Store
+	// Redact masque un texte avant son écriture en mémoire (nil : aucun
+	// masquage) ; le booléen indique que le texte a changé. Mêmes règles
+	// qu'à l'envoi.
+	Redact func(string) (string, bool)
+	// MemoryExpired liste les entrées purgées au démarrage : un
+	// MemoryForgotten{expiry} est émis pour chacune juste après le premier
+	// SessionStarted de l'Engine.
+	MemoryExpired []memory.Entry
 }
 
 // Budget est le plafond de jetons d'une session : somme input + output des
@@ -158,17 +170,22 @@ type Engine struct {
 	subs   []chan event.Event
 	failed bool
 
-	mu       sync.Mutex // protège sessions et pending
+	mu       sync.Mutex // protège sessions, pending et expiredLogged
 	sessions map[string]*session
 	pending  map[string]chan Reply
+	// expiredLogged : les MemoryForgotten{expiry} ont été émis.
+	expiredLogged bool
 }
 
 // session est l'état en mémoire d'une session (persistance : plan 2).
 type session struct {
 	turn sync.Mutex // tenu pendant tout un Submit ; protège les champs suivants
 
-	id         string
-	started    bool
+	id      string
+	started bool
+	// startHooks : SessionStarted émis, hooks SessionStart pas encore
+	// exécutés (une session démarrée par Remember les exécute au premier tour).
+	startHooks bool
 	resumed    bool // reconstruite par Restore : SessionStarted{Resumed:true}
 	seq        uint64
 	permN      int
@@ -264,6 +281,9 @@ func New(d Deps) *Engine {
 	reg := d.Tools
 	if d.Agents != nil {
 		reg = reg.With(agentTool{})
+	}
+	if d.Memory != nil {
+		reg = reg.With(memoryReadTool{st: d.Memory}, memoryWriteTool{}, memoryForgetTool{})
 	}
 	router := d.Router
 	if router == nil && d.Provider != nil {

@@ -35,6 +35,8 @@ const (
 	sourceUser  = "user"
 	// sourceOutbound : marquage trouvé par le contrôle sortant d'une requête.
 	sourceOutbound = "outbound"
+	// sourceMemory : lecture d'une entrée de mémoire sensible.
+	sourceMemory = "memory"
 )
 
 // classify rend la session sensible et émet SessionClassified, une seule fois
