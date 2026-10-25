@@ -68,6 +68,22 @@ func Parse(data []byte) (f Fields, body string, err error) {
 
 // ParseLimits est Parse avec des limites explicites d'octets et de lignes.
 func ParseLimits(data []byte, maxBytes, maxLines int) (f Fields, body string, err error) {
+	f, body, err = ParseAny(data, maxBytes, maxLines)
+	if err != nil {
+		return f, "", err
+	}
+	if f.Name() == "" {
+		return f, "", errors.New("frontmatter: missing name")
+	}
+	if f.Description() == "" {
+		return f, "", errors.New("frontmatter: missing description")
+	}
+	return f, body, nil
+}
+
+// ParseAny est ParseLimits sans exiger name ni description : pour les
+// fichiers qui portent d'autres champs (mémoire).
+func ParseAny(data []byte, maxBytes, maxLines int) (f Fields, body string, err error) {
 	text := strings.TrimPrefix(string(data), "\xef\xbb\xbf")
 	text = strings.ReplaceAll(text, "\r\n", "\n")
 
@@ -121,12 +137,6 @@ func ParseLimits(data []byte, maxBytes, maxLines int) (f Fields, body string, er
 		f.raw[key] = rawField{val: val, cont: cont}
 	}
 
-	if f.Name() == "" {
-		return f, "", errors.New("frontmatter: missing name")
-	}
-	if f.Description() == "" {
-		return f, "", errors.New("frontmatter: missing description")
-	}
 	return f, rest, nil
 }
 
