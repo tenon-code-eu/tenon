@@ -64,9 +64,27 @@ func (s *Store) Trusted(e Entry) bool {
 
 // Trust enregistre l'empreinte d'une entrée project.
 func (s *Store) Trust(e Entry) error {
+	if e.Scope != Project {
+		return invalid("only project entries can be trusted")
+	}
+	if e.SHA256 == "" {
+		return invalid("cannot trust an entry without hash")
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	m := s.loadTrust()
 	m[e.ID] = e.SHA256
+	return writeJSON(s.trustPath(), m)
+}
+
+// dropTrust retire la ligne de confiance d'un id (entrée oubliée).
+func (s *Store) dropTrust(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	m := s.loadTrust()
+	if _, ok := m[id]; !ok {
+		return nil
+	}
+	delete(m, id)
 	return writeJSON(s.trustPath(), m)
 }

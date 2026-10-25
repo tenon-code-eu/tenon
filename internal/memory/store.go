@@ -321,8 +321,12 @@ func (s *Store) Forget(scope Scope, id string) error {
 	if errors.Is(err, fs.ErrNotExist) {
 		return ErrNotFound
 	}
-	if err == nil && scope != Project {
-		_ = s.dropRow(Entry{Scope: scope, ID: id})
+	if err == nil {
+		if scope == Project {
+			_ = s.dropTrust(id)
+		} else {
+			_ = s.dropRow(Entry{Scope: scope, ID: id})
+		}
 	}
 	return err
 }

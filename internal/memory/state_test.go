@@ -127,3 +127,24 @@ func TestForgetDropsRow(t *testing.T) {
 		t.Fatal("ligne restante")
 	}
 }
+
+func TestPurgeRemoveErrorKeepsProgress(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root")
+	}
+	now := t0
+	s := clockStore(t, &now, t.TempDir(), t.TempDir())
+	put(t, s, User, "a")
+	put(t, s, Global, "g")
+	// Global ne peut pas être vidé : dossier sans droit d'écriture.
+	os.Chmod(s.dir(Global), 0o500)
+	defer os.Chmod(s.dir(Global), 0o700)
+	now = t0.Add(100 * day)
+	gone, err := s.Purge()
+	if err == nil || len(gone) != 1 || gone[0].ID != "a" {
+		t.Fatalf("%v %v", gone, err)
+	}
+	if _, ok := s.loadState()[s.rowKey(Entry{Scope: User, ID: "a"})]; ok {
+		t.Fatal("ligne de l'entrée supprimée conservée")
+	}
+}

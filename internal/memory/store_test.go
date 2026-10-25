@@ -277,3 +277,18 @@ func TestValidateTitle(t *testing.T) {
 		}
 	}
 }
+
+func TestListNoticeTooLargeExact(t *testing.T) {
+	s, _, _ := newStore(t, true)
+	put(t, s, User, "base")
+	e := Entry{Scope: User, ID: "big", Title: "t", Author: "user", Created: t0}
+	e.Body = "x"
+	data, _ := encodeEntry(e)
+	data = append(data, strings.Repeat("x", 4999)...)
+	os.WriteFile(filepath.Join(s.dir(User), "big.md"), data, 0o600)
+	_, notes := s.List()
+	want := "memory: user/big.md ignored: entry too large (5000 bytes, max 4096)"
+	if len(notes) != 1 || notes[0] != want {
+		t.Fatalf("%q", notes)
+	}
+}

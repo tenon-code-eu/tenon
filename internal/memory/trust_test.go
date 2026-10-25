@@ -71,3 +71,27 @@ func TestTrustSeparatedPerProject(t *testing.T) {
 		t.Fatal("confiance partagée entre projets")
 	}
 }
+
+func TestTrustRefusals(t *testing.T) {
+	s, _, data := newStore(t, true)
+	if err := s.Trust(Entry{Scope: User, ID: "x", SHA256: "ab"}); err == nil {
+		t.Fatal("user accepté")
+	}
+	if err := s.Trust(Entry{Scope: Project, ID: "x"}); err == nil {
+		t.Fatal("hash vide accepté")
+	}
+	if _, err := os.Stat(filepath.Join(data, "memory", "trust")); err == nil {
+		t.Fatal("ligne écrite")
+	}
+}
+
+func TestForgetProjectDropsTrust(t *testing.T) {
+	s, _, _ := newStore(t, true)
+	put(t, s, Project, "a")
+	if err := s.Forget(Project, "a"); err != nil {
+		t.Fatal(err)
+	}
+	if len(s.loadTrust()) != 0 {
+		t.Fatal("ligne de confiance restante")
+	}
+}

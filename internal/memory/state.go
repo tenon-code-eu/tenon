@@ -89,6 +89,15 @@ func (s *Store) Purge() ([]Entry, error) {
 	now := s.now().UTC()
 	var gone []Entry
 	changed := false
+	// flush enregistre l'état des suppressions déjà faites avant une erreur.
+	flush := func(err error) ([]Entry, error) {
+		if changed {
+			if serr := s.saveState(m); serr != nil && err == nil {
+				err = serr
+			}
+		}
+		return gone, err
+	}
 	for _, sc := range []Scope{User, Global} {
 		part, _ := s.listScope(sc)
 		for _, e := range part {
@@ -97,15 +106,12 @@ func (s *Store) Purge() ([]Entry, error) {
 			}
 			err := os.Remove(filepath.Join(s.dir(sc), e.ID+".md"))
 			if err != nil && !os.IsNotExist(err) {
-				return gone, err
+				return flush(err)
 			}
 			delete(m, s.rowKey(e))
 			changed = true
 			gone = append(gone, e)
 		}
 	}
-	if changed {
-		return gone, s.saveState(m)
-	}
-	return gone, nil
+	return flush(nil)
 }
