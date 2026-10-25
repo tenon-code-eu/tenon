@@ -226,3 +226,54 @@ func TestStoreAtomic(t *testing.T) {
 		t.Fatalf("created %v", got.Created)
 	}
 }
+
+func TestGetSkipsBrokenEarlierScope(t *testing.T) {
+	s, root, _ := newStore(t, true)
+	put(t, s, Global, "x")
+	os.MkdirAll(filepath.Join(root, ".tenon", "memory"), 0o755)
+	os.WriteFile(filepath.Join(root, ".tenon", "memory", "x.md"), []byte("junk"), 0o644)
+	if e, err := s.Get("", "x"); err != nil || e.Scope != Global {
+		t.Fatalf("%v %v", e, err)
+	}
+	if _, err := s.Get(Project, "x"); err == nil {
+		t.Fatal("portée explicite doit échouer")
+	}
+	os.Remove(filepath.Join(s.dir(Global), "x.md"))
+	if _, err := s.Get("", "x"); err == nil || errors.Is(err, ErrNotFound) {
+		t.Fatalf("erreur du fichier cassé attendue: %v", err)
+	}
+}
+
+func TestListNoticeNoDoubledPrefix(t *testing.T) {
+	s, _, _ := newStore(t, true)
+	put(t, s, User, "ok")
+	os.WriteFile(filepath.Join(s.dir(User), "big.md"), make([]byte, maxFileBytes+10), 0o600)
+	_, notes := s.List()
+	for _, n := range notes {
+		if strings.Contains(n, "memory: memory:") || strings.Contains(n, "ignored: memory:") {
+			t.Fatal(n)
+		}
+	}
+	if len(notes) == 0 {
+		t.Fatal("pas d'avis")
+	}
+}
+
+func TestLimitCountsOnlyValid(t *testing.T) {
+	s, _, _ := newStore(t, true)
+	put(t, s, User, "first")
+	for i := 0; i < 250; i++ {
+		os.WriteFile(filepath.Join(s.dir(User), fmt.Sprintf("junk%d.md", i)), []byte("x"), 0o600)
+	}
+	if _, err := s.Put(Entry{Scope: User, ID: "second", Title: "t", Author: "user"}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestValidateTitle(t *testing.T) {
+	for _, title := range []string{"   ", "a\tb", "a\x00b", "bad\xffutf", "a\u0085b"} {
+		if err := (Entry{ID: "x", Title: title, Author: "user"}).validate(); err == nil {
+			t.Errorf("%q accepté", title)
+		}
+	}
+}

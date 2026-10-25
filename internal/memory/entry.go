@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/tenon-code-eu/tenon/internal/frontmatter"
@@ -102,8 +103,15 @@ func (e Entry) validate() error {
 	if n := utf8.RuneCountInString(e.Title); n < 1 || n > maxTitle {
 		return invalid("title must be 1 to %d characters", maxTitle)
 	}
-	if strings.ContainsAny(e.Title, "\n\r") {
-		return invalid("title must be one line")
+	if !utf8.ValidString(e.Title) {
+		return invalid("title is not valid UTF-8")
+	}
+	if strings.TrimSpace(e.Title) == "" {
+		return invalid("title must not be blank")
+	}
+	// Un titre tient sur une ligne : aucun caractère de contrôle.
+	if strings.IndexFunc(e.Title, unicode.IsControl) >= 0 {
+		return invalid("title must be one line without control characters")
 	}
 	if e.Author != "model" && e.Author != "user" {
 		return invalid("author must be model or user")

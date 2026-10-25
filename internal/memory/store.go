@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/tenon-code-eu/tenon/internal/safefile"
@@ -21,6 +22,8 @@ type Options struct {
 	Root, DataDir string
 	Project       bool
 	Now           func() time.Time
+	// RetentionDays : durée de rétention des portées user et global (0 → 90).
+	RetentionDays int
 }
 
 // Store lit et écrit les entrées des trois portées.
@@ -28,6 +31,8 @@ type Store struct {
 	root, data string
 	project    bool
 	now        func() time.Time
+	retention  time.Duration
+	mu         sync.Mutex // sérialise trust.json et state.json
 }
 
 // ProjectKey renvoie les 16 premiers hex du SHA-256 de la racine absolue.
@@ -49,7 +54,12 @@ func Open(o Options) *Store {
 	if abs, err := filepath.Abs(root); err == nil {
 		root = abs
 	}
-	return &Store{root: filepath.Clean(root), data: o.DataDir, project: o.Project, now: now}
+	days := o.RetentionDays
+	if days <= 0 {
+		days = defaultRetentionDays
+	}
+	return &Store{root: filepath.Clean(root), data: o.DataDir, project: o.Project, now: now,
+		retention: time.Duration(days) * 24 * time.Hour}
 }
 
 func (s *Store) dir(sc Scope) string {
@@ -121,48 +131,57 @@ func (s *Store) readFile(sc Scope, dir, id string) (Entry, bool, error) {
 	return e, true, err
 }
 
+// listScope renvoie les entrées valides d'une portée et les avis des
+// fichiers ignorés.
+func (s *Store) listScope(sc Scope) (part []Entry, notices []string) {
+	dir, ok, notice := s.scopeDir(sc)
+	if notice != "" {
+		notices = append(notices, notice)
+	}
+	if !ok {
+		return nil, notices
+	}
+	des, err := os.ReadDir(dir)
+	if err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			notices = append(notices, fmt.Sprintf("memory: %s/ ignored: %v", sc, err))
+		}
+		return nil, notices
+	}
+	for _, de := range des {
+		name := de.Name()
+		id, isMD := strings.CutSuffix(name, ".md")
+		if !isMD {
+			continue
+		}
+		e, found, err := s.readFile(sc, dir, id)
+		switch {
+		case err != nil:
+			// Le préfixe « memory: » est retiré pour ne pas être doublé.
+			reason := strings.TrimPrefix(strings.TrimPrefix(err.Error(), ErrInvalid.Error()+": "), "memory: ")
+			notices = append(notices, fmt.Sprintf("memory: %s/%s ignored: %s", sc, name, reason))
+		case !found:
+			notices = append(notices, fmt.Sprintf("memory: %s/%s ignored: not a regular file", sc, name))
+		default:
+			part = append(part, e)
+		}
+	}
+	sort.Slice(part, func(i, j int) bool {
+		if !part[i].Created.Equal(part[j].Created) {
+			return part[i].Created.After(part[j].Created)
+		}
+		return part[i].ID < part[j].ID
+	})
+	return part, notices
+}
+
 // List renvoie toutes les entrées lisibles (project, user, global, puis
 // created décroissant, puis id) et les avis des fichiers ignorés.
 func (s *Store) List() (entries []Entry, notices []string) {
 	for _, sc := range []Scope{Project, User, Global} {
-		dir, ok, notice := s.scopeDir(sc)
-		if notice != "" {
-			notices = append(notices, notice)
-		}
-		if !ok {
-			continue
-		}
-		des, err := os.ReadDir(dir)
-		if err != nil {
-			if !errors.Is(err, fs.ErrNotExist) {
-				notices = append(notices, fmt.Sprintf("memory: %s/ ignored: %v", sc, err))
-			}
-			continue
-		}
-		var part []Entry
-		for _, de := range des {
-			name := de.Name()
-			id, isMD := strings.CutSuffix(name, ".md")
-			if !isMD {
-				continue
-			}
-			e, found, err := s.readFile(sc, dir, id)
-			switch {
-			case err != nil:
-				notices = append(notices, fmt.Sprintf("memory: %s/%s ignored: %v", sc, name, strings.TrimPrefix(err.Error(), ErrInvalid.Error()+": ")))
-			case !found:
-				notices = append(notices, fmt.Sprintf("memory: %s/%s ignored: not a regular file", sc, name))
-			default:
-				part = append(part, e)
-			}
-		}
-		sort.Slice(part, func(i, j int) bool {
-			if !part[i].Created.Equal(part[j].Created) {
-				return part[i].Created.After(part[j].Created)
-			}
-			return part[i].ID < part[j].ID
-		})
+		part, n := s.listScope(sc)
 		entries = append(entries, part...)
+		notices = append(notices, n...)
 	}
 	return entries, notices
 }
@@ -179,6 +198,7 @@ func (s *Store) Get(scope Scope, id string) (Entry, error) {
 		}
 		scopes = []Scope{scope}
 	}
+	var firstErr error
 	for _, sc := range scopes {
 		dir, ok, _ := s.scopeDir(sc)
 		if !ok {
@@ -186,11 +206,19 @@ func (s *Store) Get(scope Scope, id string) (Entry, error) {
 		}
 		e, found, err := s.readFile(sc, dir, id)
 		if err != nil {
-			return Entry{}, err
+			// Un fichier cassé d'une portée ne cache pas une entrée valide
+			// d'une portée suivante.
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
 		}
 		if found {
 			return e, nil
 		}
+	}
+	if firstErr != nil {
+		return Entry{}, firstErr
 	}
 	return Entry{}, ErrNotFound
 }
@@ -222,7 +250,7 @@ func (s *Store) Put(e Entry) (Entry, error) {
 	}
 	target := filepath.Join(dir, e.ID+".md")
 	if _, err := os.Lstat(target); errors.Is(err, fs.ErrNotExist) {
-		if countMD(dir) >= maxEntries {
+		if part, _ := s.listScope(e.Scope); len(part) >= maxEntries {
 			return Entry{}, fullError{e.Scope}
 		}
 	}
@@ -235,18 +263,15 @@ func (s *Store) Put(e Entry) (Entry, error) {
 	}
 	sum := sha256.Sum256(data)
 	e.SHA256 = hex.EncodeToString(sum[:])
-	return e, nil
-}
-
-func countMD(dir string) int {
-	des, _ := os.ReadDir(dir)
-	n := 0
-	for _, de := range des {
-		if strings.HasSuffix(de.Name(), ".md") {
-			n++
+	if e.Scope == Project {
+		// Une écriture locale est de confiance : on enregistre l'empreinte.
+		if err := s.Trust(e); err != nil {
+			return Entry{}, err
 		}
+	} else if err := s.setExpiry(e); err != nil {
+		return Entry{}, err
 	}
-	return n
+	return e, nil
 }
 
 // writeAtomic écrit dans un fichier temporaire du même dossier puis renomme.
@@ -295,6 +320,9 @@ func (s *Store) Forget(scope Scope, id string) error {
 	err := os.Remove(filepath.Join(s.dir(scope), id+".md"))
 	if errors.Is(err, fs.ErrNotExist) {
 		return ErrNotFound
+	}
+	if err == nil && scope != Project {
+		_ = s.dropRow(Entry{Scope: scope, ID: id})
 	}
 	return err
 }
