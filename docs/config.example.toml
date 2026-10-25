@@ -270,6 +270,16 @@ disabled = false
 # session_tokens = 2000000
 # warn_at = 0.8
 
+# Governed memory: notes the agent keeps between sessions (user and global
+# entries expire after retention_days, 1 to 3650, default 90). A project
+# config can only harden: enabled = false, project = false, a shorter
+# retention_days. An organisation policy can set [memory] enabled = false,
+# project = false and max_retention_days; the strictest value wins.
+# [memory]
+# enabled = true
+# project = true
+# retention_days = 90
+
 # Energy and CO2 factors you declare yourself; when set, the compliance
 # export adds an estimate line. Positive numbers. Global only: refused in
 # .tenon/config.toml.

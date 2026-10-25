@@ -107,3 +107,63 @@ func TestPolicyBudget(t *testing.T) {
 		t.Fatalf("%v %+v", err, cfg.Budget)
 	}
 }
+
+func TestMemoryInvalid(t *testing.T) {
+	for _, s := range []string{"0", "3651", "-1"} {
+		_, err := loadSB(t, "[memory]\nretention_days = "+s+"\n", "")
+		wantErr(t, err, "config: memory.retention_days must be between 1 and 3650")
+		_, err = loadSB(t, "", "[memory]\nretention_days = "+s+"\n")
+		wantErr(t, err, "config: memory.retention_days must be between 1 and 3650")
+	}
+}
+
+func TestMemoryDefaultsAndHardening(t *testing.T) {
+	cfg, err := loadSB(t, "", "")
+	if err != nil || !cfg.Memory.On() || !cfg.Memory.ProjectOn() || cfg.Memory.Days() != 90 || cfg.MemoryDisabledBy != "" {
+		t.Fatalf("%v %+v", err, cfg.Memory)
+	}
+	cfg, err = loadSB(t, "[memory]\nenabled = false\n", "[memory]\nenabled = true\n")
+	if err != nil || cfg.Memory.On() || cfg.MemoryDisabledBy != "config" {
+		t.Fatalf("%v %+v %q", err, cfg.Memory, cfg.MemoryDisabledBy)
+	}
+	cfg, err = loadSB(t, "", "[memory]\nenabled = false\n")
+	if err != nil || cfg.Memory.On() || cfg.MemoryDisabledBy != "config" {
+		t.Fatalf("%v %+v", err, cfg.Memory)
+	}
+	cfg, err = loadSB(t, "[memory]\nproject = false\n", "[memory]\nproject = true\n")
+	if err != nil || cfg.Memory.ProjectOn() {
+		t.Fatalf("%v %+v", err, cfg.Memory)
+	}
+	cfg, err = loadSB(t, "", "[memory]\nproject = false\n")
+	if err != nil || cfg.Memory.ProjectOn() || !cfg.Memory.On() {
+		t.Fatalf("%v %+v", err, cfg.Memory)
+	}
+	cfg, err = loadSB(t, "", "[memory]\nretention_days = 30\n")
+	if err != nil || cfg.Memory.Days() != 30 {
+		t.Fatalf("%v %+v", err, cfg.Memory)
+	}
+	cfg, err = loadSB(t, "", "[memory]\nretention_days = 365\n")
+	if err != nil || cfg.Memory.Days() != 90 {
+		t.Fatalf("%v %+v", err, cfg.Memory)
+	}
+	cfg, err = loadSB(t, "[memory]\nretention_days = 10\n", "[memory]\nretention_days = 20\n")
+	if err != nil || cfg.Memory.Days() != 10 {
+		t.Fatalf("%v %+v", err, cfg.Memory)
+	}
+}
+
+func TestPolicyMemory(t *testing.T) {
+	g := write(t, "[memory]\nenabled = false\n")
+	cfg, err := LoadPolicy(g, "", env(nil), &orgpolicy.Policy{ID: "p", Memory: orgpolicy.Memory{Disabled: true}})
+	if err != nil || cfg.Memory.On() || cfg.MemoryDisabledBy != "policy" {
+		t.Fatalf("%v %+v %q", err, cfg.Memory, cfg.MemoryDisabledBy)
+	}
+	cfg, err = LoadPolicy("", "", env(nil), &orgpolicy.Policy{ID: "p", Memory: orgpolicy.Memory{NoProject: true, MaxRetentionDays: 30}})
+	if err != nil || !cfg.Memory.On() || cfg.Memory.ProjectOn() || cfg.Memory.Days() != 30 || cfg.MemoryDisabledBy != "" {
+		t.Fatalf("%v %+v", err, cfg.Memory)
+	}
+	cfg, err = LoadPolicy(write(t, "[memory]\nretention_days = 10\n"), "", env(nil), &orgpolicy.Policy{ID: "p", Memory: orgpolicy.Memory{MaxRetentionDays: 30}})
+	if err != nil || cfg.Memory.Days() != 10 {
+		t.Fatalf("%v %+v", err, cfg.Memory)
+	}
+}

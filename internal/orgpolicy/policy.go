@@ -32,6 +32,8 @@ type Policy struct {
 	Routing Routing
 	// Budget : plafond de tokens par session imposé (0 = non imposé).
 	Budget Budget
+	// Memory : coupures et plafond de rétention de la mémoire imposés.
+	Memory Memory
 	KeyID  string // renseigné par Load
 }
 
@@ -51,6 +53,22 @@ type Routing struct {
 // la valeur est strictement positive (0 = non imposé).
 type Budget struct {
 	SessionTokens int64 `toml:"session_tokens"`
+}
+
+// Memory : [memory] de la politique. Disabled : « enabled = false »
+// (« true » est sans effet) ; NoProject : « project = false » ;
+// MaxRetentionDays : plafond de rétention (0 = non imposé).
+type Memory struct {
+	Disabled         bool
+	NoProject        bool
+	MaxRetentionDays int
+}
+
+// rawMemory garde la présence des clés : « max_retention_days = 0 » est refusé.
+type rawMemory struct {
+	Enabled          *bool `toml:"enabled"`
+	Project          *bool `toml:"project"`
+	MaxRetentionDays *int  `toml:"max_retention_days"`
 }
 
 // rawBudget garde la présence de la clé : « session_tokens = 0 » est refusé.
@@ -137,6 +155,7 @@ type raw struct {
 	Classification Classification `toml:"classification"`
 	Routing        Routing        `toml:"routing"`
 	Budget         rawBudget      `toml:"budget"`
+	Memory         rawMemory      `toml:"memory"`
 }
 
 var idRe = regexp.MustCompile(`^[a-z0-9_-]{1,64}$`)
@@ -244,6 +263,15 @@ func Parse(b []byte) (Policy, error) {
 		}
 		budget.SessionTokens = *st
 	}
+	var mem Memory
+	mem.Disabled = r.Memory.Enabled != nil && !*r.Memory.Enabled
+	mem.NoProject = r.Memory.Project != nil && !*r.Memory.Project
+	if d := r.Memory.MaxRetentionDays; d != nil {
+		if *d <= 0 || *d > 3650 {
+			return Policy{}, policyErr("memory.max_retention_days must be between 1 and 3650")
+		}
+		mem.MaxRetentionDays = *d
+	}
 	var ts *AuditTimestamp
 	if t := r.Audit.Timestamp; t != nil {
 		if t.URL == "" {
@@ -271,7 +299,7 @@ func Parse(b []byte) (Policy, error) {
 		Rules: r.Permissions.Rules, Redaction: r.Redaction.Rules,
 		AuditLevel: r.Audit.Level, MCP: r.MCP, Sandbox: r.Sandbox,
 		Classification: r.Classification, Routing: r.Routing,
-		Budget: budget,
+		Budget: budget, Memory: mem,
 	}, nil
 }
 

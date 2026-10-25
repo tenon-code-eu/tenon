@@ -259,3 +259,21 @@ func TestParseBudget(t *testing.T) {
 		t.Fatal("warn_at inconnu accepté")
 	}
 }
+
+func TestParseMemory(t *testing.T) {
+	hd := "id = \"p\"\nversion = 1\n"
+	p, err := Parse([]byte(hd + "[memory]\nenabled = false\nproject = false\nmax_retention_days = 30\n"))
+	if err != nil || !p.Memory.Disabled || !p.Memory.NoProject || p.Memory.MaxRetentionDays != 30 {
+		t.Fatalf("%v %+v", err, p.Memory)
+	}
+	p, err = Parse([]byte(hd + "[memory]\nenabled = true\nproject = true\n"))
+	if err != nil || p.Memory.Disabled || p.Memory.NoProject {
+		t.Fatalf("%v %+v", err, p.Memory)
+	}
+	for _, s := range []string{"0", "-1", "3651"} {
+		_, err := Parse([]byte(hd + "[memory]\nmax_retention_days = " + s + "\n"))
+		if err == nil || !errors.Is(err, ErrPolicy) || !strings.HasSuffix(err.Error(), "memory.max_retention_days must be between 1 and 3650") {
+			t.Fatalf("%s: %v", s, err)
+		}
+	}
+}

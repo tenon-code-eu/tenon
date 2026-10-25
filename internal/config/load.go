@@ -32,6 +32,9 @@ type projectFile struct {
 	// (pointeur : une table vide l'est aussi).
 	Budget Budget `toml:"budget"`
 	Usage  *Usage `toml:"usage"`
+	// Memory : le projet ne peut que durcir (enabled = false, project = false,
+	// retention_days plus court) ; le reste est ignoré sans bruit.
+	Memory Memory `toml:"memory"`
 	// CRA est refusé (pointeur : une table vide l'est aussi).
 	CRA *CRA `toml:"cra"`
 }
@@ -101,6 +104,10 @@ func load(globalPath, projectPath string, getenv func(string) string) (Config, e
 			return Config{}, err
 		}
 		cfg.Budget, cfg.Usage = g.Budget, g.Usage
+		if err := checkMemory(g.Memory, md); err != nil {
+			return Config{}, err
+		}
+		cfg.Memory = g.Memory
 		if err := checkSandboxMode(g.Sandbox.Mode); err != nil {
 			return Config{}, err
 		}
@@ -158,6 +165,9 @@ func load(globalPath, projectPath string, getenv func(string) string) (Config, e
 		if err := checkBudget(p.Budget, md); err != nil {
 			return Config{}, err
 		}
+		if err := checkMemory(p.Memory, md); err != nil {
+			return Config{}, err
+		}
 		if p.CRA != nil {
 			return Config{}, errors.New("config: cra not allowed in project configuration")
 		}
@@ -200,6 +210,16 @@ func load(globalPath, projectPath string, getenv func(string) string) (Config, e
 				cfg.Budget.WarnAt = p.Budget.WarnAt
 			}
 		}
+		// Mémoire : le projet ne peut que couper ou raccourcir.
+		if p.Memory.Enabled != nil && !*p.Memory.Enabled {
+			cfg.Memory.Enabled = p.Memory.Enabled
+		}
+		if p.Memory.Project != nil && !*p.Memory.Project {
+			cfg.Memory.Project = p.Memory.Project
+		}
+		if p.Memory.RetentionDays > 0 && p.Memory.RetentionDays < cfg.Memory.Days() {
+			cfg.Memory.RetentionDays = p.Memory.RetentionDays
+		}
 		cfg.Classification.Paths = append(slices.Clone(cfg.Classification.Paths), p.Classification.Paths...)
 		cfg.Classification.Markers = append(slices.Clone(cfg.Classification.Markers), p.Classification.Markers...)
 		cfg.Permissions.Rules = append(cfg.Permissions.Rules, p.Permissions.Rules...)
@@ -207,6 +227,9 @@ func load(globalPath, projectPath string, getenv func(string) string) (Config, e
 	}
 
 	cfg.finishBudget()
+	if !cfg.Memory.On() {
+		cfg.MemoryDisabledBy = "config"
+	}
 	// Plancher du profil, puis mode explicite (« auto » par défaut).
 	cfg.Sandbox.Mode = stricterSandbox(cfg.Sandbox.Mode, profile.SandboxMode(cfg.Profile))
 	if err := cfg.validateFields(); err != nil {

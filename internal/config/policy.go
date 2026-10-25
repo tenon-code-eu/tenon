@@ -124,6 +124,20 @@ func ApplyPolicy(cfg Config, pol *orgpolicy.Policy) (Config, error) {
 	cfg.Budget.SessionTokens = lowestBudget(cfg.Budget.SessionTokens, pol.Budget.SessionTokens)
 	cfg.finishBudget()
 
+	// Mémoire : la politique ne fait que couper ou raccourcir.
+	if pol.Memory.Disabled {
+		off := false
+		cfg.Memory.Enabled = &off
+		cfg.MemoryDisabledBy = "policy"
+	}
+	if pol.Memory.NoProject {
+		off := false
+		cfg.Memory.Project = &off
+	}
+	if m := pol.Memory.MaxRetentionDays; m > 0 && m < cfg.Memory.Days() {
+		cfg.Memory.RetentionDays = m
+	}
+
 	// Confinement : la politique ne fait que durcir ; deny_read s'ajoute.
 	cfg.Sandbox.Mode = stricterSandbox(cfg.Sandbox.Mode, pol.Sandbox.Mode)
 	pd, err := expandSandboxPaths("deny_read", pol.Sandbox.DenyRead, cfg.home)

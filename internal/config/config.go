@@ -59,6 +59,12 @@ type Config struct {
 	// Budget : plafond de tokens par session. Effectif après Load : le plus
 	// bas du global, du projet et de la politique.
 	Budget Budget `toml:"budget"`
+	// Memory : mémoire gouvernée. Effectif après Load : le plus strict du
+	// global, du projet et de la politique.
+	Memory Memory `toml:"memory"`
+	// MemoryDisabledBy : "policy" si la politique coupe la mémoire, sinon
+	// "config" si le global ou le projet la coupe, sinon "".
+	MemoryDisabledBy string `toml:"-"`
 	// Usage : facteurs énergie et CO₂ déclarés. Clé globale uniquement.
 	Usage Usage `toml:"usage"`
 	// CRA : assistant Cyber Resilience Act. Clé globale uniquement.
@@ -123,6 +129,41 @@ type Budget struct {
 	SessionTokens int64   `toml:"session_tokens"`
 	WarnAt        float64 `toml:"warn_at"`
 }
+
+// Memory : [memory]. Enabled et Project : nil = actif. RetentionDays : durée
+// de conservation des entrées user et global (0 = 90 jours).
+type Memory struct {
+	Enabled       *bool `toml:"enabled"`
+	Project       *bool `toml:"project"`
+	RetentionDays int   `toml:"retention_days"`
+}
+
+// defaultRetentionDays : durée de conservation sans retention_days.
+const defaultRetentionDays = 90
+
+// On : la mémoire est active.
+func (m Memory) On() bool { return m.Enabled == nil || *m.Enabled }
+
+// ProjectOn : les entrées du dépôt sont lues et écrites.
+func (m Memory) ProjectOn() bool { return m.Project == nil || *m.Project }
+
+// Days : durée de conservation effective, en jours.
+func (m Memory) Days() int {
+	if m.RetentionDays == 0 {
+		return defaultRetentionDays
+	}
+	return m.RetentionDays
+}
+
+// checkMemory contrôle retention_days s'il est présent (md dit s'il l'est).
+func checkMemory(m Memory, md toml.MetaData) error {
+	if md.IsDefined("memory", "retention_days") && (m.RetentionDays < 1 || m.RetentionDays > 3650) {
+		return errMemoryRetention
+	}
+	return nil
+}
+
+var errMemoryRetention = errors.New("config: memory.retention_days must be between 1 and 3650")
 
 // Usage : [usage]. Facteurs déclarés par l'utilisateur, 0 = non déclaré.
 type Usage struct {
@@ -663,6 +704,9 @@ func (c Config) validateFields() error {
 	}
 	if c.Budget.WarnAt != 0 && !(c.Budget.WarnAt > 0 && c.Budget.WarnAt < 1) {
 		return errors.New("config: budget.warn_at must be between 0 and 1")
+	}
+	if c.Memory.RetentionDays != 0 && (c.Memory.RetentionDays < 1 || c.Memory.RetentionDays > 3650) {
+		return errMemoryRetention
 	}
 	if c.Usage.WhPerMTok != 0 && badFactor(c.Usage.WhPerMTok) {
 		return errors.New("config: usage.wh_per_mtoken must be positive")
