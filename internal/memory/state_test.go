@@ -148,3 +148,34 @@ func TestPurgeRemoveErrorKeepsProgress(t *testing.T) {
 		t.Fatal("ligne de l'entrée supprimée conservée")
 	}
 }
+
+func TestExpiresExported(t *testing.T) {
+	now := t0
+	s := clockStore(t, &now, t.TempDir(), t.TempDir())
+	u := put(t, s, User, "u")
+	if got := s.Expires(u); !got.Equal(t0.Add(90 * day)) {
+		t.Fatalf("expires user = %v", got)
+	}
+	now = t0.Add(10 * day)
+	if err := s.Touch(u); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Expires(u); !got.Equal(t0.Add(100 * day)) {
+		t.Fatalf("expires après Touch = %v", got)
+	}
+	p := put(t, s, Project, "p")
+	if got := s.Expires(p); !got.IsZero() {
+		t.Fatalf("project sans échéance, obtenu %v", got)
+	}
+}
+
+func TestCheckID(t *testing.T) {
+	if CheckID("go-style") != nil {
+		t.Fatal("id valide refusé")
+	}
+	for _, id := range []string{"", "-a", "A", "../x", "a/b"} {
+		if CheckID(id) == nil {
+			t.Fatalf("id %q accepté", id)
+		}
+	}
+}

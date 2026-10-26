@@ -115,3 +115,14 @@ func (s *Store) Purge() ([]Entry, error) {
 	}
 	return flush(nil)
 }
+
+// Expires renvoie l'échéance d'une entrée user ou global (ligne d'état,
+// sinon création + rétention) ; zéro pour project, qui n'expire pas.
+func (s *Store) Expires(e Entry) time.Time {
+	if e.Scope == Project {
+		return time.Time{}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.expiry(s.loadState(), e)
+}

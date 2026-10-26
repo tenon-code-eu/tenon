@@ -724,7 +724,8 @@ func TestCompactionEndToEnd(t *testing.T) {
 	f := newFakeLLM(t, sseText("ok"))
 	// La fenêtre doit contenir le prompt système et les schémas des outils
 	// (environ 900 jetons estimés avec l'outil agent) : 1500 jetons, seuil 0,8.
-	e := newEnvExtra(t, f, "eu", "context_window = 1500\n")
+	// Mémoire coupée : ses trois outils ne comptent pas dans ce calibrage.
+	e := newEnvExtra(t, f, "eu", "context_window = 1500\n\n[memory]\nenabled = false\n")
 	long := strings.Repeat("mot ", 200) // 200 jetons estimés
 
 	for i := range 3 {
@@ -827,7 +828,8 @@ func requestMessages(t *testing.T, body string) []map[string]any {
 // résumé qui tient dans la fenêtre.
 func TestResumeAfterContextTooLarge(t *testing.T) {
 	f := newFakeLLM(t, sseText("ok"))
-	e := newEnvExtra(t, f, "eu", "context_window = 1200\n")
+	// Mémoire coupée : ses trois outils ne comptent pas dans ce calibrage.
+	e := newEnvExtra(t, f, "eu", "context_window = 1200\n\n[memory]\nenabled = false\n")
 	if code, out, errb := e.run("-p", strings.Repeat("mot ", 4000)); code != 1 {
 		t.Fatalf("run 1 : code=%d stdout=%q stderr=%q", code, out, errb)
 	}

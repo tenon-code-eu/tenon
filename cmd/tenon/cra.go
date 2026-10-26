@@ -488,36 +488,47 @@ func uncheckedReason(comp sbom.Component) string {
 // SessionStarted{kind:"cra"} puis l'événement CRA, au niveau et avec le
 // masquage configurés.
 func craJournal(s setup, getenv func(string) string, wd string, typ event.Type, payload any) error {
+	return shortJournal(s, getenv, wd, "cra", []journalEvent{{typ, payload}})
+}
+
+// journalEvent est un événement d'une session courte.
+type journalEvent struct {
+	typ     event.Type
+	payload any
+}
+
+// shortJournal écrit une session courte dans le journal d'audit :
+// SessionStarted{kind} puis les événements, au niveau et avec le masquage
+// configurés. Les erreurs sont préfixées par kind (« cra: audit log: … »).
+func shortJournal(s setup, getenv func(string) string, wd, kind string, events []journalEvent) error {
 	red := s.redactor
 	redactJSON := func(v string) string { out, _ := red.RedactJSON(v); return out }
 	w, err := audit.Open(auditDir(config.DataDir(getenv)), audit.Level(s.cfg.Audit.Level), redactJSON)
 	if err != nil {
-		return fmt.Errorf("cra: audit log: %w", err)
+		return fmt.Errorf("%s: audit log: %w", kind, err)
 	}
 	defer func() { _ = w.Close() }()
 	sid, err := newSessionID()
 	if err != nil {
-		return fmt.Errorf("cra: audit log: %w", err)
+		return fmt.Errorf("%s: audit log: %w", kind, err)
 	}
 	now := time.Now()
-	start := event.SessionStartedPayload{Kind: "cra", ProjectRoot: wd}
+	start := event.SessionStartedPayload{Kind: kind, ProjectRoot: wd}
 	if s.cfg.Profile != profile.None {
 		start.Profile = string(s.cfg.Profile)
 	}
-	for i, ev := range []struct {
-		typ     event.Type
-		payload any
-	}{{event.SessionStarted, start}, {typ, payload}} {
+	all := append([]journalEvent{{event.SessionStarted, start}}, events...)
+	for i, ev := range all {
 		e, err := event.New(sid, uint64(i+1), now, ev.typ, ev.payload)
 		if err != nil {
-			return fmt.Errorf("cra: audit log: %w", err)
+			return fmt.Errorf("%s: audit log: %w", kind, err)
 		}
 		if err := w.Write(e); err != nil {
-			return fmt.Errorf("cra: audit log: %w", err)
+			return fmt.Errorf("%s: audit log: %w", kind, err)
 		}
 	}
 	if err := w.Close(); err != nil {
-		return fmt.Errorf("cra: audit log: %w", err)
+		return fmt.Errorf("%s: audit log: %w", kind, err)
 	}
 	return nil
 }

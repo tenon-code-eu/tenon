@@ -88,6 +88,9 @@ type Entry struct {
 
 var idRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,47}$`)
 
+// CheckID vérifie qu'un identifiant d'entrée est bien formé.
+func CheckID(id string) error { return validID(id) }
+
 func validID(id string) error {
 	if !idRe.MatchString(id) {
 		return invalid("id %q must match [a-z0-9][a-z0-9-]{0,47}", id)

@@ -152,6 +152,8 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		return auditExport(rest[2:], *langFlag, stdout, stderr, getenv, wd, globalPath)
 	case len(rest) >= 1 && rest[0] == "cra":
 		return craCommand(ctx, lang, rest[1:], stdout, stderr, getenv, wd, globalPath)
+	case len(rest) >= 1 && rest[0] == "memory":
+		return memoryCommand(lang, rest[1:], stdin, stdout, stderr, getenv, wd, globalPath)
 	case len(rest) >= 2 && rest[0] == "policy" && rest[1] == "check":
 		return policyCheck(lang, rest[2:], stdout, stderr)
 	case len(rest) == 2 && rest[0] == "config" && rest[1] == "check":
@@ -1204,6 +1206,10 @@ func startEngine(o engineOptions) (started, error) {
 		_ = w.Close()
 		return started{}, err
 	}
+	// Mémoire : purge des entrées échues et index figé pour la session, une
+	// fois le journal et la session ouverts (les MemoryForgotten{expiry} y
+	// sont écrits au premier SessionStarted). Mémoire coupée : aucun store.
+	memStore, memIndex, memExpired, memNotices := memoryStartup(lang, cfg, getenv, wd)
 	// Serveurs MCP (configuration globale seulement), démarrés après les
 	// étapes qui peuvent échouer sans eux.
 	mgr, unavailable, active, notices := startMCP(o, cfg, red, mcpSandboxSpec(sbSpec, wd), sbNetOpen)
@@ -1221,6 +1227,8 @@ func startEngine(o engineOptions) (started, error) {
 	// masquer aucun outil interne.
 	ts = append(ts, mgr.Tools()...)
 
+	// L'index de la mémoire clôt le prompt système, après les skills et les
+	// agents : calculé au démarrage, il reste stable pour la session.
 	eng := engine.New(engine.Deps{
 		Provider:            curProv,
 		Router:              router,
@@ -1234,7 +1242,7 @@ func startEngine(o engineOptions) (started, error) {
 		Outbound:            out,
 		Sinks:               []event.Sink{w, sw}, // audit d'abord, puis la session
 		MaxIterations:       cfg.MaxIterations,
-		SystemPrompt:        systemPrompt(base, skillsSection, ad.section),
+		SystemPrompt:        systemPrompt(base, skillsSection, ad.section, memIndex),
 		BasePrompt:          base,
 		SkillsSection:       skillsSection,
 		Agents:              ad.cat,
@@ -1255,6 +1263,9 @@ func startEngine(o engineOptions) (started, error) {
 		Allowlists:          allowlists(cfg),
 		ShellSandboxed:      shellSandboxed(sbSpec, sbInfo),
 		Sandbox:             &sbInfo,
+		Memory:              memStore,
+		Redact:              memoryRedact(red),
+		MemoryExpired:       memExpired,
 	})
 	if o.resume != "" {
 		if err := eng.Restore(sid, events); err != nil {
@@ -1269,7 +1280,7 @@ func startEngine(o engineOptions) (started, error) {
 		anchorAtEnd(lang, cfg, config.DataDir(getenv), redactText(red), o.stderr)
 	}
 	return started{
-		eng: eng, redactor: red, sessionID: sid, close: closeAndAnchor, notices: slices.Concat(startNotices, detectNotices, routingNotices, skillNotices, ad.notices, hookNotices, ckNotices, notices), skills: cat, agents: ad.cat, hooks: hookSet,
+		eng: eng, redactor: red, sessionID: sid, close: closeAndAnchor, notices: slices.Concat(startNotices, detectNotices, routingNotices, skillNotices, ad.notices, hookNotices, ckNotices, memNotices, notices), skills: cat, agents: ad.cat, hooks: hookSet,
 		downNotices: downNotices(o.lang, unavailable, red),
 		provider:    info, contextWindow: pc.Window(), profile: cfg.Profile,
 		local:  routingLocal(router),

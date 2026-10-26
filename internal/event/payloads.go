@@ -24,8 +24,8 @@ type SessionStartedPayload struct {
 	Sandbox *SandboxInfo `json:"sandbox,omitempty"`
 	// Routing décrit le routage configuré ([routing]) : omis sans lui.
 	Routing *RoutingInfo `json:"routing,omitempty"`
-	// Kind distingue les sessions courtes hors conversation (« cra ») ; omis
-	// pour une conversation.
+	// Kind distingue les sessions courtes hors conversation (« cra »,
+	// « memory ») ; omis pour une conversation.
 	Kind string `json:"kind,omitempty"`
 }
 
