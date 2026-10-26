@@ -729,3 +729,28 @@ func TestRememberCutAfterRedaction(t *testing.T) {
 		t.Fatalf("titre %q", e.Title)
 	}
 }
+
+// R18 : le marquage est cherché dans le titre masqué entier, avant la coupe
+// à 80 caractères : un marqueur au-delà ne peut pas disparaître et laisser
+// une entrée classée en portée project.
+func TestMemoryWriteMarkerPastCut(t *testing.T) {
+	title := strings.Repeat("a", 85) + " DIFFUSION RESTREINTE"
+	h, env := newMemHarness(t, [][]llm.Chunk{
+		call("c1", "memory_write", `{"scope":"project","id":"long","title":"`+title+`","content":"plan"}`),
+		text("ok"),
+	})
+	evs, err := h.submit(t, "s_1", "retiens", allowAll)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.st.Get(memory.Project, "long"); !errors.Is(err, memory.ErrNotFound) {
+		t.Fatalf("entrée project : %v", err)
+	}
+	got, err := env.st.Get(memory.User, "long")
+	if err != nil || !got.Sensitive || utf8.RuneCountInString(got.Title) > 80 {
+		t.Fatalf("entrée user %+v (%v)", got, err)
+	}
+	if tr := toolResultOf(t, evs, "memory_write"); !strings.Contains(tr.Content, "memory: sensitive entry stored in user scope") {
+		t.Fatalf("ToolResult %+v", tr)
+	}
+}

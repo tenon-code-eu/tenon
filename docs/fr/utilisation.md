@@ -1303,7 +1303,7 @@ Les sous-agents n'ont que `memory_read`, et leur prompt se termine par le même 
 Avant chaque écriture, dans cet ordre :
 
 1. les secrets et données personnelles sont masqués dans le titre et le contenu (mêmes règles qu'à l'envoi), puis un titre de plus de 80 caractères est coupé (la coupe vient après le masquage : elle ne laisse jamais un morceau de secret) ;
-2. un marqueur de classification dans le titre ou le contenu rend l'entrée `sensitive` ;
+2. un marqueur de classification dans le titre ou le contenu rend l'entrée `sensitive` (le titre entier est examiné, avant la coupe à 80 caractères) ;
 3. une écriture dans une session sensible la rend `sensitive` ;
 4. une entrée sensible demandée en `project` ou `global` est écrite en `user`, avec `memory: sensitive entry stored in user scope` ;
 5. limites : `memory: entry too large (<n> bytes, max 4096)` ou `memory: <scope> holds 200 entries; forget some first`.

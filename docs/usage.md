@@ -1301,7 +1301,7 @@ Sub-agents have `memory_read` only, and their prompt ends with the same index.
 Before each write, in this order:
 
 1. secrets and personal data are redacted in the title and the content (same rules as for sending), then a title longer than 80 characters is cut (the cut comes after redaction, so it never leaves part of a secret);
-2. a classification marker in the title or the content makes the entry `sensitive`;
+2. a classification marker in the title or the content makes the entry `sensitive` (the whole title is checked, before the cut at 80 characters);
 3. a write in a sensitive session makes it `sensitive`;
 4. a sensitive entry asked for `project` or `global` is stored in `user`, with `memory: sensitive entry stored in user scope`;
 5. limits: `memory: entry too large (<n> bytes, max 4096)` or `memory: <scope> holds 200 entries; forget some first`.

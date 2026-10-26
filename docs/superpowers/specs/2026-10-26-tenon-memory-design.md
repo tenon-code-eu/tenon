@@ -104,7 +104,7 @@ Le build passe par `make build`, jamais `go build` directement (ldflags de versi
 **Avant toute écriture**, dans l'ordre :
 
 1. Rédaction des secrets et données personnelles (`internal/policy` redact, mêmes règles qu'à l'envoi) sur `title` et `content`, puis titre coupé à 80 caractères (après la rédaction : une coupe avant pourrait laisser un morceau de secret non reconnu).
-2. Marqueur de classification (`classify.FindMarker`) dans `title` ou `content` : `sensitive: true`.
+2. Marqueur de classification (`classify.FindMarker`) dans `title` (masqué, entier : avant la coupe à 80 caractères — R18) ou `content` : `sensitive: true`.
 3. Session sensible au moment de l'écriture : `sensitive: true`.
 4. Entrée `sensitive` avec une portée `project` ou `global` : écrite en `user`, avis `memory: sensitive entry stored in user scope`.
 5. Limites (§3) : dépassement → refus `memory: entry too large (<n> bytes, max 4096)` ou `memory: <scope> holds 200 entries; forget some first`.

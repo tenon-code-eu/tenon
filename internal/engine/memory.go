@@ -159,9 +159,10 @@ func isMemoryTool(tool tools.Tool) bool {
 }
 
 // PrepareWrite applique la chaîne d'avant écriture (spec §6) à e : masquage
-// du titre et du contenu (redact nil : aucun), titre coupé à 80 caractères
-// après le masquage (une coupe avant pourrait laisser un morceau de secret
-// que le masquage ne reconnaît plus), marquage de classification, session
+// du titre et du contenu (redact nil : aucun), marquage de classification
+// sur le titre masqué entier, titre coupé à 80 caractères (après le
+// masquage, qui sinon pourrait manquer un morceau de secret, et après le
+// marquage, qui sinon pourrait perdre un marqueur), session
 // sensible, redirection d'une entrée sensible project ou global vers user
 // (avec avis), puis limites. Un ID vide est dérivé du titre masqué, ou vaut
 // « sensitive » pour une entrée sensible (le titre ne fuit pas par l'id),
@@ -181,13 +182,15 @@ func PrepareWrite(st *memory.Store, redact func(string) (string, bool), rules cl
 		e.Body, rc = redact(e.Body)
 		redacted = rt || rc
 	}
-	if utf8.RuneCountInString(e.Title) > memoryTitleMax {
-		e.Title = strings.TrimSpace(string([]rune(e.Title)[:memoryTitleMax]))
-	}
+	// Le marquage est cherché dans le titre masqué entier : un marqueur
+	// au-delà de 80 caractères ne disparaît pas avec la coupe.
 	if _, ok := rules.FindMarker(e.Title); ok {
 		e.Sensitive = true
 	} else if _, ok := rules.FindMarker(e.Body); ok {
 		e.Sensitive = true
+	}
+	if utf8.RuneCountInString(e.Title) > memoryTitleMax {
+		e.Title = strings.TrimSpace(string([]rune(e.Title)[:memoryTitleMax]))
 	}
 	if sensitiveSession {
 		e.Sensitive = true
