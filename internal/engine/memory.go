@@ -159,12 +159,16 @@ func isMemoryTool(tool tools.Tool) bool {
 }
 
 // PrepareWrite applique la chaîne d'avant écriture (spec §6) à e : masquage
-// du titre et du contenu (redact nil : aucun), marquage de classification,
-// session sensible, redirection d'une entrée sensible project ou global vers
-// user (avec avis), puis limites. Un ID vide est dérivé du titre masqué (sans
-// collision dans la portée finale). Une entrée existante garde sa date de
-// création. Rien n'est écrit : l'entrée renvoyée est celle à passer à Put,
-// redacted indique que le masquage a modifié le texte.
+// du titre et du contenu (redact nil : aucun), titre coupé à 80 caractères
+// après le masquage (une coupe avant pourrait laisser un morceau de secret
+// que le masquage ne reconnaît plus), marquage de classification, session
+// sensible, redirection d'une entrée sensible project ou global vers user
+// (avec avis), puis limites. Un ID vide est dérivé du titre masqué, ou vaut
+// « sensitive » pour une entrée sensible (le titre ne fuit pas par l'id),
+// sans collision dans la portée finale. Un id choisi par le modèle est gardé
+// tel quel. Une entrée existante garde sa date de création. Rien n'est
+// écrit : l'entrée renvoyée est celle à passer à Put, redacted indique que
+// le masquage a modifié le texte.
 func PrepareWrite(st *memory.Store, redact func(string) (string, bool), rules classify.Rules, sensitiveSession bool, e memory.Entry) (out memory.Entry, notices []string, redacted bool, err error) {
 	scope, err := memory.ParseScope(string(e.Scope))
 	if err != nil {
@@ -176,6 +180,9 @@ func PrepareWrite(st *memory.Store, redact func(string) (string, bool), rules cl
 		e.Title, rt = redact(e.Title)
 		e.Body, rc = redact(e.Body)
 		redacted = rt || rc
+	}
+	if utf8.RuneCountInString(e.Title) > memoryTitleMax {
+		e.Title = strings.TrimSpace(string([]rune(e.Title)[:memoryTitleMax]))
 	}
 	if _, ok := rules.FindMarker(e.Title); ok {
 		e.Sensitive = true
@@ -190,7 +197,11 @@ func PrepareWrite(st *memory.Store, redact func(string) (string, bool), rules cl
 		notices = append(notices, "memory: sensitive entry stored in user scope")
 	}
 	if e.ID == "" {
-		e.ID = memory.ID(e.Title, func(id string) bool {
+		base := e.Title
+		if e.Sensitive {
+			base = "sensitive"
+		}
+		e.ID = memory.ID(base, func(id string) bool {
 			_, err := st.Get(e.Scope, id)
 			return !errors.Is(err, memory.ErrNotFound)
 		})
@@ -371,8 +382,10 @@ func (e *Engine) storeEntry(s *session, entry memory.Entry, redacted bool) (memo
 
 // Remember enregistre une note de l'utilisateur (/remember) : auteur user,
 // sans demande de permission, même chaîne que memory_write. Le titre est la
-// première ligne non vide (coupée à 80 caractères), le corps le texte entier,
-// l'id dérivé du titre masqué (suffixe -2, -3… en cas de collision). Une
+// première ligne non vide (coupée à 80 caractères après masquage, par
+// PrepareWrite), le corps le texte entier, l'id dérivé du titre masqué
+// (« sensitive » pour une note sensible ; suffixe -2, -3… en cas de
+// collision). Une
 // session pas encore démarrée l'est d'abord (SessionStarted). Attend la fin
 // d'un tour en cours de la session. Renvoie l'entrée écrite et les avis à
 // afficher.
@@ -391,9 +404,6 @@ func (e *Engine) Remember(sessionID string, scope memory.Scope, text string) (me
 	}
 	if title == "" {
 		return memory.Entry{}, nil, errors.New("memory: empty note")
-	}
-	if utf8.RuneCountInString(title) > memoryTitleMax {
-		title = strings.TrimSpace(string([]rune(title)[:memoryTitleMax]))
 	}
 	s := e.session(sessionID)
 	s.turn.Lock()

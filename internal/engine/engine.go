@@ -73,6 +73,9 @@ type Deps struct {
 	// SkillsSection est la section des skills ajoutée au prompt d'un sous-agent
 	// qui dispose de l'outil skill.
 	SkillsSection string
+	// MemoryIndex est l'index de la mémoire (déjà dans SystemPrompt), ajouté
+	// au prompt d'un sous-agent qui dispose de memory_read ("" : aucun).
+	MemoryIndex string
 	// Lang est la langue du préambule des sous-agents (zéro : FR).
 	Lang i18n.Lang
 	// OutputLimit tronque le résultat d'un sous-agent, en caractères (0 : non).

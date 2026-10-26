@@ -95,8 +95,14 @@ func (t *turn) runSubagent(c llm.ToolCall) (tools.Result, error) {
 		reg = reg.Only(a.Tools)
 	}
 	_, withSkills := reg.Get("skill")
+	sys := agents.SystemPrompt(d.Lang, d.BasePrompt, d.SkillsSection, a, withSkills)
+	// L'index de la mémoire clôt le prompt, comme pour l'agent principal,
+	// si le sous-agent peut lire la mémoire.
+	if _, withMemory := reg.Get(memoryReadName); withMemory && d.MemoryIndex != "" {
+		sys += "\n\n" + d.MemoryIndex
+	}
 	h := []llm.Message{
-		{Role: llm.System, Content: agents.SystemPrompt(d.Lang, d.BasePrompt, d.SkillsSection, a, withSkills)},
+		{Role: llm.System, Content: sys},
 		{Role: llm.User, Content: args.Prompt},
 	}
 	child := &turn{e: t.e, s: t.s, ctx: t.ctx, h: &h, tools: reg, parent: c.ID, agent: a.Name, purpose: purposeSubagent}

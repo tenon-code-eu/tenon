@@ -191,10 +191,8 @@ func (t *turn) run(in Input) error {
 	return t.done(res.Iterations, res.Reason)
 }
 
-// hookFailed traite l'erreur d'un hook de run avant la boucle : après une
-// annulation, le tour est clos (au mieux) avec la raison cancelled.
 // startSession émet SessionStarted, puis un McpServerDown par serveur
-// injoignable et les MemoryForgotten{expiry} de la purge au démarrage.
+// injoignable.
 func (t *turn) startSession() error {
 	d := t.e.d
 	started := event.SessionStartedPayload{
@@ -217,6 +215,8 @@ func (t *turn) startSession() error {
 	return nil
 }
 
+// hookFailed traite l'erreur d'un hook de run avant la boucle : après une
+// annulation, le tour est clos (au mieux) avec la raison cancelled.
 func (t *turn) hookFailed(err error) error {
 	if t.ctx.Err() != nil {
 		t.cancelled(0)
