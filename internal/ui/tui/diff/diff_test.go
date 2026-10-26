@@ -232,3 +232,27 @@ func TestPreviewMemoryWrite(t *testing.T) {
 		t.Fatalf("got %v %v", lines, err)
 	}
 }
+
+// L'aperçu de memory_write ne suit pas un lien symbolique : l'entrée vaut
+// « vide » et la cible n'est jamais lue.
+func TestPreviewMemoryWriteSymlink(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "id_rsa")
+	if err := os.WriteFile(target, []byte("---\nid: a\n---\nPRIVATE KEY\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "a.md")
+	if err := os.Symlink(target, path); err != nil {
+		t.Fatal(err)
+	}
+	opened := false
+	beforeOpen = func(string) { opened = true }
+	defer func() { beforeOpen = nil }()
+	lines, _, err := PreviewRedactedAt("memory_write", mkArgs(t, map[string]any{"content": "a\nb\n"}), dir, path, nil)
+	if err != nil || fmt.Sprint(lines) != fmt.Sprint([]Line{{Add, "a"}, {Add, "b"}}) {
+		t.Fatalf("got %v %v", lines, err)
+	}
+	if opened {
+		t.Fatal("cible du lien ouverte")
+	}
+}

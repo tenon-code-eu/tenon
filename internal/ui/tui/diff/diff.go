@@ -194,7 +194,22 @@ var beforeOpen func(path string)
 // non régulier (FIFO, périphérique, répertoire, y compris via un lien) ou
 // illisible vaut « vide ». huge est vrai si le fichier dépasse maxRead octets.
 func readCurrent(path string) (content string, huge bool) {
-	fi, err := os.Stat(path)
+	return readFile(path, true)
+}
+
+// readNoFollow fait comme readCurrent sans suivre de lien symbolique : un
+// lien vaut « vide » et sa cible n'est jamais lue (entrée de mémoire, que
+// le store ne lit jamais à travers un lien).
+func readNoFollow(path string) (content string, huge bool) {
+	return readFile(path, false)
+}
+
+func readFile(path string, follow bool) (content string, huge bool) {
+	stat, flags := os.Stat, os.O_RDONLY|syscall.O_NONBLOCK
+	if !follow {
+		stat, flags = os.Lstat, flags|syscall.O_NOFOLLOW
+	}
+	fi, err := stat(path)
 	if err != nil || !fi.Mode().IsRegular() {
 		return "", false
 	}
@@ -203,7 +218,7 @@ func readCurrent(path string) (content string, huge bool) {
 	}
 	// O_NONBLOCK : un fichier remplacé entre-temps par une FIFO sans
 	// écrivain ne bloque pas l'ouverture (sans effet sur un fichier régulier).
-	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	f, err := os.OpenFile(path, flags, 0)
 	if err != nil {
 		return "", false
 	}
@@ -252,7 +267,7 @@ func PreviewRedactedAt(tool string, args json.RawMessage, root, path string, red
 		}
 		var cur string
 		if path != "" {
-			raw, _ := readCurrent(filepath.Clean(path))
+			raw, _ := readNoFollow(filepath.Clean(path))
 			cur = memoryBody(raw)
 		}
 		if isBinary(cur) || isBinary(a.Content) {

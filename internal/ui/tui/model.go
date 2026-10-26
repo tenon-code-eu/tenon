@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -66,6 +67,9 @@ type Options struct {
 	Memory *memory.Store
 	// MemoryDisabledBy : "policy" ou "config" ("" : config).
 	MemoryDisabledBy string
+	// MemoryWriteSeqs : séquences des MemoryWritten de la session reprise
+	// (--resume), pour l'avis de /rewind.
+	MemoryWriteSeqs []uint64
 	// Now remplace l'horloge (délai d'armement des acceptations, double
 	// Ctrl+C). Réservé aux tests ; nil : time.Now.
 	Now func() time.Time
@@ -237,6 +241,8 @@ func New(eng Engine, opts Options) Model {
 		ctx:    context.Background(),
 		turn:   &turnState{},
 	}
+	// Écritures de mémoire d'avant la reprise : comptées par /rewind.
+	m.memSeqs = slices.Clone(opts.MemoryWriteSeqs)
 	if opts.Now != nil {
 		m.now = opts.Now
 	}

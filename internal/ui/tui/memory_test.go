@@ -177,3 +177,15 @@ func TestMemoryWriteDiffInPanel(t *testing.T) {
 		t.Fatalf("vue %q", v)
 	}
 }
+
+// Une écriture de mémoire d'avant --resume (événements rejoués) compte pour
+// l'avis de /rewind.
+func TestRewindMemoryNoticeResumed(t *testing.T) {
+	h := newHarness(t, rwFake(), Options{Lang: i18n.EN, ProjectRoot: "/p", MemoryWriteSeqs: []uint64{7}})
+	typeText(h, "/rewind")
+	enter(h)
+	enter(h) // point #2 (seq 5)
+	if v := ansi.Strip(h.m.View()); !strings.Contains(v, "memory entries are not rewound") {
+		t.Fatalf("vue %q", v)
+	}
+}
