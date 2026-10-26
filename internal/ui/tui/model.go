@@ -19,6 +19,7 @@ import (
 	"github.com/tenon-code-eu/tenon/internal/hooks"
 	"github.com/tenon-code-eu/tenon/internal/i18n"
 	"github.com/tenon-code-eu/tenon/internal/llm"
+	"github.com/tenon-code-eu/tenon/internal/memory"
 	"github.com/tenon-code-eu/tenon/internal/skills"
 	"github.com/tenon-code-eu/tenon/internal/ui/headless"
 )
@@ -60,6 +61,11 @@ type Options struct {
 	Agents *agents.Catalog
 	// Hooks est l'ensemble des hooks chargés (/hooks) ; nil : aucun hook.
 	Hooks *hooks.Set
+	// Memory est le store mémoire (/memory) ; nil : mémoire coupée, /memory
+	// et /remember répondent « memory: disabled by <MemoryDisabledBy> ».
+	Memory *memory.Store
+	// MemoryDisabledBy : "policy" ou "config" ("" : config).
+	MemoryDisabledBy string
 	// Now remplace l'horloge (délai d'armement des acceptations, double
 	// Ctrl+C). Réservé aux tests ; nil : time.Now.
 	Now func() time.Time
@@ -80,6 +86,7 @@ const (
 	skillsCommand  = "/skills"
 	agentsCommand  = "/agents"
 	hooksCommand   = "/hooks"
+	memoryCommand  = "/memory"
 	tokenRuneRatio = 4
 	// turnFinishTimeout borne l'attente de la fin du tour en cours à la
 	// sortie de Run.
@@ -180,6 +187,8 @@ type Model struct {
 	lastEsc time.Time
 	// rw est le panneau /rewind ; nil quand il est fermé.
 	rw *rewindUI
+	// memSeqs : séquences des MemoryWritten vus (avis de /rewind).
+	memSeqs []uint64
 
 	// redact masque tout texte venu des événements avant affichage.
 	redact func(string) string
@@ -497,9 +506,20 @@ func (m Model) submit() (tea.Model, tea.Cmd) {
 		m.hooksNotices()
 		m.scrollBack, m.unseen = 0, false
 		return m, nil
+	case memoryCommand:
+		m.input.Reset()
+		m.memoryNotices()
+		m.scrollBack, m.unseen = 0, false
+		return m, nil
 	case rewindCommand:
 		m.input.Reset()
 		m.openRewind()
+		return m, nil
+	}
+	if text == rememberCommand || strings.HasPrefix(text, rememberCommand+" ") {
+		m.input.Reset()
+		m.remember(strings.TrimPrefix(text, rememberCommand))
+		m.scrollBack, m.unseen = 0, false
 		return m, nil
 	}
 	in := engine.Input{Text: text}

@@ -33,6 +33,7 @@ import (
 	"github.com/tenon-code-eu/tenon/internal/instructions"
 	"github.com/tenon-code-eu/tenon/internal/llm"
 	"github.com/tenon-code-eu/tenon/internal/mcp"
+	"github.com/tenon-code-eu/tenon/internal/memory"
 	"github.com/tenon-code-eu/tenon/internal/orgpolicy"
 	"github.com/tenon-code-eu/tenon/internal/policy"
 	"github.com/tenon-code-eu/tenon/internal/profile"
@@ -384,20 +385,22 @@ func runInteractive(ctx context.Context, fs *flag.FlagSet, lang i18n.Lang, o eng
 	// attend la fin du tour en cours.
 	defer st.close()
 	err = startTUI(ctx, st.eng, tui.Options{
-		Lang:          lang,
-		SessionID:     st.sessionID,
-		Provider:      st.provider,
-		ContextWindow: st.contextWindow,
-		SessionTokens: st.eng.SessionTokens(st.sessionID),
-		ProjectRoot:   o.wd,
-		Version:       version,
-		Profile:       string(st.profile),
-		Policy:        st.policy,
-		Local:         st.local,
-		Redact:        redactText(st.redactor),
-		Skills:        st.skills,
-		Agents:        st.agents,
-		Hooks:         st.hooks,
+		Lang:             lang,
+		SessionID:        st.sessionID,
+		Provider:         st.provider,
+		ContextWindow:    st.contextWindow,
+		SessionTokens:    st.eng.SessionTokens(st.sessionID),
+		ProjectRoot:      o.wd,
+		Version:          version,
+		Profile:          string(st.profile),
+		Policy:           st.policy,
+		Local:            st.local,
+		Redact:           redactText(st.redactor),
+		Skills:           st.skills,
+		Agents:           st.agents,
+		Hooks:            st.hooks,
+		Memory:           st.memory,
+		MemoryDisabledBy: st.memoryOffBy,
 		// Serveurs indisponibles signalés dès l'ouverture, en plus de
 		// l'événement McpServerDown émis au premier tour.
 		Notices: append(slices.Clone(st.notices), st.downNotices...),
@@ -708,6 +711,9 @@ type started struct {
 	policy string
 	// local est le fournisseur local du routage ("" : aucun).
 	local string
+	// memory est le store mémoire (nil : mémoire coupée par memoryOffBy).
+	memory      *memory.Store
+	memoryOffBy string
 }
 
 // providerInfo décrit le fournisseur configuré pc.
@@ -1283,6 +1289,7 @@ func startEngine(o engineOptions) (started, error) {
 		downNotices: downNotices(o.lang, unavailable, red),
 		provider:    info, contextWindow: pc.Window(), profile: cfg.Profile,
 		local:  routingLocal(router),
+		memory: memStore, memoryOffBy: cfg.MemoryDisabledBy,
 		policy: policyLine(lang, "tui.welcome.policy", cfg.Policy),
 	}, nil
 }

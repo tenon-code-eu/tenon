@@ -55,6 +55,8 @@ type rewindUI struct {
 	confl  []string // chemins en conflit, à interroger un par un
 	ci     int
 	forced []string // chemins à écraser
+	// memory : une entrée de mémoire a été écrite après le point choisi.
+	memory bool
 }
 
 // rewindDone est le résultat de Rewind.
@@ -188,6 +190,7 @@ func (m *Model) pickPoint() {
 		return
 	}
 	rw.plan = plan
+	rw.memory = slices.ContainsFunc(m.memSeqs, func(s uint64) bool { return s > rw.points[rw.cursor].Seq })
 	rw.modes = []rewindMode{
 		{engine.RewindBoth, "tui.rewind.mode_both", acts && conv},
 		{engine.RewindConversation, "tui.rewind.mode_conv", conv},
@@ -306,6 +309,9 @@ func (m Model) rewindLines() []string {
 		}
 		if n := rw.plan.UntrackedCalls; n > 0 {
 			out = append(out, m.st.notice.Render(i18n.T(m.lang, "tui.rewind.untracked", n)))
+		}
+		if rw.memory {
+			out = append(out, m.st.notice.Render(i18n.T(m.lang, "tui.rewind.memory")))
 		}
 		for i, md := range rw.modes {
 			out = append(out, m.row(i18n.T(m.lang, md.key), i == rw.mcur, md.ok))

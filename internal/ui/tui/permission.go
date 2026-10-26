@@ -124,6 +124,8 @@ func (m *Model) trackEvent(ev event.Event) tea.Cmd {
 		if json.Unmarshal(ev.Payload, &p) == nil {
 			m.calls = append(m.calls, pendingCall{id: p.CallID, tool: p.Tool, parent: p.ParentCallID, args: p.Args})
 		}
+	case event.MemoryWritten:
+		m.memSeqs = append(m.memSeqs, ev.Seq)
 	case event.ToolResult:
 		var p event.ToolResultPayload
 		if json.Unmarshal(ev.Payload, &p) == nil {
@@ -209,7 +211,7 @@ func (m Model) newPrompt(p event.PermissionRequestedPayload) (*permPrompt, tea.C
 	for _, path := range p.Paths {
 		pr.paths = append(pr.paths, m.redact(path))
 	}
-	if p.Kind != "tool" || (p.Tool != "write_file" && p.Tool != "edit_file") {
+	if p.Kind != "tool" || (p.Tool != "write_file" && p.Tool != "edit_file" && p.Tool != "memory_write") {
 		return pr, nil
 	}
 	// Arguments exécutés (updatedInput d'un hook) s'ils diffèrent de ceux
@@ -224,9 +226,15 @@ func (m Model) newPrompt(p event.PermissionRequestedPayload) (*permPrompt, tea.C
 	}
 	pr.ready = false
 	tool, root, redact := p.Tool, m.opts.ProjectRoot, m.redact
+	// memory_write : le chemin absolu de l'entrée est dans Paths[0] (le
+	// moteur le remplit), le contenu courant en est lu sans l'en-tête.
+	var entryPath string
+	if tool == "memory_write" && len(p.Paths) > 0 {
+		entryPath = p.Paths[0]
+	}
 	return pr, func() tea.Msg {
 		msg := previewMsg{pr: pr}
-		lines, more, err := diff.PreviewRedacted(tool, args, root, redact)
+		lines, more, err := diff.PreviewRedactedAt(tool, args, root, entryPath, redact)
 		switch {
 		case errors.Is(err, diff.ErrBinary):
 			msg.binary = true

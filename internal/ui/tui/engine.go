@@ -6,6 +6,7 @@ import (
 	"github.com/tenon-code-eu/tenon/internal/checkpoint"
 	"github.com/tenon-code-eu/tenon/internal/engine"
 	"github.com/tenon-code-eu/tenon/internal/event"
+	"github.com/tenon-code-eu/tenon/internal/memory"
 )
 
 // Engine est la partie de l'engine dont la TUI a besoin.
@@ -22,6 +23,8 @@ type Engine interface {
 	// plan sans effet, exécution).
 	RewindPoints(sessionID string) []checkpoint.Point
 	RewindPlan(sessionID string, toSeq uint64) (checkpoint.Plan, error)
+	// Remember : /remember (écriture directe d'une note, sans approbation).
+	Remember(sessionID string, scope memory.Scope, text string) (memory.Entry, []string, error)
 	Rewind(ctx context.Context, sessionID string, toSeq uint64, mode engine.RewindMode, preview checkpoint.Plan, overwrite []string) (engine.RewindResult, error)
 }
 

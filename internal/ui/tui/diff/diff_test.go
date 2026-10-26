@@ -208,3 +208,27 @@ func TestPreviewSymlinkFollowed(t *testing.T) {
 		t.Fatalf("got %v", lines)
 	}
 }
+
+func TestPreviewMemoryWrite(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "a.md")
+	file := "---\nid: a\ntitle: \"t\"\nsensitive: false\nauthor: user\ncreated: 2026-01-01T00:00:00Z\n---\nun\nancien\n"
+	if err := os.WriteFile(path, []byte(file), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	args := mkArgs(t, map[string]any{"scope": "user", "id": "a", "title": "t", "content": "un\nSECRET\n"})
+	redact := func(s string) string { return strings.ReplaceAll(s, "SECRET", "[REDACTED]") }
+	lines, _, err := PreviewRedactedAt("memory_write", args, dir, path, redact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Line{{Same, "un"}, {Del, "ancien"}, {Add, "[REDACTED]"}}
+	if fmt.Sprint(lines) != fmt.Sprint(want) {
+		t.Fatalf("got %v", lines)
+	}
+	// Fichier absent : tout est ajouté.
+	lines, _, err = PreviewRedactedAt("memory_write", mkArgs(t, map[string]any{"content": "a\nb\n"}), dir, filepath.Join(dir, "none.md"), nil)
+	if err != nil || fmt.Sprint(lines) != fmt.Sprint([]Line{{Add, "a"}, {Add, "b"}}) {
+		t.Fatalf("got %v %v", lines, err)
+	}
+}

@@ -232,10 +232,35 @@ func Preview(tool string, args json.RawMessage, root string) (lines []Line, more
 // masquage) les contenus avant et après en entier, avant le diff : un secret
 // sur plusieurs lignes (clé privée) est reconnu.
 func PreviewRedacted(tool string, args json.RawMessage, root string, redact func(string) string) (lines []Line, more int, err error) {
+	return PreviewRedactedAt(tool, args, root, "", redact)
+}
+
+// PreviewRedactedAt fait comme PreviewRedacted pour un outil dont le fichier
+// cible est fourni par la demande de permission (memory_write : chemin absolu
+// de l'entrée, hors des arguments). path vide : aucun contenu courant.
+func PreviewRedactedAt(tool string, args json.RawMessage, root, path string, redact func(string) string) (lines []Line, more int, err error) {
 	if redact == nil {
 		redact = func(s string) string { return s }
 	}
 	switch tool {
+	case "memory_write":
+		var a struct {
+			Content string `json:"content"`
+		}
+		if err := json.Unmarshal(args, &a); err != nil {
+			return nil, 0, fmt.Errorf("invalid arguments: %w", err)
+		}
+		var cur string
+		if path != "" {
+			raw, _ := readCurrent(filepath.Clean(path))
+			cur = memoryBody(raw)
+		}
+		if isBinary(cur) || isBinary(a.Content) {
+			return nil, 0, ErrBinary
+		}
+		cur, a.Content = redact(cur), redact(a.Content)
+		l, m := truncate(Unified(cur, a.Content, 3))
+		return l, m, nil
 	case "write_file":
 		var a struct {
 			Path    string `json:"path"`
@@ -280,4 +305,24 @@ func PreviewRedacted(tool string, args json.RawMessage, root string, redact func
 		return l, m, nil
 	}
 	return nil, 0, nil
+}
+
+// memoryBody retire l'en-tête (frontmatter) d'un fichier d'entrée de mémoire :
+// seul le corps est comparé au nouveau contenu. Sans en-tête valide, le
+// texte est rendu tel quel.
+func memoryBody(raw string) string {
+	rest, ok := strings.CutPrefix(raw, "---\n")
+	if !ok {
+		return raw
+	}
+	for {
+		line, after, found := strings.Cut(rest, "\n")
+		if line == "---" {
+			return after
+		}
+		if !found {
+			return raw
+		}
+		rest = after
+	}
 }

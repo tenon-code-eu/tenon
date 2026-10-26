@@ -17,6 +17,7 @@ import (
 	"github.com/tenon-code-eu/tenon/internal/event"
 	"github.com/tenon-code-eu/tenon/internal/i18n"
 	"github.com/tenon-code-eu/tenon/internal/llm"
+	"github.com/tenon-code-eu/tenon/internal/memory"
 	"github.com/tenon-code-eu/tenon/internal/skills"
 )
 
@@ -45,6 +46,22 @@ type fakeEngine struct {
 	rwRes     engine.RewindResult
 	rwErr     error
 	rwCalls   []rewindCall
+
+	remembered  []rememberCall
+	rememberErr error
+}
+
+type rememberCall struct {
+	scope memory.Scope
+	text  string
+}
+
+func (f *fakeEngine) Remember(_ string, scope memory.Scope, text string) (memory.Entry, []string, error) {
+	f.remembered = append(f.remembered, rememberCall{scope, text})
+	if f.rememberErr != nil {
+		return memory.Entry{}, nil, f.rememberErr
+	}
+	return memory.Entry{Scope: scope, ID: "fake-id"}, []string{"memory: note one"}, nil
 }
 
 func newFake() *fakeEngine {
