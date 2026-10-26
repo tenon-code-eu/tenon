@@ -44,19 +44,37 @@ func openMemoryStore(cfg config.Config, getenv func(string) string, wd string) *
 }
 
 // memoryStartup prépare la mémoire d'une session : purge des entrées
-// échues, index du prompt (figé pour la session) et avis du démarrage.
-// Mémoire coupée : aucun store, rien d'autre.
-func memoryStartup(lang i18n.Lang, cfg config.Config, getenv func(string) string, wd string) (st *memory.Store, index string, expired []memory.Entry, notices []string) {
+// échues, journalisée aussitôt dans une session courte « memory » (une
+// session ouverte puis fermée sans tour garde ainsi la trace de la purge),
+// index du prompt (figé pour la session) et avis du démarrage, caractères de
+// contrôle neutralisés (noms de fichiers d'un dépôt cloné). Mémoire coupée :
+// aucun store, rien d'autre.
+func memoryStartup(lang i18n.Lang, s setup, getenv func(string) string, wd string) (st *memory.Store, index string, notices []string) {
+	cfg := s.cfg
 	if !cfg.Memory.On() {
-		return nil, "", nil, nil
+		return nil, "", nil
 	}
 	st = openMemoryStore(cfg, getenv, wd)
 	expired, err := st.Purge()
 	if err != nil {
 		notices = append(notices, i18n.T(lang, "memory.purge_failed", err))
 	}
+	// Les entrées supprimées avant une erreur sont journalisées aussi.
+	if len(expired) > 0 {
+		events := make([]journalEvent, 0, len(expired))
+		for _, x := range expired {
+			events = append(events, journalEvent{event.MemoryForgotten, event.MemoryForgottenPayload{
+				Scope: string(x.Scope), ID: x.ID, By: "expiry",
+			}})
+		}
+		if err := shortJournal(s, getenv, wd, "memory", events); err != nil {
+			notices = append(notices, err.Error())
+		}
+	}
 	entries, listNotices := st.List()
-	notices = append(notices, listNotices...)
+	for _, n := range listNotices {
+		notices = append(notices, stripControl(n))
+	}
 	untrusted := 0
 	for _, e := range entries {
 		if !st.Trusted(e) {
@@ -67,7 +85,7 @@ func memoryStartup(lang i18n.Lang, cfg config.Config, getenv func(string) string
 		notices = append(notices, fmt.Sprintf("memory: %d project entries not trusted — run tenon memory trust", untrusted))
 	}
 	index = strings.TrimRight(memory.Index(entries, st.Trusted), "\n")
-	return st, index, expired, notices
+	return st, index, notices
 }
 
 // memoryRedact adapte le Redactor à engine.Deps.Redact : texte masqué et
@@ -339,6 +357,13 @@ func (m memEnv) forget(args []string) int {
 			}
 		}
 		if len(targets) == 0 {
+			// Portée projet coupée : un fichier projet de cet id n'est pas
+			// cherché sans --scope ; l'avis l'indique.
+			if sc == "" && !m.s.cfg.Memory.ProjectOn() {
+				if _, err := os.Lstat(m.st.Path(memory.Project, id)); err == nil {
+					return m.fail(errors.New(i18n.T(m.lang, "memory.not_found_project", id)))
+				}
+			}
 			return m.fail(errors.New(i18n.T(m.lang, "memory.not_found", id)))
 		}
 	}

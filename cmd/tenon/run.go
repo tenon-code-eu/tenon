@@ -1206,10 +1206,10 @@ func startEngine(o engineOptions) (started, error) {
 		_ = w.Close()
 		return started{}, err
 	}
-	// Mémoire : purge des entrées échues et index figé pour la session, une
-	// fois le journal et la session ouverts (les MemoryForgotten{expiry} y
-	// sont écrits au premier SessionStarted). Mémoire coupée : aucun store.
-	memStore, memIndex, memExpired, memNotices := memoryStartup(lang, cfg, getenv, wd)
+	// Mémoire : purge des entrées échues (journalisée dans une session
+	// courte « memory ») et index figé pour la session. Mémoire coupée :
+	// aucun store.
+	memStore, memIndex, memNotices := memoryStartup(lang, s, getenv, wd)
 	// Serveurs MCP (configuration globale seulement), démarrés après les
 	// étapes qui peuvent échouer sans eux.
 	mgr, unavailable, active, notices := startMCP(o, cfg, red, mcpSandboxSpec(sbSpec, wd), sbNetOpen)
@@ -1265,7 +1265,6 @@ func startEngine(o engineOptions) (started, error) {
 		Sandbox:             &sbInfo,
 		Memory:              memStore,
 		Redact:              memoryRedact(red),
-		MemoryExpired:       memExpired,
 	})
 	if o.resume != "" {
 		if err := eng.Restore(sid, events); err != nil {

@@ -416,25 +416,3 @@ func (e *Engine) Remember(sessionID string, scope memory.Scope, text string) (me
 	}
 	return stored, notices, nil
 }
-
-// emitExpired émet un MemoryForgotten{expiry} par entrée purgée au
-// démarrage (Deps.MemoryExpired), une seule fois par Engine : la purge a eu
-// lieu une fois pour le processus.
-func (t *turn) emitExpired() error {
-	e := t.e
-	e.mu.Lock()
-	done := e.expiredLogged
-	e.expiredLogged = true
-	e.mu.Unlock()
-	if done {
-		return nil
-	}
-	for _, x := range e.d.MemoryExpired {
-		if err := t.emit(event.MemoryForgotten, event.MemoryForgottenPayload{
-			Scope: string(x.Scope), ID: x.ID, By: "expiry",
-		}); err != nil {
-			return err
-		}
-	}
-	return nil
-}

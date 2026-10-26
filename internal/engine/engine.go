@@ -129,10 +129,6 @@ type Deps struct {
 	// masquage) ; le booléen indique que le texte a changé. Mêmes règles
 	// qu'à l'envoi.
 	Redact func(string) (string, bool)
-	// MemoryExpired liste les entrées purgées au démarrage : un
-	// MemoryForgotten{expiry} est émis pour chacune juste après le premier
-	// SessionStarted de l'Engine.
-	MemoryExpired []memory.Entry
 }
 
 // Budget est le plafond de jetons d'une session : somme input + output des
@@ -170,11 +166,9 @@ type Engine struct {
 	subs   []chan event.Event
 	failed bool
 
-	mu       sync.Mutex // protège sessions, pending et expiredLogged
+	mu       sync.Mutex // protège sessions et pending
 	sessions map[string]*session
 	pending  map[string]chan Reply
-	// expiredLogged : les MemoryForgotten{expiry} ont été émis.
-	expiredLogged bool
 }
 
 // session est l'état en mémoire d'une session (persistance : plan 2).

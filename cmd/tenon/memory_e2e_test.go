@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -11,6 +13,7 @@ import (
 
 	"github.com/tenon-code-eu/tenon/internal/audit"
 	"github.com/tenon-code-eu/tenon/internal/event"
+	"github.com/tenon-code-eu/tenon/internal/i18n"
 	"github.com/tenon-code-eu/tenon/internal/memory"
 )
 
@@ -254,27 +257,67 @@ func TestMemoryPurgeAtStart(t *testing.T) {
 	if sys, _ := promptOf(t, f.requests()[0]); strings.Contains(sys, "vieille") {
 		t.Fatalf("entrée purgée dans le prompt")
 	}
-	files, err := e.sessionFiles()
-	if err != nil || len(files) != 1 {
-		t.Fatalf("sessions : %v %v", files, err)
+	// La purge est journalisée dans une session courte « memory », pas
+	// dans la conversation.
+	got := kindEvents[event.MemoryForgottenPayload](t, e.auditLines(), "memory", event.MemoryForgotten)
+	if !slices.Equal(got, []event.MemoryForgottenPayload{{Scope: "user", ID: "vieille", By: "expiry"}}) {
+		t.Fatalf("MemoryForgotten{expiry} : %+v", got)
 	}
-	b, err := os.ReadFile(filepath.Join(e.sessionsDir(), files[0].Name()))
+}
+
+// Un moteur construit puis fermé sans aucun tour (TUI ouverte puis
+// quittée, reprise en échec) garde la trace de la purge.
+func TestMemoryPurgeWithoutTurn(t *testing.T) {
+	e := newEnv(t, nil, "eu")
+	past := time.Now().Add(-200 * 24 * time.Hour)
+	st := e.memStore(func() time.Time { return past })
+	e.memPut(st, memory.Entry{Scope: memory.Global, ID: "vieille", Title: "Vieille", Body: "x"})
+	getenv := func(k string) string { return e.vars[k] }
+	globalPath, _ := globalConfigPath("", getenv)
+	var errb bytes.Buffer
+	started, err := startEngine(engineOptions{
+		ctx: context.Background(), getenv: getenv, wd: e.wd, globalPath: globalPath, lang: i18n.FR, stderr: &errb,
+	})
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("%v (%s)", err, errb.String())
 	}
-	var found bool
-	for _, ev := range decodeEvents(t, string(b)) {
-		if ev.Type != event.MemoryForgotten {
-			continue
-		}
-		var p event.MemoryForgottenPayload
-		if err := json.Unmarshal(ev.Payload, &p); err != nil {
-			t.Fatal(err)
-		}
-		found = p == event.MemoryForgottenPayload{Scope: "user", ID: "vieille", By: "expiry"}
+	started.close()
+	if _, err := os.Stat(st.Path(memory.Global, "vieille")); !os.IsNotExist(err) {
+		t.Fatalf("entrée échue non purgée : %v", err)
 	}
-	if !found {
-		t.Fatalf("MemoryForgotten{expiry} absent :\n%s", b)
+	got := kindEvents[event.MemoryForgottenPayload](t, e.auditLines(), "memory", event.MemoryForgotten)
+	if !slices.Equal(got, []event.MemoryForgottenPayload{{Scope: "global", ID: "vieille", By: "expiry"}}) {
+		t.Fatalf("MemoryForgotten{expiry} : %+v", got)
+	}
+}
+
+// Un nom de fichier d'un dépôt cloné ne passe jamais tel quel au terminal.
+func TestMemoryNoticeControlChars(t *testing.T) {
+	f := newFakeLLM(t, sseText("ok"))
+	e := newEnv(t, f, "eu")
+	e.writeFile(filepath.Join(e.wd, ".tenon", "memory", "a\x1b[31mrouge.md"), foreignEntry)
+	code, _, errb := e.run("-p", "salut")
+	if code != 0 || strings.Contains(errb, "\x1b") || !strings.Contains(errb, "memory: project/a?[31mrouge.md ignored: ") {
+		t.Fatalf("code=%d stderr=%q", code, errb)
+	}
+}
+
+// Portée projet coupée : « forget <id> » sans --scope signale le fichier
+// projet et la commande qui l'efface.
+func TestMemoryForgetProjectHint(t *testing.T) {
+	e := newEnvExtra(t, nil, "eu", "\n[memory]\nproject = false\n")
+	st := e.memStore(nil)
+	e.memPut(st, memory.Entry{Scope: memory.Project, ID: "build-cmd", Title: "Build", Body: "make"})
+	code, _, errb := e.run("memory", "forget", "build-cmd", "--yes")
+	if code != 1 || !strings.Contains(errb, "tenon memory forget build-cmd --scope project") {
+		t.Fatalf("code=%d stderr=%q", code, errb)
+	}
+	if _, err := os.Stat(st.Path(memory.Project, "build-cmd")); err != nil {
+		t.Fatalf("entrée effacée sans --scope : %v", err)
+	}
+	_, _, errb = e.run("--lang", "en", "memory", "forget", "build-cmd", "--yes")
+	if !strings.Contains(errb, "project memory is off: tenon memory forget build-cmd --scope project erases it") {
+		t.Fatalf("en : %q", errb)
 	}
 }
 

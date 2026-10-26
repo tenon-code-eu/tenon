@@ -610,32 +610,6 @@ func TestRememberDisabled(t *testing.T) {
 	}
 }
 
-func TestMemoryExpiredEvents(t *testing.T) {
-	h, _ := newMemHarness(t, [][]llm.Chunk{text("ok")}, func(d *Deps) {
-		d.MemoryExpired = []memory.Entry{{Scope: memory.User, ID: "a"}, {Scope: memory.Global, ID: "b"}}
-	})
-	evs, err := h.submit(t, "s_1", "go", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(evs) < 3 || evs[0].Type != event.SessionStarted || evs[1].Type != event.MemoryForgotten || evs[2].Type != event.MemoryForgotten {
-		t.Fatalf("events %v", types(evs))
-	}
-	if p := decode[event.MemoryForgottenPayload](t, evs[1]); p != (event.MemoryForgottenPayload{Scope: "user", ID: "a", By: "expiry"}) {
-		t.Fatalf("MemoryForgotten %+v", p)
-	}
-	if p := decode[event.MemoryForgottenPayload](t, evs[2]); p != (event.MemoryForgottenPayload{Scope: "global", ID: "b", By: "expiry"}) {
-		t.Fatalf("MemoryForgotten %+v", p)
-	}
-	evs, err = h.submit(t, "s_1", "encore", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n := len(ofType(evs, event.MemoryForgotten)); n != 0 {
-		t.Fatalf("%d MemoryForgotten au second tour", n)
-	}
-}
-
 func TestMemoryNil(t *testing.T) {
 	h := newHarness(t, euInfo, [][]llm.Chunk{text("ok")})
 	if _, err := h.submit(t, "s_1", "go", nil); err != nil {

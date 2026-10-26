@@ -214,7 +214,7 @@ func (t *turn) startSession() error {
 			return err
 		}
 	}
-	return t.emitExpired()
+	return nil
 }
 
 func (t *turn) hookFailed(err error) error {
