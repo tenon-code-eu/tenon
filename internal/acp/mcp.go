@@ -2,15 +2,11 @@ package acp
 
 import (
 	"net/url"
-	"regexp"
 	"slices"
 
 	"github.com/tenon-code-eu/tenon/internal/config"
 	"github.com/tenon-code-eu/tenon/internal/i18n"
 )
-
-// editorIDPattern reprend la forme des identifiants de [[mcp.servers]].
-var editorIDPattern = regexp.MustCompile(`^[a-z0-9_-]{1,32}$`)
 
 // EditorMCP convertit les serveurs MCP transmis par l'éditeur en
 // config.MCPServer, sans en croire les valeurs : stdio devient local sans
@@ -29,23 +25,22 @@ func EditorMCP(in []MCPServer, existing []config.MCPServer, lang i18n.Lang) (out
 			notices = append(notices, i18n.T(lang, "acp.mcp_sse", s.Name))
 			continue
 		}
-		if !editorIDPattern.MatchString(s.Name) {
+		if !config.ValidMCPID(s.Name) {
 			notices = append(notices, i18n.T(lang, "acp.mcp_invalid", s.Name))
 			continue
 		}
 		var d config.MCPServer
 		switch {
 		case s.Type == "http" || s.URL != "":
-			u, err := url.Parse(s.URL)
-			if s.URL == "" || err != nil || u.Hostname() == "" || (s.Type != "" && s.Type != "http") {
+			if s.Type != "" && s.Type != "http" || config.ValidateMCPURL(s.Name, s.URL) != nil {
 				notices = append(notices, i18n.T(lang, "acp.mcp_invalid", s.Name))
 				continue
 			}
 			d = config.MCPServer{ID: s.Name, Transport: "http", URL: s.URL, Jurisdiction: "non-eu"}
-			if slices.Contains([]string{"localhost", "127.0.0.1", "::1"}, u.Hostname()) {
+			if u, _ := url.Parse(s.URL); slices.Contains([]string{"localhost", "127.0.0.1", "::1"}, u.Hostname()) {
 				d.Jurisdiction = "local"
 			}
-		case s.Type == "" && s.Command != "":
+		case (s.Type == "" || s.Type == "stdio") && s.Command != "":
 			d = config.MCPServer{
 				ID: s.Name, Transport: "stdio", Jurisdiction: "local",
 				Command: append([]string{s.Command}, s.Args...),

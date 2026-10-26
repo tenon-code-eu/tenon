@@ -325,7 +325,12 @@ type MCPServer struct {
 
 var mcpIDPattern = regexp.MustCompile(`^[a-z0-9_-]{1,32}$`)
 
-func validateMCPURL(id, raw string) error {
+// ValidMCPID indique si id est un identifiant de serveur MCP valide.
+func ValidMCPID(id string) bool { return mcpIDPattern.MatchString(id) }
+
+// ValidateMCPURL contrôle l'URL d'un serveur MCP http : https (ou http vers
+// l'hôte local), sans identifiants, requête ni fragment.
+func ValidateMCPURL(id, raw string) error {
 	u, err := url.Parse(raw)
 	if raw == "" || err != nil || u.Host == "" || u.Hostname() == "" {
 		return fmt.Errorf("config: invalid url for MCP server %q", id)
@@ -353,7 +358,7 @@ func validateMCPURL(id, raw string) error {
 func (m MCP) validate() error {
 	seen := map[string]bool{}
 	for _, s := range m.Servers {
-		if !mcpIDPattern.MatchString(s.ID) {
+		if !ValidMCPID(s.ID) {
 			return fmt.Errorf("config: invalid MCP server id %q ([a-z0-9_-]{1,32})", s.ID)
 		}
 		if seen[s.ID] {
@@ -370,7 +375,7 @@ func (m MCP) validate() error {
 				return fmt.Errorf("config: command of stdio MCP server %q: absolute path or bare name (looked up in PATH) required, not %q", s.ID, c)
 			}
 		case "http":
-			if err := validateMCPURL(s.ID, s.URL); err != nil {
+			if err := ValidateMCPURL(s.ID, s.URL); err != nil {
 				return err
 			}
 			if s.Jurisdiction == "" {

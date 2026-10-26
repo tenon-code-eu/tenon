@@ -34,11 +34,13 @@ func TestEditorMCPHTTP(t *testing.T) {
 		{Name: "local1", Type: "http", URL: "http://localhost:8080/mcp"},
 		{Name: "local2", URL: "http://127.0.0.1:9/mcp"},
 		{Name: "local3", Type: "http", URL: "http://[::1]:9/mcp"},
+		{Name: "evil1", Type: "http", URL: "https://localhost.evil.com/mcp"},
+		{Name: "evil2", Type: "http", URL: "https://127.0.0.1.nip.io/mcp"},
 	}, nil, i18n.EN)
-	if len(out) != 4 {
+	if len(out) != 6 {
 		t.Fatalf("out %+v notes %v", out, notes)
 	}
-	want := []string{"non-eu", "local", "local", "local"}
+	want := []string{"non-eu", "local", "local", "local", "non-eu", "non-eu"}
 	for i, s := range out {
 		if s.Transport != "http" || s.Jurisdiction != want[i] || s.URL == "" || s.Risk != "" {
 			t.Fatalf("%d: %+v", i, s)
@@ -77,5 +79,27 @@ func TestEditorMCPClash(t *testing.T) {
 	}
 	if len(notes) != 2 || !strings.Contains(notes[0], "fs") || !strings.Contains(notes[1], "dup") {
 		t.Fatalf("notes %v", notes)
+	}
+}
+
+func TestEditorMCPRejectsBadURLs(t *testing.T) {
+	for _, u := range []string{
+		"http://mcp.example.com/x", "ftp://localhost/x", "file://localhost/x",
+		"https://u:p@host/", "https://host/x?token=abc", "https://host/x#f", "https://",
+	} {
+		out, notes := EditorMCP([]MCPServer{{Name: "s", Type: "http", URL: u}}, nil, i18n.EN)
+		if len(out) != 0 || len(notes) != 1 || !strings.Contains(notes[0], "invalid definition") {
+			t.Errorf("%s: out %+v notes %v", u, out, notes)
+		}
+		if strings.Contains(strings.Join(notes, ""), "abc") {
+			t.Errorf("%s: valeur loguée", u)
+		}
+	}
+}
+
+func TestEditorMCPExplicitStdio(t *testing.T) {
+	out, _ := EditorMCP([]MCPServer{{Name: "s", Type: "stdio", Command: "/bin/x"}}, nil, i18n.EN)
+	if len(out) != 1 || out[0].Transport != "stdio" {
+		t.Fatalf("%+v", out)
 	}
 }
