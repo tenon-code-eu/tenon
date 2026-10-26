@@ -1,0 +1,581 @@
+package main
+
+import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/tenon-code-eu/tenon/internal/mcp/mcptest"
+	"github.com/tenon-code-eu/tenon/internal/sandbox"
+)
+
+// acpMsg est un message JSON-RPC lu sur la sortie de tenon acp.
+type acpMsg struct {
+	JSONRPC string          `json:"jsonrpc"`
+	ID      json.RawMessage `json:"id,omitempty"`
+	Method  string          `json:"method,omitempty"`
+	Params  json.RawMessage `json:"params,omitempty"`
+	Result  json.RawMessage `json:"result,omitempty"`
+	Error   *struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+	} `json:"error,omitempty"`
+}
+
+// acpClient est un éditeur factice : il pilote « tenon acp » (run) par des
+// tubes, consigne chaque ligne de sortie et répond aux requêtes de l'agent
+// par onRequest (nil : aucune réponse).
+type acpClient struct {
+	t    *testing.T
+	in   *io.PipeWriter
+	done chan int
+
+	onRequest func(c *acpClient, m acpMsg) any
+
+	mu      sync.Mutex
+	raw     []string
+	updates []map[string]any
+	resps   map[string]acpMsg
+	wake    chan struct{}
+	next    int
+	closeIn sync.Once
+}
+
+// startACP lance « tenon acp » dans l'environnement e.
+func startACP(t *testing.T, e *env, onRequest func(c *acpClient, m acpMsg) any) *acpClient {
+	t.Helper()
+	inR, inW := io.Pipe()
+	outR, outW := io.Pipe()
+	c := &acpClient{t: t, in: inW, done: make(chan int, 1), onRequest: onRequest, resps: map[string]acpMsg{}, wake: make(chan struct{}, 1)}
+	getenv := func(k string) string { return e.vars[k] }
+	wd := e.wd
+	go func() {
+		var errb strings.Builder
+		code := run(context.Background(), []string{"acp"}, inR, outW, &lockedWriter{w: &errb}, getenv, wd, func() bool { return false })
+		_ = outW.Close()
+		c.done <- code
+	}()
+	go c.read(outR)
+	t.Cleanup(func() {
+		c.closeStdin()
+		select {
+		case <-c.done:
+		case <-time.After(30 * time.Second):
+			t.Error("tenon acp ne s'est pas arrêté")
+		}
+	})
+	return c
+}
+
+// lockedWriter sérialise les écritures sur stderr (plusieurs goroutines).
+type lockedWriter struct {
+	mu sync.Mutex
+	w  io.Writer
+}
+
+func (l *lockedWriter) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.w.Write(p)
+}
+
+func (c *acpClient) read(r io.Reader) {
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 0, 64<<10), 16<<20)
+	for sc.Scan() {
+		line := sc.Text()
+		var m acpMsg
+		err := json.Unmarshal([]byte(line), &m)
+		c.mu.Lock()
+		c.raw = append(c.raw, line)
+		c.mu.Unlock()
+		if err != nil {
+			continue
+		}
+		switch {
+		case m.Method != "" && len(m.ID) > 0:
+			var res any
+			if c.onRequest != nil {
+				res = c.onRequest(c, m)
+			}
+			if res != nil {
+				c.send(map[string]any{"jsonrpc": "2.0", "id": m.ID, "result": res})
+			}
+		case m.Method == "session/update":
+			var p struct {
+				Update map[string]any `json:"update"`
+			}
+			_ = json.Unmarshal(m.Params, &p)
+			c.mu.Lock()
+			c.updates = append(c.updates, p.Update)
+			c.mu.Unlock()
+		case len(m.ID) > 0:
+			c.mu.Lock()
+			c.resps[string(m.ID)] = m
+			c.mu.Unlock()
+			select {
+			case c.wake <- struct{}{}:
+			default:
+			}
+		}
+	}
+	_, _ = io.Copy(io.Discard, r)
+}
+
+func (c *acpClient) send(v any) {
+	b, _ := json.Marshal(v)
+	_, _ = c.in.Write(append(b, '\n'))
+}
+
+func (c *acpClient) closeStdin() { c.closeIn.Do(func() { _ = c.in.Close() }) }
+
+// request envoie une requête et attend sa réponse.
+func (c *acpClient) request(method string, params any) acpMsg {
+	c.t.Helper()
+	c.mu.Lock()
+	c.next++
+	n := c.next
+	c.mu.Unlock()
+	id := fmt.Sprint(n)
+	go c.send(map[string]any{"jsonrpc": "2.0", "id": n, "method": method, "params": params})
+	deadline := time.After(30 * time.Second)
+	for {
+		c.mu.Lock()
+		m, ok := c.resps[id]
+		c.mu.Unlock()
+		if ok {
+			return m
+		}
+		select {
+		case <-c.wake:
+		case <-time.After(10 * time.Millisecond):
+		case <-deadline:
+			c.t.Fatalf("%s : pas de réponse", method)
+		}
+	}
+}
+
+// call est request, en échec si la réponse est une erreur.
+func (c *acpClient) call(method string, params any) map[string]any {
+	c.t.Helper()
+	m := c.request(method, params)
+	if m.Error != nil {
+		c.t.Fatalf("%s : erreur %d %q", method, m.Error.Code, m.Error.Message)
+	}
+	var out map[string]any
+	_ = json.Unmarshal(m.Result, &out)
+	return out
+}
+
+func (c *acpClient) initialize() {
+	c.t.Helper()
+	c.call("initialize", map[string]any{"protocolVersion": 1, "clientInfo": map[string]any{"name": "zed", "version": "0.201.0"}})
+}
+
+func (c *acpClient) newSession(cwd string, mcp []map[string]any) string {
+	c.t.Helper()
+	if mcp == nil {
+		mcp = []map[string]any{}
+	}
+	r := c.call("session/new", map[string]any{"cwd": cwd, "mcpServers": mcp})
+	sid, _ := r["sessionId"].(string)
+	if sid == "" {
+		c.t.Fatalf("session/new sans sessionId : %v", r)
+	}
+	return sid
+}
+
+func (c *acpClient) prompt(sid, text string) string {
+	c.t.Helper()
+	r := c.call("session/prompt", map[string]any{"sessionId": sid, "prompt": []map[string]any{{"type": "text", "text": text}}})
+	s, _ := r["stopReason"].(string)
+	return s
+}
+
+// wait ferme stdin et renvoie le code de sortie.
+func (c *acpClient) wait() int {
+	c.t.Helper()
+	c.closeStdin()
+	select {
+	case code := <-c.done:
+		c.done <- code
+		return code
+	case <-time.After(30 * time.Second):
+		c.t.Fatal("tenon acp ne s'est pas arrêté")
+	}
+	return -1
+}
+
+func (c *acpClient) allUpdates() []map[string]any {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]map[string]any(nil), c.updates...)
+}
+
+func (c *acpClient) lines() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.raw...)
+}
+
+// updateTexts renvoie les textes des mises à jour de type kind.
+func updateTexts(us []map[string]any, kind string) []string {
+	var out []string
+	for _, u := range us {
+		if u["sessionUpdate"] != kind {
+			continue
+		}
+		if c, ok := u["content"].(map[string]any); ok {
+			s, _ := c["text"].(string)
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// allowPerm répond « allow » à chaque demande de permission.
+func allowPerm(_ *acpClient, m acpMsg) any {
+	if m.Method != "session/request_permission" {
+		return nil
+	}
+	return map[string]any{"outcome": map[string]any{"outcome": "selected", "optionId": "allow"}}
+}
+
+// checkpointHas indique qu'une copie d'avant écriture contient content.
+func checkpointHas(e *env, content string) bool {
+	found := false
+	_ = filepath.WalkDir(filepath.Join(e.dataDir, "checkpoints"), func(p string, d os.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			if b, _ := os.ReadFile(p); string(b) == content {
+				found = true
+			}
+		}
+		return nil
+	})
+	return found
+}
+
+func TestACPInitializeAndText(t *testing.T) {
+	f := newFakeLLM(t, sseText("bonjour de tenon"))
+	e := newEnv(t, f, "eu")
+	c := startACP(t, e, nil)
+	c.initialize()
+	sid := c.newSession(e.wd, nil)
+	if r := c.prompt(sid, "salut"); r != "end_turn" {
+		t.Fatalf("stopReason=%q", r)
+	}
+	if got := strings.Join(updateTexts(c.allUpdates(), "agent_message_chunk"), ""); got != "bonjour de tenon" {
+		t.Fatalf("agent_message_chunk=%q", got)
+	}
+	if code := c.wait(); code != 0 {
+		t.Fatalf("code=%d", code)
+	}
+	ss := sessionStarted(t, e.auditContents())
+	if len(ss) != 1 || ss[0].Client == nil || ss[0].Client.Name != "zed" || ss[0].Client.Version != "0.201.0" || ss[0].Transport != "acp" {
+		t.Fatalf("SessionStarted=%+v", ss)
+	}
+}
+
+func TestACPWritePermissionDiff(t *testing.T) {
+	f := newFakeLLM(t, sseCall("write_file", `{"path":"x.txt","content":"nouveau"}`), sseText("écrit"))
+	e := newEnv(t, f, "eu")
+	e.writeFile(filepath.Join(e.wd, "x.txt"), "ancien")
+	var asked int
+	var mu sync.Mutex
+	c := startACP(t, e, func(c *acpClient, m acpMsg) any {
+		mu.Lock()
+		asked++
+		mu.Unlock()
+		return allowPerm(c, m)
+	})
+	c.initialize()
+	sid := c.newSession(e.wd, nil)
+	if r := c.prompt(sid, "écris"); r != "end_turn" {
+		t.Fatalf("stopReason=%q", r)
+	}
+	mu.Lock()
+	n := asked
+	mu.Unlock()
+	if n != 1 {
+		t.Fatalf("%d demande(s) de permission", n)
+	}
+	var diff map[string]any
+	for _, u := range c.allUpdates() {
+		if u["sessionUpdate"] != "tool_call_update" {
+			continue
+		}
+		if cs, ok := u["content"].([]any); ok && len(cs) == 1 {
+			if d, _ := cs[0].(map[string]any); d["type"] == "diff" {
+				diff = d
+			}
+		}
+	}
+	if diff == nil || diff["oldText"] != "ancien" || diff["newText"] != "nouveau" || diff["path"] != filepath.Join(e.wd, "x.txt") {
+		t.Fatalf("diff=%v updates=%v", diff, c.allUpdates())
+	}
+	if b, _ := os.ReadFile(filepath.Join(e.wd, "x.txt")); string(b) != "nouveau" {
+		t.Fatalf("fichier=%q", b)
+	}
+	if !checkpointHas(e, "ancien") {
+		t.Fatal("copie d'avant écriture absente")
+	}
+}
+
+func TestACPCancel(t *testing.T) {
+	f := newFakeLLM(t, sseCall("write_file", `{"path":"x.txt","content":"nouveau"}`), sseText("écrit"))
+	e := newEnv(t, f, "eu")
+	e.writeFile(filepath.Join(e.wd, "x.txt"), "ancien")
+	var sid string
+	c := startACP(t, e, func(c *acpClient, m acpMsg) any {
+		if m.Method == "session/request_permission" {
+			go c.send(map[string]any{"jsonrpc": "2.0", "method": "session/cancel", "params": map[string]any{"sessionId": sid}})
+		}
+		return nil
+	})
+	c.initialize()
+	sid = c.newSession(e.wd, nil)
+	if r := c.prompt(sid, "écris"); r != "cancelled" {
+		t.Fatalf("stopReason=%q", r)
+	}
+	if b, _ := os.ReadFile(filepath.Join(e.wd, "x.txt")); string(b) != "ancien" {
+		t.Fatalf("fichier=%q", b)
+	}
+}
+
+func TestACPLoad(t *testing.T) {
+	f := newFakeLLM(t, sseText("réponse un"), sseText("réponse deux"))
+	e := newEnv(t, f, "eu")
+	c := startACP(t, e, nil)
+	c.initialize()
+	sid := c.newSession(e.wd, nil)
+	if r := c.prompt(sid, "premier message"); r != "end_turn" {
+		t.Fatalf("stopReason=%q", r)
+	}
+	if code := c.wait(); code != 0 {
+		t.Fatalf("code=%d", code)
+	}
+
+	c2 := startACP(t, e, nil)
+	c2.initialize()
+	// Session inconnue, puis session d'un autre dossier : -32002.
+	other := t.TempDir()
+	for _, p := range []map[string]any{
+		{"sessionId": "s_000000000000", "cwd": e.wd, "mcpServers": []any{}},
+		{"sessionId": sid, "cwd": other, "mcpServers": []any{}},
+	} {
+		if m := c2.request("session/load", p); m.Error == nil || m.Error.Code != -32002 {
+			t.Fatalf("load %v : %+v", p, m.Error)
+		}
+	}
+	c2.call("session/load", map[string]any{"sessionId": sid, "cwd": e.wd, "mcpServers": []any{}})
+	if r := c2.prompt(sid, "suite"); r != "end_turn" {
+		t.Fatalf("stopReason=%q", r)
+	}
+	us := c2.allUpdates()
+	if got := updateTexts(us, "user_message_chunk"); len(got) != 1 || got[0] != "premier message" {
+		t.Fatalf("user_message_chunk=%q", got)
+	}
+	if got := updateTexts(us, "agent_message_chunk"); len(got) < 2 || got[0] != "réponse un" || strings.Join(got[1:], "") != "réponse deux" {
+		t.Fatalf("agent_message_chunk=%q", got)
+	}
+	reqs := f.requests()
+	if len(reqs) != 2 || !strings.Contains(reqs[1], "premier message") || !strings.Contains(reqs[1], "réponse un") {
+		t.Fatalf("la conversation ne continue pas : %d requête(s)", len(reqs))
+	}
+}
+
+// editorServer est le serveur MCP de test fourni par l'éditeur : l'éditeur ne
+// peut transmettre de variables d'environnement (ignorées), d'où env.
+func editorServer(t *testing.T) []map[string]any {
+	t.Helper()
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return []map[string]any{{"name": "ed", "command": "/usr/bin/env", "args": []string{mcptest.EnvServer + "=1", exe}, "env": []any{}}}
+}
+
+func TestACPEditorMCP(t *testing.T) {
+	for _, tc := range []struct {
+		name, extra string
+		accept      bool
+	}{
+		{"ignorés", "", false},
+		{"acceptés", "\n[acp]\naccept_editor_mcp = true\n", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFakeLLM(t, sseText("ok"))
+			e := newEnvExtra(t, f, "eu", tc.extra)
+			e.vars["PATH"] = os.Getenv("PATH")
+			c := startACP(t, e, nil)
+			c.initialize()
+			sid := c.newSession(e.wd, editorServer(t))
+			if r := c.prompt(sid, "salut"); r != "end_turn" {
+				t.Fatalf("stopReason=%q", r)
+			}
+			notices := strings.Join(updateTexts(c.allUpdates(), "notice"), "\n")
+			ignored := strings.Contains(notices, "serveurs MCP de l'éditeur ignorés ([acp] accept_editor_mcp)")
+			if ignored == tc.accept {
+				t.Fatalf("notices=%q", notices)
+			}
+			if code := c.wait(); code != 0 {
+				t.Fatalf("code=%d", code)
+			}
+			ss := sessionStarted(t, e.auditContents())
+			if len(ss) != 1 {
+				t.Fatalf("SessionStarted=%+v", ss)
+			}
+			listed := len(ss[0].MCP) == 1 && ss[0].MCP[0].ID == "ed" && ss[0].MCP[0].Jurisdiction == "local"
+			if listed != tc.accept {
+				t.Fatalf("mcp=%+v", ss[0].MCP)
+			}
+		})
+	}
+}
+
+func TestACPStartupRefusal(t *testing.T) {
+	withProbe(t, sandbox.Status{Available: false, Reason: "x"})
+	f := newFakeLLM(t, sseText("salut"))
+	e := newEnvExtra(t, f, "eu", sandboxTOML("required"))
+	_, _, cli := e.run("-p", "salut")
+	c := startACP(t, e, nil)
+	c.initialize()
+	m := c.request("session/new", map[string]any{"cwd": e.wd, "mcpServers": []any{}})
+	if m.Error == nil || m.Error.Code != -32000 || !strings.Contains(m.Error.Message, "sandbox") || !strings.Contains(cli, m.Error.Message) {
+		t.Fatalf("erreur=%+v cli=%q", m.Error, cli)
+	}
+	if n := len(f.requests()); n != 0 {
+		t.Fatalf("%d requête(s) au fournisseur", n)
+	}
+}
+
+// Review Focus 2 : l'éditeur ferme stdin en plein tour.
+func TestACPStdinClosed(t *testing.T) {
+	f := newFakeLLM(t, sseCall("write_file", `{"path":"x.txt","content":"nouveau"}`), sseText("écrit"))
+	e := newEnv(t, f, "eu")
+	e.writeFile(filepath.Join(e.wd, "x.txt"), "ancien")
+	asked := make(chan struct{}, 1)
+	c := startACP(t, e, func(c *acpClient, m acpMsg) any {
+		if m.Method == "session/request_permission" {
+			asked <- struct{}{}
+		}
+		return nil
+	})
+	c.initialize()
+	sid := c.newSession(e.wd, nil)
+	go c.send(map[string]any{"jsonrpc": "2.0", "id": 99, "method": "session/prompt", "params": map[string]any{"sessionId": sid, "prompt": []map[string]any{{"type": "text", "text": "écris"}}}})
+	select {
+	case <-asked:
+	case <-time.After(30 * time.Second):
+		t.Fatal("aucune demande de permission")
+	}
+	if code := c.wait(); code != 0 {
+		t.Fatalf("code=%d", code)
+	}
+	if b, _ := os.ReadFile(filepath.Join(e.wd, "x.txt")); string(b) != "ancien" {
+		t.Fatalf("fichier=%q", b)
+	}
+	if code, out, errb := e.run("audit", "verify"); code != 0 {
+		t.Fatalf("audit verify : code=%d stdout=%q stderr=%q", code, out, errb)
+	}
+	// Verrou de session relâché : la session se reprend.
+	if code, _, errb := e.run("--resume", sid, "-p", "suite"); code != 0 {
+		t.Fatalf("reprise : code=%d stderr=%q", code, errb)
+	}
+}
+
+// Review Focus 5 : cwd lien symbolique vers le projet.
+func TestACPSymlinkCwd(t *testing.T) {
+	f := newFakeLLM(t, sseText("ok"))
+	e := newEnv(t, f, "eu")
+	link := filepath.Join(filepath.Dir(e.wd), "lien")
+	if err := os.Symlink(e.wd, link); err != nil {
+		t.Fatal(err)
+	}
+	e.wd = link
+	if code, _, errb := e.run("-p", "salut"); code != 0 {
+		t.Fatalf("cli : code=%d stderr=%q", code, errb)
+	}
+	c := startACP(t, e, nil)
+	c.initialize()
+	sid := c.newSession(link, nil)
+	if r := c.prompt(sid, "salut"); r != "end_turn" {
+		t.Fatalf("stopReason=%q", r)
+	}
+	if code := c.wait(); code != 0 {
+		t.Fatalf("code=%d", code)
+	}
+	ss := sessionStarted(t, e.auditContents())
+	if len(ss) != 2 || ss[0].ProjectRoot != ss[1].ProjectRoot {
+		t.Fatalf("project_root : %+v", ss)
+	}
+}
+
+func TestACPStdoutOnlyJSON(t *testing.T) {
+	// Avis de démarrage (isolation indisponible) : jamais sur stdout.
+	withProbe(t, sandbox.Status{Available: false, Mechanism: "none", Network: "none", Reason: "x"})
+	f := newFakeLLM(t, sseCall("write_file", `{"path":"x.txt","content":"a b\nc"}`), sseText("fin \n"))
+	e := newEnvExtra(t, f, "eu", sandboxTOML("auto"))
+	c := startACP(t, e, allowPerm)
+	c.initialize()
+	sid := c.newSession(e.wd, nil)
+	if r := c.prompt(sid, "écris"); r != "end_turn" {
+		t.Fatalf("stopReason=%q", r)
+	}
+	if code := c.wait(); code != 0 {
+		t.Fatalf("code=%d", code)
+	}
+	lines := c.lines()
+	if len(lines) == 0 {
+		t.Fatal("aucune sortie")
+	}
+	for _, l := range lines {
+		var m acpMsg
+		if err := json.Unmarshal([]byte(l), &m); err != nil || m.JSONRPC != "2.0" {
+			t.Fatalf("ligne hors JSON-RPC : %q", l)
+		}
+	}
+	if len(updateTexts(c.allUpdates(), "notice")) == 0 {
+		t.Fatal("avis de démarrage absents des notices")
+	}
+}
+
+// Une commande /skill de l'éditeur est développée comme en ligne de commande
+// et le skill est annoncé dans available_commands_update.
+func TestACPSkillCommand(t *testing.T) {
+	f := newFakeLLM(t, sseText("fait"))
+	e := skillEnv(t, f)
+	c := startACP(t, e, nil)
+	c.initialize()
+	sid := c.newSession(e.wd, nil)
+	if r := c.prompt(sid, "/review le dernier commit"); r != "end_turn" {
+		t.Fatalf("stopReason=%q", r)
+	}
+	announced := false
+	for _, u := range c.allUpdates() {
+		if u["sessionUpdate"] != "available_commands_update" {
+			continue
+		}
+		cmds, _ := u["availableCommands"].([]any)
+		for _, x := range cmds {
+			if m, _ := x.(map[string]any); m["name"] == "review" && m["description"] == "Relit un diff avec rigueur." {
+				announced = true
+			}
+		}
+	}
+	if !announced {
+		t.Fatalf("skill review non annoncé : %v", c.allUpdates())
+	}
+	reqs := f.requests()
+	if len(reqs) != 1 || !strings.Contains(reqs[0], "Regardez le diff.") || !strings.Contains(reqs[0], "le dernier commit") {
+		t.Fatalf("requêtes : %q", reqs)
+	}
+}

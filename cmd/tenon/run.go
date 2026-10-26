@@ -23,6 +23,7 @@ import (
 
 	"github.com/tenon-code-eu/tenon/internal/agents"
 	"github.com/tenon-code-eu/tenon/internal/audit"
+	"github.com/tenon-code-eu/tenon/internal/checkpoint"
 	"github.com/tenon-code-eu/tenon/internal/config"
 	"github.com/tenon-code-eu/tenon/internal/engine"
 	"github.com/tenon-code-eu/tenon/internal/event"
@@ -151,6 +152,8 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		return auditTimestamp(ctx, lang, stdout, stderr, getenv, wd, globalPath)
 	case len(rest) >= 2 && rest[0] == "audit" && rest[1] == "export":
 		return auditExport(rest[2:], *langFlag, stdout, stderr, getenv, wd, globalPath)
+	case len(rest) == 1 && rest[0] == "acp":
+		return runACP(ctx, stdin, stdout, stderr, getenv, globalPath)
 	case len(rest) >= 1 && rest[0] == "cra":
 		return craCommand(ctx, lang, rest[1:], stdout, stderr, getenv, wd, globalPath)
 	case len(rest) >= 1 && rest[0] == "memory":
@@ -679,6 +682,14 @@ type engineOptions struct {
 	skills *discovered
 	// agents : agents déjà découverts (nil : startEngine les découvre).
 	agents *discoveredAgents
+	// extraMCP : serveurs MCP fournis par l'éditeur (ACP), ajoutés à ceux de
+	// la configuration et soumis aux mêmes filtres (profil, politique,
+	// juridiction, isolation selon risk, journal).
+	extraMCP []config.MCPServer
+	// client et transport identifient l'éditeur d'une session ACP
+	// (SessionStarted) ; nil et "" en ligne de commande.
+	client    *event.ClientInfo
+	transport string
 }
 
 // started est un Engine prêt pour la session sessionID.
@@ -717,6 +728,10 @@ type started struct {
 	memoryOffBy string
 	// memoryWrites : séquences des MemoryWritten de la session reprise.
 	memoryWrites []uint64
+	// checkpoints est le magasin des copies d'avant écriture (nil : aucun).
+	checkpoints *checkpoint.Store
+	// history : événements de la session reprise (nil : nouvelle session).
+	history []event.Event
 }
 
 // providerInfo décrit le fournisseur configuré pc.
@@ -1221,7 +1236,9 @@ func startEngine(o engineOptions) (started, error) {
 	memStore, memIndex, memNotices := memoryStartup(lang, s, getenv, wd)
 	// Serveurs MCP (configuration globale seulement), démarrés après les
 	// étapes qui peuvent échouer sans eux.
-	mgr, unavailable, active, notices := startMCP(o, cfg, red, mcpSandboxSpec(sbSpec, wd), sbNetOpen)
+	mcpCfg := cfg
+	mcpCfg.MCP.Servers = slices.Concat(cfg.MCP.Servers, o.extraMCP)
+	mgr, unavailable, active, notices := startMCP(o, mcpCfg, red, mcpSandboxSpec(sbSpec, wd), sbNetOpen)
 	closeAll := func() {
 		// Serveurs MCP d'abord : un appel en cours ne peut plus écrire dans
 		// des sinks fermés.
@@ -1275,6 +1292,8 @@ func startEngine(o engineOptions) (started, error) {
 		Sandbox:             &sbInfo,
 		Memory:              memStore,
 		Redact:              memoryRedact(red),
+		Client:              o.client,
+		Transport:           o.transport,
 	})
 	if o.resume != "" {
 		if err := eng.Restore(sid, events); err != nil {
@@ -1294,7 +1313,8 @@ func startEngine(o engineOptions) (started, error) {
 		provider:    info, contextWindow: pc.Window(), profile: cfg.Profile,
 		local:  routingLocal(router),
 		memory: memStore, memoryOffBy: cfg.MemoryDisabledBy, memoryWrites: memoryWriteSeqs(events),
-		policy: policyLine(lang, "tui.welcome.policy", cfg.Policy),
+		policy:      policyLine(lang, "tui.welcome.policy", cfg.Policy),
+		checkpoints: store, history: events,
 	}, nil
 }
 

@@ -78,6 +78,7 @@ nav:
       - Security: security.md
       - Organisation policy: policy.md
       - CI integration: ci.md
+      - Editors (ACP): editors.md
       - Cyber Resilience Act: cra.md
   - Français:
       - Accueil: fr/index.md
@@ -85,4 +86,5 @@ nav:
       - Sécurité: fr/securite.md
       - Politique d'organisation: fr/politique.md
       - Intégration CI: fr/ci.md
+      - Éditeurs (ACP): fr/editeurs.md
       - Cyber Resilience Act: fr/cra.md

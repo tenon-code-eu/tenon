@@ -132,6 +132,10 @@ type Deps struct {
 	// masquage) ; le booléen indique que le texte a changé. Mêmes règles
 	// qu'à l'envoi.
 	Redact func(string) (string, bool)
+	// Client et Transport identifient l'éditeur d'une session ACP, recopiés
+	// dans SessionStarted (nil, "" : ligne de commande).
+	Client    *event.ClientInfo
+	Transport string
 }
 
 // Budget est le plafond de jetons d'une session : somme input + output des

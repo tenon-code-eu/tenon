@@ -161,6 +161,7 @@ tenon runs on Linux and macOS.
 
 - [Usage guide](docs/usage.md): keys, approval, non-interactive mode, sessions, configuration, providers, MCP, git marking, token sobriety (measured usage, context view, budget, small models), memory, audit, compliance export.
 - [tenon in CI](docs/ci.md): templates for GitLab CI, Forgejo/Gitea and GitHub Actions, `--strict`, `--config`, `TENON_DOWNLOAD_BASE` mirror install.
+- [Editors](docs/editors.md): `tenon acp` for Zed, JetBrains, Neovim and VS Code (Agent Client Protocol).
 - [Cyber Resilience Act assistant](docs/cra.md): dossier, offline OSV scan, deadlines, built-in skills.
 - [Organisation policy](docs/policy.md): signed floor imposed by an administrator.
 - [Security and limits](docs/security.md): sovereignty criteria, guarantees, known limits, recovery.
