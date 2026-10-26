@@ -32,14 +32,22 @@ type memEnv struct {
 	wd     string
 	s      setup
 	st     *memory.Store
+	// erase voit les entrées projet même portée projet coupée : effacement
+	// et liste pour effacer (l'effacement doit toujours rester possible).
+	erase *memory.Store
 }
 
 // openMemoryStore construit le store selon la configuration effective :
 // portée projet et rétention. Appelé seulement si la mémoire doit être lue.
 func openMemoryStore(cfg config.Config, getenv func(string) string, wd string) *memory.Store {
+	return openMemoryStoreProject(cfg, getenv, wd, cfg.Memory.ProjectOn())
+}
+
+// openMemoryStoreProject : idem, portée projet imposée (effacement).
+func openMemoryStoreProject(cfg config.Config, getenv func(string) string, wd string, project bool) *memory.Store {
 	return memory.Open(memory.Options{
 		Root: wd, DataDir: config.DataDir(getenv),
-		Project: cfg.Memory.ProjectOn(), RetentionDays: cfg.Memory.Days(),
+		Project: project, RetentionDays: cfg.Memory.Days(),
 	})
 }
 
@@ -47,45 +55,68 @@ func openMemoryStore(cfg config.Config, getenv func(string) string, wd string) *
 // échues, journalisée aussitôt dans une session courte « memory » (une
 // session ouverte puis fermée sans tour garde ainsi la trace de la purge),
 // index du prompt (figé pour la session) et avis du démarrage, caractères de
-// contrôle neutralisés (noms de fichiers d'un dépôt cloné). Mémoire coupée :
-// aucun store, rien d'autre.
+// contrôle neutralisés (noms de fichiers d'un dépôt cloné). Le journal est
+// ouvert avant la purge : inutilisable, la purge attend un démarrage
+// suivant (avis), aucune suppression sans trace. Mémoire coupée : aucun
+// store, rien d'autre.
 func memoryStartup(lang i18n.Lang, s setup, getenv func(string) string, wd string) (st *memory.Store, index string, notices []string) {
 	cfg := s.cfg
 	if !cfg.Memory.On() {
 		return nil, "", nil
 	}
 	st = openMemoryStore(cfg, getenv, wd)
-	expired, err := st.Purge()
-	if err != nil {
-		notices = append(notices, i18n.T(lang, "memory.purge_failed", err))
-	}
-	// Les entrées supprimées avant une erreur sont journalisées aussi.
-	if len(expired) > 0 {
-		events := make([]journalEvent, 0, len(expired))
-		for _, x := range expired {
-			events = append(events, journalEvent{event.MemoryForgotten, event.MemoryForgottenPayload{
-				Scope: string(x.Scope), ID: x.ID, By: "expiry",
-			}})
+	if j, err := openJournal(s, getenv, wd, "memory"); err != nil {
+		notices = append(notices, i18n.T(lang, "memory.purge_skipped", err))
+	} else {
+		expired, err := st.Purge()
+		if err != nil {
+			notices = append(notices, i18n.T(lang, "memory.purge_failed", err))
 		}
-		if err := shortJournal(s, getenv, wd, "memory", events); err != nil {
-			notices = append(notices, err.Error())
+		// Les entrées supprimées avant une erreur sont journalisées aussi.
+		if len(expired) > 0 {
+			events := make([]journalEvent, 0, len(expired))
+			for _, x := range expired {
+				events = append(events, journalEvent{event.MemoryForgotten, event.MemoryForgottenPayload{
+					Scope: string(x.Scope), ID: x.ID, By: "expiry",
+				}})
+			}
+			if err := j.write(events); err != nil {
+				notices = append(notices, err.Error())
+			}
+		} else {
+			j.close()
 		}
 	}
 	entries, listNotices := st.List()
 	for _, n := range listNotices {
 		notices = append(notices, stripControl(n))
 	}
+	// Le fichier de confiance est lu une fois pour tout le passage.
+	trusted := st.TrustedFunc()
 	untrusted := 0
 	for _, e := range entries {
-		if !st.Trusted(e) {
+		if !trusted(e) {
 			untrusted++
 		}
 	}
 	if untrusted > 0 {
 		notices = append(notices, fmt.Sprintf("memory: %d project entries not trusted — run tenon memory trust", untrusted))
 	}
-	index = strings.TrimRight(memory.Index(entries, st.Trusted), "\n")
+	index = strings.TrimRight(memory.Index(entries, trusted), "\n")
 	return st, index, notices
+}
+
+// memoryWriteSeqs renvoie les séquences des MemoryWritten d'une session
+// reprise : /rewind signale qu'une entrée écrite avant la reprise n'est pas
+// restaurée.
+func memoryWriteSeqs(events []event.Event) []uint64 {
+	var out []uint64
+	for _, e := range events {
+		if e.Type == event.MemoryWritten {
+			out = append(out, e.Seq)
+		}
+	}
+	return out
 }
 
 // memoryRedact adapte le Redactor à engine.Deps.Redact : texte masqué et
@@ -113,6 +144,7 @@ func memoryCommand(lang i18n.Lang, args []string, stdin io.Reader, stdout, stder
 	m := memEnv{
 		lang: lang, in: bufio.NewReader(stdin), stdout: stdout, stderr: stderr,
 		getenv: getenv, wd: wd, s: s, st: openMemoryStore(s.cfg, getenv, wd),
+		erase: openMemoryStoreProject(s.cfg, getenv, wd, true),
 	}
 	switch args[0] {
 	case "list":
@@ -165,10 +197,10 @@ func (m memEnv) scopeFlag(v string) (memory.Scope, error) {
 	return memory.ParseScope(v)
 }
 
-// entries renvoie les entrées lisibles (d'une portée si sc n'est pas vide) ;
-// les avis des fichiers ignorés vont sur stderr.
-func (m memEnv) entries(sc memory.Scope) []memory.Entry {
-	all, notices := m.st.List()
+// entries renvoie les entrées lisibles de st (d'une portée si sc n'est pas
+// vide) ; les avis des fichiers ignorés vont sur stderr.
+func (m memEnv) entries(st *memory.Store, sc memory.Scope) []memory.Entry {
+	all, notices := st.List()
 	for _, n := range notices {
 		fmt.Fprintln(m.stderr, stripControl(n))
 	}
@@ -214,8 +246,14 @@ func (m memEnv) list(args []string) int {
 	if err != nil {
 		return m.fail(err)
 	}
+	// --scope project liste aussi portée projet coupée : c'est la liste de ce
+	// que « forget » peut effacer.
+	st := m.st
+	if sc == memory.Project {
+		st = m.erase
+	}
 	rows := []memRow{}
-	for _, e := range m.entries(sc) {
+	for _, e := range m.entries(st, sc) {
 		title := e.Title
 		if e.Sensitive && !*showSensitive {
 			title = sensitiveTitle
@@ -310,7 +348,9 @@ type forgetTarget struct {
 
 // forget efface une entrée (dans chaque portée où elle existe, ou dans
 // --scope) ou toutes les entrées (--all), après confirmation sans --yes.
-// Chaque effacement est journalisé dans une session courte « memory ».
+// Les entrées projet sont vues même portée projet coupée. Chaque
+// effacement est journalisé dans une session courte « memory », ouverte
+// avant toute suppression : journal inutilisable, rien n'est effacé.
 func (m memEnv) forget(args []string) int {
 	fs := m.flags("forget")
 	scope := fs.String("scope", "", i18n.T(m.lang, "flag.memory_scope"))
@@ -330,7 +370,7 @@ func (m memEnv) forget(args []string) int {
 	}
 	var targets []forgetTarget
 	if *all {
-		for _, e := range m.entries(sc) {
+		for _, e := range m.entries(m.erase, sc) {
 			targets = append(targets, forgetTarget{e.Scope, e.ID})
 		}
 		if len(targets) == 0 {
@@ -348,25 +388,22 @@ func (m memEnv) forget(args []string) int {
 		}
 		for _, s := range scopes {
 			// Un fichier présent mais illisible reste effaçable ; avec
-			// --scope, le fichier suffit, même portée projet coupée
-			// (l'effacement doit rester possible).
-			_, err := m.st.Get(s, id)
-			_, statErr := os.Lstat(m.st.Path(s, id))
+			// --scope, le fichier suffit.
+			_, err := m.erase.Get(s, id)
+			_, statErr := os.Lstat(m.erase.Path(s, id))
 			if !errors.Is(err, memory.ErrNotFound) || (sc != "" && statErr == nil) {
 				targets = append(targets, forgetTarget{s, id})
 			}
 		}
 		if len(targets) == 0 {
-			// Portée projet coupée : un fichier projet de cet id n'est pas
-			// cherché sans --scope ; l'avis l'indique.
-			if sc == "" && !m.s.cfg.Memory.ProjectOn() {
-				if _, err := os.Lstat(m.st.Path(memory.Project, id)); err == nil {
-					return m.fail(errors.New(i18n.T(m.lang, "memory.not_found_project", id)))
-				}
-			}
 			return m.fail(errors.New(i18n.T(m.lang, "memory.not_found", id)))
 		}
 	}
+	j, err := openJournal(m.s, m.getenv, m.wd, "memory")
+	if err != nil {
+		return m.fail(err)
+	}
+	defer j.close()
 	if !*yes {
 		for _, t := range targets {
 			fmt.Fprintf(m.stdout, "%s/%s\n", t.scope, t.id)
@@ -379,7 +416,7 @@ func (m memEnv) forget(args []string) int {
 	var events []journalEvent
 	failed := false
 	for _, t := range targets {
-		if err := m.st.Forget(t.scope, t.id); err != nil {
+		if err := m.erase.Forget(t.scope, t.id); err != nil {
 			fmt.Fprintln(m.stderr, i18n.T(m.lang, "err.prefix", fmt.Errorf("%s/%s: %w", t.scope, t.id, err)))
 			failed = true
 			continue
@@ -393,7 +430,7 @@ func (m memEnv) forget(args []string) int {
 		}
 	}
 	if len(events) > 0 {
-		if err := shortJournal(m.s, m.getenv, m.wd, "memory", events); err != nil {
+		if err := j.write(events); err != nil {
 			return m.fail(err)
 		}
 	}
@@ -427,12 +464,13 @@ func (m memEnv) trust(args []string) int {
 	}
 	var pending []memory.Entry
 	found := false
-	for _, e := range m.entries(memory.Project) {
+	trusted := m.st.TrustedFunc()
+	for _, e := range m.entries(m.st, memory.Project) {
 		if len(pos) == 1 && e.ID != pos[0] {
 			continue
 		}
 		found = true
-		if !m.st.Trusted(e) {
+		if !trusted(e) {
 			pending = append(pending, e)
 		}
 	}

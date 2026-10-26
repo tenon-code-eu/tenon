@@ -302,22 +302,77 @@ func TestMemoryNoticeControlChars(t *testing.T) {
 	}
 }
 
-// Portée projet coupée : « forget <id> » sans --scope signale le fichier
-// projet et la commande qui l'efface.
-func TestMemoryForgetProjectHint(t *testing.T) {
+// R13 : portée projet coupée, l'effacement et la liste pour effacer voient
+// les entrées projet : « forget <id> », « forget --all » et
+// « list --scope project ».
+func TestMemoryForgetProjectOff(t *testing.T) {
 	e := newEnvExtra(t, nil, "eu", "\n[memory]\nproject = false\n")
 	st := e.memStore(nil)
 	e.memPut(st, memory.Entry{Scope: memory.Project, ID: "build-cmd", Title: "Build", Body: "make"})
-	code, _, errb := e.run("memory", "forget", "build-cmd", "--yes")
-	if code != 1 || !strings.Contains(errb, "tenon memory forget build-cmd --scope project") {
+	e.memPut(st, memory.Entry{Scope: memory.Project, ID: "lint-cmd", Title: "Lint", Body: "make lint"})
+	e.memPut(st, memory.Entry{Scope: memory.User, ID: "go-style", Title: "Style Go", Body: "x"})
+
+	code, out, errb := e.run("memory", "list", "--scope", "project")
+	if code != 0 || !strings.Contains(out, "build-cmd") || !strings.Contains(out, "lint-cmd") {
+		t.Fatalf("list : code=%d out=%q err=%q", code, out, errb)
+	}
+	code, _, errb = e.run("memory", "forget", "build-cmd", "--yes")
+	if code != 0 || !strings.Contains(errb, "memory: build-cmd removed from the working tree") {
+		t.Fatalf("forget : code=%d stderr=%q", code, errb)
+	}
+	if _, err := os.Stat(st.Path(memory.Project, "build-cmd")); !os.IsNotExist(err) {
+		t.Fatalf("entrée projet non effacée : %v", err)
+	}
+	code, _, errb = e.run("memory", "forget", "--all", "--yes")
+	if code != 0 {
+		t.Fatalf("forget --all : code=%d stderr=%q", code, errb)
+	}
+	for _, p := range []string{st.Path(memory.Project, "lint-cmd"), st.Path(memory.User, "go-style")} {
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Fatalf("%s encore présent", p)
+		}
+	}
+	got := kindEvents[event.MemoryForgottenPayload](t, e.auditLines(), "memory", event.MemoryForgotten)
+	if len(got) != 3 {
+		t.Fatalf("MemoryForgotten : %+v", got)
+	}
+}
+
+// R17 : journal d'audit inutilisable, « forget » refuse avant d'effacer.
+func TestMemoryForgetAuditFirst(t *testing.T) {
+	e := newEnv(t, nil, "eu")
+	st := e.memStore(nil)
+	e.memPut(st, memory.Entry{Scope: memory.User, ID: "go-style", Title: "Style Go", Body: "x"})
+	e.writeFile(filepath.Join(e.dataDir, "audit"), "not a directory")
+	code, _, errb := e.run("memory", "forget", "go-style", "--yes")
+	if code != 1 || !strings.Contains(errb, "audit log") {
 		t.Fatalf("code=%d stderr=%q", code, errb)
 	}
-	if _, err := os.Stat(st.Path(memory.Project, "build-cmd")); err != nil {
-		t.Fatalf("entrée effacée sans --scope : %v", err)
+	if _, err := os.Stat(st.Path(memory.User, "go-style")); err != nil {
+		t.Fatalf("entrée effacée sans journal : %v", err)
 	}
-	_, _, errb = e.run("--lang", "en", "memory", "forget", "build-cmd", "--yes")
-	if !strings.Contains(errb, "project memory is off: tenon memory forget build-cmd --scope project erases it") {
-		t.Fatalf("en : %q", errb)
+}
+
+// R17 : journal d'audit inutilisable au démarrage, la purge attend (avis) ;
+// rien n'est supprimé sans trace.
+func TestMemoryPurgeAuditFirst(t *testing.T) {
+	e := newEnv(t, nil, "eu")
+	past := time.Now().Add(-200 * 24 * time.Hour)
+	st := e.memStore(func() time.Time { return past })
+	e.memPut(st, memory.Entry{Scope: memory.User, ID: "vieille", Title: "Vieille", Body: "x"})
+	getenv := func(k string) string { return e.vars[k] }
+	globalPath, _ := globalConfigPath("", getenv)
+	s, err := loadSetup(i18n.EN, getenv, e.wd, globalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.writeFile(filepath.Join(e.dataDir, "audit"), "not a directory")
+	_, _, notices := memoryStartup(i18n.EN, s, getenv, e.wd)
+	if _, err := os.Stat(st.Path(memory.User, "vieille")); err != nil {
+		t.Fatalf("entrée purgée sans journal : %v", err)
+	}
+	if !slices.ContainsFunc(notices, func(n string) bool { return strings.Contains(n, "expired entries not purged") }) {
+		t.Fatalf("avis : %q", notices)
 	}
 }
 
@@ -428,5 +483,21 @@ func TestMemoryForgetProjectDisabled(t *testing.T) {
 	}
 	if _, err := os.Stat(st.Path(memory.Project, "build-cmd")); !os.IsNotExist(err) {
 		t.Fatalf("entrée projet non effacée : %v", err)
+	}
+}
+
+// Les écritures de mémoire d'une session reprise sont transmises à la TUI
+// (avis de /rewind).
+func TestMemoryWriteSeqs(t *testing.T) {
+	var evs []event.Event
+	for i, typ := range []event.Type{event.SessionStarted, event.MemoryWritten, event.UserMessage, event.MemoryWritten} {
+		e, err := event.New("s", uint64(i+1), time.Now(), typ, map[string]any{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		evs = append(evs, e)
+	}
+	if got := memoryWriteSeqs(evs); !slices.Equal(got, []uint64{2, 4}) {
+		t.Fatalf("%v", got)
 	}
 }

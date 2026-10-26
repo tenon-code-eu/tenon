@@ -401,6 +401,7 @@ func runInteractive(ctx context.Context, fs *flag.FlagSet, lang i18n.Lang, o eng
 		Hooks:            st.hooks,
 		Memory:           st.memory,
 		MemoryDisabledBy: st.memoryOffBy,
+		MemoryWriteSeqs:  st.memoryWrites,
 		// Serveurs indisponibles signalés dès l'ouverture, en plus de
 		// l'événement McpServerDown émis au premier tour.
 		Notices: append(slices.Clone(st.notices), st.downNotices...),
@@ -714,6 +715,8 @@ type started struct {
 	// memory est le store mémoire (nil : mémoire coupée par memoryOffBy).
 	memory      *memory.Store
 	memoryOffBy string
+	// memoryWrites : séquences des MemoryWritten de la session reprise.
+	memoryWrites []uint64
 }
 
 // providerInfo décrit le fournisseur configuré pc.
@@ -1251,6 +1254,7 @@ func startEngine(o engineOptions) (started, error) {
 		SystemPrompt:        systemPrompt(base, skillsSection, ad.section, memIndex),
 		BasePrompt:          base,
 		SkillsSection:       skillsSection,
+		MemoryIndex:         memIndex,
 		Agents:              ad.cat,
 		Lang:                lang,
 		OutputLimit:         cfg.OutputLimit,
@@ -1289,7 +1293,7 @@ func startEngine(o engineOptions) (started, error) {
 		downNotices: downNotices(o.lang, unavailable, red),
 		provider:    info, contextWindow: pc.Window(), profile: cfg.Profile,
 		local:  routingLocal(router),
-		memory: memStore, memoryOffBy: cfg.MemoryDisabledBy,
+		memory: memStore, memoryOffBy: cfg.MemoryDisabledBy, memoryWrites: memoryWriteSeqs(events),
 		policy: policyLine(lang, "tui.welcome.policy", cfg.Policy),
 	}, nil
 }

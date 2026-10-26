@@ -501,34 +501,60 @@ type journalEvent struct {
 // SessionStarted{kind} puis les événements, au niveau et avec le masquage
 // configurés. Les erreurs sont préfixées par kind (« cra: audit log: … »).
 func shortJournal(s setup, getenv func(string) string, wd, kind string, events []journalEvent) error {
+	j, err := openJournal(s, getenv, wd, kind)
+	if err != nil {
+		return err
+	}
+	return j.write(events)
+}
+
+// journal est le journal d'audit ouvert d'une session courte : ouvert avant
+// une action irréversible (purge, effacement), il garantit que l'action
+// pourra être journalisée.
+type journal struct {
+	w        *audit.Writer
+	s        setup
+	wd, kind string
+}
+
+// openJournal ouvre (et vérifie) le journal d'audit d'une session courte.
+func openJournal(s setup, getenv func(string) string, wd, kind string) (*journal, error) {
 	red := s.redactor
 	redactJSON := func(v string) string { out, _ := red.RedactJSON(v); return out }
 	w, err := audit.Open(auditDir(config.DataDir(getenv)), audit.Level(s.cfg.Audit.Level), redactJSON)
 	if err != nil {
-		return fmt.Errorf("%s: audit log: %w", kind, err)
+		return nil, fmt.Errorf("%s: audit log: %w", kind, err)
 	}
-	defer func() { _ = w.Close() }()
+	return &journal{w: w, s: s, wd: wd, kind: kind}, nil
+}
+
+// close ferme le journal sans rien écrire.
+func (j *journal) close() { _ = j.w.Close() }
+
+// write écrit SessionStarted{kind} puis les événements, et ferme le journal.
+func (j *journal) write(events []journalEvent) error {
+	defer j.close()
 	sid, err := newSessionID()
 	if err != nil {
-		return fmt.Errorf("%s: audit log: %w", kind, err)
+		return fmt.Errorf("%s: audit log: %w", j.kind, err)
 	}
 	now := time.Now()
-	start := event.SessionStartedPayload{Kind: kind, ProjectRoot: wd}
-	if s.cfg.Profile != profile.None {
-		start.Profile = string(s.cfg.Profile)
+	start := event.SessionStartedPayload{Kind: j.kind, ProjectRoot: j.wd}
+	if j.s.cfg.Profile != profile.None {
+		start.Profile = string(j.s.cfg.Profile)
 	}
 	all := append([]journalEvent{{event.SessionStarted, start}}, events...)
 	for i, ev := range all {
 		e, err := event.New(sid, uint64(i+1), now, ev.typ, ev.payload)
 		if err != nil {
-			return fmt.Errorf("%s: audit log: %w", kind, err)
+			return fmt.Errorf("%s: audit log: %w", j.kind, err)
 		}
-		if err := w.Write(e); err != nil {
-			return fmt.Errorf("%s: audit log: %w", kind, err)
+		if err := j.w.Write(e); err != nil {
+			return fmt.Errorf("%s: audit log: %w", j.kind, err)
 		}
 	}
-	if err := w.Close(); err != nil {
-		return fmt.Errorf("%s: audit log: %w", kind, err)
+	if err := j.w.Close(); err != nil {
+		return fmt.Errorf("%s: audit log: %w", j.kind, err)
 	}
 	return nil
 }
