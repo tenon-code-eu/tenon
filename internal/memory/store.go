@@ -29,10 +29,13 @@ type Options struct {
 // Store lit et écrit les entrées des trois portées.
 type Store struct {
 	root, data string
+	key        string // ProjectKey(root)
 	project    bool
 	now        func() time.Time
 	retention  time.Duration
-	mu         sync.Mutex // sérialise trust.json et state.json
+	// mu sérialise trust.json et state.json dans le processus ; le verrou
+	// <data>/memory/.lock (locked) les sérialise entre processus.
+	mu sync.Mutex
 }
 
 // ProjectKey renvoie les 16 premiers hex du SHA-256 de la racine absolue.
@@ -58,16 +61,21 @@ func Open(o Options) *Store {
 	if days <= 0 {
 		days = defaultRetentionDays
 	}
-	return &Store{root: filepath.Clean(root), data: o.DataDir, project: o.Project, now: now,
+	root = filepath.Clean(root)
+	return &Store{root: root, data: o.DataDir, key: ProjectKey(root), project: o.Project, now: now,
 		retention: time.Duration(days) * 24 * time.Hour}
 }
 
-func (s *Store) dir(sc Scope) string {
+func (s *Store) dir(sc Scope) string { return s.dirFor(sc, s.key) }
+
+// dirFor renvoie le dossier d'une portée ; key est la clé de projet des
+// entrées user (la purge parcourt toutes les clés).
+func (s *Store) dirFor(sc Scope, key string) string {
 	switch sc {
 	case Project:
 		return filepath.Join(s.root, ".tenon", "memory")
 	case User:
-		return filepath.Join(s.data, "memory", ProjectKey(s.root))
+		return filepath.Join(s.data, "memory", key)
 	default:
 		return filepath.Join(s.data, "memory", "global")
 	}
@@ -141,6 +149,12 @@ func (s *Store) listScope(sc Scope) (part []Entry, notices []string) {
 	if !ok {
 		return nil, notices
 	}
+	part, n := s.listDir(sc, dir)
+	return part, append(notices, n...)
+}
+
+// listDir lit les entrées valides du dossier dir de la portée sc.
+func (s *Store) listDir(sc Scope, dir string) (part []Entry, notices []string) {
 	des, err := os.ReadDir(dir)
 	if err != nil {
 		if !errors.Is(err, fs.ErrNotExist) {
@@ -186,7 +200,9 @@ func (s *Store) List() (entries []Entry, notices []string) {
 	return entries, notices
 }
 
-// Get lit une entrée ; scope vide : project, user, global dans l'ordre.
+// Get lit une entrée ; scope vide : project, user, global dans l'ordre. Sans
+// portée, une entrée project non approuvée ne cache pas une entrée user ou
+// global de même id : elle n'est renvoyée que seule (la lecture la refuse).
 func (s *Store) Get(scope Scope, id string) (Entry, error) {
 	if err := validID(id); err != nil {
 		return Entry{}, err
@@ -199,6 +215,7 @@ func (s *Store) Get(scope Scope, id string) (Entry, error) {
 		scopes = []Scope{scope}
 	}
 	var firstErr error
+	var untrusted *Entry
 	for _, sc := range scopes {
 		dir, ok, _ := s.scopeDir(sc)
 		if !ok {
@@ -213,9 +230,16 @@ func (s *Store) Get(scope Scope, id string) (Entry, error) {
 			}
 			continue
 		}
+		if found && scope == "" && !s.Trusted(e) {
+			untrusted = &e
+			continue
+		}
 		if found {
 			return e, nil
 		}
+	}
+	if untrusted != nil {
+		return *untrusted, nil
 	}
 	if firstErr != nil {
 		return Entry{}, firstErr

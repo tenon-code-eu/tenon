@@ -11,7 +11,7 @@ import (
 const maxStateBytes = 4 << 20
 
 func (s *Store) trustPath() string {
-	return filepath.Join(s.data, "memory", "trust", ProjectKey(s.root)+".json")
+	return filepath.Join(s.data, "memory", "trust", s.key+".json")
 }
 
 // readJSON lit un fichier JSON régulier ; absent, illisible ou corrompu
@@ -70,21 +70,32 @@ func (s *Store) Trust(e Entry) error {
 	if e.SHA256 == "" {
 		return invalid("cannot trust an entry without hash")
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	m := s.loadTrust()
-	m[e.ID] = e.SHA256
-	return writeJSON(s.trustPath(), m)
+	return s.locked(func() error {
+		m := s.loadTrust()
+		m[e.ID] = e.SHA256
+		return writeJSON(s.trustPath(), m)
+	})
 }
 
 // dropTrust retire la ligne de confiance d'un id (entrée oubliée).
 func (s *Store) dropTrust(id string) error {
+	return s.locked(func() error {
+		m := s.loadTrust()
+		if _, ok := m[id]; !ok {
+			return nil
+		}
+		delete(m, id)
+		return writeJSON(s.trustPath(), m)
+	})
+}
+
+// TrustedFunc renvoie un Trusted qui lit le fichier de confiance une seule
+// fois : pour un passage sur toute une liste (index, avis, trust).
+func (s *Store) TrustedFunc() func(Entry) bool {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	m := s.loadTrust()
-	if _, ok := m[id]; !ok {
-		return nil
+	s.mu.Unlock()
+	return func(e Entry) bool {
+		return e.Scope != Project || (e.SHA256 != "" && m[e.ID] == e.SHA256)
 	}
-	delete(m, id)
-	return writeJSON(s.trustPath(), m)
 }

@@ -329,3 +329,31 @@ func TestPathAndCheck(t *testing.T) {
 		t.Fatalf("Check a écrit : %v", err)
 	}
 }
+
+// R15 : sans portée, une entrée project non fiable ne cache pas l'entrée
+// user (ou global) de même id ; seule, elle est renvoyée (refus « not
+// trusted » à la lecture).
+func TestGetSkipsUntrustedProject(t *testing.T) {
+	s, root, _ := newStore(t, true)
+	put(t, s, User, "x")
+	put(t, s, Global, "y")
+	foreignProject(t, s, root, "x")
+	foreignProject(t, s, root, "y")
+	foreignProject(t, s, root, "z")
+	for id, want := range map[string]Scope{"x": User, "y": Global, "z": Project} {
+		e, err := s.Get("", id)
+		if err != nil || e.Scope != want {
+			t.Fatalf("%s: %v %v, attendu %s", id, e.Scope, err, want)
+		}
+	}
+	if e, err := s.Get(Project, "x"); err != nil || e.Scope != Project {
+		t.Fatalf("portée explicite: %v %v", e, err)
+	}
+	// Une entrée project approuvée garde la priorité.
+	if err := s.Trust(mustGet(t, s, Project, "x")); err != nil {
+		t.Fatal(err)
+	}
+	if e, _ := s.Get("", "x"); e.Scope != Project {
+		t.Fatalf("project approuvée ignorée: %s", e.Scope)
+	}
+}

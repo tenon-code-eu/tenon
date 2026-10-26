@@ -1,9 +1,11 @@
 package memory
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -93,5 +95,63 @@ func TestForgetProjectDropsTrust(t *testing.T) {
 	}
 	if len(s.loadTrust()) != 0 {
 		t.Fatal("ligne de confiance restante")
+	}
+}
+
+// foreignProject dépose à la main une entrée project d'id id (non fiable).
+func foreignProject(t *testing.T, s *Store, root, id string) {
+	t.Helper()
+	dir := filepath.Join(root, ".tenon", "memory")
+	os.MkdirAll(dir, 0o755)
+	body := "---\nid: " + id + "\ntitle: from the repo\nsensitive: false\nauthor: model\ncreated: 2026-10-01T00:00:00Z\n---\nrepo text\n"
+	if err := os.WriteFile(filepath.Join(dir, id+".md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// R17 : deux stores qui approuvent en même temps ne perdent aucune ligne.
+func TestTrustConcurrentStores(t *testing.T) {
+	data, root := t.TempDir(), t.TempDir()
+	a := Open(Options{Root: root, DataDir: data, Project: true})
+	b := Open(Options{Root: root, DataDir: data, Project: true})
+	const n = 40
+	var wg sync.WaitGroup
+	for i, s := range []*Store{a, b} {
+		for j := range n {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				e := Entry{Scope: Project, ID: fmt.Sprintf("s%d-%d", i, j), SHA256: "ab"}
+				if err := s.Trust(e); err != nil {
+					t.Error(err)
+				}
+			}()
+		}
+	}
+	wg.Wait()
+	if got := len(a.loadTrust()); got != 2*n {
+		t.Fatalf("lignes de confiance = %d, attendu %d", got, 2*n)
+	}
+}
+
+// TrustedFunc lit le fichier de confiance une fois : l'instantané ne voit
+// pas une approbation ultérieure.
+func TestTrustedFuncSnapshot(t *testing.T) {
+	s, root, _ := newStore(t, true)
+	put(t, s, Project, "mine")
+	foreignProject(t, s, root, "repo")
+	trusted := s.TrustedFunc()
+	mine, repo := mustGet(t, s, Project, "mine"), mustGet(t, s, Project, "repo")
+	if !trusted(mine) || trusted(repo) || !trusted(Entry{Scope: User, ID: "u"}) {
+		t.Fatal("instantané faux")
+	}
+	if err := s.Trust(repo); err != nil {
+		t.Fatal(err)
+	}
+	if trusted(repo) {
+		t.Fatal("l'instantané relit le fichier de confiance")
+	}
+	if !s.TrustedFunc()(repo) {
+		t.Fatal("nouvel instantané sans l'approbation")
 	}
 }

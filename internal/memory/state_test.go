@@ -1,7 +1,11 @@
 package memory
 
 import (
+	"errors"
+	"fmt"
 	"os"
+	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 )
@@ -177,5 +181,67 @@ func TestCheckID(t *testing.T) {
 		if CheckID(id) == nil {
 			t.Fatalf("id %q accepté", id)
 		}
+	}
+}
+
+// R12 : la rétention vaut par personne, pas par projet ouvert ; une entrée
+// user d'un projet A expire quand un projet B purge.
+func TestPurgeOtherProjects(t *testing.T) {
+	now := t0
+	data := t.TempDir()
+	a := clockStore(t, &now, t.TempDir(), data)
+	b := clockStore(t, &now, t.TempDir(), data)
+	put(t, a, User, "old")
+	keep := put(t, a, User, "kept")
+	now = t0.Add(80 * day)
+	if err := a.Touch(keep); err != nil {
+		t.Fatal(err)
+	}
+	// Dossiers voisins qui ne sont pas des clés de projet : ignorés.
+	os.MkdirAll(filepath.Join(data, "memory", "not-a-key"), 0o700)
+	now = t0.Add(100 * day)
+	gone, err := b.Purge()
+	if err != nil || len(gone) != 1 || gone[0].ID != "old" || gone[0].Scope != User {
+		t.Fatalf("%v %v", gone, err)
+	}
+	if _, err := a.Get(User, "old"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("entrée du projet A encore là: %v", err)
+	}
+	if _, err := a.Get(User, "kept"); err != nil {
+		t.Fatal("entrée touchée purgée")
+	}
+	if _, ok := b.loadState()[a.rowKey(Entry{Scope: User, ID: "old"})]; ok {
+		t.Fatal("ligne d'état de l'entrée purgée conservée")
+	}
+}
+
+// R17 : deux stores (deux processus) qui mettent à jour state.json en même
+// temps ne perdent aucune ligne.
+func TestStateConcurrentStores(t *testing.T) {
+	data, root := t.TempDir(), t.TempDir()
+	stores := []*Store{
+		Open(Options{Root: root, DataDir: data, Project: true}),
+		Open(Options{Root: root, DataDir: data, Project: true}),
+	}
+	const n = 40
+	var wg sync.WaitGroup
+	for i, s := range stores {
+		for j := range n {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				if err := s.Touch(Entry{Scope: User, ID: fmt.Sprintf("s%d-%d", i, j)}); err != nil {
+					t.Error(err)
+				}
+			}()
+		}
+	}
+	wg.Wait()
+	if got := len(stores[0].loadState()); got != 2*n {
+		t.Fatalf("lignes d'état = %d, attendu %d", got, 2*n)
+	}
+	fi, err := os.Stat(filepath.Join(data, "memory", ".lock"))
+	if err != nil || fi.Mode().Perm() != 0o600 {
+		t.Fatalf("verrou: %v %v", fi, err)
 	}
 }
