@@ -41,6 +41,15 @@ type Handler interface {
 	Handle(ctx context.Context, method string, params json.RawMessage) (result any, err error)
 }
 
+// AfterReply est un résultat de Handler : Result est la réponse et Then, si
+// non nil, s'exécute une fois la ligne de réponse écrite (aussi pour une
+// notification, sans réponse). Sert aux notifications qui doivent suivre la
+// réponse, quand le client n'apprend un identifiant qu'en la lisant.
+type AfterReply struct {
+	Result any
+	Then   func()
+}
+
 // ErrClosed est renvoyée par Call quand la connexion ne sert plus.
 var ErrClosed = errors.New("acp: connection closed")
 
@@ -151,6 +160,12 @@ func (c *Conn) dispatch(ctx context.Context, wg *sync.WaitGroup, line []byte) {
 	go func() {
 		defer wg.Done()
 		res, err := c.h.Handle(ctx, m.Method, m.Params)
+		if ar, ok := res.(AfterReply); ok {
+			res = ar.Result
+			if ar.Then != nil {
+				defer ar.Then()
+			}
+		}
 		if len(m.ID) == 0 {
 			return
 		}

@@ -232,3 +232,19 @@ func TestPendingCallFailsAfterServe(t *testing.T) {
 		t.Fatal("Call after Serve must fail")
 	}
 }
+
+func TestAfterReply(t *testing.T) {
+	var r *rig
+	r = newRig(t, handlerFunc(func(ctx context.Context, m string, p json.RawMessage) (any, error) {
+		return AfterReply{Result: map[string]any{"sessionId": "s"}, Then: func() {
+			r.conn.Notify("session/update", map[string]any{"n": 1})
+		}}, nil
+	}))
+	r.send(t, `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{}}`)
+	if got := r.readLine(t); got != `{"jsonrpc":"2.0","id":1,"result":{"sessionId":"s"}}` {
+		t.Fatalf("first line %s", got)
+	}
+	if got := r.readLine(t); got != `{"jsonrpc":"2.0","method":"session/update","params":{"n":1}}` {
+		t.Fatalf("second line %s", got)
+	}
+}

@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"html"
 	"io"
 	"net/url"
 	"path/filepath"
 	"strings"
 	"sync"
+	"unicode"
 
 	"github.com/tenon-code-eu/tenon/internal/engine"
 	"github.com/tenon-code-eu/tenon/internal/event"
@@ -44,16 +46,22 @@ type Server struct {
 	version string
 	lang    i18n.Lang
 
+	// conn est la connexion servie (fixée par Serve avant toute requête).
+	conn *Conn
+
 	mu       sync.Mutex
 	client   *Implementation
 	sessions map[string]*entry
 }
 
-// entry est une session enregistrée et son créneau de tour.
+// entry est une session enregistrée, son pont et son créneau de tour.
 type entry struct {
 	s Session
-	// replay : événements rejoués par session/load, à émettre par le pont.
-	replay []event.Event
+	b *bridge
+	// ready est fermé quand notices, commandes et rejeu ont été envoyés et
+	// la pompe lancée.
+	ready     chan struct{}
+	closeOnce sync.Once
 
 	mu     sync.Mutex
 	busy   bool
@@ -69,15 +77,24 @@ func NewServer(b Backend, version string, lang i18n.Lang) *Server {
 // les sessions.
 func (s *Server) Serve(ctx context.Context, r io.Reader, w io.Writer) error {
 	conn := NewConn(r, w, s)
+	s.conn = conn
 	err := conn.Serve(ctx)
 	s.mu.Lock()
 	all := s.sessions
 	s.sessions = map[string]*entry{}
 	s.mu.Unlock()
 	for _, e := range all {
-		e.s.Close()
+		e.close()
 	}
 	return err
+}
+
+// close arrête le pont puis ferme la session (une seule fois).
+func (e *entry) close() {
+	e.closeOnce.Do(func() {
+		e.b.close()
+		e.s.Close()
+	})
 }
 
 // Handle implémente Handler.
@@ -161,8 +178,7 @@ func (s *Server) newSession(ctx context.Context, params json.RawMessage) (any, e
 	if err != nil {
 		return nil, backendErr(err)
 	}
-	s.register(sess, nil)
-	return map[string]any{"sessionId": sess.ID()}, nil
+	return s.register(sess, nil, map[string]any{"sessionId": sess.ID()}), nil
 }
 
 func (s *Server) loadSession(ctx context.Context, params json.RawMessage) (any, error) {
@@ -173,24 +189,42 @@ func (s *Server) loadSession(ctx context.Context, params json.RawMessage) (any, 
 	if err := checkCwd(req.Cwd); err != nil {
 		return nil, err
 	}
+	// Une session vivante en plein tour n'est pas remplacée.
+	s.mu.Lock()
+	live := s.sessions[req.SessionID]
+	s.mu.Unlock()
+	if live != nil {
+		live.mu.Lock()
+		busy := live.busy
+		live.mu.Unlock()
+		if busy {
+			return nil, &Error{Code: CodeTenon, Message: "turn in progress"}
+		}
+	}
 	sess, replay, err := s.b.LoadSession(ctx, req.SessionID, req.Cwd, req.MCPServers, s.clientInfo())
 	if err != nil {
 		return nil, backendErr(err)
 	}
-	s.register(sess, replay)
-	return nil, nil
+	return s.register(sess, replay, nil), nil
 }
 
-// register enregistre la session ; une session de même id est fermée et
-// remplacée.
-func (s *Server) register(sess Session, replay []event.Event) {
+// register enregistre la session et l'abonne à son pont ; une session de
+// même id est fermée et remplacée. Le résultat renvoyé (result) est suivi,
+// une fois écrit, des notices, des commandes et du rejeu : le client ne
+// connaît l'identifiant qu'en lisant la réponse.
+func (s *Server) register(sess Session, replay []event.Event, result any) AfterReply {
+	e := &entry{s: sess, b: newBridge(s.conn, s.lang, sess), ready: make(chan struct{})}
 	s.mu.Lock()
 	old := s.sessions[sess.ID()]
-	s.sessions[sess.ID()] = &entry{s: sess, replay: replay}
+	s.sessions[sess.ID()] = e
 	s.mu.Unlock()
 	if old != nil && old.s != sess {
-		old.s.Close()
+		old.close()
 	}
+	return AfterReply{Result: result, Then: func() {
+		e.b.start(sess.Notices(), sess.Commands(), replay)
+		close(e.ready)
+	}}
 }
 
 func (s *Server) entry(id string) (*entry, error) {
@@ -217,6 +251,12 @@ func (s *Server) prompt(ctx context.Context, params json.RawMessage) (any, error
 		return nil, err
 	}
 
+	select {
+	case <-e.ready:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+
 	pctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	e.mu.Lock()
@@ -224,6 +264,7 @@ func (s *Server) prompt(ctx context.Context, params json.RawMessage) (any, error
 		e.mu.Unlock()
 		return nil, &Error{Code: CodeTenon, Message: "turn in progress"}
 	}
+	e.b.beginTurn()
 	e.busy, e.cancel = true, cancel
 	e.mu.Unlock()
 	defer func() {
@@ -233,15 +274,17 @@ func (s *Server) prompt(ctx context.Context, params json.RawMessage) (any, error
 	}()
 
 	serr := e.s.Submit(pctx, in)
-	return map[string]any{"stopReason": stopReason(pctx, serr)}, nil
-}
-
-// stopReason choisit la raison d'arrêt d'un tour.
-func stopReason(ctx context.Context, _ error) string {
-	if ctx.Err() != nil {
-		return "cancelled"
+	// Les mises à jour du tour précèdent la réponse.
+	reason := e.b.flush()
+	// Un tour annulé par session/cancel reste cancelled, même sans
+	// TurnCompleted.
+	if pctx.Err() != nil || errors.Is(serr, context.Canceled) {
+		return map[string]any{"stopReason": "cancelled"}, nil
 	}
-	return "end_turn"
+	if serr != nil {
+		return nil, &Error{Code: CodeTenon, Message: serr.Error()}
+	}
+	return map[string]any{"stopReason": stopReason(reason)}, nil
 }
 
 func (s *Server) cancelTurn(params json.RawMessage) {
@@ -258,6 +301,7 @@ func (s *Server) cancelTurn(params json.RawMessage) {
 	e.mu.Unlock()
 	if cancel != nil {
 		cancel()
+		e.b.cancel()
 	}
 }
 
@@ -274,14 +318,17 @@ func buildInput(blocks []ContentBlock, cmds []Command) (engine.Input, error) {
 			if b.Resource == nil {
 				return engine.Input{}, &Error{Code: CodeInvalidParams, Message: "resource block without resource"}
 			}
-			parts = append(parts, "<resource uri=\""+b.Resource.URI+"\">\n"+b.Resource.Text+"\n</resource>")
+			parts = append(parts, "<resource uri=\""+html.EscapeString(b.Resource.URI)+"\">\n"+b.Resource.Text+"\n</resource>")
 		default:
 			return engine.Input{}, &Error{Code: CodeInvalidParams, Message: "unsupported content block type: " + b.Type}
 		}
 	}
 	text := strings.Join(parts, "\n\n")
 	if strings.HasPrefix(text, "/") {
-		name, rest, _ := strings.Cut(text[1:], " ")
+		name, rest := text[1:], ""
+		if i := strings.IndexFunc(name, unicode.IsSpace); i >= 0 {
+			name, rest = name[:i], name[i:]
+		}
 		for _, c := range cmds {
 			if c.Name == name {
 				return engine.Input{Skill: name, Text: strings.TrimSpace(rest), Typed: text}, nil
