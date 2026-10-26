@@ -3,7 +3,6 @@ package acp
 import (
 	"context"
 	"encoding/json"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -14,10 +13,6 @@ import (
 	"github.com/tenon-code-eu/tenon/internal/i18n"
 	"github.com/tenon-code-eu/tenon/internal/ui/headless"
 )
-
-// maxDiffFile est la taille au-delà de laquelle un fichier écrit n'est pas
-// relu pour le diff (le résultat texte est envoyé à la place).
-const maxDiffFile = 1 << 20
 
 // maxTitle borne la cible d'un titre d'appel d'outil, en runes.
 const maxTitle = 200
@@ -83,8 +78,9 @@ type bridge struct {
 	exited   chan struct{}
 
 	// État de la pompe (sa goroutine seule).
-	open        map[string]openCall // ParentCallID → appel en cours
-	permCall    map[string]string   // PermissionID → CallID
+	open        map[string]openCall        // ParentCallID → appel en cours
+	permCall    map[string]string          // PermissionID → CallID
+	args        map[string]json.RawMessage // CallID → arguments masqués, jusqu'au résultat
 	routing     headless.Routing
 	hookNoticed bool  // une notice de hook a expliqué l'arrêt du tour
 	tokens      int64 // jetons de la session (entrée + sortie)
@@ -99,7 +95,7 @@ func newBridge(conn *Conn, lang i18n.Lang, s Session) *bridge {
 	return &bridge{
 		conn: conn, lang: lang, s: s, sid: s.ID(), root: s.ProjectRoot(), ch: s.Subscribe(),
 		flushReq: make(chan chan struct{}), stop: make(chan struct{}), exited: make(chan struct{}),
-		open: map[string]openCall{}, permCall: map[string]string{}, perms: map[string]context.CancelFunc{},
+		open: map[string]openCall{}, permCall: map[string]string{}, args: map[string]json.RawMessage{}, perms: map[string]context.CancelFunc{},
 	}
 }
 
@@ -233,6 +229,9 @@ func (b *bridge) handle(ev event.Event) {
 	case event.ToolCallRequested:
 		if p, ok := decodeAs[event.ToolCallRequestedPayload](ev); ok {
 			b.open[p.ParentCallID] = openCall{p.CallID, p.Tool}
+			if p.Tool == "write_file" || p.Tool == "edit_file" {
+				b.args[p.CallID] = p.Args
+			}
 			b.update(b.toolCall(p))
 		}
 	case event.PermissionRequested:
@@ -253,6 +252,7 @@ func (b *bridge) handle(ev event.Event) {
 				delete(b.open, p.ParentCallID)
 			}
 			b.update(b.toolResult(p, true))
+			delete(b.args, p.CallID)
 		}
 	case event.Usage:
 		if p, ok := decodeAs[event.UsagePayload](ev); ok {
@@ -422,32 +422,53 @@ func (b *bridge) toolResult(p event.ToolResultPayload, live bool) map[string]any
 	return u
 }
 
-// diff construit le contenu diff d'une écriture : ancien texte depuis le
-// point de reprise (absent pour un fichier nouveau), nouveau texte relu sur
-// le disque, sous la racine du projet seulement. nil : texte seul.
+// diff construit le contenu diff d'une écriture, sans jamais lire le
+// disque (masquage, et la pompe est asynchrone) : ancien texte depuis le
+// point de reprise, masqué ; nouveau texte depuis les arguments masqués de
+// l'appel (write_file : content ; edit_file : old_string → new_string
+// appliqué à l'ancien texte). Fichier nouveau : oldText absent. nil : texte
+// seul.
 func (b *bridge) diff(p event.ToolResultPayload) map[string]any {
-	if p.Path == "" {
+	args, ok := b.args[p.CallID]
+	if !ok || p.Path == "" {
 		return nil
 	}
-	path := b.abs(p.Path)
-	if !b.underRoot(path) {
+	var a struct {
+		Content    *string `json:"content"`
+		OldString  string  `json:"old_string"`
+		NewString  string  `json:"new_string"`
+		ReplaceAll bool    `json:"replace_all"`
+	}
+	if json.Unmarshal(args, &a) != nil {
 		return nil
 	}
-	fi, err := os.Stat(path)
-	if err != nil || !fi.Mode().IsRegular() || fi.Size() > maxDiffFile {
-		return nil
-	}
-	data, err := os.ReadFile(path)
-	if err != nil || !utf8.Valid(data) {
-		return nil
-	}
-	d := map[string]any{"type": "diff", "path": path, "newText": string(data)}
+	d := map[string]any{"type": "diff", "path": b.abs(p.Path)}
+	old, hasOld := "", false
 	if p.HashBefore != "" {
-		old, ok := b.s.OldText(p.HashBefore)
+		raw, ok := b.s.OldText(p.HashBefore)
 		if !ok {
 			return nil
 		}
+		old, hasOld = b.s.Redact(raw), true
 		d["oldText"] = old
+	}
+	switch p.Tool {
+	case "write_file":
+		if a.Content == nil {
+			return nil
+		}
+		d["newText"] = *a.Content
+	case "edit_file":
+		n := 0
+		if hasOld && a.OldString != "" {
+			n = strings.Count(old, a.OldString)
+		}
+		if n == 0 || (n > 1 && !a.ReplaceAll) {
+			return nil
+		}
+		d["newText"] = strings.ReplaceAll(old, a.OldString, a.NewString)
+	default:
+		return nil
 	}
 	return d
 }
@@ -457,20 +478,6 @@ func (b *bridge) abs(path string) string {
 		path = filepath.Join(b.root, path)
 	}
 	return filepath.Clean(path)
-}
-
-// underRoot dit si path, liens résolus, est dans la racine du projet.
-func (b *bridge) underRoot(path string) bool {
-	root, err := filepath.EvalSymlinks(b.root)
-	if err != nil {
-		return false
-	}
-	real, err := filepath.EvalSymlinks(path)
-	if err != nil {
-		return false
-	}
-	rel, err := filepath.Rel(root, real)
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
 }
 
 func clip(s string, n int) string {

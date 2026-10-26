@@ -30,6 +30,9 @@ type Session interface {
 	Notices() []string
 	Commands() []Command
 	OldText(hash string) (string, bool)
+	// Redact masque un texte avec le masquage de tenon (texte d'un point de
+	// reprise avant de l'envoyer à l'éditeur).
+	Redact(s string) string
 	Close()
 }
 
@@ -65,6 +68,7 @@ type entry struct {
 
 	mu     sync.Mutex
 	busy   bool
+	closed bool // remplacée ou fermée : plus aucun tour
 	cancel context.CancelFunc
 }
 
@@ -89,11 +93,15 @@ func (s *Server) Serve(ctx context.Context, r io.Reader, w io.Writer) error {
 	return err
 }
 
-// close arrête le pont puis ferme la session (une seule fois).
+// close ferme la session puis arrête le pont (une seule fois) : la pompe
+// draine encore ce qu'un tour annulé émet pendant la fermeture.
 func (e *entry) close() {
 	e.closeOnce.Do(func() {
-		e.b.close()
+		e.mu.Lock()
+		e.closed = true
+		e.mu.Unlock()
 		e.s.Close()
+		e.b.close()
 	})
 }
 
@@ -178,7 +186,7 @@ func (s *Server) newSession(ctx context.Context, params json.RawMessage) (any, e
 	if err != nil {
 		return nil, backendErr(err)
 	}
-	return s.register(sess, nil, map[string]any{"sessionId": sess.ID()}), nil
+	return s.register(sess, nil, map[string]any{"sessionId": sess.ID()})
 }
 
 func (s *Server) loadSession(ctx context.Context, params json.RawMessage) (any, error) {
@@ -205,17 +213,33 @@ func (s *Server) loadSession(ctx context.Context, params json.RawMessage) (any, 
 	if err != nil {
 		return nil, backendErr(err)
 	}
-	return s.register(sess, replay, nil), nil
+	return s.register(sess, replay, nil)
 }
 
 // register enregistre la session et l'abonne à son pont ; une session de
 // même id est fermée et remplacée. Le résultat renvoyé (result) est suivi,
 // une fois écrit, des notices, des commandes et du rejeu : le client ne
 // connaît l'identifiant qu'en lisant la réponse.
-func (s *Server) register(sess Session, replay []event.Event, result any) AfterReply {
-	e := &entry{s: sess, b: newBridge(s.conn, s.lang, sess), ready: make(chan struct{})}
+//
+// Une session de même id en plein tour n'est pas remplacée : la nouvelle est
+// fermée et l'erreur turn in progress renvoyée. Le contrôle et le marquage
+// closed de l'ancienne se font sous son verrou : aucun tour ne peut y
+// commencer ensuite.
+func (s *Server) register(sess Session, replay []event.Event, result any) (any, error) {
 	s.mu.Lock()
 	old := s.sessions[sess.ID()]
+	if old != nil && old.s != sess {
+		old.mu.Lock()
+		if old.busy {
+			old.mu.Unlock()
+			s.mu.Unlock()
+			sess.Close()
+			return nil, &Error{Code: CodeTenon, Message: "turn in progress"}
+		}
+		old.closed = true
+		old.mu.Unlock()
+	}
+	e := &entry{s: sess, b: newBridge(s.conn, s.lang, sess), ready: make(chan struct{})}
 	s.sessions[sess.ID()] = e
 	s.mu.Unlock()
 	if old != nil && old.s != sess {
@@ -224,7 +248,7 @@ func (s *Server) register(sess Session, replay []event.Event, result any) AfterR
 	return AfterReply{Result: result, Then: func() {
 		e.b.start(sess.Notices(), sess.Commands(), replay)
 		close(e.ready)
-	}}
+	}}, nil
 }
 
 func (s *Server) entry(id string) (*entry, error) {
@@ -254,12 +278,17 @@ func (s *Server) prompt(ctx context.Context, params json.RawMessage) (any, error
 	select {
 	case <-e.ready:
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		// Connexion qui se ferme avant le début du tour : rien n'a tourné.
+		return map[string]any{"stopReason": "cancelled"}, nil
 	}
 
 	pctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	e.mu.Lock()
+	if e.closed {
+		e.mu.Unlock()
+		return nil, &Error{Code: CodeUnknownSession, Message: "unknown session: " + req.SessionID}
+	}
 	if e.busy {
 		e.mu.Unlock()
 		return nil, &Error{Code: CodeTenon, Message: "turn in progress"}
@@ -296,11 +325,12 @@ func (s *Server) cancelTurn(params json.RawMessage) {
 	if err != nil {
 		return
 	}
+	// Sous e.mu : un tour qui commence (beginTurn, sous e.mu aussi) ne peut
+	// pas recevoir l'annulation du précédent.
 	e.mu.Lock()
-	cancel := e.cancel
-	e.mu.Unlock()
-	if cancel != nil {
-		cancel()
+	defer e.mu.Unlock()
+	if e.cancel != nil {
+		e.cancel()
 		e.b.cancel()
 	}
 }

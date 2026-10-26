@@ -108,17 +108,18 @@ func TestMessageChunk(t *testing.T) {
 
 func TestToolCallLifecycle(t *testing.T) {
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "a.go"), []byte("v2"), 0o644); err != nil {
+	// le disque diffère des arguments : le diff ne le lit jamais
+	if err := os.WriteFile(filepath.Join(root, "a.go"), []byte("DISK"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	b := scripted(func(s *fakeSession) {
 		s.root = root
-		s.old = map[string]string{"h1": "v1"}
+		s.old = map[string]string{"h1": "v1 SECRET"}
 	}, func(ctx context.Context, f *fakeSession) error {
 		f.emit(event.ToolCallRequested, event.ToolCallRequestedPayload{CallID: "c1", Tool: "write_file", Args: json.RawMessage(`{"path":"a.go","content":"v2"}`)})
 		f.emit(event.ToolResult, event.ToolResultPayload{CallID: "c1", Tool: "write_file", Content: "ok", Path: filepath.Join(root, "a.go"), HashBefore: "h1", HashAfter: "h2"})
-		f.emit(event.ToolCallRequested, event.ToolCallRequestedPayload{CallID: "c2", Tool: "write_file", Args: json.RawMessage(`{"path":"b.go","content":"v2"}`)})
-		f.emit(event.ToolResult, event.ToolResultPayload{CallID: "c2", Tool: "write_file", Content: "ok", Path: filepath.Join(root, "a.go"), HashAfter: "h2"})
+		f.emit(event.ToolCallRequested, event.ToolCallRequestedPayload{CallID: "c2", Tool: "write_file", Args: json.RawMessage(`{"path":"b.go","content":"new"}`)})
+		f.emit(event.ToolResult, event.ToolResultPayload{CallID: "c2", Tool: "write_file", Content: "ok", Path: filepath.Join(root, "b.go"), HashAfter: "h3"})
 		f.emit(event.ToolCallRequested, event.ToolCallRequestedPayload{CallID: "c3", Tool: "shell", Args: json.RawMessage(`{"command":"go test ./..."}`)})
 		f.emit(event.ToolResult, event.ToolResultPayload{CallID: "c3", Tool: "shell", Content: "boom\x1b[31m!", IsError: true})
 		return done(f)
@@ -129,32 +130,47 @@ func TestToolCallLifecycle(t *testing.T) {
 	h.call("session/prompt", map[string]any{"sessionId": id, "prompt": []any{text("x")}})
 	jsonEq(t, h.nextUpdate("tool_call"), `{"sessionUpdate":"tool_call","toolCallId":"c1","title":"write_file · a.go","kind":"edit","status":"pending",
 		"rawInput":{"path":"a.go","content":"v2"},"locations":[{"path":"`+root+`/a.go"}]}`)
+	// ancien texte masqué, nouveau texte depuis les arguments
 	jsonEq(t, h.nextUpdate("tool_call_update"), `{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"completed",
-		"content":[{"type":"diff","path":"`+root+`/a.go","oldText":"v1","newText":"v2"}]}`)
+		"content":[{"type":"diff","path":"`+root+`/a.go","oldText":"v1 [MASKED]","newText":"v2"}]}`)
 	h.nextUpdate("tool_call")
 	// nouveau fichier : pas d'ancien texte
 	jsonEq(t, h.nextUpdate("tool_call_update"), `{"sessionUpdate":"tool_call_update","toolCallId":"c2","status":"completed",
-		"content":[{"type":"diff","path":"`+root+`/a.go","newText":"v2"}]}`)
+		"content":[{"type":"diff","path":"`+root+`/b.go","newText":"new"}]}`)
 	jsonEq(t, h.nextUpdate("tool_call"), `{"sessionUpdate":"tool_call","toolCallId":"c3","title":"shell · go test ./...","kind":"execute","status":"pending",
 		"rawInput":{"command":"go test ./..."}}`)
 	jsonEq(t, h.nextUpdate("tool_call_update"), `{"sessionUpdate":"tool_call_update","toolCallId":"c3","status":"failed",
 		"content":[{"type":"content","content":{"type":"text","text":"boom!"}}]}`)
 }
 
-func TestDiffOutsideRootIsText(t *testing.T) {
-	root := t.TempDir()
-	other := t.TempDir()
-	os.WriteFile(filepath.Join(other, "x"), []byte("secret"), 0o644)
-	b := scripted(func(s *fakeSession) { s.root = root }, func(ctx context.Context, f *fakeSession) error {
-		f.emit(event.ToolResult, event.ToolResultPayload{CallID: "c1", Tool: "write_file", Content: "ok", Path: filepath.Join(other, "x")})
+func TestEditDiff(t *testing.T) {
+	b := scripted(func(s *fakeSession) {
+		s.old = map[string]string{"h1": "a SECRET b a"}
+	}, func(ctx context.Context, f *fakeSession) error {
+		f.emit(event.ToolCallRequested, event.ToolCallRequestedPayload{CallID: "e1", Tool: "edit_file", Args: json.RawMessage(`{"path":"a.go","old_string":"b","new_string":"B"}`)})
+		f.emit(event.ToolResult, event.ToolResultPayload{CallID: "e1", Tool: "edit_file", Content: "1 replacement(s)", Path: "/p/a.go", HashBefore: "h1"})
+		f.emit(event.ToolCallRequested, event.ToolCallRequestedPayload{CallID: "e2", Tool: "edit_file", Args: json.RawMessage(`{"path":"a.go","old_string":"a","new_string":"z","replace_all":true}`)})
+		f.emit(event.ToolResult, event.ToolResultPayload{CallID: "e2", Tool: "edit_file", Content: "2 replacement(s)", Path: "/p/a.go", HashBefore: "h1"})
+		// old_string absent de l'ancien texte masqué : texte seul
+		f.emit(event.ToolCallRequested, event.ToolCallRequestedPayload{CallID: "e3", Tool: "edit_file", Args: json.RawMessage(`{"path":"a.go","old_string":"nope","new_string":"x"}`)})
+		f.emit(event.ToolResult, event.ToolResultPayload{CallID: "e3", Tool: "edit_file", Content: "1 replacement(s)", Path: "/p/a.go", HashBefore: "h1"})
+		// point de reprise introuvable : texte seul
+		f.emit(event.ToolCallRequested, event.ToolCallRequestedPayload{CallID: "e4", Tool: "edit_file", Args: json.RawMessage(`{"path":"a.go","old_string":"a","new_string":"x"}`)})
+		f.emit(event.ToolResult, event.ToolResultPayload{CallID: "e4", Tool: "edit_file", Content: "done", Path: "/p/a.go", HashBefore: "zz"})
 		return done(f)
 	})
 	h := newHarness(t, b)
 	h.init()
 	id := h.newSession()
 	h.call("session/prompt", map[string]any{"sessionId": id, "prompt": []any{text("x")}})
-	jsonEq(t, h.nextUpdate("tool_call_update"), `{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"completed",
-		"content":[{"type":"content","content":{"type":"text","text":"ok"}}]}`)
+	jsonEq(t, h.nextUpdate("tool_call_update"), `{"sessionUpdate":"tool_call_update","toolCallId":"e1","status":"completed",
+		"content":[{"type":"diff","path":"/p/a.go","oldText":"a [MASKED] b a","newText":"a [MASKED] B a"}]}`)
+	jsonEq(t, h.nextUpdate("tool_call_update"), `{"sessionUpdate":"tool_call_update","toolCallId":"e2","status":"completed",
+		"content":[{"type":"diff","path":"/p/a.go","oldText":"a [MASKED] b a","newText":"z [MASKED] b z"}]}`)
+	jsonEq(t, h.nextUpdate("tool_call_update"), `{"sessionUpdate":"tool_call_update","toolCallId":"e3","status":"completed",
+		"content":[{"type":"content","content":{"type":"text","text":"1 replacement(s)"}}]}`)
+	jsonEq(t, h.nextUpdate("tool_call_update"), `{"sessionUpdate":"tool_call_update","toolCallId":"e4","status":"completed",
+		"content":[{"type":"content","content":{"type":"text","text":"done"}}]}`)
 }
 
 func TestToolKinds(t *testing.T) {
@@ -506,6 +522,46 @@ func TestLoadReplay(t *testing.T) {
 	}
 }
 
+// TestLoadReplacesDuringTurn : un tour qui commence pendant LoadSession
+// empêche le remplacement ; la session chargée est fermée.
+func TestLoadReplacesDuringTurn(t *testing.T) {
+	loading := make(chan struct{})
+	proceed := make(chan struct{})
+	var loaded *fakeSession
+	b := &fakeBackend{
+		newFn: func() *fakeSession {
+			s := newFakeSession("s1")
+			s.release = make(chan struct{})
+			return s
+		},
+		loadFn: func(id string) (*fakeSession, []event.Event) {
+			close(loading)
+			<-proceed
+			loaded = newFakeSession(id)
+			return loaded, nil
+		},
+	}
+	h := newHarness(t, b)
+	h.init()
+	id := h.newSession()
+	lid := h.send("session/load", map[string]any{"sessionId": id, "cwd": "/p", "mcpServers": []any{}})
+	<-loading
+	pid := h.send("session/prompt", map[string]any{"sessionId": id, "prompt": []any{text("x")}})
+	<-b.sessions[0].entered
+	close(proceed)
+	r := h.read()
+	if r.ID != lid || r.Error == nil || r.Error.Code != CodeTenon || r.Error.Message != "turn in progress" {
+		t.Fatalf("load: %+v", r)
+	}
+	if loaded.closed != 1 || b.sessions[0].closed != 0 {
+		t.Fatalf("loaded closed %d, live closed %d", loaded.closed, b.sessions[0].closed)
+	}
+	close(b.sessions[0].release)
+	if r := h.read(); r.ID != pid || r.Error != nil {
+		t.Fatalf("prompt: %+v", r)
+	}
+}
+
 func TestLoadBusySession(t *testing.T) {
 	b := &fakeBackend{newFn: func() *fakeSession {
 		s := newFakeSession("s1")
@@ -587,4 +643,31 @@ func TestPumpBetweenPrompts(t *testing.T) {
 	h.newSession()
 	b.sessions[0].emit(event.McpServerDown, event.McpServerDownPayload{Server: "gh", Error: "gone"})
 	jsonEq(t, h.nextUpdate("notice"), `{"sessionUpdate":"notice","content":{"type":"text","text":"`+i18n.T(i18n.EN, "mcp.down", "gh", "gone")+`"}}`)
+}
+
+// TestCloseDrains : une session qui émet encore pendant Close (envoi
+// bloquant, tampon plein) ne bloque pas la fermeture : la pompe draine.
+func TestCloseDrains(t *testing.T) {
+	b := &fakeBackend{newFn: func() *fakeSession {
+		s := newFakeSession("s1")
+		s.onClose = func(f *fakeSession) {
+			for i := 0; i < 3*cap(f.ch); i++ {
+				f.emit(event.AssistantDelta, event.AssistantDeltaPayload{Text: "x"})
+			}
+		}
+		return s
+	}}
+	h := newHarness(t, b)
+	h.init()
+	h.newSession()
+	go func() {
+		for range h.lines {
+		}
+	}()
+	h.in.Close()
+	select {
+	case <-h.done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Serve hung while closing the session")
+	}
 }

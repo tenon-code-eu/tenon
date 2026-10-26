@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -32,6 +33,8 @@ type fakeSession struct {
 	submit  func(ctx context.Context, f *fakeSession) error
 	replies chan permReply
 	seq     uint64
+	// onClose, si non nil, s'exécute dans Close (tour annulé qui émet).
+	onClose func(f *fakeSession)
 }
 
 type permReply struct {
@@ -79,13 +82,17 @@ func (f *fakeSession) Respond(id string, r engine.Reply) error {
 	f.replies <- permReply{id, r}
 	return nil
 }
-func (f *fakeSession) Notices() []string   { return f.notices }
-func (f *fakeSession) Commands() []Command { return f.cmds }
+func (f *fakeSession) Notices() []string      { return f.notices }
+func (f *fakeSession) Commands() []Command    { return f.cmds }
+func (f *fakeSession) Redact(s string) string { return strings.ReplaceAll(s, "SECRET", "[MASKED]") }
 func (f *fakeSession) OldText(h string) (string, bool) {
 	s, ok := f.old[h]
 	return s, ok
 }
 func (f *fakeSession) Close() {
+	if f.onClose != nil {
+		f.onClose(f)
+	}
 	f.mu.Lock()
 	f.closed++
 	f.mu.Unlock()
