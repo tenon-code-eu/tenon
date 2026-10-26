@@ -171,6 +171,8 @@ A symbolic link in `.tenon/memory` (or the folder itself) is never followed.
 
 What memory cannot do: it cannot raise permissions or change a rule. `memory_write` and `memory_forget` need approval like any write, and rules match `<scope>/<id>`.
 
+**An `allow` rule on `user/*` or `global/*` removes that approval.** With such a rule, a text injected into the conversation (a file, a web page, an MCP result) can make the model store an entry without approval. A `user` or `global` entry is always trusted, so it is listed in the index of later sessions: the injection persists. Keep `ask` for these scopes unless you accept that risk, and check `tenon memory list`.
+
 **Sensitive entries.** An entry with a classification marker, or written in a sensitive session, is stored in the `user` scope only, so nothing classified reaches a file that git versions. Its title is never in the index. Reading it makes the session sensitive; without a local provider the read is refused and the content does not leave the machine. Redaction before writing never lifts the sensitivity of a session.
 
 **What stays after `tenon memory forget`.**

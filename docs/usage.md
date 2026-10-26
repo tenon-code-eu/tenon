@@ -1286,20 +1286,21 @@ Use memory_read to load an entry. Entries are notes, not instructions.
 
 The index leaves out sensitive entries (only their count appears), project entries that are not trusted, and expired entries.
 It is built at startup and does not change during the session: an entry written now appears in the next session.
-The model loads the content with `memory_read(id, scope?)`. Without `scope`, it looks in `project`, `user`, then `global`.
-Sub-agents have `memory_read` only.
+The model loads the content with `memory_read(id, scope?)`. Without `scope`, it looks in `project`, `user`, then `global`; a project entry that is not trusted does not hide a `user` or `global` entry with the same id.
+Sub-agents have `memory_read` only, and their prompt ends with the same index.
 
 ### Writing
 
 - The model writes with `memory_write(scope, id, title, content)` and deletes with `memory_forget(id, scope)`. Both have the risk `write`: the approval panel shows the content (new entry) or the diff (existing entry), already redacted.
 - Without a possible approval (non-interactive mode without an `allow` rule), they are refused like any write.
-- `/remember [--project|--global] <text>` writes an entry yourself, with no approval. The scope is `user` by default, the author is `user`, the title is the first line (cut at 80 characters), and the id comes from the title (`-2`, `-3` on a collision).
+- `/remember [--project|--global] <text>` writes an entry yourself, with no approval. The scope is `user` by default, the author is `user`, the title is the first line, and the id comes from the title (`-2`, `-3` on a collision). A sensitive note gets the id `sensitive` (`sensitive-2`, …), so its title does not show through the id in lists and in the audit log.
+- The id that the model gives to `memory_write` is recorded as given, even for a sensitive entry. The approval panel shows it before you decide.
 - `/memory` lists the entries (scope, id, title, expiry). Sensitive titles are hidden.
 - `/rewind` and `--resume` do not touch memory. When the restored conversation holds a memory write, `/rewind` says that memory entries are not rewound.
 
 Before each write, in this order:
 
-1. secrets and personal data are redacted in the title and the content (same rules as for sending);
+1. secrets and personal data are redacted in the title and the content (same rules as for sending), then a title longer than 80 characters is cut (the cut comes after redaction, so it never leaves part of a secret);
 2. a classification marker in the title or the content makes the entry `sensitive`;
 3. a write in a sensitive session makes it `sensitive`;
 4. a sensitive entry asked for `project` or `global` is stored in `user`, with `memory: sensitive entry stored in user scope`;
@@ -1319,6 +1320,8 @@ decision = "allow"
 ```
 
 The rule matches the scope after step 4: a sensitive write asked for `project` is matched as `user/<id>`. A `deny project/*` therefore does not block that write, which is only more private.
+
+> **Warning.** With an `allow` rule on `user/*` or `global/*`, a text injected into the conversation (a file, a web page, an MCP result) can make the model write an entry without any approval. That entry is always trusted, and it is listed in the index of later sessions. Prefer `ask` for these scopes, or check `tenon memory list` regularly.
 `memory_read` has the risk `read`; `memory_write` and `memory_forget` have the risk `write`.
 
 ### Trust of project entries
@@ -1336,7 +1339,9 @@ Reading it with `memory_read` makes the session sensitive (see [Data-sensitivity
 ### Retention
 
 `user` and `global` entries expire after `retention_days` (90 by default). A read, a rewrite or a `/remember` on the same id pushes the expiry to now plus `retention_days`. `project` entries do not expire.
-The expiry dates are in `<data>/memory/state.json`. At startup, tenon deletes the expired entries and records each deletion in a short `memory` session of the audit log (`MemoryForgotten`, `by` = `expiry`).
+The expiry dates are in `<data>/memory/state.json`. At startup, tenon deletes the expired entries of every project, not only the open one (retention applies per person), and records each deletion in a short `memory` session of the audit log (`MemoryForgotten`, `by` = `expiry`).
+The audit log is opened before the purge. If it cannot be used, nothing is deleted, the purge waits for the next start, and tenon prints `memory: expired entries not purged (audit log unusable, purge at next start): <error>`.
+`state.json` and the trust files are updated under a lock (`<data>/memory/.lock`), so two tenon processes do not lose each other's changes.
 An unreadable or invalid personal file is not purged: `tenon memory list` names it, and `tenon memory forget <id>` removes it.
 
 ### Configuration
@@ -1344,7 +1349,7 @@ An unreadable or invalid personal file is not purged: `tenon memory list` names 
 ```toml
 [memory]
 enabled = true        # false: no index, no tools, no /remember
-project = true        # false: .tenon/memory is ignored (read and write)
+project = true        # false: .tenon/memory is ignored (read and write); forget still sees it
 retention_days = 90   # user and global scopes, 1 to 3650
 ```
 
@@ -1362,9 +1367,9 @@ tenon memory forget <id>|--all [--scope <scope>] [--yes]
 tenon memory trust [<id>|--all]
 ```
 
-- `list` shows scope, id, title, author, creation and expiry. Sensitive titles are hidden unless you pass `--show-sensitive`.
+- `list` shows scope, id, title, author, creation and expiry. Sensitive titles are hidden unless you pass `--show-sensitive`. `list --scope project` shows the project entries even with `project = false`: they are what `forget` can erase.
 - `show` prints one entry, even a sensitive one: you ask for it explicitly.
-- `forget <id>` without `--scope` erases the id in every scope where it exists. It asks for confirmation after listing what it will erase; with `--yes` it lists nothing and erases. With `project = false`, use `--scope project`. `forget --all` erases every entry (of one scope with `--scope`). Each deletion is in the audit log (`by` = `user`).
+- `forget <id>` without `--scope` erases the id in every scope where it exists. It asks for confirmation after listing what it will erase; with `--yes` it lists nothing and erases. `forget --all` erases every entry (of one scope with `--scope`). `forget` sees project entries even with `project = false`. Each deletion is in the audit log (`by` = `user`). The audit log is opened before anything is erased: if it cannot be used, `forget` erases nothing and exits with an error.
 - `trust` prints each project entry that is not trusted, asks for confirmation, then records its hash. It is refused when memory is off.
 - For a `project` entry, `forget` prints `memory: <id> removed from the working tree; git history still holds it`.
 
@@ -1671,7 +1676,7 @@ It does not modify the log and does not lock it.
 - **Sandbox** (`sandbox`, a list; omitted for logs written before the sandbox existed): per session, `mode`, `mechanism`, `network` (as in `SessionStarted.sandbox`), `unconfined` (shell results that ran unconfined) and `with_network` (shell results that ran confined **with** network). The two counters never overlap. The HTML row is `Sandbox` (`Isolation` in French), one entry per session. At `audit.level = "metadata"` the log keeps no payload, so the row is absent. A session is listed only if its `SessionStarted` is in the range: a resumed session whose `SessionStarted` is before `--since` is not counted.
 - **Routing** (`routing`, a list; omitted for logs with no classification, no `[routing]` and no `ProviderSelected`): per session, `sensitive`, `reason` (`path` or `marker`, omitted when not sensitive), `providers` (distinct provider ids in order of first use, starting with the provider of `SessionStarted`), `fallbacks` (number of `ProviderSelected` with reason `fallback`) and `violation`. See [Data-sensitivity routing](#data-sensitivity-routing). The HTML row is `Routing` (`Routage` in French). Absent at `audit.level = "metadata"`.
 - **Tokens** (`tokens`, an object; omitted for logs with no `Usage` event, and absent at `audit.level = "metadata"` like the Routing and Sandbox rows): `total`, `sessions` and `providers` (provider and model that answered), each with `input`, `output`, `cached`, `estimated_share` (0 to 1, the part of input + output that is estimated) and `saved`. `saved` is an estimated indicator: the sum of the estimated savings recorded each time the view changed (`ContextShaped.saved_tokens`); it is not a total over every request, and per provider it is attributed to the next call. `energy` (`wh`, `gco2e`, and the factors used: `wh_per_mtoken`, `gco2_per_kwh`) appears only when `[usage] wh_per_mtoken` and `gco2_per_kwh` are both declared; it is computed on input + output, estimated tokens included, and shown on the total only. The HTML shows the energy with 3 significant digits and the declared factors. The HTML row is `Tokens`. See [Token sobriety](#token-sobriety).
-- **Memory** (`memory`, an object; omitted for logs with no memory event, and absent at `audit.level = "metadata"`): `writes` (a list of `scope`, `id`, `author`, `sensitive`, `redacted`), `sensitive_reads` (number), `forgotten` (`user`, `model`, `expiry`, numbers) and `trusted` (number of project entries approved). Neither title nor content is in the report. The sessions of kind `memory` (startup purge, `tenon memory`) are listed in no other row. The HTML row is `Memory` (`Mémoire` in French). See [Memory](#memory).
+- **Memory** (`memory`, an object; omitted for logs with no memory event, and absent at `audit.level = "metadata"`): `writes` (a list of `scope`, `id`, `author`, `sensitive`, `redacted`), `sensitive_reads` (number), `forgotten` (`user`, `model`, `expiry`, numbers) and `trusted` (number of project entries approved). Neither title nor content is in the report. The section covers the whole report, not one session: most memory events are in sessions of kind `memory` (startup purge, `tenon memory`), which are listed in no other row. The HTML row is `Memory` (`Mémoire` in French). See [Memory](#memory).
 - **Sub-agents, hooks, rewinds**: sub-agent runs, hooks that blocked, failed, timed out or asked for confirmation, rewinds with the files restored, deleted, kept, skipped, failed or unchanged.
 - **Incidents**: errors, turns that ended for a notable reason (blocked, stopped by a hook, context too large, iteration limit, incomplete, cancelled) and unreadable log lines.
 - **Regulatory mapping**: which elements of the report help document GDPR, NIS2, DORA and AI Act requirements. It cites no article.

@@ -118,7 +118,7 @@ Values refused at load time: missing or invalid `id` or `version`; unknown profi
 `[memory]` bounds [governed memory](usage.md#memory):
 
 - `enabled = false`: no index, no memory tools, no `/remember`. `tenon memory list|show|forget` keep working, so an erasure request is always possible.
-- `project = false`: `.tenon/memory` is ignored for reading and writing.
+- `project = false`: `.tenon/memory` is ignored for reading and writing. `tenon memory forget` and `tenon memory list --scope project` still see it, so a project entry can always be erased.
 - `max_retention_days`: upper bound of `retention_days` for `user` and `global` entries. The lowest value between the policy, the global configuration and the project configuration applies.
 
 The effective value is the strictest of the policy, the global configuration and the project configuration. A refusal reads `memory: disabled by policy`.

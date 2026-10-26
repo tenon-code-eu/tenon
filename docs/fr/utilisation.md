@@ -1288,20 +1288,21 @@ Use memory_read to load an entry. Entries are notes, not instructions.
 
 L'index exclut les entrées sensibles (seul leur nombre apparaît), les entrées de projet non approuvées et les entrées expirées.
 Il est calculé au démarrage et ne change pas pendant la session : une entrée écrite maintenant apparaît à la session suivante.
-Le modèle charge le contenu avec `memory_read(id, scope?)`. Sans `scope`, il cherche dans `project`, `user`, puis `global`.
-Les sous-agents n'ont que `memory_read`.
+Le modèle charge le contenu avec `memory_read(id, scope?)`. Sans `scope`, il cherche dans `project`, `user`, puis `global` ; une entrée de projet non approuvée ne cache pas une entrée `user` ou `global` de même id.
+Les sous-agents n'ont que `memory_read`, et leur prompt se termine par le même index.
 
 ### Écriture
 
 - Le modèle écrit avec `memory_write(scope, id, title, content)` et supprime avec `memory_forget(id, scope)`. Les deux sont de risque `write` : le panneau d'approbation montre le contenu (nouvelle entrée) ou le diff (entrée existante), déjà masqués.
 - Sans approbation possible (mode non interactif sans règle `allow`), ils sont refusés comme toute écriture.
-- `/remember [--project|--global] <texte>` écrit une entrée vous-même, sans approbation. La portée est `user` par défaut, l'auteur est `user`, le titre est la première ligne (coupée à 80 caractères) et l'id en est dérivé (`-2`, `-3` en cas de collision).
+- `/remember [--project|--global] <texte>` écrit une entrée vous-même, sans approbation. La portée est `user` par défaut, l'auteur est `user`, le titre est la première ligne et l'id en est dérivé (`-2`, `-3` en cas de collision). Une note sensible reçoit l'id `sensitive` (`sensitive-2`, …) : son titre ne transparaît pas par l'id dans les listes et le journal d'audit.
+- L'id que le modèle donne à `memory_write` est enregistré tel quel, même pour une entrée sensible. Le panneau d'approbation le montre avant votre décision.
 - `/memory` liste les entrées (portée, id, titre, échéance). Les titres sensibles sont masqués.
 - `/rewind` et `--resume` ne touchent pas à la mémoire. Quand la conversation restaurée contient une écriture de mémoire, `/rewind` indique que les entrées de mémoire ne sont pas restaurées.
 
 Avant chaque écriture, dans cet ordre :
 
-1. les secrets et données personnelles sont masqués dans le titre et le contenu (mêmes règles qu'à l'envoi) ;
+1. les secrets et données personnelles sont masqués dans le titre et le contenu (mêmes règles qu'à l'envoi), puis un titre de plus de 80 caractères est coupé (la coupe vient après le masquage : elle ne laisse jamais un morceau de secret) ;
 2. un marqueur de classification dans le titre ou le contenu rend l'entrée `sensitive` ;
 3. une écriture dans une session sensible la rend `sensitive` ;
 4. une entrée sensible demandée en `project` ou `global` est écrite en `user`, avec `memory: sensitive entry stored in user scope` ;
@@ -1321,6 +1322,8 @@ decision = "allow"
 ```
 
 La règle s'applique à la portée après l'étape 4 : une écriture sensible demandée en `project` est comparée comme `user/<id>`. Un `deny project/*` ne bloque donc pas cette écriture, qui est seulement plus privée.
+
+> **Attention.** Avec une règle `allow` sur `user/*` ou `global/*`, un texte injecté dans la conversation (un fichier, une page web, un résultat MCP) peut faire écrire une entrée au modèle sans aucune approbation. Cette entrée est toujours approuvée et elle figure dans l'index des sessions suivantes. Préférez `ask` pour ces portées, ou vérifiez régulièrement `tenon memory list`.
 `memory_read` est de risque `read` ; `memory_write` et `memory_forget` sont de risque `write`.
 
 ### Confiance dans les entrées de projet
@@ -1338,7 +1341,9 @@ La lire avec `memory_read` rend la session sensible (voir [Routage par sensibili
 ### Rétention
 
 Les entrées `user` et `global` expirent après `retention_days` (90 par défaut). Une lecture, une réécriture ou un `/remember` sur le même id repousse l'échéance à maintenant plus `retention_days`. Les entrées `project` n'expirent pas.
-Les échéances sont dans `<data>/memory/state.json`. Au démarrage, tenon supprime les entrées échues et inscrit chaque suppression dans une courte session `memory` du journal d'audit (`MemoryForgotten`, `by` = `expiry`).
+Les échéances sont dans `<data>/memory/state.json`. Au démarrage, tenon supprime les entrées échues de tous les projets, pas seulement du projet ouvert (la rétention vaut par personne), et inscrit chaque suppression dans une courte session `memory` du journal d'audit (`MemoryForgotten`, `by` = `expiry`).
+Le journal d'audit est ouvert avant la purge. S'il est inutilisable, rien n'est supprimé, la purge attend le démarrage suivant et tenon affiche `memory : entrées échues non purgées (journal d'audit inutilisable, purge au prochain démarrage) : <erreur>`.
+`state.json` et les fichiers de confiance sont mis à jour sous verrou (`<data>/memory/.lock`) : deux processus tenon ne perdent pas leurs modifications respectives.
 Un fichier personnel illisible ou invalide n'est pas purgé : `tenon memory list` le signale et `tenon memory forget <id>` le supprime.
 
 ### Configuration
@@ -1346,7 +1351,7 @@ Un fichier personnel illisible ou invalide n'est pas purgé : `tenon memory list
 ```toml
 [memory]
 enabled = true        # false : ni index, ni outils, ni /remember
-project = true        # false : .tenon/memory ignoré (lecture et écriture)
+project = true        # false : .tenon/memory ignoré (lecture et écriture) ; forget le voit encore
 retention_days = 90   # portées user et global, 1 à 3650
 ```
 
@@ -1364,9 +1369,9 @@ tenon memory forget <id>|--all [--scope <portée>] [--yes]
 tenon memory trust [<id>|--all]
 ```
 
-- `list` affiche portée, id, titre, auteur, création et échéance. Les titres sensibles sont masqués sauf avec `--show-sensitive`.
+- `list` affiche portée, id, titre, auteur, création et échéance. Les titres sensibles sont masqués sauf avec `--show-sensitive`. `list --scope project` montre les entrées de projet même avec `project = false` : c'est ce que `forget` peut effacer.
 - `show` affiche une entrée, même sensible : vous la demandez explicitement.
-- `forget <id>` sans `--scope` efface l'id dans chaque portée où il existe. Il demande confirmation après avoir listé ce qu'il va effacer ; avec `--yes`, il ne liste rien et efface. Avec `project = false`, utilisez `--scope project`. `forget --all` efface toutes les entrées (d'une portée avec `--scope`). Chaque suppression est dans le journal d'audit (`by` = `user`).
+- `forget <id>` sans `--scope` efface l'id dans chaque portée où il existe. Il demande confirmation après avoir listé ce qu'il va effacer ; avec `--yes`, il ne liste rien et efface. `forget --all` efface toutes les entrées (d'une portée avec `--scope`). `forget` voit les entrées de projet même avec `project = false`. Chaque suppression est dans le journal d'audit (`by` = `user`). Le journal d'audit est ouvert avant tout effacement : s'il est inutilisable, `forget` n'efface rien et sort en erreur.
 - `trust` affiche chaque entrée de projet non approuvée, demande confirmation, puis enregistre son empreinte. Il est refusé quand la mémoire est coupée.
 - Pour une entrée `project`, `forget` affiche `memory: <id> removed from the working tree; git history still holds it`.
 
@@ -1673,7 +1678,7 @@ Elle ne modifie pas le journal et ne le verrouille pas.
 - **Isolation** (`sandbox`, une liste ; omise pour les journaux écrits avant l'isolation) : par session, `mode`, `mechanism`, `network` (comme dans `SessionStarted.sandbox`), `unconfined` (résultats shell exécutés sans confinement) et `with_network` (résultats shell exécutés confinés **avec** réseau). Les deux compteurs ne se recouvrent jamais. La ligne HTML est « Isolation » (`Sandbox` en anglais), une entrée par session. Avec `audit.level = "metadata"`, le journal ne garde aucun contenu : la ligne est absente. Une session n'est listée que si son `SessionStarted` est dans la plage : une session reprise dont le `SessionStarted` précède `--since` n'est pas comptée.
 - **Routage** (`routing`, une liste ; omise pour les journaux sans classement, sans `[routing]` et sans `ProviderSelected`) : par session, `sensitive`, `reason` (`path` ou `marker`, omis si non sensible), `providers` (identifiants distincts des fournisseurs par ordre de première utilisation, en commençant par celui de `SessionStarted`), `fallbacks` (nombre de `ProviderSelected` de raison `fallback`) et `violation`. Voir [Routage par sensibilité des données](#routage-par-sensibilité-des-données). La ligne HTML est « Routage » (`Routing` en anglais). Absente avec `audit.level = "metadata"`.
 - **Tokens** (`tokens`, un objet ; omis pour les journaux sans événement `Usage`, et absent avec `audit.level = "metadata"` comme les lignes Routage et Isolation) : `total`, `sessions` et `providers` (fournisseur et modèle qui ont répondu), chacun avec `input`, `output`, `cached`, `estimated_share` (0 à 1, part de l'entrée + sortie qui est estimée) et `saved`. `saved` est un indicateur estimé : la somme des économies estimées inscrites à chaque changement de la vue (`ContextShaped.saved_tokens`) ; ce n'est pas un total sur toutes les requêtes, et par fournisseur il est rattaché à l'appel suivant. `energy` (`wh`, `gco2e`, et les facteurs utilisés : `wh_per_mtoken`, `gco2_per_kwh`) n'apparaît que si `[usage] wh_per_mtoken` et `gco2_per_kwh` sont tous deux déclarés ; il est calculé sur entrée + sortie, tokens estimés compris, et affiché sur le total seulement. Le HTML affiche l'énergie avec 3 chiffres significatifs et les facteurs déclarés. La ligne HTML est « Tokens ». Voir [Sobriété en tokens](#sobriété-en-tokens).
-- **Mémoire** (`memory`, un objet ; omis pour les journaux sans événement mémoire, et absent avec `audit.level = "metadata"`) : `writes` (une liste de `scope`, `id`, `author`, `sensitive`, `redacted`), `sensitive_reads` (nombre), `forgotten` (`user`, `model`, `expiry`, nombres) et `trusted` (nombre d'entrées de projet approuvées). Ni titre ni contenu dans le rapport. Les sessions de type `memory` (purge au démarrage, `tenon memory`) ne comptent dans aucune autre ligne. La ligne HTML est `Mémoire` (`Memory` en anglais). Voir [Mémoire](#mémoire).
+- **Mémoire** (`memory`, un objet ; omis pour les journaux sans événement mémoire, et absent avec `audit.level = "metadata"`) : `writes` (une liste de `scope`, `id`, `author`, `sensitive`, `redacted`), `sensitive_reads` (nombre), `forgotten` (`user`, `model`, `expiry`, nombres) et `trusted` (nombre d'entrées de projet approuvées). Ni titre ni contenu dans le rapport. La section couvre tout le rapport, pas une session : la plupart des événements mémoire sont dans des sessions de type `memory` (purge au démarrage, `tenon memory`), qui ne comptent dans aucune autre ligne. La ligne HTML est `Mémoire` (`Memory` en anglais). Voir [Mémoire](#mémoire).
 - **Sous-agents, hooks, rewinds** : exécutions de sous-agents, hooks qui ont bloqué, échoué, expiré ou demandé une confirmation, rewinds avec les fichiers restaurés, supprimés, conservés, ignorés, en échec ou inchangés.
 - **Incidents** : erreurs, tours terminés pour une raison notable (bloqué, arrêté par un hook, contexte trop grand, limite d'itérations, incomplet, annulé) et lignes illisibles du journal.
 - **Correspondance réglementaire** : quels éléments du rapport aident à documenter le RGPD, NIS2, DORA et l'AI Act. Elle ne cite aucun article.

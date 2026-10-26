@@ -1,6 +1,6 @@
 # tenon : mémoire gouvernée (v0.8)
 
-Date : 2026-10-26. Statut : conception validée en séance, à relire.
+Date : 2026-10-26. Statut : conception validée en séance, à relire. Amendée après la revue finale (décisions R9, R11 à R17 du registre du plan 21) : §5, §6, §7, §8, §9, §11.
 Spec parente : [2026-10-14-tenon-design.md](2026-10-14-tenon-design.md). Specs liées : [routage par sensibilité](2026-10-22-tenon-routing-design.md), [export de conformité](2026-10-20-tenon-audit-export-design.md), [politique d'organisation](2026-10-20-tenon-org-policy-design.md), [sobriété en tokens](2026-10-24-tenon-tokens-design.md).
 
 ## 1. Objectif
@@ -77,9 +77,9 @@ Le build passe par `make build`, jamais `go build` directement (ldflags de versi
 
 ## 5. Outils et commandes
 
-**Outils du modèle** (session principale ; un sous-agent n'a que `memory_read`) :
+**Outils du modèle** (session principale ; un sous-agent n'a que `memory_read`, et son prompt se termine par le même index — R16) :
 
-- `memory_read(id, scope?)` : sans `scope`, cherche dans `project`, `user`, puis `global`. Entrée `sensitive` : la session est marquée sensible (événement du routage, raison `memory`) avant que le contenu ne soit renvoyé. Entrée `project` non approuvée : refus `memory entry <id> is not trusted on this machine`. Repousse l'échéance (§7).
+- `memory_read(id, scope?)` : sans `scope`, cherche dans `project`, `user`, puis `global` ; une entrée `project` non approuvée est sautée et la recherche continue (pas d'occultation d'une entrée `user`/`global` de même id ; seule, elle est trouvée puis refusée — R15). Entrée `sensitive` : la session est marquée sensible (événement du routage, raison `memory`) avant que le contenu ne soit renvoyé. Entrée `project` non approuvée : refus `memory entry <id> is not trusted on this machine`. Repousse l'échéance (§7).
 - `memory_write(scope, id, title, content)` : crée ou remplace. Risque `write` : approbation par défaut, panneau avec le diff (entrée existante) ou le contenu (nouvelle). Applique §6 avant l'approbation, pour que le panneau montre ce qui sera écrit.
 - `memory_forget(id, scope)` : risque `write`, approbation, puis suppression.
 - Texte comparé aux règles `[[permissions.rules]]` : `<scope>/<id>`, par exemple `tool = "memory_write"`, `match = "user/*"`, `decision = "allow"`.
@@ -87,14 +87,14 @@ Le build passe par `make build`, jamais `go build` directement (ldflags de versi
 
 **TUI** :
 
-- `/remember [--project|--global] <texte>` : portée `user` par défaut ; auteur `user` ; sans approbation ; titre = première ligne (coupée à 80 caractères) ; `id` dérivé du titre (minuscules, `[a-z0-9-]`, suffixe `-2`, `-3` en cas de collision). §6 s'applique.
+- `/remember [--project|--global] <texte>` : portée `user` par défaut ; auteur `user` ; sans approbation ; titre = première ligne (coupée à 80 caractères après la rédaction, §6) ; `id` dérivé du titre (minuscules, `[a-z0-9-]`, suffixe `-2`, `-3` en cas de collision). Entrée sensible sans id explicite : `id` neutre `sensitive`, `sensitive-2`… (le titre ne fuit pas par l'id — R14). Un id choisi par le modèle est enregistré tel quel. §6 s'applique.
 - `/memory` : liste les entrées (portée, id, titre, échéance), titres sensibles masqués.
 
 **CLI** :
 
-- `tenon memory list [--scope project|user|global] [--json] [--show-sensitive]`.
+- `tenon memory list [--scope project|user|global] [--json] [--show-sensitive]` ; `--scope project` montre les entrées de projet même avec `project = false` (R13).
 - `tenon memory show <id> [--scope]`.
-- `tenon memory forget <id>|--all [--scope] [--yes]` : confirmation interactive sans `--yes` ; c'est la réponse à une demande d'effacement. Pour `project`, avis : `memory: <id> removed from the working tree; git history still holds it`.
+- `tenon memory forget <id>|--all [--scope] [--yes]` : confirmation interactive sans `--yes` ; c'est la réponse à une demande d'effacement. Voit les entrées de projet même avec `project = false` (R13). Le journal d'audit est ouvert avant toute suppression ; inutilisable : erreur, rien n'est effacé (R17). Pour `project`, avis : `memory: <id> removed from the working tree; git history still holds it`.
 - `tenon memory trust [<id>|--all]` : affiche le contenu de chaque entrée non approuvée, demande confirmation, enregistre l'empreinte.
 
 ## 6. Confiance, rédaction, sensibilité
@@ -103,7 +103,7 @@ Le build passe par `make build`, jamais `go build` directement (ldflags de versi
 
 **Avant toute écriture**, dans l'ordre :
 
-1. Rédaction des secrets et données personnelles (`internal/policy` redact, mêmes règles qu'à l'envoi) sur `title` et `content`.
+1. Rédaction des secrets et données personnelles (`internal/policy` redact, mêmes règles qu'à l'envoi) sur `title` et `content`, puis titre coupé à 80 caractères (après la rédaction : une coupe avant pourrait laisser un morceau de secret non reconnu).
 2. Marqueur de classification (`classify.FindMarker`) dans `title` ou `content` : `sensitive: true`.
 3. Session sensible au moment de l'écriture : `sensitive: true`.
 4. Entrée `sensitive` avec une portée `project` ou `global` : écrite en `user`, avis `memory: sensitive entry stored in user scope`.
@@ -122,7 +122,9 @@ retention_days = 90   # portées user et global ; 1 à 3650
 
 - `<data>/memory/state.json` : par entrée `user`/`global`, `last_used` et `expires` (RFC 3339). Absente de l'état : `expires = created + retention_days`.
 - `memory_read`, une réécriture ou `/remember` sur le même id : `expires = maintenant + retention_days`.
-- Au démarrage, les entrées échues sont supprimées ; événement `MemoryForgotten{by: "expiry"}` par entrée.
+- Au démarrage, les entrées échues sont supprimées, `user` de tous les projets (chaque dossier de clé sous `<data>/memory/` : la rétention vaut par personne, pas par projet ouvert — R12) et `global` ; événement `MemoryForgotten{by: "expiry"}` par entrée, journalisé aussitôt dans une session courte `memory` (R9), pas dans la conversation.
+- Le journal d'audit est ouvert avant la purge ; inutilisable, la purge n'a pas lieu (avis) et attend un démarrage suivant : aucune suppression sans trace (R17).
+- `state.json` et les fichiers de confiance sont lus-modifiés-écrits sous un `flock` exclusif sur `<data>/memory/.lock` (R17).
 - Pas d'échéance pour `project`.
 
 ## 8. Configuration et politique
@@ -131,6 +133,7 @@ retention_days = 90   # portées user et global ; 1 à 3650
 - Le projet ne peut que durcir : `enabled = false`, `project = false`, `retention_days` plus court. Une valeur plus permissive est ignorée.
 - Politique `[memory]` : `enabled = false` impose l'arrêt ; `max_retention_days` borne `retention_days` ; `project = false` impose d'ignorer `.tenon/memory`. Effectif : le plus strict.
 - Mémoire coupée : pas d'index, pas d'outils, `/remember` et `tenon memory` en écriture répondent `memory: disabled by <config|policy>` ; `list`, `show` et `forget` restent disponibles (l'effacement doit toujours être possible).
+- `project = false` : `tenon memory forget` (avec ou sans `--all`) et `tenon memory list --scope project` voient encore les entrées de projet (R13).
 
 ## 9. Audit et export
 
@@ -143,7 +146,7 @@ retention_days = 90   # portées user et global ; 1 à 3650
 
 Les commandes `tenon memory` hors session écrivent dans un journal d'audit de session courte, comme les autres commandes qui journalisent.
 
-Export de conformité : section « Mémoire » par session : écritures (auteur, portée, sensible), lectures sensibles, oublis par cause, approbations. Absente si aucun événement mémoire.
+Export de conformité : section « Mémoire » au niveau du rapport (comme Tokens et CRA), pas par session — la plupart des événements mémoire vivent dans des sessions courtes `memory`, hors de la liste des sessions (R11) : écritures (auteur, portée, sensible, rédigée), lectures sensibles, oublis par cause, approbations. Absente si aucun événement mémoire.
 
 ## 10. Architecture
 
@@ -157,7 +160,7 @@ Export de conformité : section « Mémoire » par session : écritures (auteur,
 
 ## 11. Cas limites
 
-- `--resume` et `/rewind` ne touchent pas la mémoire (fichiers hors historique) ; `/rewind` le dit quand la conversation restaurée contient un `MemoryWritten`.
+- `--resume` et `/rewind` ne touchent pas la mémoire (fichiers hors historique) ; `/rewind` le dit quand la conversation restaurée contient un `MemoryWritten`, y compris une écriture antérieure à `--resume` (séquences rejouées).
 - Deux sessions écrivent le même id : la dernière écriture gagne (renommage atomique) ; chacune journalise son empreinte.
 - Entrée modifiée à la main dans `user` ou `global` : chargée telle quelle (fichier personnel).
 - Entrée modifiée à la main dans `project` sur ce poste : non approuvée jusqu'à `tenon memory trust`.

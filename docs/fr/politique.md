@@ -118,7 +118,7 @@ Valeurs refusées au chargement : `id` ou `version` absents ou invalides ; profi
 `[memory]` borne la [mémoire gouvernée](utilisation.md#mémoire) :
 
 - `enabled = false` : ni index, ni outils de mémoire, ni `/remember`. `tenon memory list|show|forget` continuent de fonctionner : une demande d'effacement reste toujours possible.
-- `project = false` : `.tenon/memory` est ignoré en lecture et en écriture.
+- `project = false` : `.tenon/memory` est ignoré en lecture et en écriture. `tenon memory forget` et `tenon memory list --scope project` le voient encore : une entrée de projet reste toujours effaçable.
 - `max_retention_days` : borne haute de `retention_days` pour les entrées `user` et `global`.
 
 La valeur effective est la plus stricte entre la politique, la configuration globale et la configuration du projet. Un refus s'écrit `memory: disabled by policy`.

@@ -173,6 +173,8 @@ Un lien symbolique dans `.tenon/memory` (ou le dossier lui-même) n'est jamais s
 
 Ce que la mémoire ne peut pas faire : relever les permissions ou changer une règle. `memory_write` et `memory_forget` demandent une approbation comme toute écriture, et les règles comparent `<portée>/<id>`.
 
+**Une règle `allow` sur `user/*` ou `global/*` supprime cette approbation.** Avec une telle règle, un texte injecté dans la conversation (un fichier, une page web, un résultat MCP) peut faire enregistrer une entrée au modèle sans approbation. Une entrée `user` ou `global` est toujours approuvée : elle figure dans l'index des sessions suivantes, et l'injection persiste. Gardez `ask` pour ces portées sauf si vous acceptez ce risque, et vérifiez `tenon memory list`.
+
 **Entrées sensibles.** Une entrée avec un marqueur de classification, ou écrite dans une session sensible, n'est écrite qu'en portée `user` : rien de classé n'arrive dans un fichier que git versionne. Son titre n'est jamais dans l'index. La lire rend la session sensible ; sans fournisseur local, la lecture est refusée et le contenu ne quitte pas la machine. Le masquage avant écriture ne lève jamais la sensibilité d'une session.
 
 **Ce qui reste après `tenon memory forget`.**
