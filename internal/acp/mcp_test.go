@@ -58,11 +58,13 @@ func TestEditorMCPSkipsSSEAndInvalid(t *testing.T) {
 		{Name: "old", Type: "sse", URL: "https://x/sse"},
 		{Name: "empty"},
 		{Name: "BAD NAME", Command: "/bin/x"},
+		// Chemin relatif : résolu depuis le projet, refusé comme en config.
+		{Name: "rel", Command: "./bin/mcp"},
 	}, nil, i18n.EN)
-	if len(out) != 0 || len(notes) != 3 {
+	if len(out) != 0 || len(notes) != 4 {
 		t.Fatalf("out %+v notes %v", out, notes)
 	}
-	if !strings.Contains(notes[0], "old") || !strings.Contains(notes[1], "empty") || !strings.Contains(notes[2], "BAD NAME") {
+	if !strings.Contains(notes[0], "old") || !strings.Contains(notes[1], "empty") || !strings.Contains(notes[2], "BAD NAME") || !strings.Contains(notes[3], "rel") {
 		t.Fatalf("notes %v", notes)
 	}
 }

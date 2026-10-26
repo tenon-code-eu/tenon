@@ -440,6 +440,21 @@ func TestMCPStdioRelativeCommand(t *testing.T) {
 	}
 }
 
+// ValidateMCPCommand est la règle de la config, exportée pour les serveurs
+// MCP transmis par un éditeur (tenon acp).
+func TestValidateMCPCommand(t *testing.T) {
+	for _, c := range [][]string{nil, {""}, {"./srv"}, {"bin/srv"}} {
+		if ValidateMCPCommand("a", c) == nil {
+			t.Fatalf("%q accepté", c)
+		}
+	}
+	for _, c := range [][]string{{"/usr/bin/env", "x"}, {"srv"}} {
+		if err := ValidateMCPCommand("a", c); err != nil {
+			t.Fatalf("%q : %v", c, err)
+		}
+	}
+}
+
 // Requête ou fragment dans l'URL : refusés, le message renvoie à bearer_env.
 func TestMCPURLQueryRefused(t *testing.T) {
 	mcpErr(t, "[[mcp.servers]]\nid = \"web\"\ntransport = \"http\"\njurisdiction = \"eu\"\nurl = \"https://exemple.fr/mcp?token=x\"\n", "bearer_env")

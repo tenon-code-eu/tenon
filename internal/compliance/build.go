@@ -477,11 +477,14 @@ func (b *builder) line(l audit.Line) {
 			if p.Sandbox != nil {
 				b.sessionSandbox(l.Session).setInfo(*p.Sandbox, o)
 			}
-			if p.Client != nil {
-				b.client[l.Session] = &SessionClient{
-					Session: o.clean(l.Session), Name: o.clean(p.Client.Name),
-					Version: o.clean(p.Client.Version), Transport: o.clean(p.Transport),
+			// clientInfo est facultatif en ACP : le transport suffit, éditeur
+			// inconnu (nom vide).
+			if p.Client != nil || p.Transport != "" {
+				c := &SessionClient{Session: o.clean(l.Session), Transport: o.clean(p.Transport)}
+				if p.Client != nil {
+					c.Name, c.Version = o.clean(p.Client.Name), o.clean(p.Client.Version)
 				}
+				b.client[l.Session] = c
 			}
 			rs := b.sessionRouting(l.Session)
 			rs.started = true

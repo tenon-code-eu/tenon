@@ -355,6 +355,19 @@ func ValidateMCPURL(id, raw string) error {
 	return nil
 }
 
+// ValidateMCPCommand contrôle la commande d'un serveur MCP stdio : présente,
+// chemin absolu ou nom nu (cherché dans PATH).
+func ValidateMCPCommand(id string, command []string) error {
+	if len(command) == 0 || command[0] == "" {
+		return fmt.Errorf("config: command required for stdio MCP server %q", id)
+	}
+	// Un chemin relatif serait résolu depuis le projet, non fiable.
+	if c := command[0]; !filepath.IsAbs(c) && strings.ContainsRune(c, '/') {
+		return fmt.Errorf("config: command of stdio MCP server %q: absolute path or bare name (looked up in PATH) required, not %q", id, c)
+	}
+	return nil
+}
+
 func (m MCP) validate() error {
 	seen := map[string]bool{}
 	for _, s := range m.Servers {
@@ -367,12 +380,8 @@ func (m MCP) validate() error {
 		seen[s.ID] = true
 		switch s.Transport {
 		case "stdio":
-			if len(s.Command) == 0 || s.Command[0] == "" {
-				return fmt.Errorf("config: command required for stdio MCP server %q", s.ID)
-			}
-			// Un chemin relatif serait résolu depuis le projet, non fiable.
-			if c := s.Command[0]; !filepath.IsAbs(c) && strings.ContainsRune(c, '/') {
-				return fmt.Errorf("config: command of stdio MCP server %q: absolute path or bare name (looked up in PATH) required, not %q", s.ID, c)
+			if err := ValidateMCPCommand(s.ID, s.Command); err != nil {
+				return err
 			}
 		case "http":
 			if err := ValidateMCPURL(s.ID, s.URL); err != nil {

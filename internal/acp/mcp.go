@@ -41,6 +41,11 @@ func EditorMCP(in []MCPServer, existing []config.MCPServer, lang i18n.Lang) (out
 				d.Jurisdiction = "local"
 			}
 		case (s.Type == "" || s.Type == "stdio") && s.Command != "":
+			// Même règle que la configuration : chemin absolu ou nom nu.
+			if config.ValidateMCPCommand(s.Name, []string{s.Command}) != nil {
+				notices = append(notices, i18n.T(lang, "acp.mcp_invalid", s.Name))
+				continue
+			}
 			d = config.MCPServer{
 				ID: s.Name, Transport: "stdio", Jurisdiction: "local",
 				Command: append([]string{s.Command}, s.Args...),

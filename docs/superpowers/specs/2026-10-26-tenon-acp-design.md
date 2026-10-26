@@ -32,23 +32,25 @@ Critères de succès :
 
 **`initialize`** — réponse : `protocolVersion: 1` ; `agentCapabilities: { loadSession: true, promptCapabilities: { image: false, audio: false, embeddedContext: true }, mcpCapabilities: { http: true, sse: false } }` ; `authMethods: []` ; `agentInfo: { name: "tenon", version }`. Le `clientInfo` reçu (nom, version) est retenu pour l'audit. Version de protocole différente de 1 : erreur JSON-RPC `-32602` (`unsupported protocol version`).
 
-**`session/new { cwd, mcpServers }`** — construit (ou réutilise) le moteur du dossier `cwd` par le même démarrage que `tenon` en ligne de commande : config globale et projet, politique signée, profil, liste blanche, sonde d'isolation, routage, serveurs MCP. Un refus au démarrage (isolation `required` indisponible, fournisseur hors profil, politique invalide…) renvoie une erreur JSON-RPC `-32000` dont le message est celui de tenon. Résultat : `sessionId` = identifiant de session tenon (celui du journal d'audit). `cwd` non absolu : `-32602`.
+**`session/new { cwd, mcpServers }`** — construit (ou réutilise) le moteur du dossier `cwd` par le même démarrage que `tenon` en ligne de commande : config globale et projet, politique signée, profil, liste blanche, sonde d'isolation, routage, serveurs MCP. Un refus au démarrage (isolation `required` indisponible, fournisseur hors profil, politique invalide…) renvoie une erreur JSON-RPC `-32603` dont le message est celui de tenon. Résultat : `sessionId` = identifiant de session tenon (celui du journal d'audit). `cwd` non absolu : `-32602`.
 
 **`session/load { sessionId, cwd, mcpServers }`** — reprend une session tenon du dossier : l'historique est rejoué en `session/update` (messages utilisateur et agent, appels d'outils et résultats), puis la réponse est vide. Session inconnue ou d'un autre dossier : `-32002`.
 
-**`session/prompt { sessionId, prompt }`** — blocs : `text` concaténés ; `resource_link` → mention du chemin dans le message (tenon le lit ensuite avec ses outils, sous permission) ; `resource` (contenu intégré) → joint au message, donc soumis au masquage et à la classification comme un texte saisi ; `image`, `audio` → refus `-32602`. Un prompt `/nom args` invoque le skill `nom` comme dans la TUI. Réponse `stopReason` : `completed` → `end_turn` ; `max_iterations` → `max_turn_requests` ; `incomplete` → `max_tokens` ; `cancelled` → `cancelled` ; arrêt par hook ou tour bloqué → `end_turn` précédé d'une `notice`.
+**`session/prompt { sessionId, prompt }`** — blocs : `text` concaténés ; `resource_link` → mention du chemin dans le message (tenon le lit ensuite avec ses outils, sous permission) ; `resource` (contenu intégré) → joint au message, donc soumis au masquage et à la classification comme un texte saisi ; `image`, `audio` → refus `-32602`. Un prompt `/nom args` invoque le skill `nom` comme dans la TUI. Réponse `stopReason` : `completed` → `end_turn` ; `max_iterations` → `max_turn_requests` ; `incomplete` → `max_tokens` ; `cancelled` → `cancelled` ; arrêt par hook ou tour bloqué → `end_turn` précédé d'une notice.
 
 **`session/cancel { sessionId }`** — annule le contexte du tour en cours ; une demande de permission en attente vaut refus.
 
-Un seul tour à la fois par session : un second `session/prompt` pendant un tour renvoie `-32000` (`turn in progress`).
+Un seul tour à la fois par session : un second `session/prompt` pendant un tour renvoie `-32603` (`turn in progress`).
+
+ACP réserve `-32000` à `auth_required` : les refus de tenon utilisent `-32603`, message de tenon tel quel.
 
 ## 4. Événements → `session/update`
 
 - `AssistantDelta` → `agent_message_chunk` (texte, déjà masqué).
-- `ToolCallRequested` → `tool_call` : `toolCallId` = identifiant tenon de l'appel, `status: pending`, `rawInput` masqué, `title` = outil · cible (ex. `shell · go test ./...`), `locations: [{ path }]` pour les outils de fichiers ; `kind` : `read_file` → `read`, `write_file`/`edit` → `edit`, `search` → `search`, `shell` → `execute`, `agent` → `think`, MCP → `other`.
+- `ToolCallRequested` → `tool_call` : `toolCallId` = identifiant tenon de l'appel (préfixé par l'appel `agent` parent pour un sous-agent : `a1/c1`), `status: pending`, `rawInput` masqué, `title` = outil · cible (ex. `shell · go test ./...`), `locations: [{ path }]` pour les outils de fichiers ; `kind` : `read_file` → `read`, `write_file`/`edit` → `edit`, `search` → `search`, `shell` → `execute`, `agent` → `think`, MCP → `other`.
 - Début d'exécution → `tool_call_update` `status: in_progress`.
 - `ToolResult` → `tool_call_update` `status: completed | failed` ; `content` : texte du résultat (tronqué comme dans tenon) ; pour une écriture : `{ type: "diff", path, oldText, newText }` (ancien texte depuis le point de reprise, nouveau depuis les arguments ; sans point de reprise : texte seul).
-- Notices de tenon (profil, politique, isolation TCP seulement, session classée, fournisseur de repli, arrêt par hook, serveurs MCP de l'éditeur ignorés) → `notice`.
+- Notices de tenon (profil, politique, isolation TCP seulement, session classée, fournisseur de repli, arrêt par hook, serveurs MCP de l'éditeur ignorés) → `agent_thought_chunk`, contenu `{ type: "text", text: "tenon: <notice>" }` (une mise à jour `notice` non standard serait ignorée par les clients).
 - Jetons → `usage_update`.
 - Skills disponibles → `available_commands_update` après `session/new` et `session/load` (nom, description).
 
@@ -62,7 +64,7 @@ Un seul tour à la fois par session : un second `session/prompt` pendant un tour
 ## 6. Serveurs MCP de l'éditeur
 
 - `[acp] accept_editor_mcp = false` par défaut (config globale ; refusé dans la config projet ; la politique peut l'imposer à `false`).
-- `false` : les `mcpServers` reçus sont ignorés, `notice` : `editor MCP servers ignored ([acp] accept_editor_mcp)`.
+- `false` : les `mcpServers` reçus sont ignorés, notice : `editor MCP servers ignored ([acp] accept_editor_mcp)`.
 - `true` : chaque serveur devient un `config.MCPServer` et suit le même chemin que ceux de la config (profil, politique, liste blanche, isolation stdio selon `risk`, journal). Valeurs par défaut : stdio → `jurisdiction = "local"`, `risk` vide (pas de réseau, projet en lecture seule) ; http → `jurisdiction = "non-eu"` (consentement), sauf hôte local → `local`. Un identifiant en conflit avec un serveur de la config : le serveur de la config l'emporte, notice.
 
 ## 7. Journal et export
@@ -81,7 +83,7 @@ Un seul tour à la fois par session : un second `session/prompt` pendant un tour
 ## 9. Tests
 
 - `acp` : JSON-RPC (requête, notification, erreur, ligne invalide → `-32700`, méthode inconnue → `-32601`) ; conformité des formes au schéma ACP (noms de méthodes, discriminants `sessionUpdate`, `PermissionOptionKind`, `stopReason`).
-- Bout en bout avec un client ACP factice (tubes) et le faux LLM existant : `initialize` ; `session/new` ; prompt avec réponse texte → `agent_message_chunk` puis `end_turn` ; appel d'outil `write_file` → `tool_call`, demande de permission, `allow_once`, `tool_call_update` avec diff ; shell isolé → option « Autoriser avec réseau » ; `session/cancel` pendant une permission → refus et `cancelled` ; `session/load` rejoue l'historique ; MCP de l'éditeur ignorés puis acceptés avec l'option ; refus au démarrage (isolation `required` simulée indisponible) → `-32000` ; `SessionStarted.client` dans le journal.
+- Bout en bout avec un client ACP factice (tubes) et le faux LLM existant : `initialize` ; `session/new` ; prompt avec réponse texte → `agent_message_chunk` puis `end_turn` ; appel d'outil `write_file` → `tool_call`, demande de permission, `allow_once`, `tool_call_update` avec diff ; shell isolé → option « Autoriser avec réseau » ; `session/cancel` pendant une permission → refus et `cancelled` ; `session/load` rejoue l'historique ; MCP de l'éditeur ignorés puis acceptés avec l'option ; refus au démarrage (isolation `required` simulée indisponible) → `-32603` ; `SessionStarted.client` dans le journal.
 
 ## 10. Hors périmètre
 

@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 
 	"github.com/tenon-code-eu/tenon/internal/acp"
 	"github.com/tenon-code-eu/tenon/internal/config"
@@ -30,6 +32,10 @@ func runACP(ctx context.Context, stdin io.Reader, stdout, stderr io.Writer, gete
 		fmt.Fprintln(stderr, "tenon acp: stdin and stdout are required")
 		return 1
 	}
+	// L'éditeur qui ferme stdout ne doit pas tuer tenon par SIGPIPE avant
+	// endSession (hooks SessionEnd, fermeture de l'audit) : l'écriture
+	// échoue simplement.
+	signal.Ignore(syscall.SIGPIPE)
 	lang := globalLang(getenv, globalPath)
 	b := &acpBackend{getenv: getenv, globalPath: globalPath, stderr: stderr}
 	err := acp.NewServer(b, version, lang).Serve(ctx, stdin, stdout)
@@ -198,6 +204,12 @@ func (s *acpSession) OldText(hash string) (string, bool) {
 }
 
 func (s *acpSession) Redact(text string) string { return redactText(s.st.redactor)(text) }
+
+// RedactPayload masque une charge utile d'événement comme --output json.
+func (s *acpSession) RedactPayload(payload string) string {
+	out, _ := s.st.redactor.RedactJSON(payload)
+	return out
+}
 
 // Close exécute les hooks SessionEnd puis ferme serveurs MCP, session et
 // journal d'audit (une seule fois). EndSession attend la fin d'un tour en

@@ -35,6 +35,12 @@ type fakeSession struct {
 	seq     uint64
 	// onClose, si non nil, s'exécute dans Close (tour annulé qui émet).
 	onClose func(f *fakeSession)
+	// breakPayload, si non vide, rend illisible toute charge utile qui le
+	// contient (masquage qui casse le JSON).
+	breakPayload string
+	// noticesGate, si non nil, bloque Notices (session qui démarre) jusqu'à
+	// sa fermeture.
+	noticesGate chan struct{}
 }
 
 type permReply struct {
@@ -82,9 +88,20 @@ func (f *fakeSession) Respond(id string, r engine.Reply) error {
 	f.replies <- permReply{id, r}
 	return nil
 }
-func (f *fakeSession) Notices() []string      { return f.notices }
+func (f *fakeSession) Notices() []string {
+	if f.noticesGate != nil {
+		<-f.noticesGate
+	}
+	return f.notices
+}
 func (f *fakeSession) Commands() []Command    { return f.cmds }
 func (f *fakeSession) Redact(s string) string { return strings.ReplaceAll(s, "SECRET", "[MASKED]") }
+func (f *fakeSession) RedactPayload(s string) string {
+	if f.breakPayload != "" && strings.Contains(s, f.breakPayload) {
+		return s[:len(s)/2]
+	}
+	return f.Redact(s)
+}
 func (f *fakeSession) OldText(h string) (string, bool) {
 	s, ok := f.old[h]
 	return s, ok
@@ -349,7 +366,7 @@ func TestNewSessionBackendError(t *testing.T) {
 	h := newHarness(t, &fakeBackend{err: errors.New("profile strict-local: refused")})
 	h.init()
 	r := h.call("session/new", map[string]any{"cwd": "/p", "mcpServers": []any{}})
-	if r.Error == nil || r.Error.Code != CodeTenon || r.Error.Message != "profile strict-local: refused" {
+	if r.Error == nil || r.Error.Code != CodeInternal || r.Error.Message != "profile strict-local: refused" {
 		t.Fatalf("got %+v", r.Error)
 	}
 }
@@ -462,7 +479,7 @@ func TestTurnInProgress(t *testing.T) {
 	first := h.send("session/prompt", map[string]any{"sessionId": id, "prompt": []any{text("one")}})
 	<-b.sessions[0].entered
 	r := h.call("session/prompt", map[string]any{"sessionId": id, "prompt": []any{text("two")}})
-	if r.Error == nil || r.Error.Code != CodeTenon || r.Error.Message != "turn in progress" {
+	if r.Error == nil || r.Error.Code != CodeInternal || r.Error.Message != "turn in progress" {
 		t.Fatalf("got %+v", r.Error)
 	}
 	close(b.sessions[0].release)
@@ -497,12 +514,79 @@ func TestCancelDuringPrompt(t *testing.T) {
 	h.notify("session/cancel", map[string]any{"sessionId": "zzz"})
 }
 
+// waitEntry attend que cond soit vraie pour l'entrée id (sous son verrou).
+func (h *harness) waitEntry(id string, cond func(e *entry) bool) {
+	h.t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		h.server.mu.Lock()
+		e := h.server.sessions[id]
+		h.server.mu.Unlock()
+		if e != nil {
+			e.mu.Lock()
+			ok := cond(e)
+			e.mu.Unlock()
+			if ok {
+				return
+			}
+		}
+		if time.Now().After(deadline) {
+			h.t.Fatal("entry condition not reached")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+// TestCancelBeforeTurnStarts : un session/cancel reçu pour un prompt dont le
+// tour n'a pas commencé (session qui démarre) annule ce prompt ; le suivant
+// tourne normalement.
+func TestCancelBeforeTurnStarts(t *testing.T) {
+	gate := make(chan struct{})
+	b := &fakeBackend{newFn: func() *fakeSession {
+		s := newFakeSession("s1")
+		s.noticesGate = gate
+		return s
+	}}
+	h := newHarness(t, b)
+	h.init()
+	id := h.newSession()
+	pid := h.send("session/prompt", map[string]any{"sessionId": id, "prompt": []any{text("x")}})
+	h.waitEntry(id, func(e *entry) bool { return e.pending == 1 })
+	h.notify("session/cancel", map[string]any{"sessionId": id})
+	h.waitEntry(id, func(e *entry) bool { return e.cancelReq })
+	close(gate)
+	if r := h.read(); r.ID != pid || string(r.Result) != `{"stopReason":"cancelled"}` {
+		t.Fatalf("prompt: %+v %s", r.Error, r.Result)
+	}
+	if r := h.call("session/prompt", map[string]any{"sessionId": id, "prompt": []any{text("y")}}); string(r.Result) != `{"stopReason":"end_turn"}` {
+		t.Fatalf("next prompt: %+v %s", r.Error, r.Result)
+	}
+	s := b.sessions[0]
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.inputs) != 1 || s.inputs[0].Text != "y" {
+		t.Fatalf("inputs %+v", s.inputs)
+	}
+}
+
+// Un session/cancel sans prompt en attente ni tour en cours n'annule pas le
+// prompt suivant.
+func TestStaleCancelIgnored(t *testing.T) {
+	h := newHarness(t, &fakeBackend{})
+	h.init()
+	id := h.newSession()
+	h.notify("session/cancel", map[string]any{"sessionId": id})
+	if r := h.call("session/prompt", map[string]any{"sessionId": id, "prompt": []any{text("y")}}); string(r.Result) != `{"stopReason":"end_turn"}` {
+		t.Fatalf("prompt: %+v %s", r.Error, r.Result)
+	}
+}
+
 func TestLoadSession(t *testing.T) {
 	b := &fakeBackend{}
 	h := newHarness(t, b)
 	h.init()
 	r := h.call("session/load", map[string]any{"sessionId": "old", "cwd": "/p", "mcpServers": []any{}})
-	if r.Error != nil || string(r.Result) != "null" {
+	if r.Error != nil || string(r.Result) != "{}" {
 		t.Fatalf("got %+v %s", r.Error, r.Result)
 	}
 	if r := h.call("session/prompt", map[string]any{"sessionId": "old", "prompt": []any{text("x")}}); r.Error != nil {

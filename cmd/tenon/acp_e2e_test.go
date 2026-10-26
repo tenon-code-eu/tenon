@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -170,8 +172,11 @@ func (c *acpClient) call(method string, params any) map[string]any {
 	if m.Error != nil {
 		c.t.Fatalf("%s : erreur %d %q", method, m.Error.Code, m.Error.Message)
 	}
+	// Tout résultat de méthode ACP est un objet : null ou autre chose échoue.
 	var out map[string]any
-	_ = json.Unmarshal(m.Result, &out)
+	if err := json.Unmarshal(m.Result, &out); err != nil || out == nil {
+		c.t.Fatalf("%s : résultat %s n'est pas un objet (%v)", method, m.Result, err)
+	}
 	return out
 }
 
@@ -392,49 +397,90 @@ func TestACPLoad(t *testing.T) {
 	}
 }
 
+// Recharger dans la même connexion une session ouverte et inactive : elle est
+// fermée d'abord (verrou relâché), puis reprise et rejouée.
+func TestACPLoadSameConnection(t *testing.T) {
+	f := newFakeLLM(t, sseText("réponse un"), sseText("réponse deux"))
+	e := newEnv(t, f, "eu")
+	c := startACP(t, e, nil)
+	c.initialize()
+	sid := c.newSession(e.wd, nil)
+	if r := c.prompt(sid, "premier message"); r != "end_turn" {
+		t.Fatalf("stopReason=%q", r)
+	}
+	c.call("session/load", map[string]any{"sessionId": sid, "cwd": e.wd, "mcpServers": []any{}})
+	if r := c.prompt(sid, "suite"); r != "end_turn" {
+		t.Fatalf("stopReason=%q", r)
+	}
+	if got := updateTexts(c.allUpdates(), "user_message_chunk"); len(got) != 1 || got[0] != "premier message" {
+		t.Fatalf("user_message_chunk=%q", got)
+	}
+	reqs := f.requests()
+	if len(reqs) != 2 || !strings.Contains(reqs[1], "premier message") || !strings.Contains(reqs[1], "réponse un") {
+		t.Fatalf("la conversation ne continue pas : %d requête(s)", len(reqs))
+	}
+	if code := c.wait(); code != 0 {
+		t.Fatalf("code=%d", code)
+	}
+}
+
 // editorServer est le serveur MCP de test fourni par l'éditeur : l'éditeur ne
-// peut transmettre de variables d'environnement (ignorées), d'où env.
-func editorServer(t *testing.T) []map[string]any {
+// peut transmettre de variables d'environnement (ignorées), d'où env. Ses
+// démarrages sont consignés dans log.
+func editorServer(t *testing.T, log string) []map[string]any {
 	t.Helper()
 	exe, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
 	}
-	return []map[string]any{{"name": "ed", "command": "/usr/bin/env", "args": []string{mcptest.EnvServer + "=1", exe}, "env": []any{}}}
+	return []map[string]any{{"name": "ed", "command": "/usr/bin/env", "args": []string{mcptest.EnvServer + "=1", mcptest.EnvLog + "=" + log, exe}, "env": []any{}}}
 }
 
 func TestACPEditorMCP(t *testing.T) {
+	const accept = "\n[acp]\naccept_editor_mcp = true\n"
 	for _, tc := range []struct {
-		name, extra string
-		accept      bool
+		name, extra, policy, notice string
+		started                     bool
 	}{
-		{"ignorés", "", false},
-		{"acceptés", "\n[acp]\naccept_editor_mcp = true\n", true},
+		{"ignorés", "", "", "serveurs MCP de l'éditeur ignorés ([acp] accept_editor_mcp)", false},
+		{"acceptés", accept, "", "", true},
+		// Accepté, le serveur suit le chemin de la configuration : la
+		// politique l'exclut et il n'est pas lancé.
+		{"exclus par la politique", accept, "[mcp]\nmode = \"off\"\n", "politique acme-dev : serveur MCP « ed » ignoré (non autorisé)", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newFakeLLM(t, sseText("ok"))
 			e := newEnvExtra(t, f, "eu", tc.extra)
 			e.vars["PATH"] = os.Getenv("PATH")
+			if tc.policy != "" {
+				e.withPolicy(policyHead + tc.policy)
+			}
+			log := filepath.Join(t.TempDir(), "mcp.log")
 			c := startACP(t, e, nil)
 			c.initialize()
-			sid := c.newSession(e.wd, editorServer(t))
+			sid := c.newSession(e.wd, editorServer(t, log))
 			if r := c.prompt(sid, "salut"); r != "end_turn" {
 				t.Fatalf("stopReason=%q", r)
 			}
-			notices := strings.Join(updateTexts(c.allUpdates(), "notice"), "\n")
-			ignored := strings.Contains(notices, "serveurs MCP de l'éditeur ignorés ([acp] accept_editor_mcp)")
-			if ignored == tc.accept {
+			notices := strings.Join(updateTexts(c.allUpdates(), "agent_thought_chunk"), "\n")
+			if tc.notice != "" && !strings.Contains(notices, "tenon: "+tc.notice) {
+				t.Fatalf("notices=%q", notices)
+			}
+			if tc.started && strings.Contains(notices, "ignorés ([acp] accept_editor_mcp)") {
 				t.Fatalf("notices=%q", notices)
 			}
 			if code := c.wait(); code != 0 {
 				t.Fatalf("code=%d", code)
+			}
+			if _, pids := mcpLog(t, log); (len(pids) > 0) != tc.started {
+				t.Fatalf("serveur lancé : pids %v", pids)
 			}
 			ss := sessionStarted(t, e.auditContents())
 			if len(ss) != 1 {
 				t.Fatalf("SessionStarted=%+v", ss)
 			}
 			listed := len(ss[0].MCP) == 1 && ss[0].MCP[0].ID == "ed" && ss[0].MCP[0].Jurisdiction == "local"
-			if listed != tc.accept {
+			if listed != tc.started {
 				t.Fatalf("mcp=%+v", ss[0].MCP)
 			}
 		})
@@ -449,7 +495,7 @@ func TestACPStartupRefusal(t *testing.T) {
 	c := startACP(t, e, nil)
 	c.initialize()
 	m := c.request("session/new", map[string]any{"cwd": e.wd, "mcpServers": []any{}})
-	if m.Error == nil || m.Error.Code != -32000 || !strings.Contains(m.Error.Message, "sandbox") || !strings.Contains(cli, m.Error.Message) {
+	if m.Error == nil || m.Error.Code != -32603 || !strings.Contains(m.Error.Message, "sandbox") || !strings.Contains(cli, m.Error.Message) {
 		t.Fatalf("erreur=%+v cli=%q", m.Error, cli)
 	}
 	if n := len(f.requests()); n != 0 {
@@ -543,7 +589,7 @@ func TestACPStdoutOnlyJSON(t *testing.T) {
 			t.Fatalf("ligne hors JSON-RPC : %q", l)
 		}
 	}
-	if len(updateTexts(c.allUpdates(), "notice")) == 0 {
+	if len(updateTexts(c.allUpdates(), "agent_thought_chunk")) == 0 {
 		t.Fatal("avis de démarrage absents des notices")
 	}
 }
@@ -577,5 +623,73 @@ func TestACPSkillCommand(t *testing.T) {
 	reqs := f.requests()
 	if len(reqs) != 1 || !strings.Contains(reqs[0], "Regardez le diff.") || !strings.Contains(reqs[0], "le dernier commit") {
 		t.Fatalf("requêtes : %q", reqs)
+	}
+}
+
+// La clé du fournisseur n'atteint jamais l'éditeur : contenu lu, commande
+// shell (titre, rawInput, demande de permission) et sortie sont masqués.
+func TestACPKeyNeverLeaks(t *testing.T) {
+	withProbe(t, sandbox.Status{Available: false, Mechanism: "none", Network: "none", Reason: "x"})
+	for _, tc := range []struct{ name, tool, args string }{
+		{"read_file", "read_file", `{"path":"notes.txt"}`},
+		{"shell", "shell", `{"command":"echo cle-de-test"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFakeLLM(t, sseCall(tc.tool, tc.args), sseText("fini"))
+			e := newEnvExtra(t, f, "eu", sandboxTOML("auto"))
+			key := e.vars["TEST_KEY"]
+			e.writeFile(filepath.Join(e.wd, "notes.txt"), "la clé : "+key+"\n")
+			var asked []string
+			var mu sync.Mutex
+			c := startACP(t, e, func(c *acpClient, m acpMsg) any {
+				if m.Method == "session/request_permission" {
+					mu.Lock()
+					asked = append(asked, string(m.Params))
+					mu.Unlock()
+				}
+				return allowPerm(c, m)
+			})
+			c.initialize()
+			sid := c.newSession(e.wd, nil)
+			if r := c.prompt(sid, "vas-y"); r != "end_turn" {
+				t.Fatalf("stopReason=%q", r)
+			}
+			if code := c.wait(); code != 0 {
+				t.Fatalf("code=%d", code)
+			}
+			mu.Lock()
+			n := len(asked)
+			mu.Unlock()
+			if tc.tool == "shell" && n != 1 {
+				t.Fatalf("%d demande(s) de permission", n)
+			}
+			results := 0
+			for _, u := range c.allUpdates() {
+				if u["sessionUpdate"] == "tool_call_update" && u["status"] == "completed" {
+					results++
+				}
+			}
+			if results != 1 {
+				t.Fatalf("résultat d'outil absent : %v", c.allUpdates())
+			}
+			for _, l := range c.lines() {
+				if strings.Contains(l, key) {
+					t.Fatalf("clé envoyée à l'éditeur : %s", l)
+				}
+			}
+		})
+	}
+}
+
+// L'éditeur qui ferme stdout ne tue pas tenon par SIGPIPE avant endSession.
+func TestACPIgnoresSIGPIPE(t *testing.T) {
+	e := newEnv(t, newFakeLLM(t, sseText("ok")), "eu")
+	c := startACP(t, e, nil)
+	c.initialize()
+	if !signal.Ignored(syscall.SIGPIPE) {
+		t.Fatal("SIGPIPE non ignoré")
+	}
+	if code := c.wait(); code != 0 {
+		t.Fatalf("code=%d", code)
 	}
 }

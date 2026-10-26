@@ -161,6 +161,6 @@ Environment variables and HTTP headers sent by the editor are dropped, with a no
 - tenon does not read editor buffers. It reads files from disk with its own tools. Save your files before you ask.
 - Attached files (`resource` blocks) are added to the message, so they are masked and classified like typed text. File links (`resource_link`) are mentioned by path; tenon reads them with its tools, under permission.
 - One turn at a time per session. A second prompt during a turn gets `turn in progress`.
-- tenon sends `notice` updates (startup notices, hook stops) and `usage_update` updates (tokens). Some clients ignore them.
+- tenon sends its notices (startup notices, hook stops) as agent thoughts (`agent_thought_chunk`, prefixed `tenon:`), and tokens as `usage_update`. Some clients ignore `usage_update`.
 - `session/load` replays messages and tool calls as text. Diffs are not replayed.
 - No ACP modes (`session/set_mode`), no remote transport.

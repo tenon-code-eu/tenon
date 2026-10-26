@@ -33,11 +33,16 @@ type Session interface {
 	// Redact masque un texte avec le masquage de tenon (texte d'un point de
 	// reprise avant de l'envoyer à l'éditeur).
 	Redact(s string) string
+	// RedactPayload masque une charge utile JSON d'événement avec le
+	// masquage de tenon (comme --output json) ; le résultat peut ne plus
+	// être du JSON valide.
+	RedactPayload(payload string) string
 	Close()
 }
 
 // Backend crée ou recharge des sessions. Une erreur *Error est transmise
-// telle quelle ; toute autre devient CodeTenon avec son message.
+// telle quelle ; toute autre devient CodeInternal avec son message (ACP
+// réserve -32000 à auth_required).
 type Backend interface {
 	NewSession(ctx context.Context, cwd string, mcp []MCPServer, client *Implementation) (Session, error)
 	LoadSession(ctx context.Context, id, cwd string, mcp []MCPServer, client *Implementation) (Session, []event.Event, error)
@@ -70,6 +75,11 @@ type entry struct {
 	busy   bool
 	closed bool // remplacée ou fermée : plus aucun tour
 	cancel context.CancelFunc
+	// pending compte les session/prompt reçus dont le tour n'a pas encore
+	// commencé ; cancelReq note un session/cancel reçu pendant ce temps : il
+	// annule le prochain de ces prompts.
+	pending   int
+	cancelReq bool
 }
 
 // NewServer crée un serveur ; rien n'est lu avant Serve.
@@ -164,7 +174,7 @@ func backendErr(err error) error {
 	if errors.As(err, &e) {
 		return e
 	}
-	return &Error{Code: CodeTenon, Message: err.Error()}
+	return &Error{Code: CodeInternal, Message: err.Error()}
 }
 
 func checkCwd(cwd string) error {
@@ -197,23 +207,32 @@ func (s *Server) loadSession(ctx context.Context, params json.RawMessage) (any, 
 	if err := checkCwd(req.Cwd); err != nil {
 		return nil, err
 	}
-	// Une session vivante en plein tour n'est pas remplacée.
+	// Une session vivante en plein tour n'est pas remplacée. Inactive, elle
+	// est fermée avant le rechargement : son moteur tient le verrou de la
+	// session, que LoadSession doit prendre.
 	s.mu.Lock()
 	live := s.sessions[req.SessionID]
-	s.mu.Unlock()
 	if live != nil {
 		live.mu.Lock()
-		busy := live.busy
-		live.mu.Unlock()
-		if busy {
-			return nil, &Error{Code: CodeTenon, Message: "turn in progress"}
+		if live.busy {
+			live.mu.Unlock()
+			s.mu.Unlock()
+			return nil, &Error{Code: CodeInternal, Message: "turn in progress"}
 		}
+		live.closed = true
+		live.mu.Unlock()
+		delete(s.sessions, req.SessionID)
+	}
+	s.mu.Unlock()
+	if live != nil {
+		live.close()
 	}
 	sess, replay, err := s.b.LoadSession(ctx, req.SessionID, req.Cwd, req.MCPServers, s.clientInfo())
 	if err != nil {
 		return nil, backendErr(err)
 	}
-	return s.register(sess, replay, nil)
+	// LoadSessionResponse est un objet (vide), jamais null.
+	return s.register(sess, replay, map[string]any{})
 }
 
 // register enregistre la session et l'abonne à son pont ; une session de
@@ -234,7 +253,7 @@ func (s *Server) register(sess Session, replay []event.Event, result any) (any, 
 			old.mu.Unlock()
 			s.mu.Unlock()
 			sess.Close()
-			return nil, &Error{Code: CodeTenon, Message: "turn in progress"}
+			return nil, &Error{Code: CodeInternal, Message: "turn in progress"}
 		}
 		old.closed = true
 		old.mu.Unlock()
@@ -275,23 +294,36 @@ func (s *Server) prompt(ctx context.Context, params json.RawMessage) (any, error
 		return nil, err
 	}
 
+	e.mu.Lock()
+	e.pending++
+	e.mu.Unlock()
 	select {
 	case <-e.ready:
 	case <-ctx.Done():
 		// Connexion qui se ferme avant le début du tour : rien n'a tourné.
+		e.mu.Lock()
+		e.pending--
+		e.mu.Unlock()
 		return map[string]any{"stopReason": "cancelled"}, nil
 	}
 
 	pctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	e.mu.Lock()
+	e.pending--
+	if e.cancelReq {
+		// session/cancel reçu avant le début du tour : rien ne tourne.
+		e.cancelReq = false
+		e.mu.Unlock()
+		return map[string]any{"stopReason": "cancelled"}, nil
+	}
 	if e.closed {
 		e.mu.Unlock()
 		return nil, &Error{Code: CodeUnknownSession, Message: "unknown session: " + req.SessionID}
 	}
 	if e.busy {
 		e.mu.Unlock()
-		return nil, &Error{Code: CodeTenon, Message: "turn in progress"}
+		return nil, &Error{Code: CodeInternal, Message: "turn in progress"}
 	}
 	e.b.beginTurn()
 	e.busy, e.cancel = true, cancel
@@ -311,7 +343,7 @@ func (s *Server) prompt(ctx context.Context, params json.RawMessage) (any, error
 		return map[string]any{"stopReason": "cancelled"}, nil
 	}
 	if serr != nil {
-		return nil, &Error{Code: CodeTenon, Message: serr.Error()}
+		return nil, &Error{Code: CodeInternal, Message: serr.Error()}
 	}
 	return map[string]any{"stopReason": stopReason(reason)}, nil
 }
@@ -329,9 +361,14 @@ func (s *Server) cancelTurn(params json.RawMessage) {
 	// pas recevoir l'annulation du précédent.
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if e.cancel != nil {
+	switch {
+	case e.cancel != nil:
 		e.cancel()
 		e.b.cancel()
+	case e.pending > 0:
+		// Prompt reçu, tour pas encore commencé (session qui démarre) : il
+		// sera annulé au lieu d'être perdu.
+		e.cancelReq = true
 	}
 }
 

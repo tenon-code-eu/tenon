@@ -429,13 +429,13 @@ func TestStopReasons(t *testing.T) {
 			}
 			var notices []string
 			for _, m := range h.held {
-				if u := upd(t, m); u["sessionUpdate"] == "notice" {
+				if u := upd(t, m); u["sessionUpdate"] == "agent_thought_chunk" {
 					notices = append(notices, u["content"].(map[string]any)["text"].(string))
 				}
 			}
 			var want []string
 			if c.notice != "" {
-				want = []string{c.notice}
+				want = []string{noticePrefix + c.notice}
 			}
 			if !reflect.DeepEqual(notices, want) {
 				t.Fatalf("notices %q, want %q", notices, want)
@@ -450,7 +450,7 @@ func TestSubmitError(t *testing.T) {
 	h.init()
 	id := h.newSession()
 	r := h.call("session/prompt", map[string]any{"sessionId": id, "prompt": []any{text("x")}})
-	if r.Error == nil || r.Error.Code != CodeTenon || r.Error.Message != "provider down" {
+	if r.Error == nil || r.Error.Code != CodeInternal || r.Error.Message != "provider down" {
 		t.Fatalf("got %+v %s", r.Error, r.Result)
 	}
 }
@@ -469,8 +469,8 @@ func TestNoticesAndCommands(t *testing.T) {
 	if m := h.recv(); m.Method != "" || m.Result == nil {
 		t.Fatalf("want the response first, got %+v", m)
 	}
-	jsonEq(t, upd(t, h.recv()), `{"sessionUpdate":"notice","content":{"type":"text","text":"profile: strict"}}`)
-	jsonEq(t, upd(t, h.recv()), `{"sessionUpdate":"notice","content":{"type":"text","text":"editor MCP servers ignored ([acp] accept_editor_mcp)"}}`)
+	jsonEq(t, upd(t, h.recv()), `{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"tenon: profile: strict"}}`)
+	jsonEq(t, upd(t, h.recv()), `{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"tenon: editor MCP servers ignored ([acp] accept_editor_mcp)"}}`)
 	jsonEq(t, upd(t, h.recv()), `{"sessionUpdate":"available_commands_update","availableCommands":[{"name":"fix","description":"Fix it"},{"name":"review","description":"Review"}]}`)
 }
 
@@ -498,7 +498,7 @@ func TestLoadReplay(t *testing.T) {
 	h := newHarness(t, b)
 	h.init()
 	h.send("session/load", map[string]any{"sessionId": "old", "cwd": root, "mcpServers": []any{}})
-	if m := h.recv(); m.Method != "" || string(m.Result) != "null" {
+	if m := h.recv(); m.Method != "" || string(m.Result) != "{}" {
 		t.Fatalf("want the response first, got %+v", m)
 	}
 	jsonEq(t, upd(t, h.recv()), `{"sessionUpdate":"available_commands_update","availableCommands":[]}`)
@@ -522,43 +522,40 @@ func TestLoadReplay(t *testing.T) {
 	}
 }
 
-// TestLoadReplacesDuringTurn : un tour qui commence pendant LoadSession
-// empêche le remplacement ; la session chargée est fermée.
-func TestLoadReplacesDuringTurn(t *testing.T) {
+// TestLoadClosesIdleSession : recharger une session inactive de la
+// connexion la ferme avant LoadSession (son moteur tient le verrou) ; un
+// prompt reçu pendant le rechargement vise une session inconnue.
+func TestLoadClosesIdleSession(t *testing.T) {
 	loading := make(chan struct{})
 	proceed := make(chan struct{})
-	var loaded *fakeSession
-	b := &fakeBackend{
-		newFn: func() *fakeSession {
-			s := newFakeSession("s1")
-			s.release = make(chan struct{})
-			return s
-		},
-		loadFn: func(id string) (*fakeSession, []event.Event) {
-			close(loading)
-			<-proceed
-			loaded = newFakeSession(id)
-			return loaded, nil
-		},
+	closedAtLoad := -1
+	b := &fakeBackend{}
+	b.loadFn = func(id string) (*fakeSession, []event.Event) {
+		live := b.sessions[0]
+		live.mu.Lock()
+		closedAtLoad = live.closed
+		live.mu.Unlock()
+		close(loading)
+		<-proceed
+		return newFakeSession(id), nil
 	}
 	h := newHarness(t, b)
 	h.init()
 	id := h.newSession()
 	lid := h.send("session/load", map[string]any{"sessionId": id, "cwd": "/p", "mcpServers": []any{}})
 	<-loading
-	pid := h.send("session/prompt", map[string]any{"sessionId": id, "prompt": []any{text("x")}})
-	<-b.sessions[0].entered
+	if r := h.call("session/prompt", map[string]any{"sessionId": id, "prompt": []any{text("x")}}); r.Error == nil || r.Error.Code != CodeUnknownSession {
+		t.Fatalf("prompt during load: %+v", r)
+	}
 	close(proceed)
-	r := h.read()
-	if r.ID != lid || r.Error == nil || r.Error.Code != CodeTenon || r.Error.Message != "turn in progress" {
-		t.Fatalf("load: %+v", r)
+	if r := h.read(); r.ID != lid || r.Error != nil || string(r.Result) != "{}" {
+		t.Fatalf("load: %+v %s", r.Error, r.Result)
 	}
-	if loaded.closed != 1 || b.sessions[0].closed != 0 {
-		t.Fatalf("loaded closed %d, live closed %d", loaded.closed, b.sessions[0].closed)
+	if closedAtLoad != 1 {
+		t.Fatalf("live session closed %d time(s) before LoadSession", closedAtLoad)
 	}
-	close(b.sessions[0].release)
-	if r := h.read(); r.ID != pid || r.Error != nil {
-		t.Fatalf("prompt: %+v", r)
+	if r := h.call("session/prompt", map[string]any{"sessionId": id, "prompt": []any{text("x")}}); r.Error != nil {
+		t.Fatalf("prompt after load: %+v", r.Error)
 	}
 }
 
@@ -574,7 +571,7 @@ func TestLoadBusySession(t *testing.T) {
 	h.send("session/prompt", map[string]any{"sessionId": id, "prompt": []any{text("x")}})
 	<-b.sessions[0].entered
 	r := h.call("session/load", map[string]any{"sessionId": id, "cwd": "/p", "mcpServers": []any{}})
-	if r.Error == nil || r.Error.Code != CodeTenon || r.Error.Message != "turn in progress" {
+	if r.Error == nil || r.Error.Code != CodeInternal || r.Error.Message != "turn in progress" {
 		t.Fatalf("got %+v", r.Error)
 	}
 	if b.sessions[0].closed != 0 || len(b.sessions) != 1 {
@@ -614,7 +611,7 @@ func TestSubagentEvents(t *testing.T) {
 	id := h.newSession()
 	h.send("session/prompt", map[string]any{"sessionId": id, "prompt": []any{text("x")}})
 	rid, p := h.permission()
-	if p.ToolCall.ToolCallID != "s1c" {
+	if p.ToolCall.ToolCallID != "a1/s1c" {
 		t.Fatalf("sub-agent permission toolCallId %q", p.ToolCall.ToolCallID)
 	}
 	h.respond(rid, selected("allow"), nil)
@@ -624,7 +621,7 @@ func TestSubagentEvents(t *testing.T) {
 		u := upd(t, m)
 		kinds = append(kinds, u["sessionUpdate"].(string)+":"+asString(u["toolCallId"]))
 	}
-	want := []string{"available_commands_update:", "tool_call:a1", "tool_call:s1c", "tool_call_update:s1c", "tool_call_update:a1"}
+	want := []string{"available_commands_update:", "tool_call:a1", "tool_call:a1/s1c", "tool_call_update:a1/s1c", "tool_call_update:a1"}
 	if !reflect.DeepEqual(kinds, want) {
 		t.Fatalf("updates %v, want %v", kinds, want)
 	}
@@ -642,7 +639,7 @@ func TestPumpBetweenPrompts(t *testing.T) {
 	h.init()
 	h.newSession()
 	b.sessions[0].emit(event.McpServerDown, event.McpServerDownPayload{Server: "gh", Error: "gone"})
-	jsonEq(t, h.nextUpdate("notice"), `{"sessionUpdate":"notice","content":{"type":"text","text":"`+i18n.T(i18n.EN, "mcp.down", "gh", "gone")+`"}}`)
+	jsonEq(t, h.nextUpdate("agent_thought_chunk"), `{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"tenon: `+i18n.T(i18n.EN, "mcp.down", "gh", "gone")+`"}}`)
 }
 
 // TestCloseDrains : une session qui émet encore pendant Close (envoi
@@ -669,5 +666,95 @@ func TestCloseDrains(t *testing.T) {
 	case <-h.done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("Serve hung while closing the session")
+	}
+}
+
+// TestMaskLiveEvents : chaque charge utile est masquée avant d'atteindre
+// l'éditeur (le moteur ne masque que vers le fournisseur) ; une charge que
+// le masquage rend illisible n'est pas envoyée, et une demande de
+// permission illisible est refusée sans être posée.
+func TestMaskLiveEvents(t *testing.T) {
+	b := scripted(func(s *fakeSession) { s.breakPayload = "BREAK" }, func(ctx context.Context, f *fakeSession) error {
+		f.emit(event.AssistantDelta, event.AssistantDeltaPayload{Text: "BREAK"})
+		f.emit(event.ToolCallRequested, event.ToolCallRequestedPayload{CallID: "c1", Tool: "shell", Args: json.RawMessage(`{"command":"echo SECRET"}`)})
+		f.emit(event.PermissionRequested, event.PermissionRequestedPayload{PermissionID: "p1", Kind: "tool", Tool: "shell", Command: "echo SECRET", Args: json.RawMessage(`{"command":"echo SECRET"}`)})
+		r := f.reply(t)
+		f.emit(event.PermissionResolved, event.PermissionResolvedPayload{PermissionID: "p1", Allowed: r.r.Allow})
+		f.emit(event.ToolResult, event.ToolResultPayload{CallID: "c1", Tool: "shell", Content: "SECRET"})
+		f.emit(event.PermissionRequested, event.PermissionRequestedPayload{PermissionID: "p2", Kind: "tool", Tool: "shell", Command: "BREAK"})
+		if r := f.reply(t); r != (permReply{"p2", engine.Reply{}}) {
+			t.Errorf("unreadable permission: %+v", r)
+		}
+		f.emit(event.HookCompleted, event.HookCompletedPayload{HookID: "h", Status: "blocked", Reason: "SECRET"})
+		f.emit(event.McpServerDown, event.McpServerDownPayload{Server: "gh", Error: "SECRET"})
+		return done(f)
+	})
+	h := newHarness(t, b)
+	h.init()
+	id := h.newSession()
+	pid := h.send("session/prompt", map[string]any{"sessionId": id, "prompt": []any{text("x")}})
+	rid, p := h.permission()
+	if p.ToolCall.Title != "shell · echo [MASKED]" {
+		t.Fatalf("permission title %q", p.ToolCall.Title)
+	}
+	h.respond(rid, selected("allow"), nil)
+	if r := h.read(); r.ID != pid || r.Error != nil {
+		t.Fatalf("prompt %+v", r)
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	asked := 0
+	for _, m := range h.all {
+		line, _ := json.Marshal(m)
+		if strings.Contains(string(line), "SECRET") || strings.Contains(string(line), "BREAK") {
+			t.Fatalf("unmasked line %s", line)
+		}
+		if m.Method == "session/request_permission" {
+			asked++
+		}
+	}
+	if asked != 1 {
+		t.Fatalf("%d permission request(s)", asked)
+	}
+}
+
+// TestMaskReplay : les événements rejoués par session/load sont masqués ;
+// un événement illisible une fois masqué n'est pas rejoué.
+func TestMaskReplay(t *testing.T) {
+	b := &fakeBackend{loadFn: func(id string) (*fakeSession, []event.Event) {
+		s := newFakeSession(id)
+		s.breakPayload = "BREAK"
+		var evs []event.Event
+		add := func(typ event.Type, p any) {
+			ev, _ := event.New(id, uint64(len(evs)+1), time.Now(), typ, p)
+			evs = append(evs, ev)
+		}
+		add(event.UserMessage, event.UserMessagePayload{Text: "key SECRET"})
+		add(event.AssistantMessage, event.AssistantMessagePayload{Text: "BREAK"})
+		add(event.ToolCallRequested, event.ToolCallRequestedPayload{CallID: "c1", Tool: "read_file", Args: json.RawMessage(`{"path":"SECRET.txt"}`)})
+		add(event.ToolResult, event.ToolResultPayload{CallID: "c1", Tool: "read_file", Content: "SECRET"})
+		add(event.AssistantMessage, event.AssistantMessagePayload{Text: "done"})
+		return s, evs
+	}}
+	h := newHarness(t, b)
+	h.init()
+	h.send("session/load", map[string]any{"sessionId": "old", "cwd": "/p", "mcpServers": []any{}})
+	h.recv()
+	h.recv() // available_commands_update
+	var got []string
+	for i := 0; i < 4; i++ {
+		b, _ := json.Marshal(upd(t, h.recv()))
+		got = append(got, string(b))
+	}
+	want := []string{
+		`{"content":{"text":"key [MASKED]","type":"text"},"sessionUpdate":"user_message_chunk"}`,
+		`{"kind":"read","locations":[{"path":"/p/[MASKED].txt"}],"rawInput":{"path":"[MASKED].txt"},"sessionUpdate":"tool_call","status":"pending","title":"read_file · [MASKED].txt","toolCallId":"c1"}`,
+		`{"content":[{"content":{"text":"[MASKED]","type":"text"},"type":"content"}],"sessionUpdate":"tool_call_update","status":"completed","toolCallId":"c1"}`,
+		`{"content":{"text":"done","type":"text"},"sessionUpdate":"agent_message_chunk"}`,
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("update %d\ngot  %s\nwant %s", i, got[i], want[i])
+		}
 	}
 }

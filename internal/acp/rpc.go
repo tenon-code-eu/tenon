@@ -18,8 +18,9 @@ const (
 	CodeParse          = -32700
 	CodeMethodNotFound = -32601
 	CodeInvalidParams  = -32602
+	// CodeInternal porte aussi les refus de tenon (message tel quel) : ACP
+	// réserve -32000 à auth_required.
 	CodeInternal       = -32603
-	CodeTenon          = -32000
 	CodeUnknownSession = -32002
 )
 

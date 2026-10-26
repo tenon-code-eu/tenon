@@ -14,6 +14,9 @@ import (
 	"github.com/tenon-code-eu/tenon/internal/ui/headless"
 )
 
+// noticePrefix précède le texte d'un avis de tenon.
+const noticePrefix = "tenon: "
+
 // maxTitle borne la cible d'un titre d'appel d'outil, en runes.
 const maxTitle = 200
 
@@ -57,6 +60,16 @@ func stopReason(turnReason string) string {
 	return "end_turn"
 }
 
+// toolCallID est l'identifiant ACP d'un appel : l'identifiant d'appel du
+// LLM, préfixé par l'appel agent parent pour un sous-agent (« a1/c1 ») : deux
+// agents peuvent produire le même identifiant.
+func toolCallID(parent, id string) string {
+	if parent == "" {
+		return id
+	}
+	return parent + "/" + id
+}
+
 // openCall est l'appel d'outil en cours d'un agent (principal ou sous-agent).
 type openCall struct{ id, tool string }
 
@@ -79,8 +92,8 @@ type bridge struct {
 
 	// État de la pompe (sa goroutine seule).
 	open        map[string]openCall        // ParentCallID → appel en cours
-	permCall    map[string]string          // PermissionID → CallID
-	args        map[string]json.RawMessage // CallID → arguments masqués, jusqu'au résultat
+	permCall    map[string]string          // PermissionID → toolCallId
+	args        map[string]json.RawMessage // toolCallId → arguments masqués, jusqu'au résultat
 	routing     headless.Routing
 	hookNoticed bool  // une notice de hook a expliqué l'arrêt du tour
 	tokens      int64 // jetons de la session (entrée + sortie)
@@ -112,7 +125,9 @@ func (b *bridge) start(notices []string, cmds []Command, replay []event.Event) {
 	}
 	b.update(map[string]any{"sessionUpdate": "available_commands_update", "availableCommands": list})
 	for _, ev := range replay {
-		b.replay(ev)
+		if ev, ok := b.mask(ev); ok {
+			b.replay(ev)
+		}
 	}
 	go b.run()
 }
@@ -125,7 +140,7 @@ func (b *bridge) run() {
 			if !ok {
 				return
 			}
-			b.handle(ev)
+			b.live(ev)
 		case done := <-b.flushReq:
 			// Submit a rendu la main : tous les événements du tour sont
 			// déjà dans le canal.
@@ -136,7 +151,7 @@ func (b *bridge) run() {
 						close(done)
 						return
 					}
-					b.handle(ev)
+					b.live(ev)
 				default:
 					drained = true
 				}
@@ -201,8 +216,10 @@ func (b *bridge) update(u map[string]any) {
 
 func textBlock(s string) map[string]any { return map[string]any{"type": "text", "text": s} }
 
+// notice envoie un avis de tenon comme pensée de l'agent : les clients
+// standard ignorent une mise à jour de type inconnu.
 func (b *bridge) notice(text string) {
-	b.update(map[string]any{"sessionUpdate": "notice", "content": textBlock(text)})
+	b.update(map[string]any{"sessionUpdate": "agent_thought_chunk", "content": textBlock(noticePrefix + text)})
 }
 
 func (b *bridge) chunk(kind, text string) {
@@ -218,7 +235,34 @@ func decodeAs[T any](ev event.Event) (T, bool) {
 	return p, err == nil
 }
 
-// handle traduit un événement du direct.
+// mask masque la charge utile de ev avant tout envoi à l'éditeur : le moteur
+// ne masque que vers le fournisseur. Comme --output json, fermeture par
+// défaut : une charge que le masquage rend illisible n'est pas envoyée.
+func (b *bridge) mask(ev event.Event) (event.Event, bool) {
+	masked := b.s.RedactPayload(string(ev.Payload))
+	if !json.Valid([]byte(masked)) {
+		return ev, false
+	}
+	ev.Payload = json.RawMessage(masked)
+	return ev, true
+}
+
+// live masque puis traduit un événement du direct. Une demande de
+// permission illisible une fois masquée est refusée sans être posée.
+func (b *bridge) live(ev event.Event) {
+	m, ok := b.mask(ev)
+	if ok {
+		b.handle(m)
+		return
+	}
+	if ev.Type == event.PermissionRequested {
+		if p, ok := decodeAs[event.PermissionRequestedPayload](ev); ok {
+			_ = b.s.Respond(p.PermissionID, engine.Reply{})
+		}
+	}
+}
+
+// handle traduit un événement du direct, déjà masqué.
 func (b *bridge) handle(ev event.Event) {
 	switch ev.Type {
 	case event.AssistantDelta:
@@ -230,7 +274,7 @@ func (b *bridge) handle(ev event.Event) {
 		if p, ok := decodeAs[event.ToolCallRequestedPayload](ev); ok {
 			b.open[p.ParentCallID] = openCall{p.CallID, p.Tool}
 			if p.Tool == "write_file" || p.Tool == "edit_file" {
-				b.args[p.CallID] = p.Args
+				b.args[toolCallID(p.ParentCallID, p.CallID)] = p.Args
 			}
 			b.update(b.toolCall(p))
 		}
@@ -252,7 +296,7 @@ func (b *bridge) handle(ev event.Event) {
 				delete(b.open, p.ParentCallID)
 			}
 			b.update(b.toolResult(p, true))
-			delete(b.args, p.CallID)
+			delete(b.args, toolCallID(p.ParentCallID, p.CallID))
 		}
 	case event.Usage:
 		if p, ok := decodeAs[event.UsagePayload](ev); ok {
@@ -298,7 +342,7 @@ func (b *bridge) handle(ev event.Event) {
 		}
 	case event.McpServerDown:
 		if p, ok := decodeAs[event.McpServerDownPayload](ev); ok {
-			b.notice(headless.ServerDownNotice(b.lang, p, func(s string) string { return s }))
+			b.notice(headless.ServerDownNotice(b.lang, p, b.s.Redact))
 		}
 	case event.JurisdictionWarning:
 		if p, ok := decodeAs[event.JurisdictionWarningPayload](ev); ok {
@@ -338,7 +382,7 @@ func (b *bridge) turnCompleted(reason string) {
 	}
 }
 
-// replay traduit un événement rejoué par session/load : messages de
+// replay traduit un événement rejoué (déjà masqué) par session/load : messages de
 // l'agent principal et appels d'outils (résultats en texte seul : le disque
 // n'est plus dans l'état d'alors).
 func (b *bridge) replay(ev event.Event) {
@@ -388,7 +432,7 @@ func (b *bridge) toolCall(p event.ToolCallRequestedPayload) map[string]any {
 		title += " · " + target
 	}
 	u := map[string]any{
-		"sessionUpdate": "tool_call", "toolCallId": p.CallID, "title": title,
+		"sessionUpdate": "tool_call", "toolCallId": toolCallID(p.ParentCallID, p.CallID), "title": title,
 		"kind": toolKind(p.Tool), "status": "pending",
 	}
 	if len(p.Args) > 0 && json.Valid(p.Args) {
@@ -408,7 +452,7 @@ func (b *bridge) toolResult(p event.ToolResultPayload, live bool) map[string]any
 	if p.IsError || p.Denied != "" {
 		status = "failed"
 	}
-	u := map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": p.CallID, "status": status}
+	u := map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": toolCallID(p.ParentCallID, p.CallID), "status": status}
 	if status == "completed" && live && (p.Tool == "write_file" || p.Tool == "edit_file") {
 		if d := b.diff(p); d != nil {
 			u["content"] = []map[string]any{d}
@@ -429,7 +473,7 @@ func (b *bridge) toolResult(p event.ToolResultPayload, live bool) map[string]any
 // appliqué à l'ancien texte). Fichier nouveau : oldText absent. nil : texte
 // seul.
 func (b *bridge) diff(p event.ToolResultPayload) map[string]any {
-	args, ok := b.args[p.CallID]
+	args, ok := b.args[toolCallID(p.ParentCallID, p.CallID)]
 	if !ok || p.Path == "" {
 		return nil
 	}
@@ -568,7 +612,7 @@ func (b *bridge) ask(p event.PermissionRequestedPayload) {
 		// Les appels d'un même agent sont séquentiels : la demande porte sur
 		// son appel en cours, s'il s'agit du même outil.
 		if o, ok := b.open[p.ParentCallID]; ok && o.tool == p.Tool {
-			callID = o.id
+			callID = toolCallID(p.ParentCallID, o.id)
 			b.permCall[id] = callID
 		}
 	}

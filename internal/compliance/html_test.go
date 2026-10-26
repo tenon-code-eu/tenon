@@ -490,11 +490,11 @@ func TestExportClientHTML(t *testing.T) {
 		l          i18n.Lang
 		label, row string
 	}{
-		{i18n.FR, "Éditeur", "s1 : zed 0.200 (acp)"},
-		{i18n.EN, "Editor", "s1: zed 0.200 (acp)"},
+		{i18n.FR, "Éditeur", "s1 : zed 0.200 (acp); s2 : éditeur inconnu (acp)"},
+		{i18n.EN, "Editor", "s1: zed 0.200 (acp); s2: unknown editor (acp)"},
 	} {
 		r := richReport(false)
-		r.Client = []SessionClient{{Session: "s1", Name: "zed", Version: "0.200", Transport: "acp"}}
+		r.Client = []SessionClient{{Session: "s1", Name: "zed", Version: "0.200", Transport: "acp"}, {Session: "s2", Transport: "acp"}}
 		out := render(t, r, c.l)
 		if !strings.Contains(out, "<dt>"+c.label+"</dt><dd>"+c.row+"</dd>") {
 			t.Errorf("%s: editor row missing", c.l)

@@ -970,8 +970,10 @@ func TestExportClient(t *testing.T) {
 		Client: &event.ClientInfo{Name: "zed", Version: "0.200"},
 	})
 	b.start("s2", provEU)
+	// clientInfo facultatif en ACP : le transport suffit.
+	b.add("s3", event.SessionStarted, event.SessionStartedPayload{Provider: provEU, ProjectRoot: "/p", Transport: "acp"})
 	r := Build(b.dataset(), opts())
-	want := []SessionClient{{Session: "s1", Name: "zed", Version: "0.200", Transport: "acp"}}
+	want := []SessionClient{{Session: "s1", Name: "zed", Version: "0.200", Transport: "acp"}, {Session: "s3", Transport: "acp"}}
 	if !reflect.DeepEqual(r.Client, want) {
 		t.Fatalf("client %+v", r.Client)
 	}
@@ -979,7 +981,7 @@ func TestExportClient(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(out), `"client":[{"session":"s1","name":"zed","version":"0.200","transport":"acp"}]`) {
+	if !strings.Contains(string(out), `"client":[{"session":"s1","name":"zed","version":"0.200","transport":"acp"},{"session":"s3","name":"","version":"","transport":"acp"}]`) {
 		t.Fatalf("JSON: %s", out)
 	}
 }

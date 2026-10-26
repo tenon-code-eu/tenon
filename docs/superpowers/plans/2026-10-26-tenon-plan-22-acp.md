@@ -15,7 +15,7 @@
 - No new module. JSON-RPC 2.0 written on `encoding/json` + `bufio`, one JSON object per line on stdout; stderr only for technical logs; nothing else ever written to stdout.
 - ACP: `protocolVersion: 1`; object keys `camelCase`; discriminators `snake_case`; paths absolute.
 - `initialize` result: `agentCapabilities: { loadSession: true, promptCapabilities: { image: false, audio: false, embeddedContext: true }, mcpCapabilities: { http: true, sse: false } }`, `authMethods: []`, `agentInfo: { name: "tenon", version }`.
-- Error codes: `-32700` parse error, `-32601` unknown method, `-32602` invalid params (relative `cwd`, `image`/`audio` block, protocol version ≠ 1), `-32000` tenon refusal (startup refusal message verbatim; `turn in progress`), `-32002` unknown session.
+- Error codes: `-32700` parse error, `-32601` unknown method, `-32602` invalid params (relative `cwd`, `image`/`audio` block, protocol version ≠ 1), `-32603` tenon refusal (startup refusal message verbatim; `turn in progress`; ACP reserves `-32000` for `auth_required`), `-32002` unknown session.
 - Stop reasons: `completed` → `end_turn`; `max_iterations` → `max_turn_requests`; `incomplete` → `max_tokens`; `cancelled` → `cancelled`; hook stop or blocked turn → `end_turn` after a `notice`.
 - Tool kinds: `read_file` → `read`; `write_file`, `edit_file` → `edit`; `glob`, `grep` → `search`; `shell` → `execute`; `agent` → `think`; `mcp__*` → `other`; anything else → `other`.
 - Permission options: `allow_once` (optionId `allow`), `allow_always` (optionId `allow_session`), `reject_once` (optionId `reject`), and for a sandboxed shell `allow_once` with optionId `allow_network`. `allow_session` never remembers network. `cancelled` or a client error = refusal.
@@ -29,7 +29,7 @@
 
 ## Review Focus
 
-- An editor sends `session/prompt` for a session that is still starting, or two prompts back to back: second gets `-32000 turn in progress`, never two concurrent turns — test in Task 2.
+- An editor sends `session/prompt` for a session that is still starting, or two prompts back to back: second gets `-32603 turn in progress`, never two concurrent turns — test in Task 2.
 - The editor closes stdin mid-turn (editor quit): the turn is cancelled, MCP servers and the audit log are closed (session `close()` runs), the process exits 0 — test in Task 5.
 - A permission request arrives while the client is slow to answer, then `session/cancel`: the pending `session/request_permission` is abandoned, the engine gets a refusal, stop reason `cancelled` — test in Task 3.
 - Output contains non-UTF-8 bytes or a line separator in tool output: every stdout line is still one valid JSON object (`json.Marshal` escapes), never a raw newline — test in Task 1.
@@ -47,7 +47,7 @@
 - Produces:
   - `type Conn struct` — `func NewConn(r io.Reader, w io.Writer, h Handler) *Conn`; `func (c *Conn) Serve(ctx context.Context) error` (reads until EOF/ctx; returns `nil` on EOF); `func (c *Conn) Call(ctx context.Context, method string, params, result any) error` (agent → client request, waits for the response or ctx); `func (c *Conn) Notify(method string, params any) error`.
   - `type Handler interface { Handle(ctx context.Context, method string, params json.RawMessage) (result any, err error) }` — called for client → agent requests and notifications (notifications: result ignored, no response written). Requests are handled concurrently (one goroutine each); writes are serialized.
-  - `type Error struct { Code int \`json:"code"\`; Message string \`json:"message"\`; Data any \`json:"data,omitempty"\` }` implementing `error`; constants `CodeParse = -32700`, `CodeMethodNotFound = -32601`, `CodeInvalidParams = -32602`, `CodeTenon = -32000`, `CodeUnknownSession = -32002`.
+  - `type Error struct { Code int \`json:"code"\`; Message string \`json:"message"\`; Data any \`json:"data,omitempty"\` }` implementing `error`; constants `CodeParse = -32700`, `CodeMethodNotFound = -32601`, `CodeInvalidParams = -32602`, `CodeInternal = -32603` (also tenon refusals), `CodeUnknownSession = -32002`.
 
 - [ ] **Step 1: Failing tests** (pipes, no network):
   - `TestRequestResponse`: client sends `{"jsonrpc":"2.0","id":1,"method":"m","params":{}}` → one line `{"jsonrpc":"2.0","id":1,"result":…}`.
@@ -82,12 +82,12 @@
 
 - [ ] **Step 1: Failing tests** with a fake `Backend`/`Session` (scripted event channel):
   - `TestInitialize`: exact `agentCapabilities`, `authMethods: []`, `agentInfo.name == "tenon"`; `protocolVersion: 2` → `-32602`.
-  - `TestNewSessionRelativeCwd` → `-32602`; backend error `errors.New("profile strict-local: …")` → `-32000` with that message.
+  - `TestNewSessionRelativeCwd` → `-32602`; backend error `errors.New("profile strict-local: …")` → `-32603` with that message.
   - `TestPromptText`: two `text` blocks + a `resource_link` (`file:///p/a.go`) → `Submit` receives `"a\n\nb\n\n@/p/a.go"`.
   - `TestPromptImageRefused` → `-32602`.
   - `TestPromptSkill`: commands `[{fix, …}]`, prompt `/fix the test` → `Input{Skill:"fix", Text:"the test", Typed:"/fix the test"}`.
   - `TestUnknownSession` → `-32002`.
-  - `TestTurnInProgress` (Review Focus 1): second prompt while the first blocks → `-32000` `turn in progress`.
+  - `TestTurnInProgress` (Review Focus 1): second prompt while the first blocks → `-32603` `turn in progress`.
   - `TestServeClosesSessions`: EOF → every session's `Close` called once.
 - [ ] **Step 2: Run** — FAIL.
 - [ ] **Step 3: Implement** (the bridge of Task 3 produces updates; here `session/prompt` waits for `Submit` and returns `stopReason` from Task 3's mapper — stub it in this task as `end_turn` and replace in Task 3).
@@ -161,7 +161,7 @@
   - `TestACPCancel`: cancel during a permission → `cancelled`, file unchanged.
   - `TestACPLoad`: second process `session/load` of the first session → replayed updates, then a new prompt continues the conversation.
   - `TestACPEditorMCP`: `mcpServers` with one stdio server → ignored + notice; with `[acp] accept_editor_mcp = true` → listed in `SessionStarted.mcp`.
-  - `TestACPStartupRefusal`: `[sandbox] mode = "required"` with the probe stubbed unavailable → `-32000` whose message is the CLI's refusal.
+  - `TestACPStartupRefusal`: `[sandbox] mode = "required"` with the probe stubbed unavailable → `-32603` whose message is the CLI's refusal.
   - `TestACPStdinClosed` (Review Focus 2): close stdin mid-turn → process returns 0, session closed (audit chain verifies with `tenon audit verify`).
   - `TestACPSymlinkCwd` (Review Focus 5): `cwd` symlink → `SessionStarted.project_root` equals the CLI's for the same directory.
   - `TestACPStdoutOnlyJSON`: every stdout line of a whole run decodes as JSON-RPC.

@@ -161,6 +161,6 @@ Les variables d'environnement et en-têtes HTTP fournis par l'éditeur sont igno
 - tenon ne lit pas les tampons de l'éditeur. Il lit les fichiers sur le disque avec ses outils. Enregistrez vos fichiers avant de demander.
 - Les fichiers joints (blocs `resource`) sont ajoutés au message : ils sont masqués et classés comme un texte saisi. Les liens de fichiers (`resource_link`) sont cités par leur chemin ; tenon les lit avec ses outils, sous permission.
 - Un seul tour à la fois par session. Un second prompt pendant un tour reçoit `turn in progress`.
-- tenon envoie des mises à jour `notice` (avis du démarrage, arrêts par hook) et `usage_update` (jetons). Certains clients les ignorent.
+- tenon envoie ses avis (avis du démarrage, arrêts par hook) comme pensées de l'agent (`agent_thought_chunk`, préfixe `tenon:`), et les jetons en `usage_update`. Certains clients ignorent `usage_update`.
 - `session/load` rejoue les messages et les appels d'outils sous forme de texte. Les diffs ne sont pas rejoués.
 - Pas de modes ACP (`session/set_mode`), pas de transport distant.
