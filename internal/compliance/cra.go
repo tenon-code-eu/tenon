@@ -38,7 +38,7 @@ type CRA struct {
 	Reports   []CRAReportStatus `json:"reports"`
 }
 
-// craSessions détecte les sessions courtes « cra » (sans fournisseur) : leur
+// craSessions détecte les sessions courtes « cra » et « memory » (sans fournisseur) : leur
 // SessionStarted, où qu'il soit dans le journal, porte kind « cra » ; à
 // défaut (SessionStarted illisible ou hors lecture), toutes leurs lignes de
 // la plage sont des événements CRA.
@@ -57,7 +57,7 @@ func craSessions(ds Dataset) map[string]bool {
 	}
 	for sid, si := range ds.Sessions {
 		if si.Started != nil {
-			out[sid] = si.Started.Kind == "cra"
+			out[sid] = si.Started.Kind == "cra" || si.Started.Kind == "memory"
 		}
 	}
 	return out

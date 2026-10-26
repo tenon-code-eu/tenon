@@ -79,6 +79,9 @@ type Report struct {
 	// sans événement CRA. Les échéances dépassées sont signalées sans
 	// changer le code de sortie.
 	CRA *CRA `json:"cra,omitempty"`
+	// Memory : écritures, lectures sensibles, suppressions et approbations de
+	// la mémoire gouvernée ; omis sans événement mémoire.
+	Memory *Memory `json:"memory,omitempty"`
 }
 
 // SessionRouting résume le routage d'une session : sensible ou non, motif du

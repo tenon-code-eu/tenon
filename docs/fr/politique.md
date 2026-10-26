@@ -98,6 +98,11 @@ local = "interne-local"                  # un préréglage local ou un fournisse
 [budget]                                 # optionnel : impose un plafond de tokens par session
 session_tokens = 1000000
 
+[memory]                                 # optionnel : borne la mémoire
+enabled = false                          # false : pas de mémoire
+project = false                          # false : .tenon/memory ignoré
+max_retention_days = 30                  # plafonne retention_days de [memory] (1 à 3650)
+
 [mcp]
 mode = "allowlist"                       # any (défaut) | allowlist | off
 allow_hosts = ["mcp.acme.eu"]
@@ -106,7 +111,17 @@ allow_commands = ["/usr/local/bin/mcp-git"]
 
 Seuls `id` et `version` sont obligatoires.
 
-Valeurs refusées au chargement : `id` ou `version` absents ou invalides ; profil inconnu ; règle `allow` ; décision ou outil invalides (mêmes règles que la configuration) ; motif de masquage qui ne compile pas ; entrée de `allow_hosts` vide, avec schéma, chemin, port ou joker ailleurs qu'en tête (`*.` suivi d'au moins deux labels) ; entrée de `allow_commands` non absolue ; `mcp.mode` inconnu ; `sandbox.mode = "off"` ou autre mode inconnu ; entrée `sandbox.deny_read` relative ; clé `network` sur une règle (une politique ne peut pas ouvrir le réseau) ; `audit.level` inconnu ; entrée `providers.define` invalide (mêmes règles que `[[providers]]`, `jurisdiction` obligatoire ; `qualifications` n'accepte que `secnumcloud`) ; `audit.timestamp.url` qui n'est pas en `https` (`http` n'est permis que pour un hôte local) ; `audit.timestamp.url` dont l'hôte n'est pas local sous `profile = "strict-local"` ; `audit.timestamp.ca` sans certificat PEM valide ; clé inconnue.
+Valeurs refusées au chargement : `id` ou `version` absents ou invalides ; profil inconnu ; règle `allow` ; décision ou outil invalides (mêmes règles que la configuration) ; motif de masquage qui ne compile pas ; entrée de `allow_hosts` vide, avec schéma, chemin, port ou joker ailleurs qu'en tête (`*.` suivi d'au moins deux labels) ; entrée de `allow_commands` non absolue ; `mcp.mode` inconnu ; `sandbox.mode = "off"` ou autre mode inconnu ; entrée `sandbox.deny_read` relative ; clé `network` sur une règle (une politique ne peut pas ouvrir le réseau) ; `audit.level` inconnu ; entrée `providers.define` invalide (mêmes règles que `[[providers]]`, `jurisdiction` obligatoire ; `qualifications` n'accepte que `secnumcloud`) ; `audit.timestamp.url` qui n'est pas en `https` (`http` n'est permis que pour un hôte local) ; `audit.timestamp.url` dont l'hôte n'est pas local sous `profile = "strict-local"` ; `audit.timestamp.ca` sans certificat PEM valide ; `memory.max_retention_days` hors de 1 à 3650 ; clé inconnue.
+
+### Mémoire
+
+`[memory]` borne la [mémoire gouvernée](utilisation.md#mémoire) :
+
+- `enabled = false` : ni index, ni outils de mémoire, ni `/remember`. `tenon memory list|show|forget` continuent de fonctionner : une demande d'effacement reste toujours possible.
+- `project = false` : `.tenon/memory` est ignoré en lecture et en écriture.
+- `max_retention_days` : borne haute de `retention_days` pour les entrées `user` et `global`.
+
+La valeur effective est la plus stricte entre la politique, la configuration globale et la configuration du projet. Un refus s'écrit `memory: disabled by policy`.
 
 ## Application
 

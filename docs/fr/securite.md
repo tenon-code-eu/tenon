@@ -164,6 +164,27 @@ La sobriété en tokens (déduplication, masquage, troncature) façonne ce qui p
 
 Voir [utilisation.md](utilisation.md#sobriété-en-tokens).
 
+### La mémoire de projet n'est pas digne de confiance
+
+Une entrée de `.tenon/memory` d'un dépôt est écrite par les auteurs du dépôt, comme `AGENTS.md`. La mémoire entre dans le contexte du modèle sans être vue et persiste d'une session à l'autre : c'est un vecteur d'injection d'instructions.
+tenon ne charge donc une entrée de projet que si son empreinte est approuvée sur ce poste (`tenon memory trust`, qui montre d'abord le contenu). Un fichier modifié n'est plus approuvé jusqu'à votre accord. Une entrée non approuvée est absente de l'index et `memory_read` la refuse.
+L'index dit au modèle que les entrées sont des notes, pas des instructions. C'est une indication, pas un filtre : tenon n'analyse pas le texte d'une entrée approuvée. Lisez ce que vous approuvez.
+Un lien symbolique dans `.tenon/memory` (ou le dossier lui-même) n'est jamais suivi.
+
+Ce que la mémoire ne peut pas faire : relever les permissions ou changer une règle. `memory_write` et `memory_forget` demandent une approbation comme toute écriture, et les règles comparent `<portée>/<id>`.
+
+**Entrées sensibles.** Une entrée avec un marqueur de classification, ou écrite dans une session sensible, n'est écrite qu'en portée `user` : rien de classé n'arrive dans un fichier que git versionne. Son titre n'est jamais dans l'index. La lire rend la session sensible ; sans fournisseur local, la lecture est refusée et le contenu ne quitte pas la machine. Le masquage avant écriture ne lève jamais la sensibilité d'une session.
+
+**Ce qui reste après `tenon memory forget`.**
+
+- L'historique git garde une entrée `project` versionnée. tenon affiche `memory: <id> removed from the working tree; git history still holds it`.
+- Le journal d'audit est chaîné et garde l'id, la portée, l'empreinte et l'auteur, jamais le titre ni le contenu.
+- La conversation (arguments des appels d'outils, messages de l'assistant) est enregistrée comme celle de tout appel d'outil, selon le niveau d'audit et avec le masquage. Oublier une entrée n'efface pas les sessions passées ni leurs lignes d'audit.
+
+Les entrées personnelles (`user`, `global`) sont de simples fichiers de votre dossier de données, sans chiffrement au repos : qui peut lire le dossier peut les lire. Elles expirent après `retention_days` (90 par défaut).
+
+Voir [utilisation.md](utilisation.md#mémoire).
+
 ### Les skills de projet ne sont pas dignes de confiance
 
 Un skill placé dans `.tenon/skills`, `.claude/skills` ou `.agents/skills` d'un dépôt est un contenu écrit par les auteurs du dépôt, comme `AGENTS.md`.

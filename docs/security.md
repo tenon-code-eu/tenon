@@ -162,6 +162,27 @@ Token sobriety (deduplication, masking, truncation) shapes what is sent to the m
 
 See [usage.md](usage.md#token-sobriety).
 
+### Project memory is untrusted content
+
+An entry in `.tenon/memory` of a repository is written by the repository authors, like `AGENTS.md`. Memory enters the model context without being seen and persists from session to session: it is a vector for instruction injection.
+For that reason tenon loads a project entry only if its hash is approved on this machine (`tenon memory trust`, which shows the content first). A modified file is not trusted again until you approve it. An untrusted entry is not in the index and `memory_read` refuses it.
+The index tells the model that entries are notes, not instructions. This is a hint, not a filter: tenon does not analyse the text of an approved entry. Read what you approve.
+A symbolic link in `.tenon/memory` (or the folder itself) is never followed.
+
+What memory cannot do: it cannot raise permissions or change a rule. `memory_write` and `memory_forget` need approval like any write, and rules match `<scope>/<id>`.
+
+**Sensitive entries.** An entry with a classification marker, or written in a sensitive session, is stored in the `user` scope only, so nothing classified reaches a file that git versions. Its title is never in the index. Reading it makes the session sensitive; without a local provider the read is refused and the content does not leave the machine. Redaction before writing never lifts the sensitivity of a session.
+
+**What stays after `tenon memory forget`.**
+
+- Git history keeps a committed `project` entry. tenon prints `memory: <id> removed from the working tree; git history still holds it`.
+- The audit log is chained and keeps the id, the scope, the hash and the author, never the title or the content.
+- The conversation (tool call arguments, assistant messages) is recorded like any tool call, according to the audit level and with redaction. Forgetting an entry does not erase past sessions or their audit lines.
+
+Personal entries (`user`, `global`) are plain files in your data directory, with no encryption at rest: anyone who can read the directory can read them. They expire after `retention_days` (90 by default).
+
+See [usage.md](usage.md#memory).
+
 ### Project skills are untrusted content
 
 A skill in `.tenon/skills`, `.claude/skills` or `.agents/skills` of a repository is content written by the repository authors, like `AGENTS.md`.

@@ -101,6 +101,10 @@ func funcs(lang i18n.Lang) template.FuncMap {
 			}
 			return strings.Join(parts, "; ")
 		},
+		// memory résume la section mémoire en une ligne.
+		"memory": func(m Memory) string {
+			return i18n.T(lang, "report.memory_counts", len(m.Writes), m.SensitiveReads, m.Forgotten.User, m.Forgotten.Model, m.Forgotten.Expiry, m.Trusted)
+		},
 		"date": func(t time.Time) string { return t.UTC().Format("2006-01-02 15:04") + " UTC" },
 		"day":  func(t time.Time) string { return t.UTC().Format("2006-01-02") },
 	}

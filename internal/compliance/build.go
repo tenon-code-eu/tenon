@@ -250,6 +250,7 @@ func Build(ds Dataset, o Options) Report {
 	b.routings()
 	r.Tokens = b.tokens.section(o)
 	r.CRA = craSection(ds, o)
+	r.Memory = memorySection(ds, o)
 	r.Profiles = profilesOf(ds, o)
 	r.Policies = policiesOf(ds, o)
 	if o.Details {
