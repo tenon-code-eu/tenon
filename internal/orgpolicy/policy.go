@@ -34,7 +34,9 @@ type Policy struct {
 	Budget Budget
 	// Memory : coupures et plafond de rétention de la mémoire imposés.
 	Memory Memory
-	KeyID  string // renseigné par Load
+	// ACP : coupure des serveurs MCP de l'éditeur imposée.
+	ACP   ACP
+	KeyID string // renseigné par Load
 }
 
 // Classification : règles de sensibilité imposées ([classification]).
@@ -62,6 +64,17 @@ type Memory struct {
 	Disabled         bool
 	NoProject        bool
 	MaxRetentionDays int
+}
+
+// ACP : [acp] de la politique. NoEditorMCP : « accept_editor_mcp = false »
+// (« true » est refusé : une politique ne peut qu'interdire).
+type ACP struct {
+	NoEditorMCP bool
+}
+
+// rawACP garde la présence de la clé.
+type rawACP struct {
+	AcceptEditorMCP *bool `toml:"accept_editor_mcp"`
 }
 
 // rawMemory garde la présence des clés : « max_retention_days = 0 » est refusé.
@@ -156,6 +169,7 @@ type raw struct {
 	Routing        Routing        `toml:"routing"`
 	Budget         rawBudget      `toml:"budget"`
 	Memory         rawMemory      `toml:"memory"`
+	ACP            rawACP         `toml:"acp"`
 }
 
 var idRe = regexp.MustCompile(`^[a-z0-9_-]{1,64}$`)
@@ -272,6 +286,13 @@ func Parse(b []byte) (Policy, error) {
 		}
 		mem.MaxRetentionDays = *d
 	}
+	var acp ACP
+	if a := r.ACP.AcceptEditorMCP; a != nil {
+		if *a {
+			return Policy{}, policyErr("acp.accept_editor_mcp can only be false")
+		}
+		acp.NoEditorMCP = true
+	}
 	var ts *AuditTimestamp
 	if t := r.Audit.Timestamp; t != nil {
 		if t.URL == "" {
@@ -299,7 +320,7 @@ func Parse(b []byte) (Policy, error) {
 		Rules: r.Permissions.Rules, Redaction: r.Redaction.Rules,
 		AuditLevel: r.Audit.Level, MCP: r.MCP, Sandbox: r.Sandbox,
 		Classification: r.Classification, Routing: r.Routing,
-		Budget: budget, Memory: mem,
+		Budget: budget, Memory: mem, ACP: acp,
 	}, nil
 }
 

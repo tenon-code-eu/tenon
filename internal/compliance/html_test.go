@@ -484,3 +484,23 @@ func TestExportRoutingHTML(t *testing.T) {
 		}
 	}
 }
+
+func TestExportClientHTML(t *testing.T) {
+	for _, c := range []struct {
+		l          i18n.Lang
+		label, row string
+	}{
+		{i18n.FR, "Éditeur", "s1 : zed 0.200 (acp)"},
+		{i18n.EN, "Editor", "s1: zed 0.200 (acp)"},
+	} {
+		r := richReport(false)
+		r.Client = []SessionClient{{Session: "s1", Name: "zed", Version: "0.200", Transport: "acp"}}
+		out := render(t, r, c.l)
+		if !strings.Contains(out, "<dt>"+c.label+"</dt><dd>"+c.row+"</dd>") {
+			t.Errorf("%s: editor row missing", c.l)
+		}
+		if out = render(t, richReport(false), c.l); strings.Contains(out, "<dt>"+c.label+"</dt>") {
+			t.Errorf("%s: editor row without data", c.l)
+		}
+	}
+}

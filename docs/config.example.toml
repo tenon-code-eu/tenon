@@ -293,3 +293,14 @@ disabled = false
 # Global only: refused in .tenon/config.toml.
 # [cra]
 # osv_mirror = "https://osv-mirror.example.org/osv-vulnerabilities"
+
+# `tenon acp`: tenon as an Agent Client Protocol agent launched by an editor.
+# accept_editor_mcp: accept the MCP servers the editor sends (default false;
+# they are then ignored with a notice). Accepted servers follow the same
+# profile, policy and allowlist path as [[mcp.servers]]; stdio servers are
+# local with no declared risk, http servers are non-eu unless the host is
+# local. Environment values and headers sent by the editor are not used.
+# Global only: refused in .tenon/config.toml. An organisation policy can only
+# set accept_editor_mcp = false.
+# [acp]
+# accept_editor_mcp = false

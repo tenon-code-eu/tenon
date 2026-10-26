@@ -277,3 +277,18 @@ func TestParseMemory(t *testing.T) {
 		}
 	}
 }
+
+func TestParseACP(t *testing.T) {
+	hd := "id = \"p\"\nversion = 1\n"
+	p, err := Parse([]byte(hd + "[acp]\naccept_editor_mcp = false\n"))
+	if err != nil || !p.ACP.NoEditorMCP {
+		t.Fatalf("%v %+v", err, p.ACP)
+	}
+	if p, err = Parse([]byte(hd)); err != nil || p.ACP.NoEditorMCP {
+		t.Fatalf("%v %+v", err, p.ACP)
+	}
+	_, err = Parse([]byte(hd + "[acp]\naccept_editor_mcp = true\n"))
+	if err == nil || !errors.Is(err, ErrPolicy) || !strings.HasSuffix(err.Error(), "acp.accept_editor_mcp can only be false") {
+		t.Fatalf("true accepté : %v", err)
+	}
+}

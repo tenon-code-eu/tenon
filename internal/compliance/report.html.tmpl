@@ -53,6 +53,7 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
 <dt>{{t "report.label.report_id"}}</dt><dd class="mono">{{$.ID}}</dd>
 <dt>{{t "report.label.policies"}}</dt><dd>{{if not .ContentAvailable}}{{t "report.unavailable"}}{{else if .Policies}}{{range $i, $p := .Policies}}{{if $i}}; {{end}}{{t "report.policy_use" $p.ID $p.Version $p.KeyID $p.Sessions}}{{end}}{{else}}{{t "report.none"}}{{end}}</dd>
 {{if .Sandbox}}<dt>{{t "report.label.sandbox"}}</dt><dd>{{range $i, $s := .Sandbox}}{{if $i}}; {{end}}{{t "report.sandbox_use" $s.Session $s.Mode $s.Mechanism $s.Network $s.Unconfined $s.WithNetwork}}{{end}}</dd>
+{{end}}{{if .Client}}<dt>{{t "report.label.client"}}</dt><dd>{{range $i, $c := .Client}}{{if $i}}; {{end}}{{t "report.client_use" $c.Session $c.Name $c.Version $c.Transport}}{{end}}</dd>
 {{end}}{{if .Routing}}<dt>{{t "report.label.routing"}}</dt><dd>{{range $i, $s := .Routing}}{{if $i}}; {{end}}{{routing $s}}{{end}}</dd>
 {{end}}{{if .Tokens}}<dt>{{t "report.label.tokens"}}</dt><dd>{{tokens .Tokens}}</dd>
 {{end}}{{if .CRA}}<dt>{{t "report.label.cra"}}</dt><dd>{{cra .CRA}}</dd>

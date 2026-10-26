@@ -57,6 +57,7 @@ type builder struct {
 	filePaths []string                   // session et chemin bruts de chaque r.Files, pour les rewinds
 	subagents map[sessKey]int            // appel "agent" → indice dans r.Subagents
 	sandbox   map[string]*SessionSandbox // résumé sandbox par session
+	client    map[string]*SessionClient  // éditeur par session
 	routing   map[string]*routingState   // routage par session
 	tokens    *tokenState                // tokens et économies de la plage
 }
@@ -235,6 +236,7 @@ func Build(ds Dataset, o Options) Report {
 		commands:  map[string]*SessionCommands{},
 		subagents: map[sessKey]int{},
 		sandbox:   map[string]*SessionSandbox{},
+		client:    map[string]*SessionClient{},
 		routing:   map[string]*routingState{},
 		tokens:    newTokenState(),
 	}
@@ -247,6 +249,7 @@ func Build(ds Dataset, o Options) Report {
 	b.finish()
 	b.providers()
 	b.sandboxes()
+	b.clients()
 	b.routings()
 	r.Tokens = b.tokens.section(o)
 	r.CRA = craSection(ds, o)
@@ -473,6 +476,12 @@ func (b *builder) line(l audit.Line) {
 		if decode(l, &p) {
 			if p.Sandbox != nil {
 				b.sessionSandbox(l.Session).setInfo(*p.Sandbox, o)
+			}
+			if p.Client != nil {
+				b.client[l.Session] = &SessionClient{
+					Session: o.clean(l.Session), Name: o.clean(p.Client.Name),
+					Version: o.clean(p.Client.Version), Transport: o.clean(p.Transport),
+				}
 			}
 			rs := b.sessionRouting(l.Session)
 			rs.started = true
@@ -895,6 +904,14 @@ func (b *builder) sandboxes() {
 		b.r.Sandbox = append(b.r.Sandbox, *s)
 	}
 	sort.Slice(b.r.Sandbox, func(i, j int) bool { return b.r.Sandbox[i].Session < b.r.Sandbox[j].Session })
+}
+
+// clients publie l'éditeur de chaque session, trié par session ; rien si aucun.
+func (b *builder) clients() {
+	for _, c := range b.client {
+		b.r.Client = append(b.r.Client, *c)
+	}
+	sort.Slice(b.r.Client, func(i, j int) bool { return b.r.Client[i].Session < b.r.Client[j].Session })
 }
 
 // sessionRouting renvoie (en le créant) le suivi de routage d'une session.

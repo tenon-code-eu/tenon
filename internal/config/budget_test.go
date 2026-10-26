@@ -167,3 +167,30 @@ func TestPolicyMemory(t *testing.T) {
 		t.Fatalf("%v %+v", err, cfg.Memory)
 	}
 }
+
+func TestACPConfig(t *testing.T) {
+	cfg, err := loadSB(t, "", "")
+	if err != nil || cfg.ACP.AcceptEditorMCP {
+		t.Fatalf("défaut : %v %+v", err, cfg.ACP)
+	}
+	cfg, err = loadSB(t, "[acp]\naccept_editor_mcp = true\n", "")
+	if err != nil || !cfg.ACP.AcceptEditorMCP {
+		t.Fatalf("%v %+v", err, cfg.ACP)
+	}
+	_, err = loadSB(t, "", "[acp]\naccept_editor_mcp = true\n")
+	wantErr(t, err, "config: acp not allowed in project configuration")
+	_, err = loadSB(t, "", "[acp]\n")
+	wantErr(t, err, "config: acp not allowed in project configuration")
+}
+
+func TestPolicyACPForcesOff(t *testing.T) {
+	g := write(t, "[acp]\naccept_editor_mcp = true\n")
+	cfg, err := LoadPolicy(g, "", env(nil), &orgpolicy.Policy{ID: "p", ACP: orgpolicy.ACP{NoEditorMCP: true}})
+	if err != nil || cfg.ACP.AcceptEditorMCP {
+		t.Fatalf("%v %+v", err, cfg.ACP)
+	}
+	cfg, err = LoadPolicy(g, "", env(nil), &orgpolicy.Policy{ID: "p"})
+	if err != nil || !cfg.ACP.AcceptEditorMCP {
+		t.Fatalf("%v %+v", err, cfg.ACP)
+	}
+}

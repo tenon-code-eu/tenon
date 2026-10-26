@@ -37,6 +37,8 @@ type projectFile struct {
 	Memory Memory `toml:"memory"`
 	// CRA est refusé (pointeur : une table vide l'est aussi).
 	CRA *CRA `toml:"cra"`
+	// ACP est refusé (pointeur : une table vide l'est aussi).
+	ACP *ACP `toml:"acp"`
 }
 
 // Load fusionne défauts, configuration globale puis configuration projet.
@@ -104,6 +106,7 @@ func load(globalPath, projectPath string, getenv func(string) string) (Config, e
 			return Config{}, err
 		}
 		cfg.Budget, cfg.Usage = g.Budget, g.Usage
+		cfg.ACP = g.ACP
 		if err := checkMemory(g.Memory, md); err != nil {
 			return Config{}, err
 		}
@@ -161,6 +164,9 @@ func load(globalPath, projectPath string, getenv func(string) string) (Config, e
 		}
 		if p.Usage != nil {
 			return Config{}, errors.New("config: usage not allowed in project configuration")
+		}
+		if p.ACP != nil {
+			return Config{}, errors.New("config: acp not allowed in project configuration")
 		}
 		if err := checkBudget(p.Budget, md); err != nil {
 			return Config{}, err

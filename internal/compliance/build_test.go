@@ -962,3 +962,37 @@ func TestExportRoutingAbsent(t *testing.T) {
 		t.Fatalf("routing %+v / %s", r.Routing, out)
 	}
 }
+
+func TestExportClient(t *testing.T) {
+	b := newLog(t)
+	b.add("s1", event.SessionStarted, event.SessionStartedPayload{
+		Provider: provEU, ProjectRoot: "/p", Transport: "acp",
+		Client: &event.ClientInfo{Name: "zed", Version: "0.200"},
+	})
+	b.start("s2", provEU)
+	r := Build(b.dataset(), opts())
+	want := []SessionClient{{Session: "s1", Name: "zed", Version: "0.200", Transport: "acp"}}
+	if !reflect.DeepEqual(r.Client, want) {
+		t.Fatalf("client %+v", r.Client)
+	}
+	out, err := json.Marshal(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), `"client":[{"session":"s1","name":"zed","version":"0.200","transport":"acp"}]`) {
+		t.Fatalf("JSON: %s", out)
+	}
+}
+
+func TestExportClientAbsent(t *testing.T) {
+	b := newLog(t)
+	b.start("s", provEU)
+	r := Build(b.dataset(), opts())
+	out, err := json.Marshal(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Client) != 0 || strings.Contains(string(out), `"client"`) {
+		t.Fatalf("client %+v / %s", r.Client, out)
+	}
+}

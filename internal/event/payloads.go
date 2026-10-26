@@ -27,6 +27,17 @@ type SessionStartedPayload struct {
 	// Kind distingue les sessions courtes hors conversation (« cra »,
 	// « memory ») ; omis pour une conversation.
 	Kind string `json:"kind,omitempty"`
+	// Client identifie l'éditeur qui pilote la session (ACP) ; omis sinon.
+	Client *ClientInfo `json:"client,omitempty"`
+	// Transport vaut « acp » pour une session pilotée par un éditeur ; omis
+	// pour une session en ligne de commande.
+	Transport string `json:"transport,omitempty"`
+}
+
+// ClientInfo est l'éditeur (clientInfo d'ACP) d'une session.
+type ClientInfo struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
 }
 
 // CRAScanPayload résume un scan CRA (tenon cra scan) : SBOM, composants et

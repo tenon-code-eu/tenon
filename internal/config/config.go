@@ -67,6 +67,8 @@ type Config struct {
 	MemoryDisabledBy string `toml:"-"`
 	// Usage : facteurs énergie et CO₂ déclarés. Clé globale uniquement.
 	Usage Usage `toml:"usage"`
+	// ACP : [acp], tenon comme agent d'éditeur. Clé globale uniquement.
+	ACP ACP `toml:"acp"`
 	// CRA : assistant Cyber Resilience Act. Clé globale uniquement.
 	CRA CRA `toml:"cra"`
 	// home : $HOME lu au chargement, pour développer « ~/ » de la politique.
@@ -164,6 +166,12 @@ func checkMemory(m Memory, md toml.MetaData) error {
 }
 
 var errMemoryRetention = errors.New("config: memory.retention_days must be between 1 and 3650")
+
+// ACP : [acp]. AcceptEditorMCP : accepter les serveurs MCP transmis par
+// l'éditeur (false par défaut ; la politique ne peut que le forcer à false).
+type ACP struct {
+	AcceptEditorMCP bool `toml:"accept_editor_mcp"`
+}
 
 // Usage : [usage]. Facteurs déclarés par l'utilisateur, 0 = non déclaré.
 type Usage struct {

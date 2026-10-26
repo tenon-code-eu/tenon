@@ -69,6 +69,9 @@ type Report struct {
 	// Sandbox : isolation des commandes par session ; omis si aucun journal
 	// de la plage n'en porte (journaux antérieurs au sandbox).
 	Sandbox []SessionSandbox `json:"sandbox,omitempty"`
+	// Client : éditeur par session (sessions ACP) ; omis si aucun journal de
+	// la plage n'en porte.
+	Client []SessionClient `json:"client,omitempty"`
 	// Routing : routage par sensibilité des données, par session ; omis si
 	// aucun journal de la plage n'en porte.
 	Routing []SessionRouting `json:"routing,omitempty"`
@@ -105,6 +108,14 @@ func (r Report) RoutingViolation() bool {
 		}
 	}
 	return false
+}
+
+// SessionClient est l'éditeur qui a piloté une session.
+type SessionClient struct {
+	Session   string `json:"session"`
+	Name      string `json:"name"`
+	Version   string `json:"version"`
+	Transport string `json:"transport,omitempty"`
 }
 
 // SessionSandbox résume l'isolation des commandes shell d'une session.

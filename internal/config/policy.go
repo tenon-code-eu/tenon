@@ -138,6 +138,11 @@ func ApplyPolicy(cfg Config, pol *orgpolicy.Policy) (Config, error) {
 		cfg.Memory.RetentionDays = m
 	}
 
+	// ACP : la politique ne fait que couper les serveurs MCP de l'éditeur.
+	if pol.ACP.NoEditorMCP {
+		cfg.ACP.AcceptEditorMCP = false
+	}
+
 	// Confinement : la politique ne fait que durcir ; deny_read s'ajoute.
 	cfg.Sandbox.Mode = stricterSandbox(cfg.Sandbox.Mode, pol.Sandbox.Mode)
 	pd, err := expandSandboxPaths("deny_read", pol.Sandbox.DenyRead, cfg.home)
