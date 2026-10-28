@@ -107,7 +107,7 @@ Source : [CodeCompanion, Configuring ACP adapters](https://codecompanion.olimorr
 
 ### L'extension tenon
 
-**Installation.** Cherchez **tenon** dans la vue Extensions, ou installez `tenon-code-eu.tenon` depuis le [Marketplace VS Code](https://marketplace.visualstudio.com/items?itemName=tenon-code-eu.tenon) ou [Open VSX](https://open-vsx.org/extension/tenon-code-eu/tenon) (VSCodium et autres éditeurs). Il existe un paquet par plateforme : macOS et Linux, arm64 et x64. Chaque paquet contient le binaire tenon : rien d'autre à installer. Windows n'est pas pris en charge.
+**Installation.** Cherchez **tenon** dans la vue Extensions, ou installez `tenon-code-eu.tenon` depuis le [Marketplace VS Code](https://marketplace.visualstudio.com/items?itemName=tenon-code-eu.tenon). VSCodium, Cursor et les autres éditeurs qui utilisent Open VSX : téléchargez le `.vsix` de votre plateforme depuis la [release GitHub](https://github.com/tenon-code-eu/tenon/releases/latest), vérifiez-le avec le `SHA256SUMS` signé, puis lancez **Extensions : Installer depuis un VSIX…**. Il existe un paquet par plateforme : macOS et Linux, arm64 et x64. Chaque paquet contient le binaire tenon : rien d'autre à installer. Windows n'est pas pris en charge.
 
 **Le binaire.** L'extension cherche tenon dans cet ordre :
 

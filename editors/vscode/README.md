@@ -7,9 +7,12 @@ and sends no telemetry.
 
 ## Install
 
-Install `tenon-code-eu.tenon` from the VS Code Marketplace or Open VSX. Each
-platform package (macOS and Linux, arm64 and x64) bundles the tenon binary, so
-you need nothing else. Windows is not supported.
+Install `tenon-code-eu.tenon` from the VS Code Marketplace. For VSCodium,
+Cursor and other editors that use Open VSX, download the `.vsix` of your
+platform from the [GitHub release](https://github.com/tenon-code-eu/tenon/releases/latest)
+and run **Extensions: Install from VSIX…**. Each platform package (macOS and
+Linux, arm64 and x64) bundles the tenon binary, so you need nothing else.
+Windows is not supported.
 
 To use another build, set `tenon.path` to its absolute path in your user
 settings. Otherwise the extension uses the bundled binary, then `tenon` on your
