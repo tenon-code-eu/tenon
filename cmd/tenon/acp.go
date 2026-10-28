@@ -95,28 +95,46 @@ func (b *acpBackend) LoadSession(ctx context.Context, id, cwd string, mcp []acp.
 // titre est le premier message (masqué à l'écriture du journal), borné par
 // session.List.
 func (b *acpBackend) ListSessions(_ context.Context, cwd string) ([]acp.SessionInfo, error) {
-	wd := filepath.Clean(cwd)
-	if fi, err := os.Stat(wd); err != nil || !fi.IsDir() {
-		return nil, fmt.Errorf("cwd: %s: not a directory", wd)
+	wd, err := projectDir(cwd)
+	if err != nil {
+		return nil, err
 	}
+	// Masquage à l'envoi, comme le rejeu : un journal écrit avant la
+	// configuration d'un secret (ou par une autre version) ne doit pas le
+	// laisser passer par le titre.
+	lang, _ := uiLang("", b.getenv, wd, b.globalPath)
+	setup, err := loadSetup(lang, b.getenv, wd, b.globalPath)
+	if err != nil {
+		return nil, err
+	}
+	red := redactText(setup.redactor)
 	l, err := session.List(sessionsDir(b.getenv), wd)
 	if err != nil {
 		return nil, err
 	}
 	out := make([]acp.SessionInfo, 0, len(l))
 	for _, s := range l {
-		out = append(out, acp.SessionInfo{SessionID: s.ID, Cwd: wd, Title: s.FirstPrompt, UpdatedAt: s.Updated})
+		out = append(out, acp.SessionInfo{SessionID: s.ID, Cwd: wd, Title: red(s.FirstPrompt), UpdatedAt: s.Updated})
 	}
 	return out, nil
+}
+
+// projectDir nettoie cwd et vérifie que c'est un dossier existant.
+func projectDir(cwd string) (string, error) {
+	wd := filepath.Clean(cwd)
+	if fi, err := os.Stat(wd); err != nil || !fi.IsDir() {
+		return "", fmt.Errorf("cwd: %s: not a directory", wd)
+	}
+	return wd, nil
 }
 
 // open démarre la session du dossier cwd comme « tenon » lancé dans ce
 // dossier : chemin tel quel (un lien symbolique n'est pas résolu, comme le
 // répertoire courant hérité du shell), langue de la configuration du projet.
 func (b *acpBackend) open(ctx context.Context, cwd, resume string, mcp []acp.MCPServer, client *acp.Implementation) (*acpSession, error) {
-	wd := filepath.Clean(cwd)
-	if fi, err := os.Stat(wd); err != nil || !fi.IsDir() {
-		return nil, fmt.Errorf("cwd: %s: not a directory", wd)
+	wd, err := projectDir(cwd)
+	if err != nil {
+		return nil, err
 	}
 	lang, _ := uiLang("", b.getenv, wd, b.globalPath)
 	s, err := loadSetup(lang, b.getenv, wd, b.globalPath)

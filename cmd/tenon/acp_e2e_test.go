@@ -15,8 +15,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tenon-code-eu/tenon/internal/event"
 	"github.com/tenon-code-eu/tenon/internal/mcp/mcptest"
 	"github.com/tenon-code-eu/tenon/internal/sandbox"
+	"github.com/tenon-code-eu/tenon/internal/session"
 )
 
 // acpMsg est un message JSON-RPC lu sur la sortie de tenon acp.
@@ -766,4 +768,47 @@ func TestACPSessionMeta(t *testing.T) {
 	check(r)
 	c.prompt(sid, "salut")
 	check(c.call("session/load", map[string]any{"sessionId": sid, "cwd": e.wd, "mcpServers": []any{}}))
+}
+
+// Un journal écrit sans masquage (avant la configuration d'un secret, ou par
+// une autre version) : le titre est masqué à l'envoi, comme le rejeu.
+func TestACPListSessionsMasksOldJournal(t *testing.T) {
+	e := newEnv(t, newFakeLLM(t, sseText("ok")), "eu")
+	key := e.vars["TEST_KEY"]
+	const id = "s_aaaaaaaaaaaa"
+	w, err := session.Open(filepath.Join(e.dataDir, "sessions"), id, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, ev := range []struct {
+		typ event.Type
+		p   any
+	}{
+		{event.SessionStarted, event.SessionStartedPayload{ProjectRoot: e.wd}},
+		{event.UserMessage, event.UserMessagePayload{Text: "ma clé est " + key}},
+	} {
+		x, err := event.New(id, uint64(i+1), time.Now(), ev.typ, ev.p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := w.Write(x); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w.Close()
+	c := startACP(t, e, nil)
+	c.initialize()
+	r := c.call("session/list", map[string]any{"cwd": e.wd})
+	list, _ := r["sessions"].([]any)
+	if len(list) != 1 {
+		t.Fatalf("sessions=%v", r)
+	}
+	if title := list[0].(map[string]any)["title"].(string); strings.Contains(title, key) || !strings.Contains(title, "ma clé est") {
+		t.Fatalf("titre %q", title)
+	}
+	for _, l := range c.lines() {
+		if strings.Contains(l, key) {
+			t.Fatalf("clé envoyée à l'éditeur : %s", l)
+		}
+	}
 }
