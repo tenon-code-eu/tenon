@@ -60,7 +60,7 @@ Un `tool_call_update` contenant `{ type: "diff", path, oldText, newText }` ajout
 
 ## 7. Barre d'état
 
-`tenon · <fournisseur> · <UE|hors UE|local> · <isolé|non isolé>` ; clic → panneau. Source : `_meta.tenon` des réponses `session/new` / `session/load`, mis à jour par `_meta.tenon.provider` des `usage_update`. Hors UE en couleur d'avertissement du thème. Aucune session : `tenon` seul.
+`tenon · <fournisseur> · <UE|hors UE|local> · <isolé|non isolé>` ; clic → panneau. Source : `_meta.tenon` des réponses `session/new` / `session/load`, mis à jour par `_meta.tenon.provider` des `usage_update`. Hors UE en couleur d'avertissement du thème. « isolé » seulement si `sandbox.confined` vaut `true` ; sans ce champ (tenon plus ancien), « non isolé » quand `mechanism` est vide ou `none`, ou `mode` vaut `off`. Aucune session (ou tenon arrêté) : `tenon` seul.
 
 ## 8. Terminal façon opencode
 
@@ -69,7 +69,7 @@ Commande « tenon : Ouvrir dans le terminal » (Cmd+Échap) : terminal intégré
 ## 9. Changements dans `tenon acp`
 
 - `session/list` (méthode ACP stable) ; `initialize` annonce `agentCapabilities.sessionCapabilities: { list: {} }`. Paramètres `{ cwd?, cursor? }` ; résultat `{ sessions: [{ sessionId, cwd, title, updatedAt }] }`, sessions du `cwd` (racine de projet résolue comme `session/new`), les plus récentes d'abord ; `title` = premier message utilisateur masqué, coupé à 80 caractères (même règle que `tenon sessions`) ; `updatedAt` ISO 8601. Pas de pagination en v1 (`nextCursor` absent). `cwd` relatif : `-32602`.
-- `_meta.tenon` dans les réponses `session/new` et `session/load` : `{ provider, model, jurisdiction, sandbox: { mode, mechanism, network }, profile, policy }` (valeurs de `SessionStarted` : `Provider`, `Sandbox`, `Profile`, `Policy.ID`) ; la barre affiche « isolé » quand `sandbox.mechanism` n'est pas vide ; `usage_update` gagne `_meta.tenon.provider` quand le fournisseur change (repli).
+- `_meta.tenon` dans les réponses `session/new` et `session/load` : `{ provider, model, jurisdiction, sandbox: { mode, mechanism, network, confined }, profile, policy }` (valeurs de `SessionStarted` : `Provider`, `Sandbox`, `Profile`, `Policy.ID`) ; `mechanism` vaut `none` (jamais vide) quand l'isolation est coupée ou indisponible ; `confined` (booléen) vaut `true` si et seulement si les commandes shell sont confinées (mode différent de `off` et sonde disponible) ; la barre affiche « isolé » quand `sandbox.confined` vaut `true` (ruling R8) ; `usage_update` gagne `_meta.tenon.provider` quand le fournisseur change (repli).
 - Docs EN/FR `editors.md` / `editeurs.md` : section VS Code mise à jour (extension tenon d'abord, client tiers ensuite).
 
 ## 10. Langue, sécurité, confidentialité

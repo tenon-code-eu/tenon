@@ -216,8 +216,10 @@ func (s *acpSession) Respond(permissionID string, r engine.Reply) error {
 func (s *acpSession) Notices() []string { return s.notices }
 
 // Meta est _meta.tenon : fournisseur, modèle, juridiction, isolation, profil
-// et politique de la session. Ce ne sont pas des secrets ; les chaînes
-// passent tout de même par le masquage.
+// et politique de la session. sandbox.confined dit si les commandes shell
+// sont réellement confinées (mechanism vaut alors "none", jamais "", quand
+// elles ne le sont pas). Ce ne sont pas des secrets ; les chaînes passent
+// tout de même par le masquage.
 func (s *acpSession) Meta() map[string]any {
 	red := redactText(s.st.redactor)
 	p, sb := s.st.provider, s.st.sandbox
@@ -226,7 +228,7 @@ func (s *acpSession) Meta() map[string]any {
 		"providerName": red(p.Name),
 		"model":        red(p.Model),
 		"jurisdiction": red(string(p.Jurisdiction)),
-		"sandbox":      map[string]any{"mode": red(sb.Mode), "mechanism": red(sb.Mechanism), "network": red(sb.Network)},
+		"sandbox":      map[string]any{"mode": red(sb.Mode), "mechanism": red(sb.Mechanism), "network": red(sb.Network), "confined": s.st.confined},
 		"profile":      red(string(s.st.profile)),
 		"policy":       red(s.st.policyID),
 	}

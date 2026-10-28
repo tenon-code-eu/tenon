@@ -771,6 +771,54 @@ func TestACPSessionMeta(t *testing.T) {
 	check(c.call("session/load", map[string]any{"sessionId": sid, "cwd": e.wd, "mcpServers": []any{}}))
 }
 
+// sandboxMeta renvoie _meta.tenon.sandbox de session/new pour la
+// configuration extra.
+func sandboxMeta(t *testing.T, extra string) map[string]any {
+	t.Helper()
+	e := newEnvExtra(t, newFakeLLM(t, sseText("ok")), "eu", extra)
+	c := startACP(t, e, nil)
+	c.initialize()
+	r := c.call("session/new", map[string]any{"cwd": e.wd, "mcpServers": []any{}})
+	m, _ := r["_meta"].(map[string]any)
+	tn, _ := m["tenon"].(map[string]any)
+	sb, _ := tn["sandbox"].(map[string]any)
+	if sb == nil {
+		t.Fatalf("_meta=%v", r["_meta"])
+	}
+	return sb
+}
+
+// Isolation coupée (mode off) : mécanisme "none", commandes non confinées.
+func TestACPSessionMetaSandboxOff(t *testing.T) {
+	sb := sandboxMeta(t, sandboxTOML("off"))
+	if sb["mode"] != "off" || sb["mechanism"] != "none" || sb["confined"] != false {
+		t.Fatalf("sandbox=%v", sb)
+	}
+}
+
+// Sonde indisponible (mode auto) : mécanisme "none", non confinées.
+func TestACPSessionMetaSandboxUnavailable(t *testing.T) {
+	withProbe(t, sandbox.Status{Available: false, Mechanism: "none", Network: "none", Reason: "x"})
+	sb := sandboxMeta(t, sandboxTOML("auto"))
+	if sb["mode"] != "auto" || sb["mechanism"] != "none" || sb["confined"] != false {
+		t.Fatalf("sandbox=%v", sb)
+	}
+}
+
+// Sonde réelle disponible : commandes confinées par le mécanisme de la
+// machine (sandbox-exec, landlock).
+func TestACPSessionMetaSandboxConfined(t *testing.T) {
+	st := sandbox.Probe()
+	if !st.Available {
+		t.Skip("isolation indisponible : " + st.Reason)
+	}
+	withProbe(t, st)
+	sb := sandboxMeta(t, sandboxTOML("auto"))
+	if sb["mode"] != "auto" || sb["mechanism"] != st.Mechanism || sb["confined"] != true {
+		t.Fatalf("sandbox=%v", sb)
+	}
+}
+
 // Un journal écrit sans masquage (avant la configuration d'un secret, ou par
 // une autre version) : le titre est masqué à l'envoi, comme le rejeu.
 func TestACPListSessionsMasksOldJournal(t *testing.T) {

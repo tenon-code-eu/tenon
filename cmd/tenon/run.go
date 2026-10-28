@@ -736,6 +736,9 @@ type started struct {
 	// d'organisation ("" sans politique) : _meta.tenon de tenon acp.
 	sandbox  event.SandboxInfo
 	policyID string
+	// confined indique que les commandes shell sont confinées (Spec de
+	// l'outil shell non nil : mode différent de off et sonde disponible).
+	confined bool
 }
 
 // providerInfo décrit le fournisseur configuré pc.
@@ -1319,7 +1322,7 @@ func startEngine(o engineOptions) (started, error) {
 		memory: memStore, memoryOffBy: cfg.MemoryDisabledBy, memoryWrites: memoryWriteSeqs(events),
 		policy:      policyLine(lang, "tui.welcome.policy", cfg.Policy),
 		checkpoints: store, history: events,
-		sandbox: sbInfo, policyID: policyID(cfg.Policy),
+		sandbox: sbInfo, policyID: policyID(cfg.Policy), confined: sbSpec != nil,
 	}, nil
 }
 
