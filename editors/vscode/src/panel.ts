@@ -41,6 +41,12 @@ export function chatHtml(webview: vscode.Webview, extensionUri: vscode.Uri, n: s
 export class ChatViewProvider implements vscode.WebviewViewProvider {
   /** True once a webview script has started and posted "ready" (test API). */
   scriptLoaded = false;
+  private view: vscode.WebviewView | undefined;
+
+  /** True while the chat view is on screen. */
+  get visible(): boolean {
+    return this.view?.visible ?? false;
+  }
 
   constructor(
     private readonly extensionUri: vscode.Uri,
@@ -49,6 +55,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   ) {}
 
   resolveWebviewView(view: vscode.WebviewView): void {
+    this.view = view;
     const webview = view.webview;
     webview.options = {
       enableScripts: true,
@@ -81,6 +88,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       }),
     ];
     view.onDidDispose(() => {
+      if (this.view === view) {
+        this.view = undefined;
+      }
       for (const s of subs) {
         s.dispose();
       }

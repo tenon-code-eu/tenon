@@ -17,9 +17,9 @@ export function sseText(s: string): string[] {
 }
 
 /** One SSE event carrying a single tool call (args is the JSON arguments string). */
-export function sseCall(name: string, args: string): string[] {
+export function sseCall(name: string, args: string, id = "call_1"): string[] {
   return [
-    `{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":${JSON.stringify(name)},"arguments":${JSON.stringify(args)}}}]},"finish_reason":"tool_calls"}]}`,
+    `{"choices":[{"delta":{"tool_calls":[{"index":0,"id":${JSON.stringify(id)},"function":{"name":${JSON.stringify(name)},"arguments":${JSON.stringify(args)}}}]},"finish_reason":"tool_calls"}]}`,
   ];
 }
 

@@ -286,7 +286,12 @@ export function renderItem(item: Item, strings: Strings): HTMLElement {
       return e;
     }
     case "permission": {
+      // Answered cards stay in the thread, disabled, with the answer shown.
+      const closed = item.answered !== undefined || item.refused === true;
       const e = el("div", "item permission");
+      if (item.toolCallId) {
+        e.dataset.toolCallId = item.toolCallId;
+      }
       e.appendChild(el("div", "title", item.title));
       const row = el("div", "options");
       for (const o of item.options) {
@@ -295,15 +300,18 @@ export function renderItem(item: Item, strings: Strings): HTMLElement {
         b.dataset.action = "permission";
         b.dataset.requestId = item.requestId;
         b.dataset.optionId = o.optionId;
-        if (item.answered !== undefined) {
-          b.disabled = true;
-          if (item.answered === o.optionId) {
-            b.classList.add("chosen");
-          }
+        b.disabled = closed;
+        if (item.answered === o.optionId) {
+          b.classList.add("chosen");
         }
         row.appendChild(b);
       }
       e.appendChild(row);
+      if (closed) {
+        e.dataset.answered = "true";
+        const chosen = item.options.find((o) => o.optionId === item.answered);
+        e.appendChild(el("div", "answer", item.refused || !chosen ? str(strings, "refused") : chosen.name));
+      }
       return e;
     }
   }

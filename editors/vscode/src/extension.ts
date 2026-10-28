@@ -2,15 +2,17 @@
 // the chat view shown, a tenon command, or a test API call.
 import * as fs from "node:fs";
 import * as os from "node:os";
-import type { InitializeResponse, RequestPermissionResponse, StopReason } from "@agentclientprotocol/sdk";
+import type { InitializeResponse, StopReason } from "@agentclientprotocol/sdk";
 import * as vscode from "vscode";
 import { Agent, type ClientHandlers } from "./agent";
 import { Chat } from "./chat";
+import { DIFF_SCHEME, DiffProvider, type OpenedDiff } from "./diff";
 import { formatVersion, meetsMinimum, MINIMUM_VERSION, parseVersion, readVersion, resolveBinary } from "./binary";
-import { type Log, OutputLog } from "./log";
+import { OutputLog } from "./log";
 import { Conversation, type ConversationState } from "./model";
-import { onDidShow, showError, showWarning, type Shown } from "./notify";
+import { onDidShow, showError, showInfo, showWarning, type Shown } from "./notify";
 import { CHAT_VIEW, ChatViewProvider } from "./panel";
+import { Permissions } from "./permissions";
 
 export type { Shown } from "./notify";
 
@@ -28,6 +30,12 @@ export interface TenonTestApi {
   cancel(): Promise<void>;
   /** True once the chat webview's script ran under its CSP and posted "ready". */
   panelReady(): boolean;
+  /** Answers the oldest pending permission request, like a click on its card. */
+  answer(optionId: string): void;
+  /** The card's "Open diff" button. */
+  openDiff(toolCallId: string): Promise<void>;
+  /** The two documents and the title of the last diff opened. */
+  lastDiff(): OpenedDiff | undefined;
 }
 
 /** The only URL the extension opens. */
@@ -46,20 +54,18 @@ function errorMessage(err: unknown): string {
 }
 
 /**
- * Updates go to the conversation; permission requests are answered
- * "cancelled" until permission cards exist (Task 4), adding nothing to the
- * thread.
+ * Updates go to the diff store and the conversation, synchronously (the
+ * prompt reply waits one tick for them); permission requests become cards and
+ * stay pending until an answer.
  */
-function clientHandlers(log: Log, conv: Conversation): ClientHandlers {
+function clientHandlers(conv: Conversation, permissions: Permissions, diffs: DiffProvider): ClientHandlers {
   return {
     sessionUpdate: (n) => {
+      diffs.store.record(n);
       conv.apply(n);
       return Promise.resolve();
     },
-    requestPermission: (r): Promise<RequestPermissionResponse> => {
-      log.info(`session/request_permission "${r.toolCall.title ?? ""}" cancelled (no permission cards yet)`);
-      return Promise.resolve({ outcome: { outcome: "cancelled" } });
-    },
+    requestPermission: (r) => permissions.request(r),
   };
 }
 
@@ -272,15 +278,23 @@ let controller: Controller | undefined;
 export function activate(ctx: vscode.ExtensionContext): Promise<TenonTestApi | undefined> {
   const log = new OutputLog();
   const conv = new Conversation();
-  const c = new Controller(ctx, log, clientHandlers(log, conv));
+  const diffs = new DiffProvider(log);
+  const permissions = new Permissions(conv, {
+    // view is set below, before tenon can send any request.
+    visible: (): boolean => view.visible,
+    notify: (message, ...names) => showInfo(message, ...names),
+    log,
+  });
+  const c = new Controller(ctx, log, clientHandlers(conv, permissions, diffs));
   controller = c;
-  const chat = new Chat(c, conv, log, () => log.show());
-  const panel = new ChatViewProvider(ctx.extensionUri, chat, log);
+  const chat = new Chat(c, conv, log, () => log.show(), { permissions, diffs });
+  const view = new ChatViewProvider(ctx.extensionUri, chat, log);
   ctx.subscriptions.push(
     log,
     c,
     chat,
-    vscode.window.registerWebviewViewProvider(CHAT_VIEW, panel, {
+    vscode.workspace.registerTextDocumentContentProvider(DIFF_SCHEME, diffs),
+    vscode.window.registerWebviewViewProvider(CHAT_VIEW, view, {
       webviewOptions: { retainContextWhenHidden: false },
     }),
     vscode.commands.registerCommand("tenon.restart", () => c.restart()),
@@ -310,7 +324,15 @@ export function activate(ctx: vscode.ExtensionContext): Promise<TenonTestApi | u
       },
       send: (text: string): Promise<StopReason> => chat.send(text),
       cancel: () => chat.cancel(),
-      panelReady: () => panel.scriptLoaded,
+      panelReady: () => view.scriptLoaded,
+      answer: (optionId: string) => {
+        const oldest = permissions.pendingIds()[0];
+        if (oldest !== undefined) {
+          chat.handle({ type: "permission", requestId: oldest, optionId });
+        }
+      },
+      openDiff: (toolCallId: string) => diffs.open(toolCallId),
+      lastDiff: () => diffs.lastOpened(),
     };
   }
 

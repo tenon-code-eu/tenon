@@ -153,6 +153,16 @@ summary:focus-visible {
   outline: 1px solid var(--vscode-focusBorder);
 }
 
+.item.permission[data-answered] {
+  border-color: var(--vscode-panel-border);
+  opacity: 0.8;
+}
+
+.item.permission .answer {
+  margin-top: 4px;
+  color: var(--vscode-descriptionForeground);
+}
+
 /* ---- Markdown ---- */
 
 .item.agent p {

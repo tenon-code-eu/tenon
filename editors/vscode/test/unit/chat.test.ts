@@ -95,3 +95,64 @@ describe("Chat", () => {
     });
   }
 });
+
+describe("Chat permissions and diffs", () => {
+  beforeEach(() => {
+    (vscode.workspace as { workspaceFolders: unknown }).workspaceFolders = [{ uri: { fsPath: "/p" } }];
+  });
+
+  function withPerms(conn: Conn, order: string[] = []) {
+    const exit = new vscode.EventEmitter<{ code: number | null }>();
+    const agent = { connection: conn, hasExited: false, onExit: exit.event } as unknown as Agent;
+    const started = new vscode.EventEmitter<Agent>();
+    const conv = new Conversation();
+    const permissions = {
+      answer: vi.fn(),
+      cancelAll: vi.fn(() => order.push("cancelAll")),
+    };
+    const diffs = { open: vi.fn().mockResolvedValue(undefined) };
+    const log = { info: () => undefined, stderr: () => undefined };
+    const chat = new Chat({ ready: () => Promise.resolve(agent), onDidStart: started.event }, conv, log, () => undefined, {
+      permissions,
+      diffs,
+    });
+    return { chat, conv, permissions, diffs, exit, order };
+  }
+
+  it("Stop sends session/cancel, then answers every pending request cancelled", async () => {
+    const turn = later<{ stopReason: string }>();
+    const order: string[] = [];
+    const conn: Conn = {
+      newSession: vi.fn().mockResolvedValue({ sessionId: "s1" }),
+      prompt: vi.fn().mockReturnValue(turn.promise),
+      cancel: vi.fn().mockImplementation(() => {
+        order.push("session/cancel");
+        return Promise.resolve();
+      }),
+    };
+    const { chat } = withPerms(conn, order);
+    const sending = chat.send("go");
+    await vi.waitFor(() => expect(conn.prompt).toHaveBeenCalled());
+    await chat.cancel();
+    expect(order).toEqual(["session/cancel", "cancelAll"]);
+    turn.resolve({ stopReason: "cancelled" });
+    expect(await sending).toBe("cancelled");
+  });
+
+  it("tenon exiting answers every pending request cancelled", async () => {
+    const conn: Conn = { newSession: vi.fn().mockResolvedValue({ sessionId: "s1" }), prompt: vi.fn().mockReturnValue(new Promise(() => undefined)) };
+    const { chat, permissions, exit } = withPerms(conn);
+    void chat.send("go").catch(() => undefined);
+    await vi.waitFor(() => expect(conn.prompt).toHaveBeenCalled());
+    exit.fire({ code: null });
+    expect(permissions.cancelAll).toHaveBeenCalled();
+  });
+
+  it("routes card clicks and Open diff", async () => {
+    const { chat, permissions, diffs } = withPerms({});
+    chat.handle({ type: "permission", requestId: "p2", optionId: "allow" });
+    expect(permissions.answer).toHaveBeenCalledWith("p2", "allow");
+    chat.handle({ type: "openDiff", toolCallId: "c1" });
+    await vi.waitFor(() => expect(diffs.open).toHaveBeenCalledWith("c1"));
+  });
+});

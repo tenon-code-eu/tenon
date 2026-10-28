@@ -24,5 +24,7 @@
   "Working…": "En cours…",
   "Open a folder to use tenon": "Ouvrez un dossier pour utiliser tenon",
   "tenon stopped": "tenon s’est arrêté",
-  "Folder for the new tenon session": "Dossier de la nouvelle session tenon"
+  "Folder for the new tenon session": "Dossier de la nouvelle session tenon",
+  "Refused": "Refusé",
+  "tenon asks for permission: {0}": "tenon demande votre accord : {0}"
 }

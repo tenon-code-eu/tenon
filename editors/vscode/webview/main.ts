@@ -199,8 +199,12 @@ document.addEventListener("click", (e) => {
       }
       break;
     case "permission":
-      if (d.requestId && d.optionId) {
+      if (d.requestId && d.optionId && !(target as HTMLButtonElement).disabled) {
         post({ type: "permission", requestId: d.requestId, optionId: d.optionId });
+        // One answer per card: the next state shows it answered.
+        for (const b of target.closest(".permission")?.querySelectorAll("button") ?? []) {
+          b.disabled = true;
+        }
       }
       break;
     case "copy": {

@@ -9,6 +9,12 @@ import type { Conversation } from "./model";
 import type { FromWebview } from "./protocol";
 import { SessionController } from "./session";
 
+/** Permission cards and diffs, as the chat uses them (Permissions, DiffProvider). */
+export interface ChatExtras {
+  permissions?: { answer(requestId: string, optionId: string): void; cancelAll(): void };
+  diffs?: { open(toolCallId: string): Promise<void> };
+}
+
 /** What the chat needs from the extension's Controller. */
 export interface AgentSource {
   ready(): Promise<Agent>;
@@ -37,6 +43,7 @@ export function webviewStrings(): Record<string, string> {
     showLogs: vscode.l10n.t("Show logs"),
     openFolder: vscode.l10n.t("Open folder"),
     busy: vscode.l10n.t("Working…"),
+    refused: vscode.l10n.t("Refused"),
   };
 }
 
@@ -55,6 +62,7 @@ export class Chat implements vscode.Disposable {
     readonly conv: Conversation,
     private readonly log: Log,
     private readonly showLogs: () => void,
+    private readonly extras: ChatExtras = {},
   ) {
     this.subs.push(
       agents.onDidStart((a) => this.attach(a)),
@@ -98,11 +106,19 @@ export class Chat implements vscode.Disposable {
     return turn;
   }
 
+  /**
+   * Stop: session/cancel first, so tenon ends the turn, then every pending
+   * permission request is answered "cancelled" (a refusal for tenon).
+   */
   async cancel(): Promise<void> {
     if (this.turn) {
       this.stopRequested = true;
     }
-    await this.session?.cancel();
+    try {
+      await this.session?.cancel();
+    } finally {
+      this.extras.permissions?.cancelAll();
+    }
   }
 
   /** Stops the turn in progress and waits for its end. */
@@ -171,9 +187,12 @@ export class Chat implements vscode.Disposable {
         this.showLogs();
         break;
       case "permission":
+        this.extras.permissions?.answer(m.requestId, m.optionId);
+        break;
       case "openDiff":
-        // Permission cards and diffs come with the next task.
-        this.log.info(`chat ${m.type}: not handled yet`);
+        if (this.extras.diffs) {
+          run(this.extras.diffs.open(m.toolCallId));
+        }
         break;
       case "ready":
         break;
@@ -250,6 +269,7 @@ export class Chat implements vscode.Disposable {
         return;
       }
       this.session = undefined;
+      this.extras.permissions?.cancelAll();
       this.conv.setBusy(false);
       this.conv.setBanner({ kind: "stopped", text: vscode.l10n.t("tenon stopped") });
     });

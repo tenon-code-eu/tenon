@@ -84,7 +84,7 @@ describe("renderMarkdown (Review Focus 3)", () => {
 });
 
 describe("renderItem", () => {
-  const strings = { thought: "Thinking", copy: "Copy", openDiff: "Open diff", tool_completed: "fait" };
+  const strings = { thought: "Thinking", copy: "Copy", openDiff: "Open diff", tool_completed: "fait", refused: "Refusé" };
 
   it("renders a user message as plain text", () => {
     const el = renderItem({ kind: "user", text: "**hi** <img>" }, strings);
@@ -135,6 +135,52 @@ describe("renderItem", () => {
     expect([...allow.classList]).toEqual(["option", "allow-once"]);
     expect([...odd.classList]).toEqual(["option", "other"]);
     expect(odd.getAttribute("onclick")).toBeNull();
+  });
+
+  it("an answered card stays, disabled, and shows the chosen option name", () => {
+    const el = renderItem(
+      {
+        kind: "permission",
+        requestId: "p1",
+        title: "write a.txt",
+        options: [
+          { optionId: "allow", name: "Allow", kind: "allow_once" },
+          { optionId: "reject", name: "Reject", kind: "reject_once" },
+        ],
+        answered: "reject",
+      },
+      strings,
+    );
+    const buttons = [...el.querySelectorAll("button")];
+    expect(buttons.every((b) => b.disabled)).toBe(true);
+    expect(el.querySelector(".answer")?.textContent).toBe("Reject");
+    expect(el.dataset.answered).toBe("true");
+  });
+
+  it("a refused (cancelled) card shows Refused, disabled", () => {
+    const el = renderItem(
+      {
+        kind: "permission",
+        requestId: "p1",
+        toolCallId: "c1",
+        title: "write a.txt",
+        options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }],
+        refused: true,
+      },
+      strings,
+    );
+    expect(el.querySelector("button")?.disabled).toBe(true);
+    expect(el.querySelector(".answer")?.textContent).toBe("Refusé");
+    expect(el.dataset.toolCallId).toBe("c1");
+  });
+
+  it("a pending card has enabled buttons and no answer", () => {
+    const el = renderItem(
+      { kind: "permission", requestId: "p1", title: "t", options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }] },
+      strings,
+    );
+    expect(el.querySelector("button")?.disabled).toBe(false);
+    expect(el.querySelector(".answer")).toBeNull();
   });
 
   it("offers Open diff for a tool item with a diff", () => {
