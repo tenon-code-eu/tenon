@@ -333,6 +333,12 @@ export function matchCommands(input: string, commands: Command[]): Command[] {
   return commands.filter((c) => c.name.startsWith(m[1]));
 }
 
+/** Enter completes the highlighted command, unless the input already is that command in full (then it sends). */
+export function enterCompletes(input: string, matches: Command[], active: number): boolean {
+  const m = matches[active];
+  return m !== undefined && input !== `/${m.name}`;
+}
+
 /** The `/` completion list; active is the highlighted index. */
 export function renderCompletions(matches: Command[], active: number): HTMLElement {
   const list = el("div", "completions");

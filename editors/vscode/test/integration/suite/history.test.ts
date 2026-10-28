@@ -129,9 +129,21 @@ test("context: an attached selection goes out with the prompt, lines in its uri"
   await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
 }, 30_000);
 
+test("context: attach with nothing to attach says so", async () => {
+  await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+  const before = api.notifications().length;
+  await vscode.commands.executeCommand("tenon.attachSelection");
+  await vscode.commands.executeCommand("tenon.attachFile");
+  const shown = api.notifications().slice(before);
+  assert(shown.length === 2 && shown.every((n) => n.kind === "info"), `notifications ${JSON.stringify(shown)}`);
+  assert(shown[0].message.includes("Open a file"), `message ${shown[0].message}`);
+  assert(shown[1].message.includes("saved on disk"), `message ${shown[1].message}`);
+  assert(api.state().attachments.length === 0, "a chip appeared");
+}, 15_000);
+
 test("status bar: provider, jurisdiction and sandbox of the session", async () => {
   const s = await waitFor(() => (api.status().text !== "tenon" ? api.status() : undefined), 5_000, "the status bar");
-  assert(s.text.startsWith("tenon · test · EU · "), `status ${s.text}`);
+  assert(s.text.startsWith("tenon · Test SAS · EU · "), `status ${s.text}`);
   assert(/ · (sandboxed|not sandboxed)$/.test(s.text), `status ${s.text}`);
   assert(!s.warning, "EU shown as a warning");
   const meta = api.state().meta;

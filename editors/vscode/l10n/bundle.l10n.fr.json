@@ -34,5 +34,8 @@
   "not sandboxed": "non isolé",
   "Remove": "Retirer",
   "Sessions": "Sessions",
-  "Untitled session": "Session sans titre"
+  "Untitled session": "Session sans titre",
+  "unknown jurisdiction": "juridiction inconnue",
+  "Open a file to attach its selection to the tenon chat.": "Ouvrez un fichier pour joindre sa sélection à la discussion tenon.",
+  "Only a file saved on disk can be attached to the tenon chat.": "Seul un fichier enregistré sur le disque peut être joint à la discussion tenon."
 }

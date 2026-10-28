@@ -218,6 +218,35 @@ describe("Chat attachments and history", () => {
     expect((prompt.mock.calls[0][0] as { prompt: unknown }).prompt).toEqual([sel]);
   });
 
+  it("attachments come back when the turn fails before tenon accepted the prompt", async () => {
+    const newSession = vi.fn().mockRejectedValueOnce(new Error("tenon failed to start")).mockResolvedValue({ sessionId: "s1" });
+    const prompt = vi.fn().mockRejectedValueOnce(new Error("refused by policy")).mockResolvedValue({ stopReason: "end_turn" });
+    const { chat, conv } = setup({ newSession, prompt, listSessions: vi.fn().mockResolvedValue({ sessions: [] }) });
+    chat.addAttachment(file, "a.go");
+    await expect(chat.send("fix")).rejects.toThrow("tenon failed to start");
+    expect(conv.state.attachments.map((a) => a.label)).toEqual(["a.go"]);
+    await expect(chat.send("fix")).rejects.toThrow("refused by policy");
+    expect(conv.state.attachments.map((a) => a.label)).toEqual(["a.go"]);
+    expect(await chat.send("fix")).toBe("end_turn");
+    expect(conv.state.attachments).toEqual([]);
+    expect(prompt).toHaveBeenCalledTimes(2);
+    expect((prompt.mock.calls[1][0] as { prompt: unknown }).prompt).toEqual([{ type: "text", text: "fix" }, file]);
+  });
+
+  it("attachments added during a failing turn stay after the restored ones", async () => {
+    const start = later<void>();
+    const newSession = vi.fn().mockRejectedValue(new Error("no"));
+    const agent = { connection: { newSession }, hasExited: false, onExit: () => ({ dispose: () => undefined }) } as unknown as Agent;
+    const conv = new Conversation();
+    const chat = new Chat({ ready: async () => { await start.promise; return agent; }, onDidStart: new vscode.EventEmitter<Agent>().event }, conv, { info: () => undefined, stderr: () => undefined }, () => undefined);
+    chat.addAttachment(file, "a.go");
+    const sending = chat.send("x");
+    chat.addAttachment(sel, "b.go:1-2");
+    start.resolve();
+    await expect(sending).rejects.toThrow("no");
+    expect(conv.state.attachments.map((a) => a.label)).toEqual(["a.go", "b.go:1-2"]);
+  });
+
   it("an empty text without attachments is not sent", async () => {
     const prompt = vi.fn();
     const { chat } = setup({ prompt });

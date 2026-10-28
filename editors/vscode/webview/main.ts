@@ -3,7 +3,7 @@
 // this bundle has no l10n and makes no network request.
 import type { ConversationState, Item } from "../src/model";
 import type { FromWebview, ToWebview } from "../src/protocol";
-import { matchCommands, renderAttachments, renderCompletions, renderItem, renderSessions, type Strings } from "./render";
+import { enterCompletes, matchCommands, renderAttachments, renderCompletions, renderItem, renderSessions, type Strings } from "./render";
 
 interface VsCodeApi {
   postMessage(m: FromWebview): void;
@@ -202,8 +202,11 @@ input.addEventListener("keydown", (e) => {
         renderCompletionList();
         return;
       case "Tab":
+        e.preventDefault();
+        complete(matches[active].name);
+        return;
       case "Enter":
-        if (!e.shiftKey) {
+        if (!e.shiftKey && enterCompletes(input.value, matches, active)) {
           e.preventDefault();
           complete(matches[active].name);
           return;

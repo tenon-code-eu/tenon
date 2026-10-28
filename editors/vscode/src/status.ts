@@ -1,5 +1,6 @@
-// Status bar: `tenon · <provider> · <EU|non-EU|local> · <sandboxed|not
-// sandboxed>` from the session's `_meta.tenon`; non-EU in the theme's warning
+// Status bar: `tenon · <provider name> · <EU|non-EU|local> · <sandboxed|not
+// sandboxed>` from the session's `_meta.tenon` (provider fields replaced by
+// each usage_update); anything but EU or local in the theme's warning
 // colour; a click opens the chat. statusText has no vscode runtime use.
 import type * as vscode from "vscode";
 
@@ -12,7 +13,7 @@ function str(v: unknown): string {
   return typeof v === "string" ? v : "";
 }
 
-/** Label of a tenon jurisdiction (internal/llm: eu, non-eu, local); anything else as is. */
+/** Label of a tenon jurisdiction (internal/llm: eu, non-eu, local); anything else as is, none as unknown. */
 function jurisdictionLabel(j: string, l10n: L10n): string {
   switch (j) {
     case "eu":
@@ -21,6 +22,8 @@ function jurisdictionLabel(j: string, l10n: L10n): string {
       return l10n.t("non-EU");
     case "local":
       return l10n.t("local");
+    case "":
+      return l10n.t("unknown jurisdiction");
     default:
       return j;
   }
@@ -35,11 +38,12 @@ export function statusText(meta: Record<string, unknown> | undefined, l10n: L10n
   const sandboxed = str(sandbox.mechanism) !== "";
   const parts = [
     "tenon",
-    str(meta.provider),
+    str(meta.providerName) || str(meta.provider),
     jurisdictionLabel(jurisdiction, l10n),
     sandboxed ? l10n.t("sandboxed") : l10n.t("not sandboxed"),
   ].filter((p) => p !== "");
-  return { text: parts.join(" · "), warning: jurisdiction === "non-eu" };
+  // Only EU and local are known safe: non-EU, unknown or missing get the warning.
+  return { text: parts.join(" · "), warning: jurisdiction !== "eu" && jurisdiction !== "local" };
 }
 
 /** What StatusBar needs from vscode (injected, so the extension owns the runtime import). */

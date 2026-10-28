@@ -11,7 +11,7 @@ import { DIFF_SCHEME, DiffProvider, type OpenedDiff } from "./diff";
 import { formatVersion, meetsMinimum, MINIMUM_VERSION, parseVersion, readVersion, resolveBinary } from "./binary";
 import { OutputLog } from "./log";
 import { Conversation, type ConversationState } from "./model";
-import { onDidShow, showError, showInfoChoice, showWarning, type Shown } from "./notify";
+import { onDidShow, showError, showInfo, showInfoChoice, showWarning, type Shown } from "./notify";
 import { CHAT_VIEW, ChatViewProvider } from "./panel";
 import { Permissions } from "./permissions";
 import { StatusBar } from "./status";
@@ -284,6 +284,7 @@ let controller: Controller | undefined;
 function attachSelection(chat: Chat): boolean {
   const ed = vscode.window.activeTextEditor;
   if (!ed) {
+    void showInfo(vscode.l10n.t("Open a file to attach its selection to the tenon chat."));
     return false;
   }
   const doc = ed.document;
@@ -303,6 +304,7 @@ function attachSelection(chat: Chat): boolean {
 function attachFile(chat: Chat, uri: vscode.Uri | undefined): boolean {
   const target = uri instanceof vscode.Uri ? uri : vscode.window.activeTextEditor?.document.uri;
   if (target?.scheme !== "file") {
+    void showInfo(vscode.l10n.t("Only a file saved on disk can be attached to the tenon chat."));
     return false;
   }
   const name = vscode.workspace.asRelativePath(target, false);

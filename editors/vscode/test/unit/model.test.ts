@@ -119,19 +119,33 @@ describe("Conversation.apply", () => {
     expect(c.state.commands).toEqual([{ name: "fix", description: "Fix it" }]);
   });
 
-  it("a usage_update with tenon's provider updates the provider of the meta", () => {
+  function usage(c: Conversation, meta: unknown, sessionId = SID): void {
+    c.apply(n({ sessionUpdate: "usage_update", used: 10, size: 32000, _meta: meta } as SessionUpdate, sessionId));
+  }
+
+  it("a usage_update replaces provider, name and jurisdiction together", () => {
     const c = conv();
-    c.setMeta({ provider: "mistral", jurisdiction: "eu" });
-    const usage = (meta: unknown, sessionId = SID) =>
-      c.apply(n({ sessionUpdate: "usage_update", used: 10, size: 32000, _meta: meta } as SessionUpdate, sessionId));
-    usage({ tenon: { input: 10, provider: "scaleway" } });
-    expect(c.state.meta).toEqual({ provider: "scaleway", jurisdiction: "eu" });
-    usage({ tenon: { input: 10 } });
-    usage({ tenon: { provider: 3 } });
-    usage(undefined);
-    expect(c.state.meta).toEqual({ provider: "scaleway", jurisdiction: "eu" });
-    usage({ tenon: { provider: "other" } }, "s2");
-    expect(c.state.meta?.provider).toBe("scaleway");
+    c.setMeta({ provider: "mistral", providerName: "Mistral AI", jurisdiction: "eu", sandbox: { mechanism: "seatbelt" } });
+    usage(c, { tenon: { input: 10, provider: "us1", providerName: "US Corp", jurisdiction: "non-eu" } });
+    expect(c.state.meta).toEqual({ provider: "us1", providerName: "US Corp", jurisdiction: "non-eu", sandbox: { mechanism: "seatbelt" } });
+    usage(c, { tenon: { input: 10 } });
+    usage(c, { tenon: { provider: 3 } });
+    usage(c, undefined);
+    usage(c, { tenon: { provider: "other", jurisdiction: "eu" } }, "s2");
+    expect(c.state.meta).toEqual({ provider: "us1", providerName: "US Corp", jurisdiction: "non-eu", sandbox: { mechanism: "seatbelt" } });
+  });
+
+  it("a provider change without jurisdiction never keeps the old label", () => {
+    const c = conv();
+    c.setMeta({ provider: "mistral", providerName: "Mistral AI", jurisdiction: "eu" });
+    usage(c, { tenon: { provider: "older" } });
+    expect(c.state.meta).toEqual({ provider: "older" });
+  });
+
+  it("a usage_update before any meta creates none", () => {
+    const c = conv();
+    usage(c, { tenon: { provider: "us1", jurisdiction: "non-eu" } });
+    expect(c.state.meta).toBeUndefined();
   });
 
   it("keeps attachment labels for the webview", () => {

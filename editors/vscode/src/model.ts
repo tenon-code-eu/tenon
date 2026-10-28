@@ -95,6 +95,38 @@ function toolOutput(content: ToolCallContent[]): { output: string; diff?: { path
   return diff ? { output: texts.join("\n"), diff } : { output: texts.join("\n") };
 }
 
+function nonEmpty(v: unknown): string | undefined {
+  return typeof v === "string" && v !== "" ? v : undefined;
+}
+
+/**
+ * The meta after a usage_update (`_meta.tenon` of the call): a new provider
+ * (fallback) replaces provider, providerName and jurisdiction together, so
+ * the old jurisdiction never stays on a new provider; the same provider only
+ * gets the fields sent. undefined: nothing changes.
+ */
+function usageMeta(meta: Record<string, unknown>, t: Record<string, unknown>): Record<string, unknown> | undefined {
+  const provider = nonEmpty(t.provider);
+  if (!provider) {
+    return undefined;
+  }
+  const name = nonEmpty(t.providerName);
+  const jurisdiction = nonEmpty(t.jurisdiction);
+  const next: Record<string, unknown> = { ...meta, provider };
+  if (provider !== meta.provider) {
+    delete next.providerName;
+    delete next.jurisdiction;
+  }
+  if (name) {
+    next.providerName = name;
+  }
+  if (jurisdiction) {
+    next.jurisdiction = jurisdiction;
+  }
+  const same = ["provider", "providerName", "jurisdiction"].every((k) => next[k] === meta[k]);
+  return same ? undefined : next;
+}
+
 export class Conversation {
   state: ConversationState = { items: [], busy: false, commands: [], sessions: [], attachments: [] };
 
@@ -270,13 +302,13 @@ export class Conversation {
         this.state.commands = u.availableCommands.map((c) => ({ name: c.name, description: c.description }));
         break;
       case "usage_update": {
-        // The provider of the call (it changes on a fallback): status bar.
+        const meta = this.state.meta;
         const t = u._meta?.tenon;
-        const provider = typeof t === "object" && t !== null ? (t as Record<string, unknown>).provider : undefined;
-        if (typeof provider !== "string" || provider === "" || this.state.meta?.provider === provider) {
+        const next = meta && typeof t === "object" && t !== null ? usageMeta(meta, t as Record<string, unknown>) : undefined;
+        if (!next) {
           return;
         }
-        this.state.meta = { ...this.state.meta, provider };
+        this.state.meta = next;
         break;
       }
       case "session_info_update": {

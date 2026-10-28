@@ -96,15 +96,23 @@ export class Chat implements vscode.Disposable {
     }
     this.stopRequested = false;
     this.conv.setBusy(true);
-    const blocks = buildPrompt(text, this.attachments.map((a) => a.block));
+    const taken = this.attachments;
+    const blocks = buildPrompt(text, taken.map((a) => a.block));
     this.setAttachments([]);
+    // Chips come back when tenon never took the prompt (start failure,
+    // error response, Stop before sending), ahead of any added meanwhile.
+    const giveBack = () => this.setAttachments([...taken, ...this.attachments]);
     const turn = (async (): Promise<StopReason> => {
       try {
         const s = await this.ensureSession();
         if (this.stopRequested) {
+          giveBack();
           return "cancelled";
         }
         return await s.prompt(blocks);
+      } catch (err) {
+        giveBack();
+        throw err;
       } finally {
         // A card never outlives its turn.
         this.extras.permissions?.cancelAll();

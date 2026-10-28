@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from "vitest";
 import type { Item } from "../../src/model";
-import { matchCommands, renderAttachments, renderCompletions, renderItem, renderMarkdown, renderSessions } from "../../webview/render";
+import { enterCompletes, matchCommands, renderAttachments, renderCompletions, renderItem, renderMarkdown, renderSessions } from "../../webview/render";
 
 function html(src: string): HTMLElement {
   const div = document.createElement("div");
@@ -208,6 +208,13 @@ describe("composer extras", () => {
     expect(matchCommands("fix", commands)).toEqual([]);
     expect(matchCommands(" /f", commands)).toEqual([]);
     expect(matchCommands("/zz", commands)).toEqual([]);
+  });
+
+  it("Enter sends a command typed in full instead of completing it", () => {
+    expect(enterCompletes("/fi", matchCommands("/fi", commands), 0)).toBe(true);
+    expect(enterCompletes("/fix", matchCommands("/fix", commands), 0)).toBe(false);
+    expect(enterCompletes("/f", matchCommands("/f", commands), 1)).toBe(true);
+    expect(enterCompletes("/fmt", [commands[1]], 0)).toBe(false);
   });
 
   it("renderCompletions lists names and descriptions as text, the active one marked", () => {

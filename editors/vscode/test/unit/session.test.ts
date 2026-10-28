@@ -108,6 +108,26 @@ describe("SessionController", () => {
     expect(conv.state.items).toHaveLength(2);
   });
 
+  it("session/new and session/load replace the meta entirely (a fallback does not leak)", async () => {
+    const newSession = vi.fn().mockResolvedValue({ sessionId: "s1", _meta: { tenon: { provider: "a", jurisdiction: "eu" } } });
+    const loadSession = vi.fn().mockResolvedValue({ _meta: { tenon: { provider: "b", providerName: "B", jurisdiction: "local" } } });
+    const { s, conv } = setup({ newSession, loadSession });
+    await s.newSession("/p");
+    conv.apply({
+      sessionId: "s1",
+      update: { sessionUpdate: "usage_update", used: 1, size: 2, _meta: { tenon: { provider: "us1", providerName: "US", jurisdiction: "non-eu" } } },
+    });
+    expect(conv.state.meta).toEqual({ provider: "us1", providerName: "US", jurisdiction: "non-eu" });
+    await s.load("s0", "/p");
+    expect(conv.state.meta).toEqual({ provider: "b", providerName: "B", jurisdiction: "local" });
+    conv.apply({
+      sessionId: "s0",
+      update: { sessionUpdate: "usage_update", used: 1, size: 2, _meta: { tenon: { provider: "us1", jurisdiction: "non-eu" } } },
+    });
+    await s.newSession("/p");
+    expect(conv.state.meta).toEqual({ provider: "a", jurisdiction: "eu" });
+  });
+
   it("list fills the sessions with title and date", async () => {
     const listSessions = vi.fn().mockResolvedValue({
       sessions: [
