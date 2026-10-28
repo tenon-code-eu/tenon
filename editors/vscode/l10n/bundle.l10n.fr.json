@@ -26,5 +26,13 @@
   "tenon stopped": "tenon s’est arrêté",
   "Folder for the new tenon session": "Dossier de la nouvelle session tenon",
   "Refused": "Refusé",
-  "tenon asks for permission: {0}": "tenon demande votre accord : {0}"
+  "tenon asks for permission: {0}": "tenon demande votre accord : {0}",
+  "EU": "UE",
+  "non-EU": "hors UE",
+  "local": "local",
+  "sandboxed": "isolé",
+  "not sandboxed": "non isolé",
+  "Remove": "Retirer",
+  "Sessions": "Sessions",
+  "Untitled session": "Session sans titre"
 }

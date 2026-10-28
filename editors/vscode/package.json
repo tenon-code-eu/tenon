@@ -36,6 +36,16 @@
         "icon": "$(add)"
       },
       {
+        "command": "tenon.attachSelection",
+        "title": "%command.attachSelection%",
+        "category": "tenon"
+      },
+      {
+        "command": "tenon.attachFile",
+        "title": "%command.attachFile%",
+        "category": "tenon"
+      },
+      {
         "command": "tenon.restart",
         "title": "%command.restart%",
         "category": "tenon"
@@ -71,8 +81,28 @@
           "when": "view == tenon.chat",
           "group": "navigation"
         }
+      ],
+      "editor/context": [
+        {
+          "command": "tenon.attachSelection",
+          "when": "editorHasSelection",
+          "group": "tenon@1"
+        },
+        {
+          "command": "tenon.attachFile",
+          "when": "resourceScheme == file",
+          "group": "tenon@2"
+        }
       ]
     },
+    "keybindings": [
+      {
+        "command": "tenon.attachSelection",
+        "key": "ctrl+alt+k",
+        "mac": "cmd+alt+k",
+        "when": "editorTextFocus && !tenon.terminalVisible"
+      }
+    ],
     "configuration": {
       "title": "tenon",
       "properties": {

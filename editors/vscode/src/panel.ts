@@ -84,6 +84,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       view.onDidChangeVisibility(() => {
         if (view.visible) {
           post();
+          void this.chat.refreshSessions(false);
         }
       }),
     ];
@@ -96,5 +97,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       }
     });
     this.chat.touch();
+    void this.chat.refreshSessions();
   }
 }

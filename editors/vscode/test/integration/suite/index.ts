@@ -4,6 +4,7 @@ import { runAll } from "./harness";
 import "./agent.test";
 import "./chat.test";
 import "./permission.test";
+import "./history.test";
 
 export async function run(): Promise<void> {
   const failed = await runAll();

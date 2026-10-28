@@ -3,7 +3,7 @@
 // this bundle has no l10n and makes no network request.
 import type { ConversationState, Item } from "../src/model";
 import type { FromWebview, ToWebview } from "../src/protocol";
-import { renderItem, type Strings } from "./render";
+import { matchCommands, renderAttachments, renderCompletions, renderItem, renderSessions, type Strings } from "./render";
 
 interface VsCodeApi {
   postMessage(m: FromWebview): void;
@@ -41,8 +41,11 @@ function button(cls: string, action: string): HTMLButtonElement {
 const app = document.getElementById("app") as HTMLElement;
 const banner = make("div", "banner");
 banner.hidden = true;
+const sessions = make("div", "sessions-slot");
 const thread = make("div", "thread");
 const composer = make("div", "composer");
+const chips = make("div", "chips-slot");
+const completions = make("div", "completions-slot");
 const input = make("textarea", "input");
 input.rows = 3;
 const actions = make("div", "actions");
@@ -50,8 +53,8 @@ const busyLabel = make("span", "busy");
 const sendButton = button("send", "send");
 const stopButton = button("stop", "cancel");
 actions.append(busyLabel, stopButton, sendButton);
-composer.append(input, actions);
-app.append(banner, thread, composer);
+composer.append(chips, completions, input, actions);
+app.append(banner, sessions, thread, composer);
 
 const saved = vscode.getState() as { draft?: unknown } | undefined;
 if (typeof saved?.draft === "string") {
@@ -120,6 +123,43 @@ function renderThread(s: ConversationState): void {
   }
 }
 
+let sessionsOpen = false;
+
+function renderHistory(s: ConversationState): void {
+  if (s.sessions.length === 0) {
+    sessions.replaceChildren();
+    return;
+  }
+  const d = renderSessions(s.sessions, s.sessionId, strings);
+  d.open = sessionsOpen;
+  d.addEventListener("toggle", () => (sessionsOpen = d.open));
+  sessions.replaceChildren(d);
+}
+
+/** `/` completion: highlighted entry, and Escape hides the list until the next edit. */
+let active = 0;
+let dismissed = false;
+
+function currentMatches(): { name: string; description: string }[] {
+  return dismissed || !state ? [] : matchCommands(input.value, state.commands);
+}
+
+function renderCompletionList(): void {
+  const matches = currentMatches();
+  if (active >= matches.length) {
+    active = 0;
+  }
+  completions.replaceChildren(...(matches.length > 0 ? [renderCompletions(matches, active)] : []));
+}
+
+function complete(name: string): void {
+  input.value = `/${name} `;
+  vscode.setState({ draft: input.value });
+  dismissed = true;
+  renderCompletionList();
+  input.focus();
+}
+
 function render(s: ConversationState): void {
   state = s;
   sendButton.textContent = t("send");
@@ -133,6 +173,9 @@ function render(s: ConversationState): void {
   sendButton.hidden = s.busy;
   sendButton.disabled = noFolder;
   renderBanner(s);
+  renderHistory(s);
+  chips.replaceChildren(...(s.attachments.length > 0 ? [renderAttachments(s.attachments, strings)] : []));
+  renderCompletionList();
   renderThread(s);
 }
 
@@ -140,7 +183,7 @@ function render(s: ConversationState): void {
 
 function send(): void {
   const text = input.value;
-  if (!state || state.busy || text.trim() === "" || input.disabled) {
+  if (!state || state.busy || (text.trim() === "" && state.attachments.length === 0) || input.disabled) {
     return;
   }
   post({ type: "send", text });
@@ -149,12 +192,41 @@ function send(): void {
 }
 
 input.addEventListener("keydown", (e) => {
+  const matches = currentMatches();
+  if (matches.length > 0 && !e.isComposing) {
+    switch (e.key) {
+      case "ArrowDown":
+      case "ArrowUp":
+        e.preventDefault();
+        active = (active + (e.key === "ArrowDown" ? 1 : matches.length - 1)) % matches.length;
+        renderCompletionList();
+        return;
+      case "Tab":
+      case "Enter":
+        if (!e.shiftKey) {
+          e.preventDefault();
+          complete(matches[active].name);
+          return;
+        }
+        break;
+      case "Escape":
+        e.preventDefault();
+        dismissed = true;
+        renderCompletionList();
+        return;
+    }
+  }
   if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
     e.preventDefault();
     send();
   }
 });
-input.addEventListener("input", () => vscode.setState({ draft: input.value }));
+input.addEventListener("input", () => {
+  vscode.setState({ draft: input.value });
+  dismissed = false;
+  active = 0;
+  renderCompletionList();
+});
 
 thread.addEventListener(
   "toggle",
@@ -192,6 +264,21 @@ document.addEventListener("click", (e) => {
       break;
     case "pickFolder":
       post({ type: "pickFolder" });
+      break;
+    case "detach":
+      if (d.id) {
+        post({ type: "detach", id: d.id });
+      }
+      break;
+    case "load":
+      if (d.sessionId && !state?.busy) {
+        post({ type: "load", sessionId: d.sessionId });
+      }
+      break;
+    case "complete":
+      if (d.name) {
+        complete(d.name);
+      }
       break;
     case "openDiff":
       if (d.toolCallId) {

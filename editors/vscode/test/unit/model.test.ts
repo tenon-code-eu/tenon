@@ -119,6 +119,27 @@ describe("Conversation.apply", () => {
     expect(c.state.commands).toEqual([{ name: "fix", description: "Fix it" }]);
   });
 
+  it("a usage_update with tenon's provider updates the provider of the meta", () => {
+    const c = conv();
+    c.setMeta({ provider: "mistral", jurisdiction: "eu" });
+    const usage = (meta: unknown, sessionId = SID) =>
+      c.apply(n({ sessionUpdate: "usage_update", used: 10, size: 32000, _meta: meta } as SessionUpdate, sessionId));
+    usage({ tenon: { input: 10, provider: "scaleway" } });
+    expect(c.state.meta).toEqual({ provider: "scaleway", jurisdiction: "eu" });
+    usage({ tenon: { input: 10 } });
+    usage({ tenon: { provider: 3 } });
+    usage(undefined);
+    expect(c.state.meta).toEqual({ provider: "scaleway", jurisdiction: "eu" });
+    usage({ tenon: { provider: "other" } }, "s2");
+    expect(c.state.meta?.provider).toBe("scaleway");
+  });
+
+  it("keeps attachment labels for the webview", () => {
+    const c = conv();
+    c.setAttachments([{ id: "a1", label: "a.go:1-2" }]);
+    expect(c.state.attachments).toEqual([{ id: "a1", label: "a.go:1-2" }]);
+  });
+
   it("ignores updates of another session", () => {
     const c = conv();
     c.apply(n({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "x" } }, "other"));

@@ -14,6 +14,7 @@ describe("isFromWebview", () => {
       { type: "ready" },
       { type: "restart" },
       { type: "showLogs" },
+      { type: "detach", id: "a1" },
     ]) {
       expect(isFromWebview(m), JSON.stringify(m)).toBe(true);
     }
@@ -38,6 +39,9 @@ describe("isFromWebview", () => {
       { type: "cancel", now: true },
       { type: "__proto__" },
       { type: "toString" },
+      { type: "detach", id: "" },
+      { type: "detach", id: 1 },
+      { type: "send", text: "hi", attachments: [{ type: "resource", resource: { uri: "file:///etc/passwd", text: "x" } }] },
     ]) {
       expect(isFromWebview(m), JSON.stringify(m)).toBe(false);
     }

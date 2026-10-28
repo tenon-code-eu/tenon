@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from "vitest";
 import type { Item } from "../../src/model";
-import { renderItem, renderMarkdown } from "../../webview/render";
+import { matchCommands, renderAttachments, renderCompletions, renderItem, renderMarkdown, renderSessions } from "../../webview/render";
 
 function html(src: string): HTMLElement {
   const div = document.createElement("div");
@@ -190,5 +190,62 @@ describe("renderItem", () => {
     );
     const b = el.querySelector<HTMLButtonElement>("button[data-action=openDiff]");
     expect(b?.dataset.toolCallId).toBe("t1");
+  });
+});
+
+describe("composer extras", () => {
+  const commands = [
+    { name: "fix", description: "Fix it" },
+    { name: "fmt", description: "Format" },
+    { name: "review", description: "Review <b>x</b>" },
+  ];
+
+  it("matchCommands completes a leading /name prefix only", () => {
+    expect(matchCommands("/f", commands).map((c) => c.name)).toEqual(["fix", "fmt"]);
+    expect(matchCommands("/", commands)).toHaveLength(3);
+    expect(matchCommands("/re", commands).map((c) => c.name)).toEqual(["review"]);
+    expect(matchCommands("/fix it", commands)).toEqual([]);
+    expect(matchCommands("fix", commands)).toEqual([]);
+    expect(matchCommands(" /f", commands)).toEqual([]);
+    expect(matchCommands("/zz", commands)).toEqual([]);
+  });
+
+  it("renderCompletions lists names and descriptions as text, the active one marked", () => {
+    const el = renderCompletions(commands, 2);
+    const items = el.querySelectorAll("[data-action=complete]");
+    expect(items).toHaveLength(3);
+    expect((items[2] as HTMLElement).dataset.name).toBe("review");
+    expect(items[2].classList.contains("active")).toBe(true);
+    expect(el.querySelector("b")).toBeNull();
+    expect(el.textContent).toContain("Review <b>x</b>");
+  });
+
+  it("renderAttachments shows removable chips", () => {
+    const el = renderAttachments([{ id: "a1", label: "<img src=x>.go:1-2" }], { detach: "Remove" });
+    const chip = el.querySelector(".chip");
+    expect(chip?.textContent).toContain("<img src=x>.go:1-2");
+    expect(el.querySelector("img")).toBeNull();
+    const x = el.querySelector<HTMLElement>("[data-action=detach]");
+    expect(x?.dataset.id).toBe("a1");
+    expect(x?.getAttribute("aria-label")).toBe("Remove");
+  });
+
+  it("renderSessions lists sessions with title and date; the current one is marked", () => {
+    const el = renderSessions(
+      [
+        { sessionId: "s2", title: "second <script>", updatedAt: "2026-10-28T10:00:00Z" },
+        { sessionId: "s1", title: "", updatedAt: "" },
+      ],
+      "s1",
+      { sessions: "Sessions", untitled: "Untitled" },
+    );
+    expect(el.querySelector("summary")?.textContent).toContain("Sessions");
+    const rows = el.querySelectorAll<HTMLElement>("[data-action=load]");
+    expect([...rows].map((r) => r.dataset.sessionId)).toEqual(["s2", "s1"]);
+    expect(rows[0].textContent).toContain("second <script>");
+    expect(el.querySelector("script")).toBeNull();
+    expect(rows[1].textContent).toContain("Untitled");
+    expect(rows[1].classList.contains("current")).toBe(true);
+    expect(rows[0].querySelector("time")?.getAttribute("datetime")).toBe("2026-10-28T10:00:00Z");
   });
 });

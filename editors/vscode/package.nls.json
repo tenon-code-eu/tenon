@@ -6,5 +6,7 @@
   "command.openChat": "Open Chat",
   "command.newSession": "New Session",
   "viewContainer.title": "tenon",
-  "view.chat": "Chat"
+  "view.chat": "Chat",
+  "command.attachSelection": "Attach Selection to Chat",
+  "command.attachFile": "Attach File to Chat"
 }

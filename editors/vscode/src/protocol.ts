@@ -15,7 +15,8 @@ export type FromWebview =
   | { type: "pickFolder" }
   | { type: "ready" }
   | { type: "restart" }
-  | { type: "showLogs" };
+  | { type: "showLogs" }
+  | { type: "detach"; id: string };
 
 /** Required string fields per message type; empty identifiers are refused. */
 const SHAPES: Record<FromWebview["type"], { field: string; nonEmpty: boolean }[]> = {
@@ -32,6 +33,7 @@ const SHAPES: Record<FromWebview["type"], { field: string; nonEmpty: boolean }[]
   ready: [],
   restart: [],
   showLogs: [],
+  detach: [{ field: "id", nonEmpty: true }],
 };
 
 export function isFromWebview(x: unknown): x is FromWebview {

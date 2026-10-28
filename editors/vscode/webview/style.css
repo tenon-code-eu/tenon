@@ -279,3 +279,101 @@ pre {
 .actions .send:hover:not(:disabled) {
   background: var(--vscode-button-hoverBackground);
 }
+
+/* Past sessions (session/list), above the thread. */
+.sessions {
+  margin: 0 var(--gap);
+  border-bottom: 1px solid var(--vscode-panel-border, transparent);
+}
+
+.sessions summary {
+  cursor: pointer;
+  padding: 2px 0;
+  color: var(--vscode-descriptionForeground);
+}
+
+.session-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 30vh;
+  overflow-y: auto;
+}
+
+.session-list .session {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--gap);
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 2px 4px;
+}
+
+.session-list .session.current {
+  background: var(--vscode-list-activeSelectionBackground);
+  color: var(--vscode-list-activeSelectionForeground);
+}
+
+.session-list .title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-list time {
+  flex: none;
+  color: var(--vscode-descriptionForeground);
+}
+
+/* Attachment chips and the / completion list, above the input. */
+.attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 0 0 4px;
+  color: var(--vscode-badge-foreground);
+  background: var(--vscode-badge-background);
+}
+
+.chip .detach {
+  padding: 0 4px;
+  background: transparent;
+  border: none;
+  color: inherit;
+}
+
+.completions {
+  display: flex;
+  flex-direction: column;
+  max-height: 30vh;
+  overflow-y: auto;
+  border: 1px solid var(--vscode-editorWidget-border, transparent);
+  background: var(--vscode-editorWidget-background);
+}
+
+.completion {
+  display: flex;
+  gap: var(--gap);
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 1px 4px;
+}
+
+.completion.active {
+  background: var(--vscode-list-activeSelectionBackground);
+  color: var(--vscode-list-activeSelectionForeground);
+}
+
+.completion .description {
+  color: var(--vscode-descriptionForeground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

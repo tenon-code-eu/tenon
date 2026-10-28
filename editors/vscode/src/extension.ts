@@ -6,6 +6,7 @@ import type { InitializeResponse, StopReason } from "@agentclientprotocol/sdk";
 import * as vscode from "vscode";
 import { Agent, type ClientHandlers } from "./agent";
 import { Chat } from "./chat";
+import { fileBlock, selectionBlock, selectionLabel } from "./context";
 import { DIFF_SCHEME, DiffProvider, type OpenedDiff } from "./diff";
 import { formatVersion, meetsMinimum, MINIMUM_VERSION, parseVersion, readVersion, resolveBinary } from "./binary";
 import { OutputLog } from "./log";
@@ -13,6 +14,7 @@ import { Conversation, type ConversationState } from "./model";
 import { onDidShow, showError, showInfoChoice, showWarning, type Shown } from "./notify";
 import { CHAT_VIEW, ChatViewProvider } from "./panel";
 import { Permissions } from "./permissions";
+import { StatusBar } from "./status";
 
 export type { Shown } from "./notify";
 
@@ -36,6 +38,10 @@ export interface TenonTestApi {
   openDiff(toolCallId: string): Promise<void>;
   /** The two documents and the title of the last diff opened. */
   lastDiff(): OpenedDiff | undefined;
+  /** A click on an entry of the Sessions list. */
+  load(sessionId: string): Promise<void>;
+  /** The status bar item: its text and whether it shows the warning colour. */
+  status(): { text: string; warning: boolean };
 }
 
 /** The only URL the extension opens. */
@@ -274,6 +280,36 @@ class Controller implements vscode.Disposable {
 
 let controller: Controller | undefined;
 
+/** "Attach selection": the selection as a resource (the file when nothing is selected). */
+function attachSelection(chat: Chat): boolean {
+  const ed = vscode.window.activeTextEditor;
+  if (!ed) {
+    return false;
+  }
+  const doc = ed.document;
+  const name = vscode.workspace.asRelativePath(doc.uri, false);
+  const sel = ed.selection;
+  if (sel.isEmpty) {
+    return attachFile(chat, doc.uri);
+  }
+  const start = sel.start.line + 1;
+  // A selection ending at column 0 stops on the line before.
+  const end = sel.end.character === 0 && sel.end.line > sel.start.line ? sel.end.line : sel.end.line + 1;
+  chat.addAttachment(selectionBlock(doc.uri.toString(), doc.getText(sel), start, end), selectionLabel(name, start, end));
+  return true;
+}
+
+/** "Attach file": a link to a file on disk (tenon reads it, under permission). */
+function attachFile(chat: Chat, uri: vscode.Uri | undefined): boolean {
+  const target = uri instanceof vscode.Uri ? uri : vscode.window.activeTextEditor?.document.uri;
+  if (target?.scheme !== "file") {
+    return false;
+  }
+  const name = vscode.workspace.asRelativePath(target, false);
+  chat.addAttachment(fileBlock(target.toString(), name), name);
+  return true;
+}
+
 export function activate(ctx: vscode.ExtensionContext): Promise<TenonTestApi | undefined> {
   const log = new OutputLog();
   const conv = new Conversation();
@@ -288,7 +324,18 @@ export function activate(ctx: vscode.ExtensionContext): Promise<TenonTestApi | u
   controller = c;
   const chat = new Chat(c, conv, log, () => log.show(), { permissions, diffs });
   const view = new ChatViewProvider(ctx.extensionUri, chat, log);
+  const status = new StatusBar({
+    item: vscode.window.createStatusBarItem("tenon.status", vscode.StatusBarAlignment.Left, 0),
+    warningColor: new vscode.ThemeColor("statusBarItem.warningBackground"),
+    l10n: vscode.l10n,
+  });
+  const openChat = async (): Promise<void> => {
+    chat.touch();
+    await vscode.commands.executeCommand(`${CHAT_VIEW}.focus`);
+  };
   ctx.subscriptions.push(
+    status,
+    conv.onDidChange((s) => status.update(s.meta)),
     log,
     c,
     chat,
@@ -298,9 +345,16 @@ export function activate(ctx: vscode.ExtensionContext): Promise<TenonTestApi | u
     }),
     vscode.commands.registerCommand("tenon.restart", () => c.restart()),
     vscode.commands.registerCommand("tenon.showLogs", () => log.show()),
-    vscode.commands.registerCommand("tenon.openChat", async () => {
-      chat.touch();
-      await vscode.commands.executeCommand(`${CHAT_VIEW}.focus`);
+    vscode.commands.registerCommand("tenon.openChat", openChat),
+    vscode.commands.registerCommand("tenon.attachSelection", async () => {
+      if (attachSelection(chat)) {
+        await openChat();
+      }
+    }),
+    vscode.commands.registerCommand("tenon.attachFile", async (uri?: vscode.Uri) => {
+      if (attachFile(chat, uri)) {
+        await openChat();
+      }
     }),
     vscode.commands.registerCommand("tenon.newSession", async () => {
       await vscode.commands.executeCommand(`${CHAT_VIEW}.focus`);
@@ -332,6 +386,8 @@ export function activate(ctx: vscode.ExtensionContext): Promise<TenonTestApi | u
       },
       openDiff: (toolCallId: string) => diffs.open(toolCallId),
       lastDiff: () => diffs.lastOpened(),
+      load: (sessionId: string) => chat.load(sessionId),
+      status: () => ({ text: status.text, warning: status.warning }),
     };
   }
 

@@ -2,6 +2,8 @@
 // createElement / textContent from a fixed tag set (p, pre, code, em, strong,
 // ul, ol, li, a, h1–h4, blockquote, plus div/button for the Copy control):
 // raw HTML in model output stays text, and only `https:` links become `a`.
+// The composer extras (chips, `/` completions, sessions) use span, details,
+// summary, time and button, with text only.
 // Nothing here ever assigns innerHTML.
 import type { Item } from "../src/model";
 
@@ -315,4 +317,87 @@ export function renderItem(item: Item, strings: Strings): HTMLElement {
       return e;
     }
   }
+}
+
+export interface Command {
+  name: string;
+  description: string;
+}
+
+/** Commands completing a leading `/name` (no space typed yet); none otherwise. */
+export function matchCommands(input: string, commands: Command[]): Command[] {
+  const m = /^\/(\S*)$/.exec(input);
+  if (!m) {
+    return [];
+  }
+  return commands.filter((c) => c.name.startsWith(m[1]));
+}
+
+/** The `/` completion list; active is the highlighted index. */
+export function renderCompletions(matches: Command[], active: number): HTMLElement {
+  const list = el("div", "completions");
+  list.setAttribute("role", "listbox");
+  matches.forEach((c, i) => {
+    const b = el("button", i === active ? "completion active" : "completion");
+    b.setAttribute("type", "button");
+    b.setAttribute("role", "option");
+    b.dataset.action = "complete";
+    b.dataset.name = c.name;
+    b.append(el("span", "name", `/${c.name}`), el("span", "description", c.description));
+    list.appendChild(b);
+  });
+  return list;
+}
+
+/** Attachment chips above the input, each with a remove button. */
+export function renderAttachments(list: { id: string; label: string }[], strings: Strings): HTMLElement {
+  const row = el("div", "attachments");
+  for (const a of list) {
+    const chip = el("span", "chip");
+    chip.appendChild(el("span", "label", a.label));
+    const x = el("button", "detach", "×");
+    x.setAttribute("type", "button");
+    x.setAttribute("aria-label", str(strings, "detach"));
+    x.title = str(strings, "detach");
+    x.dataset.action = "detach";
+    x.dataset.id = a.id;
+    chip.appendChild(x);
+    row.appendChild(chip);
+  }
+  return row;
+}
+
+function formatDate(iso: string): string {
+  const d = new Date(iso);
+  if (iso === "" || Number.isNaN(d.getTime())) {
+    return "";
+  }
+  return d.toLocaleString(document.documentElement.lang || undefined, { dateStyle: "short", timeStyle: "short" });
+}
+
+/** Past sessions (tenon's order, most recent first); a click loads one. */
+export function renderSessions(
+  sessions: { sessionId: string; title: string; updatedAt: string }[],
+  current: string | undefined,
+  strings: Strings,
+): HTMLDetailsElement {
+  const d = el("details", "sessions");
+  d.appendChild(el("summary", undefined, `${str(strings, "sessions")} (${sessions.length})`));
+  const list = el("div", "session-list");
+  for (const s of sessions) {
+    const b = el("button", s.sessionId === current ? "session current" : "session");
+    b.setAttribute("type", "button");
+    b.dataset.action = "load";
+    b.dataset.sessionId = s.sessionId;
+    b.appendChild(el("span", "title", s.title || str(strings, "untitled")));
+    const when = formatDate(s.updatedAt);
+    if (when) {
+      const t = el("time", undefined, when);
+      t.setAttribute("datetime", s.updatedAt);
+      b.appendChild(t);
+    }
+    list.appendChild(b);
+  }
+  d.appendChild(list);
+  return d;
 }

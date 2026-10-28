@@ -45,6 +45,8 @@ export interface ConversationState {
   busy: boolean;
   commands: { name: string; description: string }[];
   sessions: { sessionId: string; title: string; updatedAt: string }[];
+  /** Chips above the input; the blocks themselves stay on the host (Chat). */
+  attachments: { id: string; label: string }[];
   meta?: Record<string, unknown>;
   banner?: Banner;
 }
@@ -94,7 +96,7 @@ function toolOutput(content: ToolCallContent[]): { output: string; diff?: { path
 }
 
 export class Conversation {
-  state: ConversationState = { items: [], busy: false, commands: [], sessions: [] };
+  state: ConversationState = { items: [], busy: false, commands: [], sessions: [], attachments: [] };
 
   private readonly listeners = new Set<Listener>();
   private timer: ReturnType<typeof setTimeout> | undefined;
@@ -172,6 +174,11 @@ export class Conversation {
 
   setBanner(banner: Banner | undefined): void {
     this.state.banner = banner;
+    this.changed();
+  }
+
+  setAttachments(attachments: ConversationState["attachments"]): void {
+    this.state.attachments = attachments;
     this.changed();
   }
 
@@ -262,6 +269,16 @@ export class Conversation {
       case "available_commands_update":
         this.state.commands = u.availableCommands.map((c) => ({ name: c.name, description: c.description }));
         break;
+      case "usage_update": {
+        // The provider of the call (it changes on a fallback): status bar.
+        const t = u._meta?.tenon;
+        const provider = typeof t === "object" && t !== null ? (t as Record<string, unknown>).provider : undefined;
+        if (typeof provider !== "string" || provider === "" || this.state.meta?.provider === provider) {
+          return;
+        }
+        this.state.meta = { ...this.state.meta, provider };
+        break;
+      }
       case "session_info_update": {
         const s = this.state.sessions.find((x) => x.sessionId === n.sessionId);
         if (!s) {

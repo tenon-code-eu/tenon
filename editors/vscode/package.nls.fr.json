@@ -6,5 +6,7 @@
   "command.openChat": "Ouvrir la discussion",
   "command.newSession": "Nouvelle session",
   "viewContainer.title": "tenon",
-  "view.chat": "Discussion"
+  "view.chat": "Discussion",
+  "command.attachSelection": "Joindre la sélection à la discussion",
+  "command.attachFile": "Joindre le fichier à la discussion"
 }

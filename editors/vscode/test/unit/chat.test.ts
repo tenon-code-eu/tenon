@@ -185,3 +185,77 @@ describe("Chat permissions and diffs", () => {
     await vi.waitFor(() => expect(diffs.open).toHaveBeenCalledWith("c1"));
   });
 });
+
+describe("Chat attachments and history", () => {
+  beforeEach(() => {
+    (vscode.workspace as { workspaceFolders: unknown }).workspaceFolders = [{ uri: { fsPath: "/p" } }];
+  });
+
+  const file = { type: "resource_link" as const, uri: "file:///p/a.go", name: "a.go" };
+  const sel = { type: "resource" as const, resource: { uri: "file:///p/b.go#L1-2", text: "y", mimeType: "text/plain" } };
+
+  it("sends the text then the attachments, and clears them", async () => {
+    const prompt = vi.fn().mockResolvedValue({ stopReason: "end_turn" });
+    const { chat, conv } = setup({ newSession: vi.fn().mockResolvedValue({ sessionId: "s1" }), prompt, listSessions: vi.fn().mockResolvedValue({ sessions: [] }) });
+    chat.addAttachment(file, "a.go");
+    chat.addAttachment(sel, "b.go:1-2");
+    expect(conv.state.attachments.map((a) => a.label)).toEqual(["a.go", "b.go:1-2"]);
+    await chat.send("fix");
+    expect((prompt.mock.calls[0][0] as { prompt: unknown }).prompt).toEqual([{ type: "text", text: "fix" }, file, sel]);
+    expect(conv.state.attachments).toEqual([]);
+  });
+
+  it("detach removes one chip; an empty text with attachments is sent from the webview", async () => {
+    const prompt = vi.fn().mockResolvedValue({ stopReason: "end_turn" });
+    const { chat, conv } = setup({ newSession: vi.fn().mockResolvedValue({ sessionId: "s1" }), prompt, listSessions: vi.fn().mockResolvedValue({ sessions: [] }) });
+    chat.addAttachment(file, "a.go");
+    chat.addAttachment(sel, "b.go:1-2");
+    chat.handle({ type: "detach", id: conv.state.attachments[0].id });
+    chat.handle({ type: "detach", id: "unknown" });
+    expect(conv.state.attachments.map((a) => a.label)).toEqual(["b.go:1-2"]);
+    chat.handle({ type: "send", text: "" });
+    await vi.waitFor(() => expect(prompt).toHaveBeenCalled());
+    expect((prompt.mock.calls[0][0] as { prompt: unknown }).prompt).toEqual([sel]);
+  });
+
+  it("an empty text without attachments is not sent", async () => {
+    const prompt = vi.fn();
+    const { chat } = setup({ prompt });
+    chat.handle({ type: "send", text: " " });
+    await new Promise((r) => setTimeout(r, 5));
+    expect(prompt).not.toHaveBeenCalled();
+  });
+
+  it("refreshes the session list after each turn, for the session's folder", async () => {
+    const listSessions = vi.fn().mockResolvedValue({
+      sessions: [{ sessionId: "s1", cwd: "/p", title: "fix", updatedAt: "2026-10-28T10:00:00Z" }],
+    });
+    const { chat, conv } = setup({
+      newSession: vi.fn().mockResolvedValue({ sessionId: "s1" }),
+      prompt: vi.fn().mockResolvedValue({ stopReason: "end_turn" }),
+      listSessions,
+    });
+    await chat.send("fix");
+    await vi.waitFor(() => expect(conv.state.sessions).toHaveLength(1));
+    expect(listSessions).toHaveBeenCalledWith({ cwd: "/p" });
+    expect(conv.state.sessions[0]).toEqual({ sessionId: "s1", title: "fix", updatedAt: "2026-10-28T10:00:00Z" });
+  });
+
+  it("refreshSessions logs a failure and keeps the list", async () => {
+    const lines: string[] = [];
+    const agent = { connection: { listSessions: vi.fn().mockRejectedValue(new Error("boom")) }, hasExited: false, onExit: () => ({ dispose: () => undefined }) } as unknown as Agent;
+    const conv = new Conversation();
+    conv.setSessions([{ sessionId: "old", title: "t", updatedAt: "" }]);
+    const chat = new Chat({ ready: () => Promise.resolve(agent), onDidStart: new vscode.EventEmitter<Agent>().event }, conv, { info: (l: string) => lines.push(l), stderr: () => undefined }, () => undefined);
+    await chat.refreshSessions();
+    expect(conv.state.sessions).toHaveLength(1);
+    expect(lines.join("\n")).toContain("boom");
+  });
+
+  it("a webview load message loads that session", async () => {
+    const loadSession = vi.fn().mockResolvedValue({});
+    const { chat } = setup({ loadSession });
+    chat.handle({ type: "load", sessionId: "s9" });
+    await vi.waitFor(() => expect(loadSession).toHaveBeenCalledWith({ sessionId: "s9", cwd: "/p", mcpServers: [] }));
+  });
+});

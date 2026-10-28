@@ -1,9 +1,10 @@
 // The chat of the window: one Conversation shown by the panel, fed by the
 // SessionController of the current `tenon acp`. tenon starts on first use; a
 // window without a folder never starts it nor sends session/new.
-import type { StopReason } from "@agentclientprotocol/sdk";
+import type { ContentBlock, StopReason } from "@agentclientprotocol/sdk";
 import * as vscode from "vscode";
 import type { Agent } from "./agent";
+import { buildPrompt } from "./context";
 import type { Log } from "./log";
 import type { Conversation } from "./model";
 import type { FromWebview } from "./protocol";
@@ -44,6 +45,9 @@ export function webviewStrings(): Record<string, string> {
     openFolder: vscode.l10n.t("Open folder"),
     busy: vscode.l10n.t("Working…"),
     refused: vscode.l10n.t("Refused"),
+    detach: vscode.l10n.t("Remove"),
+    sessions: vscode.l10n.t("Sessions"),
+    untitled: vscode.l10n.t("Untitled session"),
   };
 }
 
@@ -56,6 +60,9 @@ export class Chat implements vscode.Disposable {
   /** A session/load after a restart; ensureSession waits for it. */
   private resuming: Promise<void> | undefined;
   private readonly subs: vscode.Disposable[] = [];
+  /** Attachments of the next prompt, built from the editor (never from the webview). */
+  private attachments: { id: string; block: ContentBlock; label: string }[] = [];
+  private nextAttachment = 1;
 
   constructor(
     private readonly agents: AgentSource,
@@ -89,19 +96,23 @@ export class Chat implements vscode.Disposable {
     }
     this.stopRequested = false;
     this.conv.setBusy(true);
+    const blocks = buildPrompt(text, this.attachments.map((a) => a.block));
+    this.setAttachments([]);
     const turn = (async (): Promise<StopReason> => {
       try {
         const s = await this.ensureSession();
         if (this.stopRequested) {
           return "cancelled";
         }
-        return await s.prompt([{ type: "text", text }]);
+        return await s.prompt(blocks);
       } finally {
         // A card never outlives its turn.
         this.extras.permissions?.cancelAll();
         // Only one turn exists at a time: send() refuses while it is set.
         this.turn = undefined;
         this.conv.setBusy(false);
+        // The turn is in tenon's journal now; a dead tenon is not restarted for this.
+        void this.refreshSessions(false);
       }
     })();
     this.turn = turn;
@@ -121,6 +132,41 @@ export class Chat implements vscode.Disposable {
     } finally {
       this.extras.permissions?.cancelAll();
     }
+  }
+
+  /** Adds a chip; its block goes out with the next prompt. */
+  addAttachment(block: ContentBlock, label: string): void {
+    this.setAttachments([...this.attachments, { id: `a${this.nextAttachment++}`, block, label }]);
+  }
+
+  removeAttachment(id: string): void {
+    this.setAttachments(this.attachments.filter((a) => a.id !== id));
+  }
+
+  /**
+   * session/list for the open session's folder (the first folder before
+   * any session); failures go to the log and keep the list shown. With
+   * start false, only a running tenon is asked.
+   */
+  async refreshSessions(start = true): Promise<void> {
+    const cwd = this.conv.state.cwd ?? this.folders()[0];
+    if (!cwd) {
+      return;
+    }
+    try {
+      const s = start ? await this.current() : this.session;
+      if (!s || s.agent.hasExited) {
+        return;
+      }
+      await s.list(cwd);
+    } catch (err) {
+      this.log.info(`session/list: ${errorMessage(err)}`);
+    }
+  }
+
+  private setAttachments(list: { id: string; block: ContentBlock; label: string }[]): void {
+    this.attachments = list;
+    this.conv.setAttachments(list.map(({ id, label }) => ({ id, label })));
   }
 
   /** Stops the turn in progress and waits for its end. */
@@ -162,7 +208,7 @@ export class Chat implements vscode.Disposable {
       void p.catch((err: unknown) => this.log.info(`chat ${m.type}: ${errorMessage(err)}`));
     switch (m.type) {
       case "send":
-        if (!this.turn && m.text.trim() !== "") {
+        if (!this.turn && (m.text.trim() !== "" || this.attachments.length > 0)) {
           run(this.send(m.text));
         }
         break;
@@ -195,6 +241,9 @@ export class Chat implements vscode.Disposable {
         if (this.extras.diffs) {
           run(this.extras.diffs.open(m.toolCallId));
         }
+        break;
+      case "detach":
+        this.removeAttachment(m.id);
         break;
       case "ready":
         break;
