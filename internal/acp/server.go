@@ -343,7 +343,8 @@ func (s *Server) prompt(ctx context.Context, params json.RawMessage) (any, error
 		return map[string]any{"stopReason": "cancelled"}, nil
 	}
 	if serr != nil {
-		return nil, &Error{Code: CodeInternal, Message: serr.Error()}
+		// Masqué comme en mode headless : l'erreur peut citer un secret.
+		return nil, &Error{Code: CodeInternal, Message: e.s.Redact(serr.Error())}
 	}
 	return map[string]any{"stopReason": stopReason(reason)}, nil
 }

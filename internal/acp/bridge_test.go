@@ -455,6 +455,17 @@ func TestSubmitError(t *testing.T) {
 	}
 }
 
+func TestSubmitErrorMasked(t *testing.T) {
+	b := scripted(nil, func(ctx context.Context, f *fakeSession) error { return errors.New("auth failed: key SECRET") })
+	h := newHarness(t, b)
+	h.init()
+	id := h.newSession()
+	r := h.call("session/prompt", map[string]any{"sessionId": id, "prompt": []any{text("x")}})
+	if r.Error == nil || r.Error.Message != "auth failed: key [MASKED]" {
+		t.Fatalf("got %+v %s", r.Error, r.Result)
+	}
+}
+
 func TestNoticesAndCommands(t *testing.T) {
 	b := &fakeBackend{newFn: func() *fakeSession {
 		s := newFakeSession("s1")
