@@ -56,13 +56,14 @@ A version that fails an item is not published.
 
 Publish only the `.vsix` files covered by the signed `SHA256SUMS`, after the signature check above. Never repackage them at this step.
 
-- [ ] Manual, once: create the `tenon-code-eu` publisher on the [Visual Studio Marketplace](https://marketplace.visualstudio.com/manage) and the `tenon-code-eu` namespace on [Open VSX](https://open-vsx.org) (Eclipse account, publisher agreement, `npx ovsx create-namespace tenon-code-eu -p $OVSX_PAT`). Create the tokens: `VSCE_PAT` (Azure DevOps personal access token, scope Marketplace > Manage) and `OVSX_PAT` (Open VSX access token). The tokens stay on the maintainer's machine, never in the repository or the CI.
-- [ ] From `editors/vscode` (so that `npx` runs the versions pinned in `package-lock.json`, after `npm ci`):
-  - Marketplace: `VSCE_PAT=… npx vsce publish --packagePath ../../dist/tenon-vscode-*.vsix`.
-  - Open VSX: `npx ovsx publish --packagePath ../../dist/tenon-vscode-*.vsix -p $OVSX_PAT`. Use `--packagePath`: the positional argument takes one file only.
+- [ ] Manual, once:
+  - Visual Studio Marketplace: sign in with a Microsoft account on <https://marketplace.visualstudio.com/manage> and create the `tenon-code-eu` publisher. No Azure DevOps token is needed: the extension is uploaded through the web page.
+  - Open VSX: sign in on <https://open-vsx.org> with GitHub, link an Eclipse account and sign the publisher agreement, create an access token (`OVSX_PAT`), then `npx ovsx create-namespace tenon-code-eu -p $OVSX_PAT` from `editors/vscode`. The token stays on the maintainer's machine, never in the repository or the CI.
+- [ ] Open VSX, from `editors/vscode` (so that `npx` runs the version pinned in `package-lock.json`, after `npm ci`): `npx ovsx publish --packagePath ../../dist/tenon-vscode-*.vsix -p $OVSX_PAT`. Use `--packagePath`: the positional argument takes one file only.
+- [ ] Marketplace, in the browser: on <https://marketplace.visualstudio.com/manage/publishers/tenon-code-eu>, upload one `dist/tenon-vscode-<platform>-X.Y.Z.vsix` (first release: **New extension > Visual Studio Code**; later releases: **… > Update** on the `tenon` extension), then **… > Update** with each of the other three platform files. Each `.vsix` carries its target platform. Wait for the verification to finish before uploading the next file.
 - [ ] Install `tenon-code-eu.tenon` from each registry on macOS and on Linux. **tenon: Show Logs** shows the bundled binary and its version `X.Y.Z`.
 - [ ] Known `npm audit` reports in `editors/vscode`: high and moderate issues in dev-only dependencies, as of 2026-10-28: the packaging tools (`@vscode/vsce` 4.0.0: `@azure/msal-node`, `@azure/identity`, `qs`; `ovsx` 1.2.0 and its own `@vscode/vsce` 3.9.2: `undici`, `markdown-it`, `fast-uri`) and the unit-test DOM `happy-dom`. None of them is in the extension: the `.vsix` contains only the esbuild bundle, whose single runtime dependency is `@agentclientprotocol/sdk`. The fixed versions were less than two weeks old on 2026-10-28. Check again at each release and update when a fix is old enough.
-- [ ] `@vscode/vsce-sign`: npm 11 may skip its install script (`allowScripts`). `vsce package` and `vsce publish --packagePath` do not use it: only Marketplace signing (`--sign-tool`, `--sigzipPath`) and `vsce verify-signature` do, and this release does not use them.
+- [ ] `@vscode/vsce-sign`: npm 11 may skip its install script (`allowScripts`). `vsce package` does not use it: only Marketplace signing (`--sign-tool`, `--sigzipPath`) and `vsce verify-signature` do, and this release does not use them.
 
 ## Verified sources
 
