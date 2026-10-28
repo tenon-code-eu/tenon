@@ -20,11 +20,12 @@ export interface ResolveOptions {
  * Resolution order: `tenon.path` → bundled `<extensionPath>/bin/tenon` →
  * `tenon` on PATH. An explicit setting that points to a missing file yields
  * undefined: the user chose that binary, falling back would hide the mistake.
+ * A relative setting is refused the same way (it would depend on the cwd).
  */
 export function resolveBinary(opts: ResolveOptions): string | undefined {
   const setting = opts.setting?.trim();
   if (setting) {
-    return opts.exists(setting) ? setting : undefined;
+    return path.isAbsolute(setting) && opts.exists(setting) ? setting : undefined;
   }
   const bundled = path.join(opts.extensionPath, "bin", "tenon");
   if (opts.exists(bundled)) {

@@ -24,6 +24,16 @@ export interface ClientHandlers {
 /** Time given to tenon to exit after stdin is closed, before SIGKILL. */
 const EXIT_GRACE_MS = 5_000;
 
+/** Time given to tenon to answer `initialize`. */
+const INIT_TIMEOUT_MS = 30_000;
+
+export interface StartOptions {
+  /** Default 30 s. */
+  initTimeoutMs?: number;
+  /** Aborting cancels a start in progress (the child is killed). */
+  signal?: AbortSignal;
+}
+
 export interface Exit {
   code: number | null;
 }
@@ -50,11 +60,25 @@ export class Agent {
     return this.child.pid;
   }
 
+  get hasExited(): boolean {
+    return this.child.exitCode !== null || this.child.signalCode !== null;
+  }
+
   /**
    * Spawns `bin acp` in cwdForSpawn and sends `initialize`. Rejects when the
-   * process cannot be spawned, exits first, or refuses initialize.
+   * process cannot be spawned, exits first, refuses initialize, does not
+   * answer within opts.initTimeoutMs, or opts.signal aborts; the child is
+   * killed and reaped before the promise rejects.
    */
-  static async start(bin: string, cwdForSpawn: string, log: Log, client: ClientHandlers): Promise<Agent> {
+  static async start(
+    bin: string,
+    cwdForSpawn: string,
+    log: Log,
+    client: ClientHandlers,
+    opts: StartOptions = {},
+  ): Promise<Agent> {
+    const timeoutMs = opts.initTimeoutMs ?? INIT_TIMEOUT_MS;
+    opts.signal?.throwIfAborted();
     log.info(`starting ${bin} acp (cwd ${cwdForSpawn})`);
     const child = spawn(bin, ["acp"], { cwd: cwdForSpawn, stdio: ["pipe", "pipe", "pipe"], env: process.env });
 
@@ -64,11 +88,24 @@ export class Agent {
         resolve({ code });
       });
     });
+    let timer: NodeJS.Timeout | undefined;
+    let onAbort: (() => void) | undefined;
     const failed = new Promise<never>((_, reject) => {
-      child.once("error", (err) => reject(new Error(`cannot start ${bin}: ${err.message}`)));
+      // "error" can fire again later (e.g. a failed kill): every one is logged,
+      // the first before initialize rejects the start.
+      child.on("error", (err) => {
+        log.info(`tenon process error: ${err.message}`);
+        reject(new Error(`cannot start ${bin}: ${err.message}`));
+      });
       void exited.then(({ code }) =>
         reject(new Error(`tenon exited before initialize (code ${code ?? "none"})`)),
       );
+      timer = setTimeout(
+        () => reject(new Error(`tenon did not answer initialize within ${timeoutMs} ms`)),
+        timeoutMs,
+      );
+      onAbort = () => reject(new Error("tenon start cancelled"));
+      opts.signal?.addEventListener("abort", onAbort, { once: true });
     });
     failed.catch(() => undefined);
 
@@ -102,10 +139,16 @@ export class Agent {
       log.info(`tenon ready (pid ${child.pid ?? "?"}, protocol ${init.protocolVersion})`);
       return new Agent(child, exited, connection, init);
     } catch (err) {
-      if (child.exitCode === null && child.signalCode === null) {
+      if (child.pid !== undefined && child.exitCode === null && child.signalCode === null) {
         child.kill("SIGKILL");
+        await exited;
       }
       throw err;
+    } finally {
+      clearTimeout(timer);
+      if (onAbort) {
+        opts.signal?.removeEventListener("abort", onAbort);
+      }
     }
   }
 
@@ -116,7 +159,7 @@ export class Agent {
   }
 
   private async stop(): Promise<void> {
-    if (this.child.exitCode !== null || this.child.signalCode !== null) {
+    if (this.hasExited) {
       return;
     }
     this.child.stdin.end();

@@ -32,6 +32,17 @@ describe("resolveBinary", () => {
     ).toBeUndefined();
   });
 
+  it("rejects a relative setting without falling back", () => {
+    expect(
+      resolveBinary({
+        setting: "bin/tenon",
+        extensionPath,
+        envPath: "/usr/bin",
+        exists: existing("bin/tenon", bundled, "/usr/bin/tenon"),
+      }),
+    ).toBeUndefined();
+  });
+
   it("ignores an empty or blank setting", () => {
     expect(
       resolveBinary({ setting: "  ", extensionPath, envPath: "", exists: existing(bundled) }),

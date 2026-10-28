@@ -48,9 +48,26 @@ function stubHandlers(log: Log): ClientHandlers {
   };
 }
 
+/** Integration tests shorten the initialize timeout; production keeps the default. */
+function testInitTimeout(): number | undefined {
+  if (process.env.TENON_VSCODE_TEST !== "1") {
+    return undefined;
+  }
+  const ms = Number(process.env.TENON_VSCODE_INIT_TIMEOUT_MS);
+  return ms > 0 ? ms : undefined;
+}
+
+/**
+ * Owns the one `tenon acp` of the window. Lifecycle operations run one after
+ * the other on a single promise chain, so overlapping restarts cannot leave
+ * two children; stop() first aborts a start in progress so it never waits on
+ * a hung initialize.
+ */
 class Controller implements vscode.Disposable {
   private starting: Promise<Agent> | undefined;
   private agent: Agent | undefined;
+  private abort: AbortController | undefined;
+  private queue: Promise<unknown> = Promise.resolve();
 
   constructor(
     private readonly ctx: vscode.ExtensionContext,
@@ -59,9 +76,19 @@ class Controller implements vscode.Disposable {
 
   /** Starts tenon; failures are reported to the user and reject the returned promise. */
   start(): Promise<Agent> {
-    const p = this.launch();
+    const p = this.serial(() => this.startNow());
     this.starting = p;
     p.catch(() => undefined);
+    void p.then(
+      (agent) =>
+        agent.onExit(() => {
+          // A crash: the next ready() starts a new agent.
+          if (this.starting === p) {
+            this.starting = undefined;
+          }
+        }),
+      () => undefined,
+    );
     return p;
   }
 
@@ -74,25 +101,58 @@ class Controller implements vscode.Disposable {
   }
 
   async restart(): Promise<void> {
-    await this.stop();
+    void this.stop();
     await this.start().catch(() => undefined);
   }
 
-  async stop(): Promise<void> {
-    const starting = this.starting;
+  stop(): Promise<void> {
+    this.abort?.abort();
     this.starting = undefined;
-    const agent = await starting?.catch(() => undefined);
-    if (this.agent === agent) {
-      this.agent = undefined;
-    }
-    await agent?.dispose();
+    return this.serial(() => this.stopNow());
   }
 
   dispose(): void {
     void this.stop();
   }
 
-  private async launch(): Promise<Agent> {
+  private serial<T>(op: () => Promise<T>): Promise<T> {
+    const p = this.queue.then(op);
+    this.queue = p.catch(() => undefined);
+    return p;
+  }
+
+  private async stopNow(): Promise<void> {
+    const agent = this.agent;
+    this.agent = undefined;
+    await agent?.dispose();
+  }
+
+  private async startNow(): Promise<Agent> {
+    // Whatever runs is superseded by this start.
+    await this.stopNow();
+    const abort = new AbortController();
+    this.abort = abort;
+    try {
+      const agent = await this.launch(abort.signal);
+      if (abort.signal.aborted) {
+        await agent.dispose();
+        throw new Error("tenon start cancelled");
+      }
+      this.agent = agent;
+      agent.onExit(() => {
+        if (this.agent === agent) {
+          this.agent = undefined;
+        }
+      });
+      return agent;
+    } finally {
+      if (this.abort === abort) {
+        this.abort = undefined;
+      }
+    }
+  }
+
+  private async launch(signal: AbortSignal): Promise<Agent> {
     const setting = vscode.workspace.getConfiguration("tenon").get<string>("path");
     const bin = resolveBinary({
       setting,
@@ -136,25 +196,23 @@ class Controller implements vscode.Disposable {
     }
 
     const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? os.homedir();
-    let agent: Agent;
+    signal.throwIfAborted();
     try {
-      agent = await Agent.start(bin, cwd, this.log, stubHandlers(this.log));
-    } catch (err) {
-      const showLogs = vscode.l10n.t("Show logs");
-      void showError(vscode.l10n.t("tenon failed to start: {0}", errorMessage(err)), showLogs).then((choice) => {
-        if (choice === showLogs) {
-          this.log.show();
-        }
+      return await Agent.start(bin, cwd, this.log, stubHandlers(this.log), {
+        signal,
+        initTimeoutMs: testInitTimeout(),
       });
+    } catch (err) {
+      if (!signal.aborted) {
+        const showLogs = vscode.l10n.t("Show logs");
+        void showError(vscode.l10n.t("tenon failed to start: {0}", errorMessage(err)), showLogs).then((choice) => {
+          if (choice === showLogs) {
+            this.log.show();
+          }
+        });
+      }
       throw err;
     }
-    this.agent = agent;
-    agent.onExit(() => {
-      if (this.agent === agent) {
-        this.agent = undefined;
-      }
-    });
-    return agent;
   }
 
   private async offerInstall(message: string): Promise<void> {

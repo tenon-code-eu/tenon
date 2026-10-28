@@ -47,6 +47,7 @@
     }
   },
   "scripts": {
+    "vscode:prepublish": "node esbuild.mjs --production",
     "build": "node esbuild.mjs",
     "lint": "eslint . && tsc --noEmit",
     "test": "vitest run",

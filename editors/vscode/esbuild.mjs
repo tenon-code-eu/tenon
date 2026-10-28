@@ -1,9 +1,17 @@
 // Bundles the extension (dist/) and, with --tests, the integration runner and
-// suite (out/). Usage: node esbuild.mjs [--tests] [--dev]
+// suite (out/). Usage: node esbuild.mjs [--production | --dev | --tests]
+// --production (vscode:prepublish, so vsce never ships a dev build): minified,
+// no source map, stale dist/ removed first.
+import * as fs from "node:fs";
 import * as esbuild from "esbuild";
 
-const tests = process.argv.includes("--tests");
-const dev = tests || process.argv.includes("--dev");
+const production = process.argv.includes("--production");
+const tests = !production && process.argv.includes("--tests");
+const dev = !production && (tests || process.argv.includes("--dev"));
+
+if (production) {
+  fs.rmSync("dist", { recursive: true, force: true });
+}
 
 const common = {
   bundle: true,
