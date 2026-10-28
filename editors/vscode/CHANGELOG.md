@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.9.0 — unreleased
+## 0.9.0 — 2026-10-28
 
 - First release: tenon agent over ACP, binary resolution and version check.
 - Chat panel: streamed answers, thoughts, tool calls, Stop, sessions list and resume, `/` skills.
