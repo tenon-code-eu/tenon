@@ -758,7 +758,7 @@ func TestACPSessionMeta(t *testing.T) {
 		t.Helper()
 		m, _ := r["_meta"].(map[string]any)
 		tn, _ := m["tenon"].(map[string]any)
-		if tn["provider"] != "test" || tn["model"] != "test-model" || tn["jurisdiction"] != "eu" {
+		if tn["provider"] != "test" || tn["providerName"] != "Test SAS" || tn["model"] != "test-model" || tn["jurisdiction"] != "eu" {
 			t.Fatalf("_meta=%v", r["_meta"])
 		}
 		sb, _ := tn["sandbox"].(map[string]any)
@@ -898,7 +898,7 @@ func TestACPUsageUpdateShape(t *testing.T) {
 		}
 		m, _ := u["_meta"].(map[string]any)
 		tn, _ := m["tenon"].(map[string]any)
-		if tn["provider"] != "test" || tn["input"] != used {
+		if tn["provider"] != "test" || tn["providerName"] != "Test SAS" || tn["jurisdiction"] != "eu" || tn["input"] != used {
 			t.Fatalf("_meta=%v", u["_meta"])
 		}
 	}

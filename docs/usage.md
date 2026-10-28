@@ -1181,7 +1181,7 @@ The history is never modified: the audit log, `--resume`, `/rewind`, routing and
 - Each streamed request asks the provider for its usage (`stream_options: {"include_usage": true}`). tenon reads `prompt_tokens`, `completion_tokens` and `prompt_tokens_details.cached_tokens` (absent: 0). The values are **real** when the provider sends them.
 - When the provider sends none, the numbers are **estimated** and marked `estimated` in the log. A call interrupted by a cancel or a mid-stream error is counted as estimated too.
 - A provider that rejects the option with a 400 that cites `stream_options` gets one retry without it, remembered for the session. `stream_usage = false` on a preset or a `[[providers]]` entry turns the option off from the start.
-- One `Usage` event per model call: `provider`, `model`, `purpose` (`turn`, `compaction`, `subagent`), `input`, `output`, `cached`, `estimated`, `window` (context window of the provider that answered).
+- One `Usage` event per model call: `provider`, `model`, `purpose` (`turn`, `compaction`, `subagent`), `input`, `output`, `cached`, `estimated`, `window`, `provider_name`, `jurisdiction` (context window, name and jurisdiction of the provider that answered).
 - Interactive: the status line shows `in 12.4k · out 1.1k · session 340k`.
 - Non-interactive, text output: at the end of the turn, on standard error, `tokens: in <n> · out <n> · cached <n> · session <n>`. JSON output adds nothing (the events are enough).
 

@@ -107,7 +107,7 @@ Source: [CodeCompanion, Configuring ACP adapters](https://codecompanion.olimorri
 
 ### The tenon extension
 
-Install the **tenon** extension (`tenon-code-eu.tenon`) from the VS Code Marketplace or Open VSX. It runs `tenon acp` for you, from the bundled binary or the `tenon` on your `PATH` (setting `tenon.path` overrides both), and shows the chat in a side panel. The status bar shows the provider, its jurisdiction (EU, non-EU, local) and whether commands are sandboxed. To list and resume the sessions of the open folder, the extension uses `session/list` and the `_meta.tenon` metadata (provider, model, jurisdiction, sandbox, profile, policy) that `tenon acp` returns for `session/new` and `session/load`. It makes no network call of its own.
+Install the **tenon** extension (`tenon-code-eu.tenon`) from the VS Code Marketplace or Open VSX. It runs `tenon acp` for you, from the bundled binary or the `tenon` on your `PATH` (setting `tenon.path` overrides both), and shows the chat in a side panel. The status bar shows the provider, its jurisdiction (EU, non-EU, local) and whether commands are sandboxed. To list and resume the sessions of the open folder, the extension uses `session/list` and the `_meta.tenon` metadata (provider, provider name, model, jurisdiction, sandbox, profile, policy) that `tenon acp` returns for `session/new` and `session/load`; each `usage_update` carries the provider, name and jurisdiction of the call, so a fallback shows at once. It makes no network call of its own.
 
 ### Third-party client
 

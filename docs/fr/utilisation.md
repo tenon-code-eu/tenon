@@ -1183,7 +1183,7 @@ L'historique n'est jamais modifié : le journal d'audit, `--resume`, `/rewind`, 
 - Chaque requête en flux demande au fournisseur son usage (`stream_options: {"include_usage": true}`). tenon lit `prompt_tokens`, `completion_tokens` et `prompt_tokens_details.cached_tokens` (absent : 0). Les valeurs sont **réelles** quand le fournisseur les envoie.
 - Sinon, elles sont **estimées** et marquées `estimated` dans le journal. Un appel interrompu (annulation, erreur en cours de flux) est compté comme estimé.
 - Un fournisseur qui refuse l'option par un 400 citant `stream_options` reçoit une seule nouvelle tentative sans elle, retenue pour la session. `stream_usage = false` sur un préréglage ou une entrée `[[providers]]` coupe l'option d'emblée.
-- Un événement `Usage` par appel au modèle : `provider`, `model`, `purpose` (`turn`, `compaction`, `subagent`), `input`, `output`, `cached`, `estimated`, `window` (fenêtre de contexte du fournisseur qui a répondu).
+- Un événement `Usage` par appel au modèle : `provider`, `model`, `purpose` (`turn`, `compaction`, `subagent`), `input`, `output`, `cached`, `estimated`, `window`, `provider_name`, `jurisdiction` (fenêtre de contexte, nom et juridiction du fournisseur qui a répondu).
 - Interactif : la ligne d'état affiche `entrée 12,4 k · sortie 1,1 k · session 340 k`.
 - Non interactif, sortie texte : en fin de tour, sur la sortie d'erreur, `tokens: in <n> · out <n> · cached <n> · session <n>`. La sortie JSON n'ajoute rien (les événements suffisent).
 

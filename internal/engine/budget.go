@@ -107,7 +107,10 @@ func sortedDefs(defs []llm.ToolDef) []llm.ToolDef {
 // BudgetWarning émis au premier franchissement du seuil. window est la
 // fenêtre de contexte du fournisseur de l'appel.
 func (t *turn) usage(info llm.ProviderInfo, window int, purpose string, req llm.Request, res tryResult, u *llm.Usage) error {
-	p := event.UsagePayload{Provider: info.ID, Model: info.Model, Purpose: purpose, Window: window}
+	p := event.UsagePayload{
+		Provider: info.ID, ProviderName: info.Name, Jurisdiction: info.Jurisdiction,
+		Model: info.Model, Purpose: purpose, Window: window,
+	}
 	switch {
 	case u != nil:
 		p.Input, p.Output, p.Cached = u.Input, u.Output, u.Cached

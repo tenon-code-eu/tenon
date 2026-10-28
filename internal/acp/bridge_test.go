@@ -773,14 +773,17 @@ func TestMaskReplay(t *testing.T) {
 
 func TestUsageProviderMeta(t *testing.T) {
 	b := scripted(nil, func(ctx context.Context, f *fakeSession) error {
-		f.emit(event.Usage, event.UsagePayload{Provider: "mistral", Purpose: "turn", Input: 10, Output: 2, Window: 256000})
+		f.emit(event.Usage, event.UsagePayload{Provider: "mistral", ProviderName: "Mistral AI", Jurisdiction: "eu", Purpose: "turn", Input: 10, Output: 2, Window: 256000})
+		// Repli vers un fournisseur hors UE : nom et juridiction suivent l'appel.
+		f.emit(event.Usage, event.UsagePayload{Provider: "us1", ProviderName: "US Corp", Jurisdiction: "non-eu", Purpose: "turn", Input: 5, Output: 1, Window: 128000})
 		return done(f)
 	})
 	h := newHarness(t, b)
 	h.init()
 	id := h.newSession()
 	h.call("session/prompt", map[string]any{"sessionId": id, "prompt": []any{text("x")}})
-	jsonEq(t, h.nextUpdate("usage_update"), `{"sessionUpdate":"usage_update","used":10,"size":256000,"_meta":{"tenon":{"input":10,"output":2,"cached":0,"sessionTokens":12,"provider":"mistral"}}}`)
+	jsonEq(t, h.nextUpdate("usage_update"), `{"sessionUpdate":"usage_update","used":10,"size":256000,"_meta":{"tenon":{"input":10,"output":2,"cached":0,"sessionTokens":12,"provider":"mistral","providerName":"Mistral AI","jurisdiction":"eu"}}}`)
+	jsonEq(t, h.nextUpdate("usage_update"), `{"sessionUpdate":"usage_update","used":5,"size":128000,"_meta":{"tenon":{"input":5,"output":1,"cached":0,"sessionTokens":18,"provider":"us1","providerName":"US Corp","jurisdiction":"non-eu"}}}`)
 }
 
 // Les fournisseurs reprennent call_1 à chaque tour : l'identifiant ACP porte

@@ -333,6 +333,12 @@ func (b *bridge) handle(ev event.Event) {
 				if p.Provider != "" {
 					tn["provider"] = p.Provider
 				}
+				if p.ProviderName != "" {
+					tn["providerName"] = p.ProviderName
+				}
+				if p.Jurisdiction != "" {
+					tn["jurisdiction"] = string(p.Jurisdiction)
+				}
 				// ACP : size (requis) est la fenêtre de contexte du fournisseur
 				// de l'appel, used le contexte occupé (jetons d'entrée).
 				size := p.Window

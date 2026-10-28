@@ -223,6 +223,7 @@ func (s *acpSession) Meta() map[string]any {
 	p, sb := s.st.provider, s.st.sandbox
 	return map[string]any{
 		"provider":     red(p.ID),
+		"providerName": red(p.Name),
 		"model":        red(p.Model),
 		"jurisdiction": red(string(p.Jurisdiction)),
 		"sandbox":      map[string]any{"mode": red(sb.Mode), "mechanism": red(sb.Mechanism), "network": red(sb.Network)},

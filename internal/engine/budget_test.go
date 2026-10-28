@@ -706,4 +706,15 @@ func TestUsageWindow(t *testing.T) {
 	if us := usages(t, evs); len(us) != 1 || us[0].Provider != "remote2" || us[0].Window != 64000 {
 		t.Fatalf("usage %+v", us)
 	}
+	// Nom et juridiction du fournisseur qui a répondu (barre d'état de l'éditeur).
+	// (Un repli hors UE demanderait un consentement : juridiction locale ici.)
+	remote3 := fake(llm.ProviderInfo{ID: "lan1", Name: "LAN box", Model: "m", Jurisdiction: llm.Local}, text("ok"))
+	h = newHarness(t, euInfo, [][]llm.Chunk{unavailable()}, func(d *Deps) {
+		cur := routing.Candidate{ID: d.Provider.Info().ID, Provider: d.Provider}
+		d.Router = routing.New(cur, nil, []routing.Candidate{{ID: "lan1", Provider: remote3}})
+	})
+	evs, _ = h.submit(t, "s_1", "salut", nil)
+	if us := usages(t, evs); len(us) != 1 || us[0].Provider != "lan1" || us[0].ProviderName != "LAN box" || us[0].Jurisdiction != llm.Local {
+		t.Fatalf("usage %+v", us)
+	}
 }

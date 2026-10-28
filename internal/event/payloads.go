@@ -291,6 +291,10 @@ type UsagePayload struct {
 	// Window is the context window of the provider that answered, in
 	// estimated tokens (0 in events written before it was recorded).
 	Window int `json:"window,omitempty"`
+	// ProviderName and Jurisdiction describe the provider that answered
+	// (empty in events written before they were recorded).
+	ProviderName string           `json:"provider_name,omitempty"`
+	Jurisdiction llm.Jurisdiction `json:"jurisdiction,omitempty"`
 	// ParentCallID is the call_id of the "agent" tool call that produced this
 	// event inside a sub-agent run (or the run id of an agent hook); empty
 	// for the main agent.
