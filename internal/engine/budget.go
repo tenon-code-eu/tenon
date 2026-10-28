@@ -75,6 +75,15 @@ func (t *turn) windowFor(purpose string) int {
 	return t.e.d.ContextWindow
 }
 
+// candWindow renvoie la fenêtre de contexte du candidat c
+// (Deps.ContextWindow si elle est inconnue).
+func (t *turn) candWindow(c routing.Candidate) int {
+	if c.Window > 0 {
+		return c.Window
+	}
+	return t.e.d.ContextWindow
+}
+
 // sortedDefs renvoie defs triées par nom : une copie si l'ordre change,
 // defs elle-même si elles le sont déjà. L'entrée n'est jamais modifiée.
 func sortedDefs(defs []llm.ToolDef) []llm.ToolDef {
@@ -95,9 +104,10 @@ func sortedDefs(defs []llm.ToolDef) []llm.ToolDef {
 // consommé l'entrée. Seul un appel resté sans aucune réponse n'émet rien.
 // L'émission ne dépend pas du contexte du tour (elle a lieu aussi après une
 // annulation). Le compteur de la session est ensuite mis à jour, et l'avis
-// BudgetWarning émis au premier franchissement du seuil.
-func (t *turn) usage(info llm.ProviderInfo, purpose string, req llm.Request, res tryResult, u *llm.Usage) error {
-	p := event.UsagePayload{Provider: info.ID, Model: info.Model, Purpose: purpose}
+// BudgetWarning émis au premier franchissement du seuil. window est la
+// fenêtre de contexte du fournisseur de l'appel.
+func (t *turn) usage(info llm.ProviderInfo, window int, purpose string, req llm.Request, res tryResult, u *llm.Usage) error {
+	p := event.UsagePayload{Provider: info.ID, Model: info.Model, Purpose: purpose, Window: window}
 	switch {
 	case u != nil:
 		p.Input, p.Output, p.Cached = u.Input, u.Output, u.Cached

@@ -333,9 +333,16 @@ func (b *bridge) handle(ev event.Event) {
 				if p.Provider != "" {
 					tn["provider"] = p.Provider
 				}
+				// ACP : size (requis) est la fenêtre de contexte du fournisseur
+				// de l'appel, used le contexte occupé (jetons d'entrée).
+				size := p.Window
+				if size <= 0 {
+					size = engine.DefaultContextWindow
+				}
 				b.update(map[string]any{
 					"sessionUpdate": "usage_update",
-					"used":          p.Input + p.Output,
+					"used":          p.Input,
+					"size":          size,
 					"_meta":         map[string]any{"tenon": tn},
 				})
 			}

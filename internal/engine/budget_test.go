@@ -679,3 +679,31 @@ func TestBudgetRefusedPromptClassified(t *testing.T) {
 		}
 	})
 }
+
+// Chaque Usage porte la fenêtre de contexte du fournisseur de l'appel : celle
+// du candidat, ou celle de la session (Deps.ContextWindow, défaut compris).
+func TestUsageWindow(t *testing.T) {
+	h := newHarness(t, euInfo, [][]llm.Chunk{text("ok")})
+	evs, err := h.submit(t, "s_1", "salut", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if us := usages(t, evs); len(us) != 1 || us[0].Window != DefaultContextWindow {
+		t.Fatalf("usage %+v", us)
+	}
+	h = newHarness(t, euInfo, [][]llm.Chunk{text("ok")}, window(1000))
+	evs, _ = h.submit(t, "s_1", "salut", nil)
+	if us := usages(t, evs); len(us) != 1 || us[0].Window != 1000 {
+		t.Fatalf("usage %+v", us)
+	}
+	// Repli : la fenêtre du fournisseur qui a répondu.
+	remote2 := fake(remote2Info, text("ok"))
+	h = newHarness(t, euInfo, [][]llm.Chunk{unavailable()}, window(1000), func(d *Deps) {
+		cur := routing.Candidate{ID: d.Provider.Info().ID, Provider: d.Provider}
+		d.Router = routing.New(cur, nil, []routing.Candidate{{ID: "remote2", Provider: remote2, Window: 64000}})
+	})
+	evs, _ = h.submit(t, "s_1", "salut", nil)
+	if us := usages(t, evs); len(us) != 1 || us[0].Provider != "remote2" || us[0].Window != 64000 {
+		t.Fatalf("usage %+v", us)
+	}
+}

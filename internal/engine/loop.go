@@ -752,7 +752,7 @@ func (t *turn) try(c routing.Candidate, info llm.ProviderInfo, req llm.Request, 
 				// Échec d'émission (audit) : l'Usage ne peut plus être
 				// journalisé, mais le compteur de la session le compte.
 				r := tryResult{sent: true, started: true, text: sb.String(), provErr: err}
-				_ = t.usage(info, purpose, req, r, nil)
+				_ = t.usage(info, t.candWindow(c), purpose, req, r, nil)
 				return tryResult{sent: true, started: true}, err
 			}
 		}
@@ -777,7 +777,7 @@ func (t *turn) try(c routing.Candidate, info llm.ProviderInfo, req llm.Request, 
 		res.calls = nil
 	}
 	res.text = sb.String()
-	if err := t.usage(info, purpose, req, res, usage); err != nil {
+	if err := t.usage(info, t.candWindow(c), purpose, req, res, usage); err != nil {
 		return res, err
 	}
 	return res, nil

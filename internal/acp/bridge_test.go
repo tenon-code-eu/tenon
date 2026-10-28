@@ -593,8 +593,9 @@ func TestLoadBusySession(t *testing.T) {
 
 func TestUsageUpdate(t *testing.T) {
 	b := scripted(nil, func(ctx context.Context, f *fakeSession) error {
-		f.emit(event.Usage, event.UsagePayload{Purpose: "turn", Input: 100, Output: 20, Cached: 5})
+		f.emit(event.Usage, event.UsagePayload{Purpose: "turn", Input: 100, Output: 20, Cached: 5, Window: 128000})
 		f.emit(event.Usage, event.UsagePayload{Purpose: "subagent", Input: 7, Output: 1, ParentCallID: "a1"})
+		// Sans fenêtre (événement d'une version antérieure) : fenêtre par défaut.
 		f.emit(event.Usage, event.UsagePayload{Purpose: "turn", Input: 150, Output: 30})
 		return done(f)
 	})
@@ -602,8 +603,8 @@ func TestUsageUpdate(t *testing.T) {
 	h.init()
 	id := h.newSession()
 	h.call("session/prompt", map[string]any{"sessionId": id, "prompt": []any{text("x")}})
-	jsonEq(t, h.nextUpdate("usage_update"), `{"sessionUpdate":"usage_update","used":120,"_meta":{"tenon":{"input":100,"output":20,"cached":5,"sessionTokens":120}}}`)
-	jsonEq(t, h.nextUpdate("usage_update"), `{"sessionUpdate":"usage_update","used":180,"_meta":{"tenon":{"input":150,"output":30,"cached":0,"sessionTokens":308}}}`)
+	jsonEq(t, h.nextUpdate("usage_update"), `{"sessionUpdate":"usage_update","used":100,"size":128000,"_meta":{"tenon":{"input":100,"output":20,"cached":5,"sessionTokens":120}}}`)
+	jsonEq(t, h.nextUpdate("usage_update"), `{"sessionUpdate":"usage_update","used":150,"size":32000,"_meta":{"tenon":{"input":150,"output":30,"cached":0,"sessionTokens":308}}}`)
 }
 
 func TestSubagentEvents(t *testing.T) {
@@ -772,14 +773,14 @@ func TestMaskReplay(t *testing.T) {
 
 func TestUsageProviderMeta(t *testing.T) {
 	b := scripted(nil, func(ctx context.Context, f *fakeSession) error {
-		f.emit(event.Usage, event.UsagePayload{Provider: "mistral", Purpose: "turn", Input: 10, Output: 2})
+		f.emit(event.Usage, event.UsagePayload{Provider: "mistral", Purpose: "turn", Input: 10, Output: 2, Window: 256000})
 		return done(f)
 	})
 	h := newHarness(t, b)
 	h.init()
 	id := h.newSession()
 	h.call("session/prompt", map[string]any{"sessionId": id, "prompt": []any{text("x")}})
-	jsonEq(t, h.nextUpdate("usage_update"), `{"sessionUpdate":"usage_update","used":12,"_meta":{"tenon":{"input":10,"output":2,"cached":0,"sessionTokens":12,"provider":"mistral"}}}`)
+	jsonEq(t, h.nextUpdate("usage_update"), `{"sessionUpdate":"usage_update","used":10,"size":256000,"_meta":{"tenon":{"input":10,"output":2,"cached":0,"sessionTokens":12,"provider":"mistral"}}}`)
 }
 
 // Les fournisseurs reprennent call_1 à chaque tour : l'identifiant ACP porte

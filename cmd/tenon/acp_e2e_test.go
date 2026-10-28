@@ -864,3 +864,42 @@ func TestACPToolCallIDsUniqueAndReplayed(t *testing.T) {
 		t.Fatalf("rejeu %q, direct %q", replayed, live)
 	}
 }
+
+// usage_update a la forme ACP { sessionUpdate, used, size } (sans size, le
+// SDK ACP rejette la notification) : size = fenêtre de contexte du
+// fournisseur de l'appel (défaut compris), used = jetons d'entrée.
+func TestACPUsageUpdateShape(t *testing.T) {
+	for _, tc := range []struct {
+		extra string
+		size  float64
+	}{{"", 32000}, {"context_window = 64000\n", 64000}} {
+		f := newFakeLLM(t, sseText("ok"))
+		e := newEnvExtra(t, f, "eu", tc.extra)
+		c := startACP(t, e, nil)
+		c.initialize()
+		sid := c.newSession(e.wd, nil)
+		if r := c.prompt(sid, "salut"); r != "end_turn" {
+			t.Fatalf("stopReason=%q", r)
+		}
+		var got []map[string]any
+		for _, u := range c.allUpdates() {
+			if u["sessionUpdate"] == "usage_update" {
+				got = append(got, u)
+			}
+		}
+		if len(got) != 1 {
+			t.Fatalf("usage_update : %v", got)
+		}
+		u := got[0]
+		used, okUsed := u["used"].(float64)
+		size, okSize := u["size"].(float64)
+		if !okUsed || !okSize || size != tc.size || used <= 0 {
+			t.Fatalf("usage_update=%v", u)
+		}
+		m, _ := u["_meta"].(map[string]any)
+		tn, _ := m["tenon"].(map[string]any)
+		if tn["provider"] != "test" || tn["input"] != used {
+			t.Fatalf("_meta=%v", u["_meta"])
+		}
+	}
+}
