@@ -24,6 +24,18 @@
   "contributes": {
     "commands": [
       {
+        "command": "tenon.openChat",
+        "title": "%command.openChat%",
+        "category": "tenon",
+        "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "tenon.newSession",
+        "title": "%command.newSession%",
+        "category": "tenon",
+        "icon": "$(add)"
+      },
+      {
         "command": "tenon.restart",
         "title": "%command.restart%",
         "category": "tenon"
@@ -34,6 +46,33 @@
         "category": "tenon"
       }
     ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "tenon",
+          "title": "%viewContainer.title%",
+          "icon": "media/activity.svg"
+        }
+      ]
+    },
+    "views": {
+      "tenon": [
+        {
+          "type": "webview",
+          "id": "tenon.chat",
+          "name": "%view.chat%"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "tenon.newSession",
+          "when": "view == tenon.chat",
+          "group": "navigation"
+        }
+      ]
+    },
     "configuration": {
       "title": "tenon",
       "properties": {
@@ -64,6 +103,7 @@
     "@vscode/vsce": "4.0.0",
     "esbuild": "0.28.2",
     "eslint": "10.12.0",
+    "happy-dom": "20.14.6",
     "typescript": "6.0.3",
     "typescript-eslint": "8.71.2",
     "vitest": "5.0.4"

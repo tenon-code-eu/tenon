@@ -2,6 +2,7 @@
 // file, then runs them in order.
 import { runAll } from "./harness";
 import "./agent.test";
+import "./chat.test";
 
 export async function run(): Promise<void> {
   const failed = await runAll();

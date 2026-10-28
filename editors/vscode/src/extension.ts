@@ -1,13 +1,16 @@
-// Activation and commands. One `tenon acp` per window, started on activation
-// (Task 3 moves the start to the first use of the panel or a command).
+// Activation and commands. One `tenon acp` per window, started on first use:
+// the chat view shown, a tenon command, or a test API call.
 import * as fs from "node:fs";
 import * as os from "node:os";
-import type { InitializeResponse, RequestPermissionResponse } from "@agentclientprotocol/sdk";
+import type { InitializeResponse, RequestPermissionResponse, StopReason } from "@agentclientprotocol/sdk";
 import * as vscode from "vscode";
 import { Agent, type ClientHandlers } from "./agent";
+import { Chat } from "./chat";
 import { formatVersion, meetsMinimum, MINIMUM_VERSION, parseVersion, readVersion, resolveBinary } from "./binary";
 import { type Log, OutputLog } from "./log";
+import { Conversation, type ConversationState } from "./model";
 import { onDidShow, showError, showWarning, type Shown } from "./notify";
+import { CHAT_VIEW, ChatViewProvider } from "./panel";
 
 export type { Shown } from "./notify";
 
@@ -17,6 +20,14 @@ export interface TenonTestApi {
   agentPid(): number | undefined;
   stopAgent(): Promise<void>;
   notifications(): Shown[];
+  /** The chat's conversation state (counts as a first use). */
+  state(): ConversationState;
+  /** Sends a prompt like the panel's input; resolves with the stop reason. */
+  send(text: string): Promise<string>;
+  /** The panel's Stop button. */
+  cancel(): Promise<void>;
+  /** True once the chat webview's script ran under its CSP and posted "ready". */
+  panelReady(): boolean;
 }
 
 /** The only URL the extension opens. */
@@ -34,15 +45,19 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-/** Placeholder handlers until the chat panel (Task 3) and permissions (Task 4). */
-function stubHandlers(log: Log): ClientHandlers {
+/**
+ * Updates go to the conversation; permission requests are answered
+ * "cancelled" until permission cards exist (Task 4), adding nothing to the
+ * thread.
+ */
+function clientHandlers(log: Log, conv: Conversation): ClientHandlers {
   return {
     sessionUpdate: (n) => {
-      log.info(`session/update ${n.update.sessionUpdate} (no panel yet)`);
+      conv.apply(n);
       return Promise.resolve();
     },
     requestPermission: (r): Promise<RequestPermissionResponse> => {
-      log.info(`session/request_permission "${r.toolCall.title ?? ""}" cancelled (no panel yet)`);
+      log.info(`session/request_permission "${r.toolCall.title ?? ""}" cancelled (no permission cards yet)`);
       return Promise.resolve({ outcome: { outcome: "cancelled" } });
     },
   };
@@ -68,10 +83,14 @@ class Controller implements vscode.Disposable {
   private agent: Agent | undefined;
   private abort: AbortController | undefined;
   private queue: Promise<unknown> = Promise.resolve();
+  private readonly startEmitter = new vscode.EventEmitter<Agent>();
+  /** Fires when a new tenon has answered initialize. */
+  readonly onDidStart: vscode.Event<Agent> = this.startEmitter.event;
 
   constructor(
     private readonly ctx: vscode.ExtensionContext,
     private readonly log: OutputLog,
+    private readonly handlers: ClientHandlers,
   ) {}
 
   /** Starts tenon; failures are reported to the user and reject the returned promise. */
@@ -113,6 +132,7 @@ class Controller implements vscode.Disposable {
 
   dispose(): void {
     void this.stop();
+    this.startEmitter.dispose();
   }
 
   private serial<T>(op: () => Promise<T>): Promise<T> {
@@ -144,6 +164,7 @@ class Controller implements vscode.Disposable {
           this.agent = undefined;
         }
       });
+      this.startEmitter.fire(agent);
       return agent;
     } finally {
       if (this.abort === abort) {
@@ -198,7 +219,7 @@ class Controller implements vscode.Disposable {
     const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? os.homedir();
     signal.throwIfAborted();
     try {
-      return await Agent.start(bin, cwd, this.log, stubHandlers(this.log), {
+      return await Agent.start(bin, cwd, this.log, this.handlers, {
         signal,
         initTimeoutMs: testInitTimeout(),
       });
@@ -250,12 +271,28 @@ let controller: Controller | undefined;
 
 export function activate(ctx: vscode.ExtensionContext): Promise<TenonTestApi | undefined> {
   const log = new OutputLog();
-  const c = new Controller(ctx, log);
+  const conv = new Conversation();
+  const c = new Controller(ctx, log, clientHandlers(log, conv));
   controller = c;
+  const chat = new Chat(c, conv, log, () => log.show());
+  const panel = new ChatViewProvider(ctx.extensionUri, chat, log);
   ctx.subscriptions.push(
     log,
+    c,
+    chat,
+    vscode.window.registerWebviewViewProvider(CHAT_VIEW, panel, {
+      webviewOptions: { retainContextWhenHidden: false },
+    }),
     vscode.commands.registerCommand("tenon.restart", () => c.restart()),
     vscode.commands.registerCommand("tenon.showLogs", () => log.show()),
+    vscode.commands.registerCommand("tenon.openChat", async () => {
+      chat.touch();
+      await vscode.commands.executeCommand(`${CHAT_VIEW}.focus`);
+    }),
+    vscode.commands.registerCommand("tenon.newSession", async () => {
+      await vscode.commands.executeCommand(`${CHAT_VIEW}.focus`);
+      await chat.newSession();
+    }),
   );
 
   let api: TenonTestApi | undefined;
@@ -267,10 +304,16 @@ export function activate(ctx: vscode.ExtensionContext): Promise<TenonTestApi | u
       agentPid: () => c.pid,
       stopAgent: () => c.stop(),
       notifications: () => [...shown],
+      state: () => {
+        chat.touch();
+        return chat.conv.state;
+      },
+      send: (text: string): Promise<StopReason> => chat.send(text),
+      cancel: () => chat.cancel(),
+      panelReady: () => panel.scriptLoaded,
     };
   }
 
-  void c.start();
   return Promise.resolve(api);
 }
 

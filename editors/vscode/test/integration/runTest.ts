@@ -23,35 +23,65 @@ async function main(): Promise<void> {
 
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "tenon-vsc-"));
   const workspace = path.join(base, "workspace");
-  const userData = path.join(base, "user");
   const extensions = path.join(base, "ext");
-  for (const d of [workspace, path.join(userData, "User"), extensions]) {
-    fs.mkdirSync(d, { recursive: true });
-  }
-  fs.writeFileSync(
-    path.join(userData, "User", "settings.json"),
-    JSON.stringify({ "tenon.path": tenon, "telemetry.telemetryLevel": "off", "update.mode": "none" }, null, 2),
-  );
+  fs.mkdirSync(workspace, { recursive: true });
+  fs.mkdirSync(extensions, { recursive: true });
+  // One user-data-dir per launch: VS Code would otherwise reopen the folder
+  // of the first launch in the second.
+  const userData = (name: string): string => {
+    const dir = path.join(base, name);
+    fs.mkdirSync(path.join(dir, "User"), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "User", "settings.json"),
+      JSON.stringify(
+        {
+          "tenon.path": tenon,
+          "telemetry.telemetryLevel": "off",
+          "update.mode": "none",
+          "window.restoreWindows": "none",
+        },
+        null,
+        2,
+      ),
+    );
+    return dir;
+  };
+  const args = (dir: string): string[] => [
+    "--user-data-dir",
+    dir,
+    "--extensions-dir",
+    extensions,
+    "--disable-extensions",
+    "--disable-workspace-trust",
+    "--skip-welcome",
+    "--skip-release-notes",
+  ];
 
+  // TENON_VSCODE_SUITE=main or nofolder runs only that launch.
+  const only = process.env.TENON_VSCODE_SUITE;
   try {
-    await runTests({
-      version: process.env.VSCODE_VERSION ?? "stable",
-      cachePath: cacheDir,
-      extensionDevelopmentPath: extensionDir,
-      extensionTestsPath: path.join(__dirname, "suite", "index.js"),
-      extensionTestsEnv: { TENON_VSCODE_TEST: "1" },
-      launchArgs: [
-        workspace,
-        "--user-data-dir",
-        userData,
-        "--extensions-dir",
-        extensions,
-        "--disable-extensions",
-        "--disable-workspace-trust",
-        "--skip-welcome",
-        "--skip-release-notes",
-      ],
-    });
+    if (only !== "nofolder") {
+      // Main suite: one workspace folder.
+      await runTests({
+        version: process.env.VSCODE_VERSION ?? "stable",
+        cachePath: cacheDir,
+        extensionDevelopmentPath: extensionDir,
+        extensionTestsPath: path.join(__dirname, "suite", "index.js"),
+        extensionTestsEnv: { TENON_VSCODE_TEST: "1" },
+        launchArgs: [workspace, ...args(userData("user"))],
+      });
+    }
+    if (only !== "main") {
+      // Second launch without a folder (ruling R1, Review Focus 5).
+      await runTests({
+        version: process.env.VSCODE_VERSION ?? "stable",
+        cachePath: cacheDir,
+        extensionDevelopmentPath: extensionDir,
+        extensionTestsPath: path.join(__dirname, "suite", "indexNoFolder.js"),
+        extensionTestsEnv: { TENON_VSCODE_TEST: "1" },
+        launchArgs: args(userData("user-nofolder")),
+      });
+    }
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
   }

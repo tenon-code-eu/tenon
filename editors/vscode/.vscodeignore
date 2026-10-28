@@ -1,7 +1,10 @@
 **
 !dist/extension.js
+!dist/webview.js
+!dist/webview.css
 !bin/tenon
 !media/icon.png
+!media/activity.svg
 !l10n/**
 !package.json
 !package.nls.json

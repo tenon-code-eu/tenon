@@ -1,0 +1,275 @@
+// Conversation model: the thread shown in the chat panel, rebuilt from
+// `session/update` notifications. No vscode runtime import, so the unit tests
+// run it under plain Node; onDidChange has the shape of a vscode.Event.
+import type { ContentBlock, SessionNotification, ToolCallContent } from "@agentclientprotocol/sdk";
+import type * as vscode from "vscode";
+
+export type ToolStatus = "pending" | "in_progress" | "completed" | "failed";
+
+export type Item =
+  | { kind: "user"; text: string }
+  | { kind: "agent"; text: string }
+  | { kind: "thought"; text: string }
+  | {
+      kind: "tool";
+      id: string;
+      title: string;
+      toolKind: string;
+      status: ToolStatus;
+      output: string;
+      diff?: { path: string; oldText?: string; newText: string };
+    }
+  | {
+      kind: "permission";
+      requestId: string;
+      title: string;
+      options: { optionId: string; name: string; kind: string }[];
+      answered?: string;
+    };
+
+export interface Banner {
+  kind: "stopped" | "error" | "noFolder";
+  text: string;
+}
+
+export interface ConversationState {
+  sessionId?: string;
+  cwd?: string;
+  items: Item[];
+  busy: boolean;
+  commands: { name: string; description: string }[];
+  sessions: { sessionId: string; title: string; updatedAt: string }[];
+  meta?: Record<string, unknown>;
+  banner?: Banner;
+}
+
+/** Minimum interval between two onDidChange events (one animation frame). */
+export const CHANGE_INTERVAL_MS = 16;
+
+/** Updates kept while the id of a new session is not known yet. */
+const MAX_EARLY = 10_000;
+
+type Listener = (s: ConversationState) => unknown;
+
+/** Text of a content block as shown in the thread. */
+function blockText(b: ContentBlock): string {
+  switch (b.type) {
+    case "text":
+      return b.text;
+    case "resource_link":
+      return b.name;
+    case "resource":
+      return b.resource.uri;
+    default:
+      return "";
+  }
+}
+
+function toolOutput(content: ToolCallContent[]): { output: string; diff?: { path: string; oldText?: string; newText: string } } {
+  const texts: string[] = [];
+  let diff: { path: string; oldText?: string; newText: string } | undefined;
+  for (const c of content) {
+    if (c.type === "content") {
+      const t = blockText(c.content);
+      if (t) {
+        texts.push(t);
+      }
+    } else if (c.type === "diff") {
+      diff = { path: c.path, newText: c.newText };
+      if (typeof c.oldText === "string") {
+        diff.oldText = c.oldText;
+      }
+    }
+  }
+  return diff ? { output: texts.join("\n"), diff } : { output: texts.join("\n") };
+}
+
+export class Conversation {
+  state: ConversationState = { items: [], busy: false, commands: [], sessions: [] };
+
+  private readonly listeners = new Set<Listener>();
+  private timer: ReturnType<typeof setTimeout> | undefined;
+  private early: SessionNotification[] = [];
+
+  /** Fires with the whole state, at most once per CHANGE_INTERVAL_MS. */
+  readonly onDidChange: vscode.Event<ConversationState> = (listener, thisArgs?: unknown, disposables?) => {
+    const l: Listener = (s) => listener.call(thisArgs, s);
+    this.listeners.add(l);
+    const d = { dispose: () => this.listeners.delete(l) };
+    if (Array.isArray(disposables)) {
+      disposables.push(d);
+    }
+    return d;
+  };
+
+  /**
+   * Switches to sessionId (clearing the thread), or to "no session yet" when
+   * sessionId is undefined: updates that arrive before the id is known are
+   * kept and applied by the next begin() if they belong to that session.
+   */
+  begin(sessionId: string | undefined, cwd: string | undefined, meta?: Record<string, unknown>): void {
+    const early = this.early;
+    this.early = [];
+    this.state.sessionId = sessionId;
+    this.state.cwd = cwd;
+    this.state.meta = meta;
+    this.state.items = [];
+    this.state.commands = [];
+    this.state.busy = false;
+    if (sessionId !== undefined) {
+      for (const n of early) {
+        if (n.sessionId === sessionId) {
+          this.apply(n);
+        }
+      }
+    }
+    this.changed();
+  }
+
+  /** Sets the metadata of the current session (`_meta.tenon`). */
+  setMeta(meta: Record<string, unknown> | undefined): void {
+    this.state.meta = meta;
+    this.changed();
+  }
+
+  addUser(text: string): void {
+    this.state.items.push({ kind: "user", text });
+    this.changed();
+  }
+
+  setBusy(busy: boolean): void {
+    if (this.state.busy !== busy) {
+      this.state.busy = busy;
+      this.changed();
+    }
+  }
+
+  setBanner(banner: Banner | undefined): void {
+    this.state.banner = banner;
+    this.changed();
+  }
+
+  setSessions(sessions: ConversationState["sessions"]): void {
+    this.state.sessions = sessions;
+    this.changed();
+  }
+
+  apply(n: SessionNotification): void {
+    if (this.state.sessionId === undefined) {
+      if (this.early.length < MAX_EARLY) {
+        this.early.push(n);
+      }
+      return;
+    }
+    if (n.sessionId !== this.state.sessionId) {
+      return;
+    }
+    const u = n.update;
+    const items = this.state.items;
+    switch (u.sessionUpdate) {
+      case "user_message_chunk":
+        items.push({ kind: "user", text: blockText(u.content) });
+        break;
+      case "agent_message_chunk":
+      case "agent_thought_chunk": {
+        const kind = u.sessionUpdate === "agent_message_chunk" ? "agent" : "thought";
+        const text = blockText(u.content);
+        const last = items[items.length - 1];
+        if (last && last.kind === kind) {
+          last.text += text;
+        } else {
+          items.push({ kind, text });
+        }
+        break;
+      }
+      case "tool_call": {
+        const existing = this.tool(u.toolCallId);
+        const out = toolOutput(u.content ?? []);
+        const item: Extract<Item, { kind: "tool" }> = {
+          kind: "tool",
+          id: u.toolCallId,
+          title: u.title,
+          toolKind: u.kind ?? "other",
+          status: u.status ?? "pending",
+          ...out,
+        };
+        if (existing) {
+          Object.assign(existing, item);
+        } else {
+          items.push(item);
+        }
+        break;
+      }
+      case "tool_call_update": {
+        let item = this.tool(u.toolCallId);
+        if (!item) {
+          item = { kind: "tool", id: u.toolCallId, title: u.toolCallId, toolKind: "other", status: "pending", output: "" };
+          items.push(item);
+        }
+        if (u.title) {
+          item.title = u.title;
+        }
+        if (u.kind) {
+          item.toolKind = u.kind;
+        }
+        if (u.status) {
+          item.status = u.status;
+        }
+        if (u.content) {
+          const out = toolOutput(u.content);
+          item.output = out.output;
+          if (out.diff) {
+            item.diff = out.diff;
+          }
+        }
+        break;
+      }
+      case "available_commands_update":
+        this.state.commands = u.availableCommands.map((c) => ({ name: c.name, description: c.description }));
+        break;
+      case "session_info_update": {
+        const s = this.state.sessions.find((x) => x.sessionId === n.sessionId);
+        if (!s) {
+          return;
+        }
+        if (typeof u.title === "string") {
+          s.title = u.title;
+        }
+        if (typeof u.updatedAt === "string") {
+          s.updatedAt = u.updatedAt;
+        }
+        break;
+      }
+      default:
+        return;
+    }
+    this.changed();
+  }
+
+  /**
+   * Schedules one onDidChange CHANGE_INTERVAL_MS from now unless one is
+   * already pending: every change of the window goes out in that one event,
+   * and two events are always at least CHANGE_INTERVAL_MS apart.
+   */
+  changed(): void {
+    if (this.timer !== undefined) {
+      return;
+    }
+    this.timer = setTimeout(() => {
+      this.timer = undefined;
+      for (const l of [...this.listeners]) {
+        l(this.state);
+      }
+    }, CHANGE_INTERVAL_MS);
+  }
+
+  private tool(id: string): Extract<Item, { kind: "tool" }> | undefined {
+    for (let i = this.state.items.length - 1; i >= 0; i--) {
+      const it = this.state.items[i];
+      if (it.kind === "tool" && it.id === id) {
+        return it;
+      }
+    }
+    return undefined;
+  }
+}

@@ -7,5 +7,22 @@
   "Install": "Installer",
   "Choose binary": "Choisir le binaire",
   "Show logs": "Voir les journaux",
-  "Use this tenon binary": "Utiliser ce binaire tenon"
+  "Use this tenon binary": "Utiliser ce binaire tenon",
+  "Send": "Envoyer",
+  "Stop": "Arrêter",
+  "Ask tenon (Enter to send, Shift+Enter for a new line)": "Demandez à tenon (Entrée pour envoyer, Maj+Entrée pour un saut de ligne)",
+  "Thinking": "Réflexion",
+  "Copy": "Copier",
+  "Copied": "Copié",
+  "Open diff": "Voir le diff",
+  "pending": "en attente",
+  "running": "en cours",
+  "done": "fait",
+  "failed": "échec",
+  "Restart": "Relancer",
+  "Open folder": "Ouvrir un dossier",
+  "Working…": "En cours…",
+  "Open a folder to use tenon": "Ouvrez un dossier pour utiliser tenon",
+  "tenon stopped": "tenon s’est arrêté",
+  "Folder for the new tenon session": "Dossier de la nouvelle session tenon"
 }
