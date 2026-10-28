@@ -27,3 +27,14 @@ export function showInfo(message: string, ...actions: string[]): Thenable<string
   shown.fire({ kind: "info", message, actions });
   return vscode.window.showInformationMessage(message, ...actions);
 }
+
+/**
+ * An info message whose buttons are told apart by position, not by label:
+ * resolves with the index of the button clicked, undefined when dismissed.
+ */
+export async function showInfoChoice(message: string, labels: string[]): Promise<number | undefined> {
+  shown.fire({ kind: "info", message, actions: labels });
+  const items = labels.map((title, index) => ({ title, index }));
+  const picked = await vscode.window.showInformationMessage(message, ...items);
+  return picked?.index;
+}

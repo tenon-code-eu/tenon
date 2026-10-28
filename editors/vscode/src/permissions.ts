@@ -13,8 +13,11 @@ type Card = Extract<Item, { kind: "permission" }>;
 export interface PermissionsDeps {
   /** True when the chat view is on screen (WebviewView.visible). */
   visible(): boolean;
-  /** A non-modal notification with one button per option name; undefined when dismissed. */
-  notify(message: string, ...names: string[]): Thenable<string | undefined>;
+  /**
+   * A non-modal notification with one button per option name, in order;
+   * resolves with the index of the button clicked, undefined when dismissed.
+   */
+  notify(message: string, names: string[]): Thenable<number | undefined>;
   log: Log;
 }
 
@@ -101,9 +104,10 @@ export class Permissions {
   private notify(requestId: string, card: Card): void {
     const names = card.options.map((o) => o.name);
     const message = vscode.l10n.t("tenon asks for permission: {0}", card.title);
-    void Promise.resolve(this.deps.notify(message, ...names)).then(
+    // By index: two options may carry the same name.
+    void Promise.resolve(this.deps.notify(message, names)).then(
       (choice) => {
-        const option = choice === undefined ? undefined : card.options.find((o) => o.name === choice);
+        const option = choice === undefined ? undefined : card.options[choice];
         if (option) {
           this.answer(requestId, option.optionId);
         } else {

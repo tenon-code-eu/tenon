@@ -27,7 +27,7 @@ function cards(conv: Conversation): Card[] {
   return conv.state.items.filter((i): i is Card => i.kind === "permission");
 }
 
-type Notify = (message: string, ...names: string[]) => Promise<string | undefined>;
+type Notify = (message: string, names: string[]) => Promise<number | undefined>;
 
 function setup(visible = true, notify = vi.fn<Notify>(() => Promise.resolve(undefined))) {
   const conv = new Conversation();
@@ -78,15 +78,29 @@ describe("Permissions", () => {
   });
 
   it("notifies with the option names when the view is hidden; a choice there answers", async () => {
-    const notify = vi.fn<Notify>(() => Promise.resolve("Always for this session"));
+    const notify = vi.fn<Notify>(() => Promise.resolve(2));
     const { conv, perms } = setup(false, notify);
     const p = perms.request(req());
     expect(notify).toHaveBeenCalledTimes(1);
-    const [message, ...names] = notify.mock.calls[0];
+    const [message, names] = notify.mock.calls[0];
     expect(message).toContain("write_file · a.txt");
     expect(names).toEqual(["Allow", "Allow with network", "Always for this session", "Reject"]);
     expect(await p).toEqual({ outcome: { outcome: "selected", optionId: "allow_session" } });
     expect(cards(conv)[0].answered).toBe("allow_session");
+  });
+
+  it("maps the notification button back by position, even with two equal names", async () => {
+    const notify = vi.fn<Notify>(() => Promise.resolve(1));
+    const { perms } = setup(false, notify);
+    const p = perms.request({
+      sessionId: "s1",
+      toolCall: { toolCallId: "c1", title: "t" },
+      options: [
+        { optionId: "allow", name: "Allow", kind: "allow_once" },
+        { optionId: "allow_network", name: "Allow", kind: "allow_once" },
+      ],
+    });
+    expect(await p).toEqual({ outcome: { outcome: "selected", optionId: "allow_network" } });
   });
 
   it("a dismissed notification answers cancelled and the card shows it refused", async () => {
@@ -98,14 +112,14 @@ describe("Permissions", () => {
   });
 
   it("the first answer wins: a late notification answer is ignored", async () => {
-    const shown = later<string | undefined>();
+    const shown = later<number | undefined>();
     const { perms } = setup(
       false,
       vi.fn<Notify>(() => shown.promise),
     );
     const p = perms.request(req());
     perms.answer("p1", "reject");
-    shown.resolve("Allow");
+    shown.resolve(0);
     await shown.promise;
     expect(await p).toEqual({ outcome: { outcome: "selected", optionId: "reject" } });
   });

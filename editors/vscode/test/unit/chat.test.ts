@@ -112,11 +112,17 @@ describe("Chat permissions and diffs", () => {
     };
     const diffs = { open: vi.fn().mockResolvedValue(undefined) };
     const log = { info: () => undefined, stderr: () => undefined };
-    const chat = new Chat({ ready: () => Promise.resolve(agent), onDidStart: started.event }, conv, log, () => undefined, {
+    let current = agent;
+    const chat = new Chat({ ready: () => Promise.resolve(current), onDidStart: started.event }, conv, log, () => undefined, {
       permissions,
       diffs,
     });
-    return { chat, conv, permissions, diffs, exit, order };
+    /** A new tenon replaces the current one (restart). */
+    const restart = (next: Agent) => {
+      current = next;
+      started.fire(next);
+    };
+    return { chat, conv, permissions, diffs, exit, order, restart };
   }
 
   it("Stop sends session/cancel, then answers every pending request cancelled", async () => {
@@ -146,6 +152,29 @@ describe("Chat permissions and diffs", () => {
     await vi.waitFor(() => expect(conn.prompt).toHaveBeenCalled());
     exit.fire({ code: null });
     expect(permissions.cancelAll).toHaveBeenCalled();
+  });
+
+  it("a superseded tenon exiting later does not cancel the new one's requests", async () => {
+    const conn: Conn = { newSession: vi.fn().mockResolvedValue({ sessionId: "s1" }), prompt: vi.fn().mockResolvedValue({ stopReason: "end_turn" }) };
+    const { chat, permissions, exit, restart } = withPerms(conn);
+    await chat.send("go");
+    permissions.cancelAll.mockClear();
+    const next = { connection: conn, hasExited: false, onExit: new vscode.EventEmitter<{ code: number | null }>().event } as unknown as Agent;
+    restart(next);
+    exit.fire({ code: 0 });
+    expect(permissions.cancelAll).not.toHaveBeenCalled();
+  });
+
+  it("a card never outlives its turn: the end of the turn cancels what is left", async () => {
+    const turn = later<{ stopReason: string }>();
+    const conn: Conn = { newSession: vi.fn().mockResolvedValue({ sessionId: "s1" }), prompt: vi.fn().mockReturnValue(turn.promise) };
+    const { chat, permissions } = withPerms(conn);
+    const sending = chat.send("go");
+    await vi.waitFor(() => expect(conn.prompt).toHaveBeenCalled());
+    expect(permissions.cancelAll).not.toHaveBeenCalled();
+    turn.resolve({ stopReason: "end_turn" });
+    await sending;
+    expect(permissions.cancelAll).toHaveBeenCalledTimes(1);
   });
 
   it("routes card clicks and Open diff", async () => {

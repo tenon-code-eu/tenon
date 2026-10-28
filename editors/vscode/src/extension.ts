@@ -10,7 +10,7 @@ import { DIFF_SCHEME, DiffProvider, type OpenedDiff } from "./diff";
 import { formatVersion, meetsMinimum, MINIMUM_VERSION, parseVersion, readVersion, resolveBinary } from "./binary";
 import { OutputLog } from "./log";
 import { Conversation, type ConversationState } from "./model";
-import { onDidShow, showError, showInfo, showWarning, type Shown } from "./notify";
+import { onDidShow, showError, showInfoChoice, showWarning, type Shown } from "./notify";
 import { CHAT_VIEW, ChatViewProvider } from "./panel";
 import { Permissions } from "./permissions";
 
@@ -54,14 +54,13 @@ function errorMessage(err: unknown): string {
 }
 
 /**
- * Updates go to the diff store and the conversation, synchronously (the
- * prompt reply waits one tick for them); permission requests become cards and
- * stay pending until an answer.
+ * Updates go to the conversation, synchronously (the prompt reply waits one
+ * tick for them); permission requests become cards and stay pending until an
+ * answer.
  */
-function clientHandlers(conv: Conversation, permissions: Permissions, diffs: DiffProvider): ClientHandlers {
+function clientHandlers(conv: Conversation, permissions: Permissions): ClientHandlers {
   return {
     sessionUpdate: (n) => {
-      diffs.store.record(n);
       conv.apply(n);
       return Promise.resolve();
     },
@@ -278,14 +277,14 @@ let controller: Controller | undefined;
 export function activate(ctx: vscode.ExtensionContext): Promise<TenonTestApi | undefined> {
   const log = new OutputLog();
   const conv = new Conversation();
-  const diffs = new DiffProvider(log);
+  const diffs = new DiffProvider(conv, log);
   const permissions = new Permissions(conv, {
     // view is set below, before tenon can send any request.
     visible: (): boolean => view.visible,
-    notify: (message, ...names) => showInfo(message, ...names),
+    notify: (message, names) => showInfoChoice(message, names),
     log,
   });
-  const c = new Controller(ctx, log, clientHandlers(conv, permissions, diffs));
+  const c = new Controller(ctx, log, clientHandlers(conv, permissions));
   controller = c;
   const chat = new Chat(c, conv, log, () => log.show(), { permissions, diffs });
   const view = new ChatViewProvider(ctx.extensionUri, chat, log);

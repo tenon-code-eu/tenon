@@ -97,6 +97,8 @@ export class Chat implements vscode.Disposable {
         }
         return await s.prompt([{ type: "text", text }]);
       } finally {
+        // A card never outlives its turn.
+        this.extras.permissions?.cancelAll();
         // Only one turn exists at a time: send() refuses while it is set.
         this.turn = undefined;
         this.conv.setBusy(false);

@@ -298,6 +298,11 @@ export class Conversation {
     }, CHANGE_INTERVAL_MS);
   }
 
+  /** The diff of a tool item of the thread (what "Open diff" shows). */
+  toolDiff(id: string): { path: string; oldText?: string; newText: string } | undefined {
+    return this.tool(id)?.diff;
+  }
+
   private tool(id: string): Extract<Item, { kind: "tool" }> | undefined {
     for (let i = this.state.items.length - 1; i >= 0; i--) {
       const it = this.state.items[i];

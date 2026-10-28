@@ -51,10 +51,12 @@ test("permission: allow from the card writes the file; the diff opens as tenon-d
   assert(exported, "test API missing");
   api = exported;
 
+  // Like real providers, every turn's first call is call_1.
   const workspace = await useEnv([
-    sseCall("write_file", JSON.stringify({ path: "a.txt", content: "v2" }), "call_w1"),
+    sseCall("write_file", JSON.stringify({ path: "a.txt", content: "v2" })),
     sseText("written"),
-    sseCall("write_file", JSON.stringify({ path: "a.txt", content: "v3" }), "call_w2"),
+    sseCall("write_file", JSON.stringify({ path: "a.txt", content: "v3" })),
+    sseCall("write_file", JSON.stringify({ path: "a.txt", content: "v4" })),
     sseText("written again"),
   ]);
   file = path.join(workspace, "a.txt");
@@ -66,11 +68,11 @@ test("permission: allow from the card writes the file; the diff opens as tenon-d
 
   const sending = api.send("write a.txt");
   const card = await waitFor(pendingCard, 15_000, "a permission card");
-  assert(card.requestId === "p1" || /^p\d+$/.test(card.requestId), `request id ${card.requestId}`);
+  assert(/^p\d+$/.test(card.requestId), `request id ${card.requestId}`);
   assert(card.title.includes("a.txt"), `card title ${card.title}`);
   const ids = card.options.map((o) => o.optionId);
   assert(ids.includes("allow") && ids.includes("reject"), `options ${JSON.stringify(card.options)}`);
-  assert(card.toolCallId === "call_w1", `card tool call ${card.toolCallId}`);
+  assert(card.toolCallId?.endsWith("call_1"), `card tool call ${card.toolCallId}`);
   assert(tools().some((t) => t.id === card.toolCallId), "the card's tool item is missing");
   // The view is visible: no notification.
   assert(
@@ -84,10 +86,10 @@ test("permission: allow from the card writes the file; the diff opens as tenon-d
   assert(fs.readFileSync(file, "utf8") === "v2", `file ${fs.readFileSync(file, "utf8")}`);
   const answered = cards().find((c) => c.requestId === card.requestId);
   assert(answered?.answered === "allow", `card ${JSON.stringify(answered)}`);
-  const tool = tools().find((t) => t.id === "call_w1");
+  const tool = tools().find((t) => t.id === card.toolCallId);
   assert(tool?.diff, `tool item without a diff: ${JSON.stringify(tool)}`);
 
-  await api.openDiff("call_w1");
+  await api.openDiff(tool.id);
   const d = api.lastDiff();
   assert(d, "no diff opened");
   assert(d.title === "a.txt (tenon)", `title ${d.title}`);
@@ -133,6 +135,28 @@ test("permission: Stop while a request is pending refuses it; a hidden view gets
   assert(refused?.refused === true && refused.answered === undefined, `card ${JSON.stringify(refused)}`);
   assert(!api.state().busy, "busy after Stop");
   await vscode.commands.executeCommand("tenon.openChat");
+}, 30_000);
+
+test("permission: two turns whose calls are both call_1 keep two tool items, each with its own diff", async () => {
+  // Turn 1 wrote v1 → v2, turn 2 was stopped; turn 3 writes v2 → v4.
+  const sending = api.send("write v4");
+  await waitFor(pendingCard, 15_000, "a third permission card");
+  api.answer("allow");
+  const stop = await sending;
+  assert(stop === "end_turn", `stop reason ${stop}`);
+  assert(fs.readFileSync(file, "utf8") === "v4", `file ${fs.readFileSync(file, "utf8")}`);
+  const writes = tools().filter((t) => t.id.endsWith("call_1"));
+  assert(new Set(writes.map((t) => t.id)).size === writes.length && writes.length === 3, `tool items ${JSON.stringify(writes)}`);
+  const withDiff = writes.filter((t) => t.diff);
+  assert(withDiff.length === 2, `diffs ${JSON.stringify(withDiff)}`);
+
+  await api.openDiff(withDiff[0].id);
+  const first = api.lastDiff();
+  assert(first?.left.includes("v1") && first.right === "v2", `first diff ${JSON.stringify(first)}`);
+  await api.openDiff(withDiff[1].id);
+  const second = api.lastDiff();
+  assert(second?.left === "v2" && second.right === "v4", `second diff ${JSON.stringify(second)}`);
+  await vscode.commands.executeCommand("workbench.action.closeAllEditors");
 }, 30_000);
 
 test("permission: a sandboxed shell call offers allow_network", async () => {
