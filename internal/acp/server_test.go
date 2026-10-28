@@ -41,6 +41,8 @@ type fakeSession struct {
 	// noticesGate, si non nil, bloque Notices (session qui démarre) jusqu'à
 	// sa fermeture.
 	noticesGate chan struct{}
+	// meta est renvoyé par Meta (_meta.tenon).
+	meta map[string]any
 }
 
 type permReply struct {
@@ -94,6 +96,7 @@ func (f *fakeSession) Notices() []string {
 	}
 	return f.notices
 }
+func (f *fakeSession) Meta() map[string]any   { return f.meta }
 func (f *fakeSession) Commands() []Command    { return f.cmds }
 func (f *fakeSession) Redact(s string) string { return strings.ReplaceAll(s, "SECRET", "[MASKED]") }
 func (f *fakeSession) RedactPayload(s string) string {
@@ -122,6 +125,17 @@ type fakeBackend struct {
 	loadFn   func(id string) (*fakeSession, []event.Event)
 	err      error
 	client   *Implementation
+
+	list    []SessionInfo
+	listErr error
+	listCwd string
+}
+
+func (b *fakeBackend) ListSessions(ctx context.Context, cwd string) ([]SessionInfo, error) {
+	b.mu.Lock()
+	b.listCwd = cwd
+	b.mu.Unlock()
+	return b.list, b.listErr
 }
 
 func (b *fakeBackend) NewSession(ctx context.Context, cwd string, mcp []MCPServer, client *Implementation) (Session, error) {
@@ -337,7 +351,7 @@ func TestInitialize(t *testing.T) {
 	if r.Error != nil {
 		t.Fatal(r.Error)
 	}
-	want := `{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"promptCapabilities":{"image":false,"audio":false,"embeddedContext":true},"mcpCapabilities":{"http":true,"sse":false}},"authMethods":[],"agentInfo":{"name":"tenon","version":"9.9"}}`
+	want := `{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"promptCapabilities":{"image":false,"audio":false,"embeddedContext":true},"mcpCapabilities":{"http":true,"sse":false},"sessionCapabilities":{"list":{}}},"authMethods":[],"agentInfo":{"name":"tenon","version":"9.9"}}`
 	var a, b any
 	json.Unmarshal(r.Result, &a)
 	json.Unmarshal([]byte(want), &b)
@@ -627,4 +641,63 @@ func TestServeClosesSessions(t *testing.T) {
 			t.Fatalf("session %d closed %d times", i, s.closed)
 		}
 	}
+}
+
+func TestInitializeSessionCapabilities(t *testing.T) {
+	h := newHarness(t, &fakeBackend{})
+	r := h.call("initialize", map[string]any{"protocolVersion": 1})
+	var got struct {
+		AgentCapabilities struct {
+			SessionCapabilities json.RawMessage `json:"sessionCapabilities"`
+		} `json:"agentCapabilities"`
+	}
+	if err := json.Unmarshal(r.Result, &got); err != nil || string(got.AgentCapabilities.SessionCapabilities) != `{"list":{}}` {
+		t.Fatalf("got %s (%v)", r.Result, err)
+	}
+}
+
+func TestListSessions(t *testing.T) {
+	b := &fakeBackend{list: []SessionInfo{
+		{SessionID: "s2", Cwd: "/p", Title: "b", UpdatedAt: time.Date(2026, 10, 28, 12, 0, 0, 0, time.FixedZone("x", 7200))},
+		{SessionID: "s1", Cwd: "/p", Title: "a", UpdatedAt: time.Date(2026, 10, 28, 9, 0, 0, 0, time.UTC)},
+	}}
+	h := newHarness(t, b)
+	h.init()
+	r := h.call("session/list", map[string]any{"cwd": "/p"})
+	if r.Error != nil {
+		t.Fatal(r.Error)
+	}
+	jsonEq(t, r.Result, `{"sessions":[{"sessionId":"s2","cwd":"/p","title":"b","updatedAt":"2026-10-28T10:00:00Z"},{"sessionId":"s1","cwd":"/p","title":"a","updatedAt":"2026-10-28T09:00:00Z"}]}`)
+	if b.listCwd != "/p" {
+		t.Fatalf("cwd %q", b.listCwd)
+	}
+	// Aucune session : tableau vide, jamais null.
+	h2 := newHarness(t, &fakeBackend{})
+	h2.init()
+	r = h2.call("session/list", map[string]any{"cwd": "/p"})
+	jsonEq(t, r.Result, `{"sessions":[]}`)
+	// cwd relatif ou absent : -32602.
+	for _, p := range []map[string]any{{"cwd": "rel"}, {}} {
+		if r := h.call("session/list", p); r.Error == nil || r.Error.Code != CodeInvalidParams {
+			t.Fatalf("%v: got %+v", p, r.Error)
+		}
+	}
+	// Erreur du backend : -32603.
+	h3 := newHarness(t, &fakeBackend{listErr: errors.New("boom")})
+	h3.init()
+	if r := h3.call("session/list", map[string]any{"cwd": "/p"}); r.Error == nil || r.Error.Code != CodeInternal {
+		t.Fatalf("got %+v", r.Error)
+	}
+}
+
+func TestNewSessionMeta(t *testing.T) {
+	meta := map[string]any{"provider": "mistral", "sandbox": map[string]any{"mode": "auto"}}
+	b := &fakeBackend{newFn: func() *fakeSession { s := newFakeSession("s1"); s.meta = meta; return s }}
+	b.loadFn = func(id string) (*fakeSession, []event.Event) { s := newFakeSession(id); s.meta = meta; return s, nil }
+	h := newHarness(t, b)
+	h.init()
+	r := h.call("session/new", map[string]any{"cwd": "/p", "mcpServers": []any{}})
+	jsonEq(t, r.Result, `{"sessionId":"s1","_meta":{"tenon":{"provider":"mistral","sandbox":{"mode":"auto"}}}}`)
+	r = h.call("session/load", map[string]any{"sessionId": "old", "cwd": "/p", "mcpServers": []any{}})
+	jsonEq(t, r.Result, `{"_meta":{"tenon":{"provider":"mistral","sandbox":{"mode":"auto"}}}}`)
 }

@@ -302,12 +302,17 @@ func (b *bridge) handle(ev event.Event) {
 		if p, ok := decodeAs[event.UsagePayload](ev); ok {
 			b.tokens += int64(p.Input) + int64(p.Output)
 			if p.ParentCallID == "" && (p.Purpose == "turn" || p.Purpose == "") {
+				tn := map[string]any{
+					"input": p.Input, "output": p.Output, "cached": p.Cached, "sessionTokens": b.tokens,
+				}
+				// Fournisseur de l'appel (repli : il peut changer en cours de session).
+				if p.Provider != "" {
+					tn["provider"] = p.Provider
+				}
 				b.update(map[string]any{
 					"sessionUpdate": "usage_update",
 					"used":          p.Input + p.Output,
-					"_meta": map[string]any{"tenon": map[string]any{
-						"input": p.Input, "output": p.Output, "cached": p.Cached, "sessionTokens": b.tokens,
-					}},
+					"_meta":         map[string]any{"tenon": tn},
 				})
 			}
 		}

@@ -90,6 +90,26 @@ func (b *acpBackend) LoadSession(ctx context.Context, id, cwd string, mcp []acp.
 	return s, s.st.history, nil
 }
 
+// ListSessions implémente acp.Backend : les sessions du projet de cwd,
+// résolu comme pour session/new (chemin tel quel, dossier existant). Le
+// titre est le premier message (masqué à l'écriture du journal), borné par
+// session.List.
+func (b *acpBackend) ListSessions(_ context.Context, cwd string) ([]acp.SessionInfo, error) {
+	wd := filepath.Clean(cwd)
+	if fi, err := os.Stat(wd); err != nil || !fi.IsDir() {
+		return nil, fmt.Errorf("cwd: %s: not a directory", wd)
+	}
+	l, err := session.List(sessionsDir(b.getenv), wd)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]acp.SessionInfo, 0, len(l))
+	for _, s := range l {
+		out = append(out, acp.SessionInfo{SessionID: s.ID, Cwd: wd, Title: s.FirstPrompt, UpdatedAt: s.Updated})
+	}
+	return out, nil
+}
+
 // open démarre la session du dossier cwd comme « tenon » lancé dans ce
 // dossier : chemin tel quel (un lien symbolique n'est pas résolu, comme le
 // répertoire courant hérité du shell), langue de la configuration du projet.
@@ -176,6 +196,22 @@ func (s *acpSession) Respond(permissionID string, r engine.Reply) error {
 }
 
 func (s *acpSession) Notices() []string { return s.notices }
+
+// Meta est _meta.tenon : fournisseur, modèle, juridiction, isolation, profil
+// et politique de la session. Ce ne sont pas des secrets ; les chaînes
+// passent tout de même par le masquage.
+func (s *acpSession) Meta() map[string]any {
+	red := redactText(s.st.redactor)
+	p, sb := s.st.provider, s.st.sandbox
+	return map[string]any{
+		"provider":     red(p.ID),
+		"model":        red(p.Model),
+		"jurisdiction": red(string(p.Jurisdiction)),
+		"sandbox":      map[string]any{"mode": red(sb.Mode), "mechanism": red(sb.Mechanism), "network": red(sb.Network)},
+		"profile":      red(string(s.st.profile)),
+		"policy":       red(s.st.policyID),
+	}
+}
 
 // Commands renvoie les skills invocables par /nom (sans ceux que masque une
 // commande intégrée, comme dans la TUI).

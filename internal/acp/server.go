@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 	"unicode"
 
 	"github.com/tenon-code-eu/tenon/internal/engine"
@@ -37,7 +38,16 @@ type Session interface {
 	// masquage de tenon (comme --output json) ; le résultat peut ne plus
 	// être du JSON valide.
 	RedactPayload(payload string) string
+	// Meta est l'objet _meta.tenon des réponses session/new et session/load
+	// (fournisseur, isolation, profil…) ; nil ou vide : aucun _meta.
+	Meta() map[string]any
 	Close()
+}
+
+// SessionInfo résume une session pour session/list.
+type SessionInfo struct {
+	SessionID, Cwd, Title string
+	UpdatedAt             time.Time
 }
 
 // Backend crée ou recharge des sessions. Une erreur *Error est transmise
@@ -46,6 +56,9 @@ type Session interface {
 type Backend interface {
 	NewSession(ctx context.Context, cwd string, mcp []MCPServer, client *Implementation) (Session, error)
 	LoadSession(ctx context.Context, id, cwd string, mcp []MCPServer, client *Implementation) (Session, []event.Event, error)
+	// ListSessions renvoie les sessions du projet de cwd (chemin absolu), la
+	// plus récente d'abord.
+	ListSessions(ctx context.Context, cwd string) ([]SessionInfo, error)
 }
 
 // Server est l'agent ACP : il route les requêtes de l'éditeur vers le Backend.
@@ -124,6 +137,8 @@ func (s *Server) Handle(ctx context.Context, method string, params json.RawMessa
 		return s.newSession(ctx, params)
 	case "session/load":
 		return s.loadSession(ctx, params)
+	case "session/list":
+		return s.listSessions(ctx, params)
 	case "session/prompt":
 		return s.prompt(ctx, params)
 	case "session/cancel":
@@ -154,9 +169,10 @@ func (s *Server) initialize(params json.RawMessage) (any, error) {
 	return map[string]any{
 		"protocolVersion": 1,
 		"agentCapabilities": map[string]any{
-			"loadSession":        true,
-			"promptCapabilities": map[string]any{"image": false, "audio": false, "embeddedContext": true},
-			"mcpCapabilities":    map[string]any{"http": true, "sse": false},
+			"loadSession":         true,
+			"promptCapabilities":  map[string]any{"image": false, "audio": false, "embeddedContext": true},
+			"mcpCapabilities":     map[string]any{"http": true, "sse": false},
+			"sessionCapabilities": map[string]any{"list": map[string]any{}},
 		},
 		"authMethods": []any{},
 		"agentInfo":   map[string]any{"name": "tenon", "version": s.version},
@@ -196,7 +212,41 @@ func (s *Server) newSession(ctx context.Context, params json.RawMessage) (any, e
 	if err != nil {
 		return nil, backendErr(err)
 	}
-	return s.register(sess, nil, map[string]any{"sessionId": sess.ID()})
+	return s.register(sess, nil, withMeta(map[string]any{"sessionId": sess.ID()}, sess))
+}
+
+// withMeta ajoute _meta.tenon au résultat quand la session en fournit un.
+func withMeta(res map[string]any, sess Session) map[string]any {
+	if m := sess.Meta(); len(m) > 0 {
+		res["_meta"] = map[string]any{"tenon": m}
+	}
+	return res
+}
+
+// listSessions implémente session/list : les sessions du projet de cwd,
+// sans pagination.
+func (s *Server) listSessions(ctx context.Context, params json.RawMessage) (any, error) {
+	var req struct {
+		Cwd string `json:"cwd"`
+	}
+	if err := decode(params, &req); err != nil {
+		return nil, err
+	}
+	if err := checkCwd(req.Cwd); err != nil {
+		return nil, err
+	}
+	l, err := s.b.ListSessions(ctx, req.Cwd)
+	if err != nil {
+		return nil, backendErr(err)
+	}
+	out := make([]map[string]any, 0, len(l))
+	for _, i := range l {
+		out = append(out, map[string]any{
+			"sessionId": i.SessionID, "cwd": i.Cwd, "title": i.Title,
+			"updatedAt": i.UpdatedAt.UTC().Format(time.RFC3339),
+		})
+	}
+	return map[string]any{"sessions": out}, nil
 }
 
 func (s *Server) loadSession(ctx context.Context, params json.RawMessage) (any, error) {
@@ -232,7 +282,7 @@ func (s *Server) loadSession(ctx context.Context, params json.RawMessage) (any, 
 		return nil, backendErr(err)
 	}
 	// LoadSessionResponse est un objet (vide), jamais null.
-	return s.register(sess, replay, map[string]any{})
+	return s.register(sess, replay, withMeta(map[string]any{}, sess))
 }
 
 // register enregistre la session et l'abonne à son pont ; une session de

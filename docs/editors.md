@@ -105,6 +105,12 @@ Source: [CodeCompanion, Configuring ACP adapters](https://codecompanion.olimorri
 
 ## VS Code
 
+### The tenon extension
+
+Install the **tenon** extension (`tenon-code-eu.tenon`) from the VS Code Marketplace or Open VSX. It runs `tenon acp` for you, from the bundled binary or the `tenon` on your `PATH` (setting `tenon.path` overrides both), and shows the chat in a side panel. The status bar shows the provider, its jurisdiction (EU, non-EU, local) and whether commands are sandboxed. To list and resume the sessions of the open folder, the extension uses `session/list` and the `_meta.tenon` metadata (provider, model, jurisdiction, sandbox, profile, policy) that `tenon acp` returns for `session/new` and `session/load`. It makes no network call of its own.
+
+### Third-party client
+
 VS Code has no built-in ACP client. The third-party extension [ACP Client for VS Code](https://github.com/formulahendry/vscode-acp) (`formulahendry/vscode-acp`) is one. It reads agents from the `acp.agents` setting: each key is the agent name, with `command`, `args` and `env`. In `settings.json`:
 
 ```json

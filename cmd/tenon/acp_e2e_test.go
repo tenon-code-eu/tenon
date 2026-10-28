@@ -693,3 +693,77 @@ func TestACPIgnoresSIGPIPE(t *testing.T) {
 		t.Fatalf("code=%d", code)
 	}
 }
+
+// session/list : sessions du projet seulement, la plus récente d'abord,
+// titre masqué et borné à 80 caractères.
+func TestACPListSessions(t *testing.T) {
+	f := newFakeLLM(t, sseText("un"), sseText("deux"), sseText("trois"))
+	e := newEnv(t, f, "eu")
+	key := e.vars["TEST_KEY"]
+	other := t.TempDir()
+	c := startACP(t, e, nil)
+	c.initialize()
+	s1 := c.newSession(e.wd, nil)
+	c.prompt(s1, "premier "+key+" "+strings.Repeat("é", 120))
+	time.Sleep(20 * time.Millisecond)
+	s2 := c.newSession(e.wd, nil)
+	c.prompt(s2, "second message")
+	so := c.newSession(other, nil)
+	c.prompt(so, "ailleurs")
+	r := c.call("session/list", map[string]any{"cwd": e.wd})
+	list, _ := r["sessions"].([]any)
+	if len(list) != 2 {
+		t.Fatalf("sessions=%v", r)
+	}
+	var ids []string
+	for _, it := range list {
+		m := it.(map[string]any)
+		ids = append(ids, m["sessionId"].(string))
+		if m["cwd"] != e.wd {
+			t.Fatalf("cwd=%v", m["cwd"])
+		}
+		title := m["title"].(string)
+		if strings.Contains(title, key) || len([]rune(title)) > 80 {
+			t.Fatalf("titre non masqué ou trop long : %q", title)
+		}
+		if _, err := time.Parse(time.RFC3339, m["updatedAt"].(string)); err != nil || !strings.HasSuffix(m["updatedAt"].(string), "Z") {
+			t.Fatalf("updatedAt=%v", m["updatedAt"])
+		}
+	}
+	if ids[0] != s2 || ids[1] != s1 {
+		t.Fatalf("ordre %v, attendu [%s %s]", ids, s2, s1)
+	}
+	if m := c.request("session/list", map[string]any{"cwd": "rel"}); m.Error == nil || m.Error.Code != -32602 {
+		t.Fatalf("cwd relatif : %+v", m.Error)
+	}
+	for _, l := range c.lines() {
+		if strings.Contains(l, key) {
+			t.Fatalf("clé envoyée à l'éditeur : %s", l)
+		}
+	}
+}
+
+// _meta.tenon des réponses session/new et session/load.
+func TestACPSessionMeta(t *testing.T) {
+	f := newFakeLLM(t, sseText("ok"))
+	e := newEnv(t, f, "eu")
+	c := startACP(t, e, nil)
+	c.initialize()
+	r := c.call("session/new", map[string]any{"cwd": e.wd, "mcpServers": []any{}})
+	sid := r["sessionId"].(string)
+	check := func(r map[string]any) {
+		t.Helper()
+		m, _ := r["_meta"].(map[string]any)
+		tn, _ := m["tenon"].(map[string]any)
+		if tn["provider"] != "test" || tn["model"] != "test-model" || tn["jurisdiction"] != "eu" {
+			t.Fatalf("_meta=%v", r["_meta"])
+		}
+		sb, _ := tn["sandbox"].(map[string]any)
+		if _, ok := sb["mode"].(string); !ok {
+			t.Fatalf("sandbox=%v", tn["sandbox"])
+		}
+	}
+	check(r)
+	c.prompt(sid, "salut")
+	check(c.call("session/load", map[string]any{"sessionId": sid, "cwd": e.wd, "mcpServers": []any{}}))
+}

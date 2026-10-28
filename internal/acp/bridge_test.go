@@ -769,3 +769,15 @@ func TestMaskReplay(t *testing.T) {
 		}
 	}
 }
+
+func TestUsageProviderMeta(t *testing.T) {
+	b := scripted(nil, func(ctx context.Context, f *fakeSession) error {
+		f.emit(event.Usage, event.UsagePayload{Provider: "mistral", Purpose: "turn", Input: 10, Output: 2})
+		return done(f)
+	})
+	h := newHarness(t, b)
+	h.init()
+	id := h.newSession()
+	h.call("session/prompt", map[string]any{"sessionId": id, "prompt": []any{text("x")}})
+	jsonEq(t, h.nextUpdate("usage_update"), `{"sessionUpdate":"usage_update","used":12,"_meta":{"tenon":{"input":10,"output":2,"cached":0,"sessionTokens":12,"provider":"mistral"}}}`)
+}

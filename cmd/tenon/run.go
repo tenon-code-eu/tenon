@@ -732,6 +732,10 @@ type started struct {
 	checkpoints *checkpoint.Store
 	// history : événements de la session reprise (nil : nouvelle session).
 	history []event.Event
+	// sandbox est l'isolation des commandes ; policyID l'id de la politique
+	// d'organisation ("" sans politique) : _meta.tenon de tenon acp.
+	sandbox  event.SandboxInfo
+	policyID string
 }
 
 // providerInfo décrit le fournisseur configuré pc.
@@ -1315,6 +1319,7 @@ func startEngine(o engineOptions) (started, error) {
 		memory: memStore, memoryOffBy: cfg.MemoryDisabledBy, memoryWrites: memoryWriteSeqs(events),
 		policy:      policyLine(lang, "tui.welcome.policy", cfg.Policy),
 		checkpoints: store, history: events,
+		sandbox: sbInfo, policyID: policyID(cfg.Policy),
 	}, nil
 }
 
@@ -1585,4 +1590,12 @@ func gitInstallHook(lang i18n.Lang, args []string, stdout, stderr io.Writer, wd 
 	}
 	fmt.Fprintln(stdout, i18n.T(lang, "git.hook_installed", path))
 	return 0
+}
+
+// policyID est l'identifiant de la politique d'organisation ("" sans elle).
+func policyID(p *orgpolicy.Policy) string {
+	if p == nil {
+		return ""
+	}
+	return p.ID
 }
