@@ -32,3 +32,35 @@ steps:
     commands:
       - git config --global --add safe.directory "$CI_WORKSPACE"
       - make repro-check
+  # Extension VS Code (editors/vscode) : lint, tests unitaires, tests
+  # d'intégration dans un vrai VS Code (xvfb) avec le vrai `tenon acp`, puis
+  # contrôle de l'empaquetage .vsix. Go vient de l'archive officielle, vérifiée
+  # par sa somme SHA-256 épinglée (https://go.dev/dl/?mode=json) : à relever
+  # avec l'image golang ci-dessus.
+  - name: vscode
+    image: node:22-bookworm
+    environment:
+      GOPROXY: direct
+      GOSUMDB: sum.golang.org
+      GOFLAGS: -mod=vendor
+      GOTOOLCHAIN: local
+    commands:
+      - git config --global --add safe.directory "$CI_WORKSPACE"
+      - |
+        case "$$(uname -m)" in
+        x86_64) arch=amd64; sum=ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5 ;;
+        aarch64) arch=arm64; sum=3f4227ce7b206a513e794f1393adb473a07b46e94d18bd15d1c684bbb7319797 ;;
+        *) echo "unsupported machine $$(uname -m)" >&2; exit 1 ;;
+        esac
+        curl -fsSL -o /tmp/go.tar.gz "https://go.dev/dl/go1.26.10.linux-$$arch.tar.gz"
+        echo "$$sum  /tmp/go.tar.gz" | sha256sum -c -
+        tar -C /usr/local -xzf /tmp/go.tar.gz
+        rm /tmp/go.tar.gz
+      - /usr/local/go/bin/go version
+      - apt-get update -q
+      - apt-get install -y -q xvfb libnss3 libatk-bridge2.0-0 libgtk-3-0 libgbm1 libasound2 unzip
+      # Chaque commande tourne dans le même shell : cd dans un sous-shell.
+      # $$ : Woodpecker substitue les variables, $$ laisse $ au shell.
+      - (cd editors/vscode && npm ci && npm run lint && npm test)
+      - (cd editors/vscode && PATH="/usr/local/go/bin:$$PATH" xvfb-run -a npm run test:integration)
+      - sh scripts/vscode-package-check.sh

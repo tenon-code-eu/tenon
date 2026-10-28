@@ -24,3 +24,13 @@ export function buildPrompt(text: string, attachments: ContentBlock[]): ContentB
 export function selectionLabel(name: string, startLine: number, endLine: number): string {
   return startLine === endLine ? `${name}:${startLine}` : `${name}:${startLine}-${endLine}`;
 }
+
+/**
+ * 1-based first and last lines of a selection given by its 0-based start
+ * line, end line and end column. A selection ending at column 0 of a later
+ * line stops on the line before.
+ */
+export function lineRange(startLine: number, endLine: number, endCharacter: number): [number, number] {
+  const end = endCharacter === 0 && endLine > startLine ? endLine : endLine + 1;
+  return [startLine + 1, end];
+}

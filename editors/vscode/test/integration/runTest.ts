@@ -55,6 +55,8 @@ async function main(): Promise<void> {
     "--disable-workspace-trust",
     "--skip-welcome",
     "--skip-release-notes",
+    // CI containers run as root, where Chromium only starts without its sandbox.
+    ...(process.platform === "linux" && process.getuid?.() === 0 ? ["--no-sandbox"] : []),
   ];
 
   // TENON_VSCODE_SUITE=main or nofolder runs only that launch.

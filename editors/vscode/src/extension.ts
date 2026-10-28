@@ -6,7 +6,7 @@ import type { InitializeResponse, StopReason } from "@agentclientprotocol/sdk";
 import * as vscode from "vscode";
 import { Agent, type ClientHandlers } from "./agent";
 import { Chat } from "./chat";
-import { fileBlock, selectionBlock, selectionLabel } from "./context";
+import { fileBlock, lineRange, selectionBlock, selectionLabel } from "./context";
 import { DIFF_SCHEME, DiffProvider, type OpenedDiff } from "./diff";
 import { formatVersion, meetsMinimum, MINIMUM_VERSION, parseVersion, readVersion, resolveBinary } from "./binary";
 import { OutputLog } from "./log";
@@ -15,6 +15,7 @@ import { onDidShow, showError, showInfo, showInfoChoice, showWarning, type Shown
 import { CHAT_VIEW, ChatViewProvider } from "./panel";
 import { Permissions } from "./permissions";
 import { StatusBar } from "./status";
+import { closeTenonTerminal, editorReference, isTerminalVisible, openTenonTerminal, tenonTerminal } from "./terminal";
 
 export type { Shown } from "./notify";
 
@@ -42,6 +43,8 @@ export interface TenonTestApi {
   load(sessionId: string): Promise<void>;
   /** The status bar item: its text and whether it shows the warning colour. */
   status(): { text: string; warning: boolean };
+  /** The open tenon terminal: its name and folder, and the `tenon.terminalVisible` value. */
+  terminal(): { name: string; cwd: string; visible: boolean } | undefined;
 }
 
 /** The only URL the extension opens. */
@@ -184,7 +187,11 @@ class Controller implements vscode.Disposable {
     }
   }
 
-  private async launch(signal: AbortSignal): Promise<Agent> {
+  /**
+   * The tenon binary (setting, bundled, PATH); undefined after telling the
+   * user it was not found.
+   */
+  binary(): string | undefined {
     const setting = vscode.workspace.getConfiguration("tenon").get<string>("path");
     const bin = resolveBinary({
       setting,
@@ -200,6 +207,13 @@ class Controller implements vscode.Disposable {
           ? vscode.l10n.t("tenon was not found at {0}. Install it or choose the binary.", where)
           : vscode.l10n.t("tenon was not found. Install it or choose the binary."),
       );
+    }
+    return bin;
+  }
+
+  private async launch(signal: AbortSignal): Promise<Agent> {
+    const bin = this.binary();
+    if (!bin) {
       throw new Error("tenon binary not found");
     }
 
@@ -293,9 +307,7 @@ function attachSelection(chat: Chat): boolean {
   if (sel.isEmpty) {
     return attachFile(chat, doc.uri);
   }
-  const start = sel.start.line + 1;
-  // A selection ending at column 0 stops on the line before.
-  const end = sel.end.character === 0 && sel.end.line > sel.start.line ? sel.end.line : sel.end.line + 1;
+  const [start, end] = lineRange(sel.start.line, sel.end.line, sel.end.character);
   chat.addAttachment(selectionBlock(doc.uri.toString(), doc.getText(sel), start, end), selectionLabel(name, start, end));
   return true;
 }
@@ -310,6 +322,60 @@ function attachFile(chat: Chat, uri: vscode.Uri | undefined): boolean {
   const name = vscode.workspace.asRelativePath(target, false);
   chat.addAttachment(fileBlock(target.toString(), name), name);
   return true;
+}
+
+/** Folder of the TUI: the active file's workspace folder, else the first one. */
+function terminalFolder(): string | undefined {
+  const uri = vscode.window.activeTextEditor?.document.uri;
+  const folder = (uri && vscode.workspace.getWorkspaceFolder(uri)) ?? vscode.workspace.workspaceFolders?.[0];
+  return folder?.uri.fsPath;
+}
+
+/** "Open in terminal": the tenon TUI beside the editor (reused while open). */
+function openTerminal(c: Controller): boolean {
+  if (tenonTerminal()) {
+    tenonTerminal()?.terminal.show(false);
+    return true;
+  }
+  const cwd = terminalFolder();
+  if (!cwd) {
+    void showInfo(vscode.l10n.t("Open a folder to use tenon"));
+    return false;
+  }
+  const bin = c.binary();
+  if (!bin) {
+    return false;
+  }
+  openTenonTerminal(bin, cwd);
+  return true;
+}
+
+/** "Insert reference": `@<path>#L<a>-<b>` of the selection typed into the tenon terminal. */
+function insertReference(c: Controller, editor: vscode.TextEditor | undefined): void {
+  if (!editor || editor.document.isClosed) {
+    void showInfo(vscode.l10n.t("Open a file to insert a reference to it in the tenon terminal."));
+    return;
+  }
+  if (editor.document.uri.scheme !== "file") {
+    void showInfo(vscode.l10n.t("Only a file saved on disk can be referenced in the tenon terminal."));
+    return;
+  }
+  if (!tenonTerminal() && !openTerminal(c)) {
+    return;
+  }
+  const open = tenonTerminal();
+  if (!open) {
+    return;
+  }
+  const sel = editor.selection;
+  const ref = editorReference(open.cwd, editor.document.uri.fsPath, {
+    empty: sel.isEmpty,
+    startLine: sel.start.line,
+    endLine: sel.end.line,
+    endCharacter: sel.end.character,
+  });
+  open.terminal.sendText(ref, false);
+  open.terminal.show(false);
 }
 
 export function activate(ctx: vscode.ExtensionContext): Promise<TenonTestApi | undefined> {
@@ -331,6 +397,8 @@ export function activate(ctx: vscode.ExtensionContext): Promise<TenonTestApi | u
     warningColor: new vscode.ThemeColor("statusBarItem.warningBackground"),
     l10n: vscode.l10n,
   });
+  // With no text editor in front (a webview, a terminal), the last one gives the selection.
+  let lastEditor = vscode.window.activeTextEditor;
   const openChat = async (): Promise<void> => {
     chat.touch();
     await vscode.commands.executeCommand(`${CHAT_VIEW}.focus`);
@@ -358,6 +426,18 @@ export function activate(ctx: vscode.ExtensionContext): Promise<TenonTestApi | u
         await openChat();
       }
     }),
+    vscode.window.onDidChangeActiveTextEditor((e) => {
+      if (e) {
+        lastEditor = e;
+      }
+    }),
+    vscode.commands.registerCommand("tenon.openTerminal", () => {
+      openTerminal(c);
+    }),
+    vscode.commands.registerCommand("tenon.insertReference", () =>
+      insertReference(c, vscode.window.activeTextEditor ?? lastEditor),
+    ),
+    { dispose: closeTenonTerminal },
     vscode.commands.registerCommand("tenon.newSession", async () => {
       await vscode.commands.executeCommand(`${CHAT_VIEW}.focus`);
       await chat.newSession();
@@ -390,6 +470,10 @@ export function activate(ctx: vscode.ExtensionContext): Promise<TenonTestApi | u
       lastDiff: () => diffs.lastOpened(),
       load: (sessionId: string) => chat.load(sessionId),
       status: () => ({ text: status.text, warning: status.warning }),
+      terminal: () => {
+        const open = tenonTerminal();
+        return open && { name: open.terminal.name, cwd: open.cwd, visible: isTerminalVisible() };
+      },
     };
   }
 

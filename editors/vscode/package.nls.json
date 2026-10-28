@@ -8,5 +8,7 @@
   "viewContainer.title": "tenon",
   "view.chat": "Chat",
   "command.attachSelection": "Attach Selection to Chat",
-  "command.attachFile": "Attach File to Chat"
+  "command.attachFile": "Attach File to Chat",
+  "command.openTerminal": "Open in Terminal",
+  "command.insertReference": "Insert Selection Reference in Terminal"
 }

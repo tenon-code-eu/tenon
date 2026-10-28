@@ -37,5 +37,7 @@
   "Untitled session": "Session sans titre",
   "unknown jurisdiction": "juridiction inconnue",
   "Open a file to attach its selection to the tenon chat.": "Ouvrez un fichier pour joindre sa sélection à la discussion tenon.",
-  "Only a file saved on disk can be attached to the tenon chat.": "Seul un fichier enregistré sur le disque peut être joint à la discussion tenon."
+  "Only a file saved on disk can be attached to the tenon chat.": "Seul un fichier enregistré sur le disque peut être joint à la discussion tenon.",
+  "Open a file to insert a reference to it in the tenon terminal.": "Ouvrez un fichier pour en insérer une référence dans le terminal tenon.",
+  "Only a file saved on disk can be referenced in the tenon terminal.": "Seul un fichier enregistré sur le disque peut être référencé dans le terminal tenon."
 }

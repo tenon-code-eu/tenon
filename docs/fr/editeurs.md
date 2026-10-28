@@ -107,7 +107,33 @@ Source : [CodeCompanion, Configuring ACP adapters](https://codecompanion.olimorr
 
 ### L'extension tenon
 
-Installez l'extension **tenon** (`tenon-code-eu.tenon`) depuis le Marketplace VS Code ou Open VSX. Elle lance `tenon acp` pour vous, depuis le binaire fourni ou le `tenon` de votre `PATH` (le réglage `tenon.path` prime sur les deux), et affiche la conversation dans un panneau latéral. La barre d'état indique le fournisseur, sa juridiction (UE, hors UE, local) et si les commandes sont isolées. Pour lister et reprendre les sessions du dossier ouvert, l'extension utilise `session/list` et les métadonnées `_meta.tenon` (fournisseur, nom du fournisseur, modèle, juridiction, isolation, profil, politique) que `tenon acp` renvoie pour `session/new` et `session/load` ; chaque `usage_update` porte le fournisseur, le nom et la juridiction de l'appel, si bien qu'un repli s'affiche aussitôt. Elle ne fait aucun appel réseau.
+**Installation.** Cherchez **tenon** dans la vue Extensions, ou installez `tenon-code-eu.tenon` depuis le [Marketplace VS Code](https://marketplace.visualstudio.com/items?itemName=tenon-code-eu.tenon) ou [Open VSX](https://open-vsx.org/extension/tenon-code-eu/tenon) (VSCodium et autres éditeurs). Il existe un paquet par plateforme : macOS et Linux, arm64 et x64. Chaque paquet contient le binaire tenon : rien d'autre à installer. Windows n'est pas pris en charge.
+
+**Le binaire.** L'extension cherche tenon dans cet ordre :
+
+1. le réglage `tenon.path` (un chemin absolu, dans vos réglages utilisateur) ;
+2. le binaire fourni avec l'extension ;
+3. `tenon` dans votre `PATH`.
+
+tenon 0.9.0 ou plus récent est requis. Si tenon est absent ou trop ancien, une notification propose de l'installer ou de choisir le binaire.
+
+**Le panneau.** Cliquez sur l'icône tenon de la barre d'activité, ou lancez **tenon : Ouvrir la discussion**. Ouvrez d'abord un dossier : tenon travaille dans le dossier. Tapez votre demande et appuyez sur Entrée (Maj+Entrée pour un saut de ligne). Arrêter met fin au tour. Tapez `/` pour voir les skills et commandes du projet. La liste Sessions reprend une session précédente du dossier. Le bouton `+` ouvre une nouvelle session.
+
+**Contexte.** Sélectionnez du code et appuyez sur Cmd+Option+K (Ctrl+Alt+K sous Linux), ou faites un clic droit puis **Joindre la sélection à la discussion**. La sélection part avec votre prochain message, avec ses lignes. **Joindre le fichier à la discussion** envoie un lien vers un fichier ; tenon le lit avec ses outils, sous accord.
+
+**Accords.** Quand tenon veut écrire un fichier, lancer une commande ou appeler un outil MCP, une carte apparaît dans la discussion. Cliquez sur l'une des options de tenon : Autoriser, Toujours pour cette session, Refuser, et Autoriser avec réseau pour une commande isolée. Si le panneau est masqué, une notification pose la question. Fermer la notification vaut refus. Arrêter refuse toutes les demandes en attente. L'extension ne répond jamais d'elle-même.
+
+**Diffs.** Un appel d'outil qui modifie un fichier affiche **Voir le diff**. Le diff s'ouvre dans l'éditeur de diff de VS Code, titré `<fichier> (tenon)`, en lecture seule. Le texte est celui de tenon, secrets masqués.
+
+**Barre d'état.** La barre d'état affiche `tenon · <fournisseur> · <UE|hors UE|local> · <isolé|non isolé>`. Un fournisseur hors UE, ou une juridiction inconnue, s'affiche en couleur d'avertissement. Après un repli du routage, la barre montre le fournisseur qui a répondu. Un clic ouvre la discussion.
+
+**Mode terminal.** Lancez **tenon : Ouvrir dans le terminal** (Cmd+Échap, Ctrl+Échap sous Linux). L'interface terminal de tenon s'ouvre dans un terminal nommé « tenon », à droite de l'éditeur, dans le dossier de l'espace de travail. La même commande le réaffiche tant qu'il est ouvert. Quand ce terminal est visible, Cmd+Option+K (Ctrl+Alt+K) y tape une référence à la sélection : `@src/a.go#L10-20`, `@src/a.go#L5` pour une ligne, `@src/a.go` sans sélection.
+
+**Langue.** L'extension suit la langue de VS Code : anglais ou français.
+
+**Journaux.** **tenon : Voir les journaux** ouvre le canal de sortie « tenon ». **tenon : Relancer** redémarre `tenon acp`.
+
+**Fonctionnement.** Pour lister et reprendre les sessions du dossier ouvert, l'extension utilise `session/list` et les métadonnées `_meta.tenon` (fournisseur, nom du fournisseur, modèle, juridiction, isolation, profil, politique) que `tenon acp` renvoie pour `session/new` et `session/load`. Chaque `usage_update` porte le fournisseur, le nom et la juridiction de l'appel, si bien qu'un repli s'affiche aussitôt. L'extension ne fait aucun appel réseau et n'envoie aucune télémétrie.
 
 ### Client tiers
 

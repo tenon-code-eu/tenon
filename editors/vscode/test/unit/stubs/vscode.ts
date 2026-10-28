@@ -29,8 +29,18 @@ export const workspace: {
   onDidChangeWorkspaceFolders: () => ({ dispose: () => undefined }),
 };
 
-export const window = {
+export const ViewColumn = { Active: -1, Beside: -2 } as const;
+
+const noEvent = (): { dispose(): void } => ({ dispose: () => undefined });
+
+export const window: Record<string, unknown> = {
   showWorkspaceFolderPick: (): Promise<undefined> => Promise.resolve(undefined),
+  createTerminal: (): never => {
+    throw new Error("createTerminal: set by the test");
+  },
+  onDidCloseTerminal: noEvent,
+  onDidChangeActiveTerminal: noEvent,
+  activeTerminal: undefined,
 };
 
 export const commands = {

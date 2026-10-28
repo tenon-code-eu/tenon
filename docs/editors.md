@@ -107,7 +107,33 @@ Source: [CodeCompanion, Configuring ACP adapters](https://codecompanion.olimorri
 
 ### The tenon extension
 
-Install the **tenon** extension (`tenon-code-eu.tenon`) from the VS Code Marketplace or Open VSX. It runs `tenon acp` for you, from the bundled binary or the `tenon` on your `PATH` (setting `tenon.path` overrides both), and shows the chat in a side panel. The status bar shows the provider, its jurisdiction (EU, non-EU, local) and whether commands are sandboxed. To list and resume the sessions of the open folder, the extension uses `session/list` and the `_meta.tenon` metadata (provider, provider name, model, jurisdiction, sandbox, profile, policy) that `tenon acp` returns for `session/new` and `session/load`; each `usage_update` carries the provider, name and jurisdiction of the call, so a fallback shows at once. It makes no network call of its own.
+**Install.** Search for **tenon** in the Extensions view, or install `tenon-code-eu.tenon` from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=tenon-code-eu.tenon) or [Open VSX](https://open-vsx.org/extension/tenon-code-eu/tenon) (VSCodium and other editors). There is one package per platform: macOS and Linux, arm64 and x64. Each package bundles the tenon binary, so you need nothing else. Windows is not supported.
+
+**The binary.** The extension looks for tenon in this order:
+
+1. the `tenon.path` setting (an absolute path, set in your user settings);
+2. the binary bundled with the extension;
+3. `tenon` on your `PATH`.
+
+tenon 0.9.0 or later is required. If tenon is missing or too old, a notification offers to install it or to choose the binary.
+
+**The panel.** Click the tenon icon in the activity bar, or run **tenon: Open Chat**. Open a folder first: tenon works in the folder. Type your request and press Enter (Shift+Enter for a new line). Stop ends the turn. Type `/` to see the project skills and commands. The Sessions list resumes an earlier session of the folder. The `+` button starts a new session.
+
+**Context.** Select code and press Cmd+Alt+K (Ctrl+Alt+K on Linux), or right-click and choose **Attach Selection to Chat**. The selection goes with your next message, with its lines. **Attach File to Chat** sends a link to a file; tenon reads it with its tools, under permission.
+
+**Permissions.** When tenon wants to write a file, run a command or call an MCP tool, a card appears in the chat. Click one of tenon's options: Allow, Always for this session, Reject, and Allow with network for a sandboxed command. When the panel is hidden, a notification asks instead. Closing the notification refuses. Stop refuses every pending request. The extension never answers on its own.
+
+**Diffs.** A tool call that changes a file shows **Open diff**. The diff opens in the VS Code diff editor, titled `<file> (tenon)`, read-only. The text is tenon's, with secrets masked.
+
+**Status bar.** The status bar shows `tenon · <provider> · <EU|non-EU|local> · <sandboxed|not sandboxed>`. A provider outside the EU, or an unknown jurisdiction, shows in the warning colour. After a routing fallback, the bar shows the provider that answered. Click it to open the chat.
+
+**Terminal mode.** Run **tenon: Open in Terminal** (Cmd+Esc, Ctrl+Esc on Linux). The tenon terminal interface opens in a terminal named "tenon", beside the editor, in the folder of the workspace. The same command shows it again while it is open. While this terminal is visible, Cmd+Alt+K (Ctrl+Alt+K) types a reference to the selection into it: `@src/a.go#L10-20`, `@src/a.go#L5` for one line, `@src/a.go` with no selection.
+
+**Language.** The extension follows the language of VS Code: English or French.
+
+**Logs.** **tenon: Show Logs** opens the "tenon" output channel. **tenon: Restart** restarts `tenon acp`.
+
+**How it works.** To list and resume the sessions of the open folder, the extension uses `session/list` and the `_meta.tenon` metadata (provider, provider name, model, jurisdiction, sandbox, profile, policy) that `tenon acp` returns for `session/new` and `session/load`. Each `usage_update` carries the provider, name and jurisdiction of the call, so a fallback shows at once. The extension makes no network call of its own and sends no telemetry.
 
 ### Third-party client
 

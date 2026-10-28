@@ -7,7 +7,8 @@ A version that fails an item is not published.
 ## 1. Before the tag
 
 - [ ] The branch to release is up to date and the CI is green (`make ci`, `make repro-check`).
-- [ ] Go = latest 1.26.x patch release: the release machine and the CI images (`golang:1.26.N` in `.github/workflows/ci.yml`, `.forgejo/workflows/ci.yml` and `.woodpecker.yml`) use the latest published Go 1.26 patch release (≥ 1.26.10 as of 2026-10-22). `govulncheck` reports the standard library vulnerabilities of earlier patch releases.
+- [ ] Go = latest 1.26.x patch release: the release machine and the CI images (`golang:1.26.N` in `.github/workflows/ci.yml`, `.forgejo/workflows/ci.yml` and `.woodpecker.yml`) use the latest published Go 1.26 patch release (≥ 1.26.10 as of 2026-10-22). `govulncheck` reports the standard library vulnerabilities of earlier patch releases. The `vscode` CI job installs Go from the official archive: update its URL and its two SHA-256 sums (amd64, arm64) from <https://go.dev/dl/?mode=json> at the same time.
+- [ ] VS Code extension: `version` in `editors/vscode/package.json` is the version of the release, without the `v` (`scripts/vscode-package.sh` refuses any other value). `editors/vscode/CHANGELOG.md` has its entry. The release machine has Node.js 22, npm and `unzip`.
 - [ ] The package maintainer (`maintainer` in `packaging/nfpm.yaml`) is the real name and a real contact address, not the placeholder value "Projet tenon <noreply@digicactus.com>".
 - [ ] `GOFLAGS=-mod=vendor go test -race ./...` passes locally.
 - [ ] `LICENSE` is the official English text of the EUPL-1.2 published by the European Commission. Source and date of the comparison recorded in the [Verified sources](#verified-sources) section.
@@ -22,7 +23,7 @@ A version that fails an item is not published.
 
 ## 2. Build
 
-- [ ] Create the annotated tag: `git tag -a vX.Y.Z -m "tenon vX.Y.Z"`. A lightweight tag is refused. For a dry run, create a throwaway annotated tag the same way (`git tag -a v0.0.0-test -m essai`) in a clone, with `ALLOW_VULN=1`.
+- [ ] Create the annotated tag: `git tag -a vX.Y.Z -m "tenon vX.Y.Z"`. A lightweight tag is refused. For a dry run, create a throwaway annotated tag the same way in a clone, with `ALLOW_VULN=1`. The tag must carry the version of `editors/vscode/package.json` (for example `git tag -a v0.9.0 -m essai`), or the VS Code packaging step stops.
 - [ ] Run `make release VERSION=vX.Y.Z` from a clean tree, with the latest published Go 1.26 patch release (≥ 1.26.10 as of 2026-10-22). The target first runs `make vuln`: if `govulncheck` fails, the release stops.
 - [ ] **Never** use `ALLOW_VULN=1` for a real release. This variable is only for local tests: it skips `make vuln`, writes `dist/UNSAFE-DRY-RUN`, and the script then refuses to sign. A `dist/` that contains this file is not published.
 - [ ] Archives: generated with GNU tar if `tar` or `gtar` is GNU, otherwise with bsdtar (macOS) from a staging directory with fixed dates. Both paths are deterministic, but their bytes can differ: publish the archives of a single machine, and redo the reproducibility check with the same tool. gzip implementations also differ: publish from a single documented environment (system, tar and gzip versions).
@@ -30,7 +31,8 @@ A version that fails an item is not published.
   - 4 `.tar.gz` archives (`linux/amd64`, `linux/arm64`, `darwin/amd64`, `darwin/arm64`) that contain `tenon`, `LICENSE`, `README.md` and `docs/`;
   - the `.deb` and `.rpm` packages for `linux/amd64` and `linux/arm64`;
   - the CycloneDX SBOM `tenon_<version>.cdx.json`;
-  - `SHA256SUMS`, which covers all artifacts.
+  - 4 VS Code packages `tenon-vscode-<platform>-<X.Y.Z>.vsix` (`darwin-arm64`, `darwin-x64`, `linux-x64`, `linux-arm64`). `scripts/release.sh` builds them with `scripts/vscode-package.sh` before the sums: each one contains `extension/bin/tenon`, taken from the archive of its target, never rebuilt (`unzip -Z <file>.vsix extension/bin/tenon` shows `-rwx`);
+  - `SHA256SUMS`, which covers all artifacts, the `.vsix` included.
 - [ ] `./dist/…/tenon --version` prints `tenon vX.Y.Z`.
 - [ ] Run `make release VERSION=vX.Y.Z` again: `SHA256SUMS` is identical byte for byte.
 
@@ -40,7 +42,7 @@ A version that fails an item is not published.
 - [ ] Verify the signature with the published public key: `minisign -Vm dist/SHA256SUMS -p tenon.pub`.
 - [ ] The secret key has never left the maintainer's machine; it is not in the repository nor in the CI.
 
-## 4. Publishing on the forge
+## 4. Publishing
 
 - [ ] Push the tag to GitHub: `git push origin vX.Y.Z`.
 - [ ] Create the release on the forge from the tag.
@@ -49,6 +51,18 @@ A version that fails an item is not published.
 - [ ] Download an artifact from the forge and redo the verification (signature, hash, `tenon --version`).
 - [ ] Update the Homebrew tap (repository `tenon-code-eu/homebrew-tap`): `sh scripts/homebrew-formula.sh vX.Y.Z > <tap>/Formula/tenon.rb`, commit, push; then `brew update && brew upgrade tenon && tenon --version`.
 - [ ] Check the install script: `TENON_INSTALL_DIR=$(mktemp -d) sh install.sh` installs the new version (signature and hash verified).
+
+### VS Code extension
+
+Publish only the `.vsix` files covered by the signed `SHA256SUMS`, after the signature check above. Never repackage them at this step.
+
+- [ ] Manual, once: create the `tenon-code-eu` publisher on the [Visual Studio Marketplace](https://marketplace.visualstudio.com/manage) and the `tenon-code-eu` namespace on [Open VSX](https://open-vsx.org) (Eclipse account, publisher agreement, `npx ovsx create-namespace tenon-code-eu -p $OVSX_PAT`). Create the tokens: `VSCE_PAT` (Azure DevOps personal access token, scope Marketplace > Manage) and `OVSX_PAT` (Open VSX access token). The tokens stay on the maintainer's machine, never in the repository or the CI.
+- [ ] From `editors/vscode` (so that `npx` runs the versions pinned in `package-lock.json`, after `npm ci`):
+  - Marketplace: `VSCE_PAT=… npx vsce publish --packagePath ../../dist/tenon-vscode-*.vsix`.
+  - Open VSX: `npx ovsx publish --packagePath ../../dist/tenon-vscode-*.vsix -p $OVSX_PAT`. Use `--packagePath`: the positional argument takes one file only.
+- [ ] Install `tenon-code-eu.tenon` from each registry on macOS and on Linux. **tenon: Show Logs** shows the bundled binary and its version `X.Y.Z`.
+- [ ] Known `npm audit` reports in `editors/vscode`: high and moderate issues in dev-only dependencies, as of 2026-10-28: the packaging tools (`@vscode/vsce` 4.0.0: `@azure/msal-node`, `@azure/identity`, `qs`; `ovsx` 1.2.0 and its own `@vscode/vsce` 3.9.2: `undici`, `markdown-it`, `fast-uri`) and the unit-test DOM `happy-dom`. None of them is in the extension: the `.vsix` contains only the esbuild bundle, whose single runtime dependency is `@agentclientprotocol/sdk`. The fixed versions were less than two weeks old on 2026-10-28. Check again at each release and update when a fix is old enough.
+- [ ] `@vscode/vsce-sign`: npm 11 may skip its install script (`allowScripts`). `vsce package` and `vsce publish --packagePath` do not use it: only Marketplace signing (`--sign-tool`, `--sigzipPath`) and `vsce verify-signature` do, and this release does not use them.
 
 ## Verified sources
 

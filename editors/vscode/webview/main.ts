@@ -202,9 +202,13 @@ input.addEventListener("keydown", (e) => {
         renderCompletionList();
         return;
       case "Tab":
-        e.preventDefault();
-        complete(matches[active].name);
-        return;
+        // Shift+Tab keeps its usual meaning: focus moves back.
+        if (!e.shiftKey) {
+          e.preventDefault();
+          complete(matches[active].name);
+          return;
+        }
+        break;
       case "Enter":
         if (!e.shiftKey && enterCompletes(input.value, matches, active)) {
           e.preventDefault();

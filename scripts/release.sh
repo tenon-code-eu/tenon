@@ -1,6 +1,6 @@
 #!/bin/sh
 # Chaîne de release : binaires, archives déterministes, paquets deb/rpm, SBOM,
-# SHA256SUMS et signature minisign. Lancé par `make release VERSION=vX.Y.Z`
+# paquets VS Code (.vsix), SHA256SUMS et signature minisign. Lancé par `make release VERSION=vX.Y.Z`
 # (le Makefile exécute `make vuln` avant ce script, sauf avec ALLOW_VULN=1).
 set -eu
 
@@ -125,17 +125,25 @@ GOFLAGS= GOPROXY=direct \
 	app -json -licenses -noserial -notimestamp -main cmd/tenon \
 	-output "$dist/tenon_${VERSION}.cdx.json" .
 
+# --- 4 bis. Paquets VS Code -------------------------------------------------------
+# Un .vsix par cible, avec le binaire tenon pris dans l'archive ci-dessus (jamais
+# reconstruit). Avant les sommes : SHA256SUMS et sa signature couvrent les .vsix.
+TARGETS="$TARGETS" DIST="$dist" sh scripts/vscode-package.sh "$VERSION"
+
 # --- 5. Sommes de contrôle ---------------------------------------------------------
 ( cd "$dist" && find . -maxdepth 1 -type f \
-	\( -name '*.tar.gz' -o -name '*.deb' -o -name '*.rpm' -o -name '*.cdx.json' \) \
+	\( -name '*.tar.gz' -o -name '*.deb' -o -name '*.rpm' -o -name '*.cdx.json' -o -name '*.vsix' \) \
 	>"$tmp/artefacts.raw" )
 sed 's|^\./||' "$tmp/artefacts.raw" >"$tmp/artefacts.nom"
 LC_ALL=C sort "$tmp/artefacts.nom" >"$tmp/artefacts"
-# Jeu exact attendu : une archive par cible, deb et rpm par cible linux, un SBOM.
+# Jeu exact attendu : une archive et un .vsix par cible, deb et rpm par cible
+# linux, un SBOM. Plateforme VS Code : amd64 s'appelle x64.
 expected=""
 for t in $TARGETS; do
 	os="${t%/*}"; arch="${t#*/}"; name="tenon_${VERSION}_${os}_${arch}"
+	vsarch="$arch"; [ "$arch" = amd64 ] && vsarch=x64
 	expected="$expected$name.tar.gz
+tenon-vscode-$os-$vsarch-${VERSION#v}.vsix
 "
 	if [ "$os" = linux ]; then expected="$expected$name.deb
 $name.rpm
