@@ -1,0 +1,6 @@
+{
+  "description": "tenon in VS Code: chat with the tenon coding agent, permissions, diffs, sandbox and provider jurisdiction in view.",
+  "command.restart": "Restart",
+  "command.showLogs": "Show Logs",
+  "config.path": "Absolute path to the `tenon` binary. Empty: the binary bundled with the extension, then `tenon` on `PATH`."
+}

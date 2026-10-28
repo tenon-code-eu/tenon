@@ -17,3 +17,11 @@
 
 # Worktrees de travail (branches en cours).
 /.worktrees/
+
+# Extension VS Code : dépendances, builds et VS Code de test.
+/editors/vscode/node_modules/
+/editors/vscode/out/
+/editors/vscode/dist/
+/editors/vscode/*.vsix
+/editors/vscode/.vscode-test/
+/editors/vscode/bin/

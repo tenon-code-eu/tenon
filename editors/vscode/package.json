@@ -1,0 +1,70 @@
+{
+  "name": "tenon",
+  "displayName": "tenon",
+  "description": "%description%",
+  "version": "0.9.0",
+  "publisher": "tenon-code-eu",
+  "license": "EUPL-1.2",
+  "icon": "media/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tenon-code-eu/tenon"
+  },
+  "homepage": "https://tenon-code-eu.github.io/tenon/editors/",
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": [
+    "AI",
+    "Chat"
+  ],
+  "main": "./dist/extension.js",
+  "l10n": "./l10n",
+  "activationEvents": [],
+  "contributes": {
+    "commands": [
+      {
+        "command": "tenon.restart",
+        "title": "%command.restart%",
+        "category": "tenon"
+      },
+      {
+        "command": "tenon.showLogs",
+        "title": "%command.showLogs%",
+        "category": "tenon"
+      }
+    ],
+    "configuration": {
+      "title": "tenon",
+      "properties": {
+        "tenon.path": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "markdownDescription": "%config.path%"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "lint": "eslint . && tsc --noEmit",
+    "test": "vitest run",
+    "test:integration": "node esbuild.mjs --tests && node out/runTest.js"
+  },
+  "dependencies": {
+    "@agentclientprotocol/sdk": "1.8.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/node": "22.20.5",
+    "@types/vscode": "1.95.0",
+    "@vscode/test-electron": "3.1.0",
+    "@vscode/vsce": "4.0.0",
+    "esbuild": "0.28.2",
+    "eslint": "10.12.0",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.71.2",
+    "vitest": "5.0.4"
+  }
+}

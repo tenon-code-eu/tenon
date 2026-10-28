@@ -1,0 +1,6 @@
+{
+  "description": "tenon dans VS Code : discussion avec l’agent de code tenon, accords, diffs, isolation et juridiction du fournisseur sous les yeux.",
+  "command.restart": "Relancer",
+  "command.showLogs": "Voir les journaux",
+  "config.path": "Chemin absolu du binaire `tenon`. Vide : le binaire inclus dans l’extension, puis `tenon` dans le `PATH`."
+}

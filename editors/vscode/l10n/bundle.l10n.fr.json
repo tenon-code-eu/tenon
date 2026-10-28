@@ -1,0 +1,11 @@
+{
+  "tenon was not found at {0}. Install it or choose the binary.": "tenon est introuvable à {0}. Installez-le ou choisissez le binaire.",
+  "tenon was not found. Install it or choose the binary.": "tenon est introuvable. Installez-le ou choisissez le binaire.",
+  "tenon could not run ({0}): {1}": "tenon ne peut pas être lancé ({0}) : {1}",
+  "tenon {0} is too old ({1} required)": "tenon {0} est trop ancien ({1} requis)",
+  "tenon failed to start: {0}": "tenon n’a pas démarré : {0}",
+  "Install": "Installer",
+  "Choose binary": "Choisir le binaire",
+  "Show logs": "Voir les journaux",
+  "Use this tenon binary": "Utiliser ce binaire tenon"
+}

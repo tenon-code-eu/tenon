@@ -1,0 +1,11 @@
+**
+!dist/extension.js
+!bin/tenon
+!media/icon.png
+!l10n/**
+!package.json
+!package.nls.json
+!package.nls.fr.json
+!README.md
+!CHANGELOG.md
+!LICENSE
