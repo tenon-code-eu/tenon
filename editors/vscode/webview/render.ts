@@ -233,6 +233,14 @@ export function renderMarkdown(src: string): DocumentFragment {
 
 // ---- items ----
 
+/** CSS class per ACP permission option kind; anything else is "other". */
+const OPTION_CLASS: Record<string, string> = {
+  allow_once: "allow-once",
+  allow_always: "allow-always",
+  reject_once: "reject-once",
+  reject_always: "reject-always",
+};
+
 function toolSummary(item: Extract<Item, { kind: "tool" }>, strings: Strings): HTMLElement {
   const summary = el("summary");
   summary.append(
@@ -282,7 +290,7 @@ export function renderItem(item: Item, strings: Strings): HTMLElement {
       e.appendChild(el("div", "title", item.title));
       const row = el("div", "options");
       for (const o of item.options) {
-        const b = el("button", `option ${o.kind}`, o.name);
+        const b = el("button", `option ${Object.prototype.hasOwnProperty.call(OPTION_CLASS, o.kind) ? OPTION_CLASS[o.kind] : "other"}`, o.name);
         b.setAttribute("type", "button");
         b.dataset.action = "permission";
         b.dataset.requestId = item.requestId;

@@ -42,6 +42,10 @@ export function webviewStrings(): Record<string, string> {
 
 export class Chat implements vscode.Disposable {
   private session: SessionController | undefined;
+  /** The turn in progress, claimed synchronously by send(). */
+  private turn: Promise<StopReason> | undefined;
+  /** Stop was pressed before the turn's prompt went out. */
+  private stopRequested = false;
   /** A session/load after a restart; ensureSession waits for it. */
   private resuming: Promise<void> | undefined;
   private readonly subs: vscode.Disposable[] = [];
@@ -66,17 +70,48 @@ export class Chat implements vscode.Disposable {
     }
   }
 
-  /** Sends one prompt; resolves with the stop reason. */
-  async send(text: string): Promise<StopReason> {
-    if (this.conv.state.busy) {
-      throw new Error("a turn is in progress");
+  /**
+   * Sends one prompt; resolves with the stop reason. The turn is claimed
+   * before anything is awaited (starting tenon and session/new take
+   * seconds), so a second send meanwhile is refused.
+   */
+  send(text: string): Promise<StopReason> {
+    if (this.turn) {
+      return Promise.reject(new Error("a turn is in progress"));
     }
-    const s = await this.ensureSession();
-    return s.prompt([{ type: "text", text }]);
+    this.stopRequested = false;
+    this.conv.setBusy(true);
+    const turn = (async (): Promise<StopReason> => {
+      try {
+        const s = await this.ensureSession();
+        if (this.stopRequested) {
+          return "cancelled";
+        }
+        return await s.prompt([{ type: "text", text }]);
+      } finally {
+        // Only one turn exists at a time: send() refuses while it is set.
+        this.turn = undefined;
+        this.conv.setBusy(false);
+      }
+    })();
+    this.turn = turn;
+    return turn;
   }
 
   async cancel(): Promise<void> {
+    if (this.turn) {
+      this.stopRequested = true;
+    }
     await this.session?.cancel();
+  }
+
+  /** Stops the turn in progress and waits for its end. */
+  private async endTurn(): Promise<void> {
+    const turn = this.turn;
+    if (turn) {
+      await this.cancel();
+      await turn.catch(() => undefined);
+    }
   }
 
   /** New session in the folder (picker when the workspace has several). */
@@ -89,9 +124,7 @@ export class Chat implements vscode.Disposable {
       return;
     }
     const s = await this.current();
-    if (this.conv.state.busy) {
-      await s.cancel();
-    }
+    await this.endTurn();
     await s.newSession(cwd);
   }
 
@@ -101,6 +134,7 @@ export class Chat implements vscode.Disposable {
       return;
     }
     const s = await this.current();
+    await this.endTurn();
     await s.load(sessionId, cwd);
   }
 
@@ -110,7 +144,7 @@ export class Chat implements vscode.Disposable {
       void p.catch((err: unknown) => this.log.info(`chat ${m.type}: ${errorMessage(err)}`));
     switch (m.type) {
       case "send":
-        if (!this.conv.state.busy && m.text.trim() !== "") {
+        if (!this.turn && m.text.trim() !== "") {
           run(this.send(m.text));
         }
         break;

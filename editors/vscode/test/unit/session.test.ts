@@ -88,6 +88,26 @@ describe("SessionController", () => {
     expect(conv.state.meta).toEqual({ provider: "P" });
   });
 
+  it("a failed load rolls back to the session that was open", async () => {
+    const loadSession = vi.fn().mockRejectedValue(new RequestError(-32603, "unknown session: gone"));
+    const { s, conv } = setup({ newSession: vi.fn().mockResolvedValue({ sessionId: "s1", _meta: { tenon: { provider: "P" } } }), loadSession });
+    await s.newSession("/p");
+    conv.addUser("kept");
+    conv.apply({ sessionId: "s1", update: { sessionUpdate: "available_commands_update", availableCommands: [{ name: "fix", description: "d" }] } });
+    await expect(s.load("gone", "/p")).rejects.toThrow("unknown session: gone");
+    expect(conv.state).toMatchObject({
+      sessionId: "s1",
+      cwd: "/p",
+      meta: { provider: "P" },
+      items: [{ kind: "user", text: "kept" }],
+      commands: [{ name: "fix", description: "d" }],
+      banner: { kind: "error", text: "unknown session: gone" },
+    });
+    // Updates of the restored session are applied again.
+    conv.apply({ sessionId: "s1", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "ok" } } });
+    expect(conv.state.items).toHaveLength(2);
+  });
+
   it("list fills the sessions with title and date", async () => {
     const listSessions = vi.fn().mockResolvedValue({
       sessions: [

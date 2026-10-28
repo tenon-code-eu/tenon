@@ -84,14 +84,19 @@ export class SessionController {
     }
   }
 
-  /** session/load: the thread is rebuilt from the replayed updates. */
+  /**
+   * session/load: the thread is rebuilt from the replayed updates. On
+   * failure the conversation goes back to the session that was open.
+   */
   async load(sessionId: string, cwd: string): Promise<void> {
+    const before = this.conv.snapshot();
     this.conv.begin(sessionId, cwd);
     try {
       const res = await this.agent.connection.loadSession({ sessionId, cwd, mcpServers: [] });
       this.conv.setMeta(tenonMeta(res));
       this.conv.setBanner(undefined);
     } catch (err) {
+      this.conv.restore(before);
       this.conv.setBanner({ kind: "error", text: errorMessage(err) });
       throw err;
     }

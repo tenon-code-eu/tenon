@@ -51,6 +51,9 @@ const MAX_EARLY = 10_000;
 
 type Listener = (s: ConversationState) => unknown;
 
+/** What session/load replaces, kept to roll back a failed load. */
+export type Snapshot = Pick<ConversationState, "sessionId" | "cwd" | "meta" | "items" | "commands">;
+
 /** Text of a content block as shown in the thread. */
 function blockText(b: ContentBlock): string {
   switch (b.type) {
@@ -115,7 +118,6 @@ export class Conversation {
     this.state.meta = meta;
     this.state.items = [];
     this.state.commands = [];
-    this.state.busy = false;
     if (sessionId !== undefined) {
       for (const n of early) {
         if (n.sessionId === sessionId) {
@@ -123,6 +125,18 @@ export class Conversation {
         }
       }
     }
+    this.changed();
+  }
+
+  snapshot(): Snapshot {
+    const { sessionId, cwd, meta, items, commands } = this.state;
+    return { sessionId, cwd, meta, items, commands };
+  }
+
+  /** Puts back a snapshot (a failed session/load); buffered updates are dropped. */
+  restore(s: Snapshot): void {
+    this.early = [];
+    Object.assign(this.state, s);
     this.changed();
   }
 
@@ -167,9 +181,18 @@ export class Conversation {
     const u = n.update;
     const items = this.state.items;
     switch (u.sessionUpdate) {
-      case "user_message_chunk":
-        items.push({ kind: "user", text: blockText(u.content) });
+      case "user_message_chunk": {
+        // A replayed message comes as one chunk per block (text, then
+        // attachments): one bubble, like the live one.
+        const text = blockText(u.content);
+        const last = items[items.length - 1];
+        if (last && last.kind === "user") {
+          last.text = last.text && text ? `${last.text}\n${text}` : last.text + text;
+        } else {
+          items.push({ kind: "user", text });
+        }
         break;
+      }
       case "agent_message_chunk":
       case "agent_thought_chunk": {
         const kind = u.sessionUpdate === "agent_message_chunk" ? "agent" : "thought";

@@ -84,7 +84,7 @@ describe("renderMarkdown (Review Focus 3)", () => {
 });
 
 describe("renderItem", () => {
-  const strings = { thought: "Thinking", copy: "Copy", openDiff: "Open diff", toolCompleted: "done" };
+  const strings = { thought: "Thinking", copy: "Copy", openDiff: "Open diff", tool_completed: "fait" };
 
   it("renders a user message as plain text", () => {
     const el = renderItem({ kind: "user", text: "**hi** <img>" }, strings);
@@ -115,6 +115,26 @@ describe("renderItem", () => {
     expect(el.textContent).toContain("shell · <b>ls</b>");
     expect(el.textContent).toContain("<img src=x onerror=alert(1)>");
     expect(el.dataset.status).toBe("completed");
+    expect(el.querySelector("summary .state")?.textContent).toBe("fait");
+  });
+
+  it("maps permission option kinds to a fixed class set", () => {
+    const el = renderItem(
+      {
+        kind: "permission",
+        requestId: "p1",
+        title: "write a.txt",
+        options: [
+          { optionId: "allow", name: "Allow", kind: "allow_once" },
+          { optionId: "x", name: "Odd", kind: 'evil" onclick="x item user' },
+        ],
+      },
+      strings,
+    );
+    const [allow, odd] = [...el.querySelectorAll("button")];
+    expect([...allow.classList]).toEqual(["option", "allow-once"]);
+    expect([...odd.classList]).toEqual(["option", "other"]);
+    expect(odd.getAttribute("onclick")).toBeNull();
   });
 
   it("offers Open diff for a tool item with a diff", () => {

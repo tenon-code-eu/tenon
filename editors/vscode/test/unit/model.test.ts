@@ -95,6 +95,19 @@ describe("Conversation.apply", () => {
     ]);
   });
 
+  it("merges consecutive user chunks of a replayed message into one item", () => {
+    const c = conv();
+    c.apply(chunk("user_message_chunk", "fix this"));
+    c.apply(n({ sessionUpdate: "user_message_chunk", content: { type: "resource_link", uri: "file:///p/a.go", name: "a.go" } }));
+    c.apply(chunk("agent_message_chunk", "done"));
+    c.apply(chunk("user_message_chunk", "next"));
+    expect(c.state.items).toEqual([
+      { kind: "user", text: "fix this\na.go" },
+      { kind: "agent", text: "done" },
+      { kind: "user", text: "next" },
+    ]);
+  });
+
   it("records available commands", () => {
     const c = conv();
     c.apply(
