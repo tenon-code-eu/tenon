@@ -12,7 +12,7 @@
 
 # tenon
 
-**An open-source coding agent for the terminal, built for Europe.**
+**An open-source coding agent for your terminal and your editor, built for Europe.**
 It reads your project, proposes changes and runs commands, under your control.
 
 - **European or local models:** Mistral AI, Scaleway, OVHcloud, Albert API, Ollama, vLLM. Nothing leaves the EU without your consent.
@@ -21,69 +21,54 @@ It reads your project, proposes changes and runs commands, under your control.
 - **Classified data stays home:** `DIFFUSION RESTREINTE` content goes only to a local model.
 - **Proof, not promises:** a hash-chained audit log, RFC 3161 timestamps, and an HTML/JSON report for your DPO.
 - **Organisation-ready:** signed policies, compliance profiles, a Cyber Resilience Act assistant, CI templates.
+- **In your editor:** a VS Code extension, and Zed, JetBrains or Neovim through the Agent Client Protocol, with the same guarantees.
 
 <p align="center"><img src="docs/assets/demo.gif" alt="Demo: tenon reads main.go, proposes a fix approved in the panel, runs go run . then fixes a second error until it prints 5" width="900"></p>
 
 ## Installation
 
-### Homebrew (macOS, Linux)
+**Homebrew** (macOS, Linux):
 
 ```
 brew install tenon-code-eu/tap/tenon
 ```
 
-### Install script (Linux, macOS)
+**Install script** (Linux, macOS). It verifies the SHA-256 hash, and the minisign signature if `minisign` is installed. Read it first: [install.sh](install.sh).
 
 ```
 curl -fsSL https://raw.githubusercontent.com/tenon-code-eu/tenon/main/install.sh | sh
 ```
 
-The script installs the latest version in `~/.local/bin` (change the directory with `TENON_INSTALL_DIR`, pin a version with `TENON_VERSION=vX.Y.Z`).
-It always verifies the SHA-256 hash of the archive, and the minisign signature if `minisign` is installed (`TENON_REQUIRE_SIGNATURE=1` makes it mandatory).
-To install from a mirror (sovereign forge, air-gapped network) instead of GitHub, set `TENON_DOWNLOAD_BASE` and `TENON_VERSION=vX.Y.Z` (the version is required).
-The mirror must serve `<base>/<version>/<archive>`, `<base>/<version>/SHA256SUMS` and `<base>/<version>/SHA256SUMS.minisig`; the base must be `https` (`http` is accepted only for `localhost` and `127.0.0.1`).
-The hash and signature checks are unchanged.
-Read it before you run it: [install.sh](install.sh).
+**VS Code:** install **tenon** (`tenon-code-eu.tenon`) from the Marketplace. The extension bundles the tenon binary. For VSCodium and Cursor, install the `.vsix` of your platform from the [latest release](https://github.com/tenon-code-eu/tenon/releases/latest) with **Extensions: Install from VSIX…**.
 
-### With Go
+**Other editors:** see [Editors](docs/editors.md) to run `tenon acp` from Zed, JetBrains or Neovim.
+
+<details>
+<summary>Install script options, Go, signed binaries, packages, from source</summary>
+
+**Install script options.** The script installs the latest version in `~/.local/bin`: change the directory with `TENON_INSTALL_DIR`, pin a version with `TENON_VERSION=vX.Y.Z`. `TENON_REQUIRE_SIGNATURE=1` makes the minisign check mandatory.
+To install from a mirror (sovereign forge, air-gapped network), set `TENON_DOWNLOAD_BASE` and `TENON_VERSION=vX.Y.Z`. The mirror serves `<base>/<version>/<archive>`, `<base>/<version>/SHA256SUMS` and `<base>/<version>/SHA256SUMS.minisig`; the base must be `https` (`http` only for `localhost` and `127.0.0.1`).
+
+**With Go:**
 
 ```
 go install github.com/tenon-code-eu/tenon/cmd/tenon@latest
 ```
 
-### Binaries
-
-Each version published on the [GitHub Releases](https://github.com/tenon-code-eu/tenon/releases) page provides:
-
-- one `.tar.gz` archive per platform: `linux/amd64`, `linux/arm64`, `darwin/amd64`, `darwin/arm64`;
-- `.deb` and `.rpm` packages for Linux (`amd64`, `arm64`);
-- a `SHA256SUMS` file, signed with minisign (`SHA256SUMS.minisig`);
-- a CycloneDX SBOM.
-
-Verify the signature with the project's minisign public key, provided at the root of the repository (`tenon.pub`):
+**Signed binaries.** Each [release](https://github.com/tenon-code-eu/tenon/releases) provides a `.tar.gz` archive per platform (`linux/amd64`, `linux/arm64`, `darwin/amd64`, `darwin/arm64`), `.deb` and `.rpm` packages, the VS Code `.vsix` packages, a CycloneDX SBOM, and `SHA256SUMS` signed with minisign. The public key is `tenon.pub` at the root of the repository:
 
 ```
 RWR+vfCWjGO42uRKOxNSrKz5afZPCWJf8iJPO04kFdkhLldZHhxo532F
 ```
 
-Then verify the hashes:
-
 ```
 minisign -Vm SHA256SUMS -p tenon.pub
 sha256sum -c SHA256SUMS --ignore-missing   # macOS: shasum -a 256 -c SHA256SUMS --ignore-missing
+sudo apt install ./tenon_*.deb             # Debian, Ubuntu
+sudo dnf install ./tenon_*.rpm             # Fedora, RHEL
 ```
 
-Then copy the `tenon` binary to a directory in your `PATH`, or install the package:
-
-```
-sudo apt install ./tenon_*.deb   # Debian, Ubuntu
-sudo dnf install ./tenon_*.rpm   # Fedora, RHEL
-```
-
-### From source
-
-You need Go 1.26 or later. Use the latest Go 1.26 patch release (≥ 1.26.10 as of 2026-10-22): earlier ones have known vulnerabilities in the standard library.
-The dependencies are included in the repository: no module proxy is contacted.
+**From source.** You need the latest Go 1.26 patch release (≥ 1.26.10 as of 2026-10-22): earlier ones have known vulnerabilities in the standard library. The dependencies are in the repository; no module proxy is contacted.
 
 ```
 git clone https://github.com/tenon-code-eu/tenon.git
@@ -91,29 +76,56 @@ cd tenon
 GOFLAGS=-mod=vendor go build -o tenon ./cmd/tenon
 ```
 
+</details>
+
 ## Quick start
+
+In the terminal, from your project directory:
 
 ```
 tenon key set mistral                  # stores the key in the system keyring
-tenon                                  # interactive interface, in the project directory
-tenon -p "explain the project layout"  # one turn without the interface, for scripts
-tenon skills                           # lists the skills found for this project
-tenon agents                           # lists the sub-agents found for this project
-tenon hooks                            # lists the hooks loaded from your own files
-tenon rewind --list --resume last      # lists the restore points of a session
+tenon                                  # interactive interface
+tenon -p "explain the project layout"  # one turn without the interface, for scripts and CI
 ```
 
-The key can also come from the `MISTRAL_API_KEY` variable.
-Without a key, use a local model: `tenon --provider ollama`.
+The key can also come from the `MISTRAL_API_KEY` variable. Without a key, use a local model: `tenon --provider ollama`.
+The interface is in English by default: run `tenon --lang fr` or set `lang = "fr"` in the configuration.
 
-The interface is in English by default.
-For French, run with `--lang fr` or set `lang = "fr"` in the configuration.
+In VS Code, open a folder, then click the tenon icon in the activity bar. The status bar shows the provider, its jurisdiction and the sandbox: `tenon · Mistral · EU · sandboxed`. Cmd+Esc (Ctrl+Esc on Linux) opens the terminal interface beside the editor.
 
-To mark the commits that contain code written by the agent:
+## What tenon gives you
 
-```
-tenon git install-hook
-```
+### Sovereignty
+- Preconfigured European providers (Mistral AI, Codestral, Scaleway, OVHcloud, the French State's Albert API) or local ones (Ollama, vLLM). Any OpenAI-compatible endpoint works.
+- Any send outside the EU needs your explicit consent.
+- Data-sensitivity routing: paths and markers (`DIFFUSION RESTREINTE`, `EU RESTRICTED`, your own) make a session sensitive, and it then goes only to a local model ([routing](docs/usage.md#data-sensitivity-routing)).
+- Compliance profiles (`eu-only`, `secnumcloud`, `strict-local`) and a provider host allowlist, checked at startup and before each send.
+- A signed organisation policy (minisign): a floor that users cannot loosen ([policy](docs/policy.md)).
+
+### Control and safety
+- Writes, commands and MCP tool calls wait for your approval by default.
+- System sandbox: shell commands and stdio MCP servers are confined (Landlock on Linux, `sandbox-exec` on macOS). `[sandbox] mode = "required"` refuses to run without it ([sandbox](docs/usage.md#system-sandbox)).
+- Secrets and some personal data are masked before anything is sent, to the model and to your editor.
+- Each prompt is a restore point: `/rewind` (or Esc twice) restores the files, the conversation, or both.
+
+### Proof and compliance
+- A hash-chained audit log, checked by `tenon audit verify`, with optional RFC 3161 timestamps.
+- `tenon audit export`: an HTML and JSON report for your DPO (providers, consents, permissions, modified files, editor used, incidents), without conversation data unless you ask.
+- Cyber Resilience Act assistant: `tenon cra` keeps an SBOM, a VEX, the reporting deadlines and a technical dossier, with an offline OSV scan for CI ([CRA](docs/cra.md)).
+- Commits that contain code written by the agent can be marked (`tenon git install-hook`).
+
+### Productivity
+- Skills in the open Agent Skills format (`SKILL.md`), loaded by the model or with `/<name>`.
+- Sub-agents (`.claude/agents/*.md`) for self-contained tasks, under the same permissions, masking and audit.
+- Hooks (Claude Code format) before and after tools and at session start and end, without widening permissions.
+- Governed memory between sessions (`project`, `user`, `global`), written with your approval ([memory](docs/usage.md#memory)).
+- Token sobriety: measured usage, a lighter context view, a session budget, small models for compaction and sub-agents ([sobriety](docs/usage.md#token-sobriety)).
+- MCP servers (stdio and HTTP), under the same jurisdiction, sandbox and audit rules.
+
+### Everywhere you work
+- Terminal interface, and a non-interactive mode for scripts and CI, with templates for GitLab CI, Forgejo/Gitea and GitHub Actions ([CI](docs/ci.md)).
+- `tenon acp`: an [Agent Client Protocol](https://agentclientprotocol.com) agent for Zed, JetBrains, Neovim and VS Code. tenon's own tools do the work, so every guarantee above still applies ([editors](docs/editors.md)).
+- The tenon extension for VS Code: chat panel, permission cards, native diffs, attached selection, `/` skills, past sessions, a sovereignty status bar and a terminal mode ([extension](editors/vscode/README.md)).
 
 ## Why tenon
 
@@ -128,41 +140,17 @@ tenon git install-hook
 | Hash-chained, verifiable audit log | ✅ | — | — | — | — |
 | Compliance report and RFC 3161 timestamps | ✅ | — | — | — | — |
 | Signed organisation policy | ✅ minisign | managed settings | — | — | — |
+| Editor integration | ✅ VS Code extension, ACP | ✅ VS Code, JetBrains | community extensions | ✅ VS Code extension, ACP | ✅ VS Code extension, ACP |
 
-“—” means not documented, to our knowledge, on 2026-10-24. Corrections are welcome: open an issue.
-Sources: [Claude Code sandboxing](https://code.claude.com/docs/en/sandboxing), [Aider](https://aider.chat/), [OpenCode](https://opencode.ai/), [Mistral Vibe](https://mistral.ai/news/devstral-2-vibe-cli), [Docker Sandboxes for Vibe](https://docs.docker.com/guides/mistral-vibe-sandbox/).
-
-## Features
-
-- the preconfigured providers are European (Mistral AI, Codestral, Scaleway, OVHcloud, Albert API of the French State) or local (Ollama, vLLM);
-- any data sent outside the EU requires your explicit consent;
-- by default, writes, commands and MCP tool calls wait for your approval;
-- everything is recorded in a hash-chained, verifiable audit log;
-- secrets and some personal data are masked before anything is sent;
-- commits that contain code written by the agent can be marked;
-- reusable skills in the open Agent Skills format (`SKILL.md`), loaded by the model or with `/<name>`, never able to widen permissions;
-- sub-agents (`.claude/agents/*.md` format) that the model launches for a self-contained task, with the same permissions, masking and audit as the main agent;
-- hooks (Claude Code format) that run your commands before and after tools, on prompts and at session start and end, to block, ask, add context or change a tool input, without widening permissions; project hooks never run;
-- compliance profiles (`eu-only`, `secnumcloud`, `strict-local`): the provider and MCP servers are checked against the profile at startup and before each send, and the profile is recorded in the audit log; `secnumcloud` relies on a declared, never verified, qualification; a `[provider_allowlist]` restricts provider hosts;
-- system sandbox: shell commands and stdio MCP servers are confined by the system (Landlock and user namespaces on Linux, `sandbox-exec` on macOS): writes limited to the project, credentials directories unreadable, network closed unless a rule or your answer opens it; `[sandbox] mode = "required"` refuses to run without it ([docs/usage.md](docs/usage.md#system-sandbox), [limits](docs/security.md#the-sandbox-and-its-limits));
-- data-sensitivity routing: paths and markers (`DIFFUSION RESTREINTE`, `EU RESTRICTED`, your own) classify a session as sensitive, and from then on it is sent only to a local model, with an ordered fallback to other providers for the rest; the audit log proves each decision and the export flags any violation ([docs/usage.md](docs/usage.md#data-sensitivity-routing), [limits](docs/security.md#data-sensitivity-routing-and-its-limits));
-- signed organisation policy (minisign): an administrator imposes a floor (profile, allowed provider hosts, permission and redaction rules, audit level, MCP servers) that users cannot loosen; it is verified at every startup and recorded in the audit log ([docs/policy.md](docs/policy.md));
-- RFC 3161 timestamping of the audit log: `[audit.timestamp]` has a timestamp authority sign the head hash, so a log rewritten afterwards is detected by `tenon audit verify` and by the export (no authority is built in, none is called unless you configure one);
-- governed memory: short notes kept between sessions (`project`, `user`, `global`), written by the model with approval or by you with `/remember`, loaded on demand from a short index; project entries are loaded only after you approve them on this machine, sensitive entries stay personal, personal entries expire, and `tenon memory` lists and erases everything ([usage guide](docs/usage.md#memory));
-- token sobriety: measured usage (an estimate, marked, when the provider reports none), a lighter view of the context (deduplication, masking under pressure, head-and-tail truncation) that never changes the history, a session cap with `[budget]`, and small models for compaction and sub-agents (`[routing] compaction`, `subagents`); energy and CO2 appear in the export only with factors you declare ([usage guide](docs/usage.md#token-sobriety));
-- `tenon audit export`: an HTML and JSON compliance report built from the audit log (providers, consents, permissions, modified files, incidents), with no conversation data unless you ask for it;
-- Cyber Resilience Act assistant: `tenon cra` keeps an SBOM, a VEX, reporting deadlines (article 14) and an exportable technical dossier in the repository, with an offline OSV vulnerability scan usable in CI (`tenon cra scan --fail-on open`) and four built-in skills; nothing is sent to ENISA ([docs/cra.md](docs/cra.md));
-- checkpoints: each prompt is a restore point, and `/rewind` (or Esc twice) restores the files an agent wrote, the conversation, or both, never overwriting a file you changed without asking.
-
-Any OpenAI-compatible endpoint works.
-tenon runs on Linux and macOS.
+“—” means not documented, to our knowledge, on 2026-10-29. Corrections are welcome: open an issue.
+Sources: [Claude Code sandboxing](https://code.claude.com/docs/en/sandboxing), [Claude Code in VS Code](https://code.claude.com/docs/en/ide-integrations), [Claude Code in JetBrains](https://code.claude.com/docs/en/jetbrains), [Aider](https://aider.chat/), [OpenCode](https://opencode.ai/), [OpenCode IDE](https://opencode.ai/docs/ide/), [Zed external agents](https://zed.dev/docs/ai/external-agents), [Mistral Vibe](https://mistral.ai/news/devstral-2-vibe-cli), [Vibe in other IDEs](https://docs.mistral.ai/vibe/code/use-vibe-in-other-ides), [Docker Sandboxes for Vibe](https://docs.docker.com/guides/mistral-vibe-sandbox/).
 
 ## Documentation
 
-- [Usage guide](docs/usage.md): keys, approval, non-interactive mode, sessions, configuration, providers, MCP, git marking, token sobriety (measured usage, context view, budget, small models), memory, audit, compliance export.
-- [tenon in CI](docs/ci.md): templates for GitLab CI, Forgejo/Gitea and GitHub Actions, `--strict`, `--config`, `TENON_DOWNLOAD_BASE` mirror install.
-- [Editors](docs/editors.md): `tenon acp` for Zed, JetBrains, Neovim and VS Code (Agent Client Protocol).
-- [VS Code extension](editors/vscode/README.md): chat panel, permissions, diffs, status bar and terminal mode, from the Marketplace (`tenon-code-eu.tenon`), or as a `.vsix` on the GitHub release for VSCodium and Cursor.
+- [Usage guide](docs/usage.md): keys, approval, non-interactive mode, sessions, configuration, providers, MCP, git marking, token sobriety, memory, audit, compliance export.
+- [Editors](docs/editors.md): `tenon acp` for Zed, JetBrains, Neovim and VS Code, and the tenon extension.
+- [VS Code extension](editors/vscode/README.md): panel, permissions, diffs, status bar, terminal mode, settings.
+- [tenon in CI](docs/ci.md): GitLab CI, Forgejo/Gitea and GitHub Actions templates, `--strict`, mirror install.
 - [Cyber Resilience Act assistant](docs/cra.md): dossier, offline OSV scan, deadlines, built-in skills.
 - [Organisation policy](docs/policy.md): signed floor imposed by an administrator.
 - [Security and limits](docs/security.md): sovereignty criteria, guarantees, known limits, recovery.
@@ -177,23 +165,21 @@ tenon is distributed under the [EUPL-1.2](LICENSE) license.
 
 ## En français
 
-tenon est un agent de code en terminal, écrit en Go, pour Linux et macOS.
+**Un agent de code open source, dans votre terminal et votre éditeur, conçu pour l'Europe.**
 Il lit votre projet, propose des modifications et exécute des commandes, sous votre contrôle.
-Les fournisseurs préconfigurés sont européens (Mistral AI, Codestral, Scaleway, OVHcloud, Albert API de l'État) ou locaux (Ollama, vLLM).
-Tout envoi hors de l'UE demande votre accord explicite, et tout est tracé dans un journal d'audit chaîné.
-Par défaut, les écritures, les commandes et les appels d'outils MCP attendent votre validation.
-Les skills au format ouvert Agent Skills (`SKILL.md`) sont chargés par le modèle ou avec `/<nom>`, sans jamais élargir les permissions.
-Les sous-agents (format `.claude/agents/*.md`) sont lancés par le modèle pour une tâche autonome, avec les mêmes permissions, le même masquage et le même audit que l'agent principal.
-Les hooks (format Claude Code) exécutent vos commandes avant et après les outils, à l'envoi d'un prompt et au début et à la fin d'une session, pour bloquer, demander, ajouter du contexte ou modifier l'entrée d'un outil, sans élargir les permissions ; les hooks d'un projet ne s'exécutent jamais.
-Chaque prompt est un point de restauration : `/rewind` (ou Échap deux fois) restaure les fichiers écrits par l'agent, la conversation, ou les deux, sans jamais écraser sans demander un fichier que vous avez modifié.
-Les profils de conformité (`eu-only`, `secnumcloud`, `strict-local`) contrôlent le fournisseur et les serveurs MCP au démarrage et avant chaque envoi, et le profil est enregistré dans le journal d'audit. `secnumcloud` repose sur une qualification déclarée, jamais vérifiée ; une `[provider_allowlist]` restreint les hôtes de fournisseurs.
-L'horodatage RFC 3161 du journal d'audit (`[audit.timestamp]`) fait signer le hash de tête par une autorité d'horodatage : un journal réécrit ensuite est détecté par `tenon audit verify` et par l'export. Aucune autorité n'est intégrée, et aucune n'est appelée sans configuration.
-L'isolation système confine les commandes shell et les serveurs MCP stdio (Landlock et espaces de noms sous Linux, `sandbox-exec` sous macOS) : écritures limitées au projet, dossiers d'identifiants illisibles, réseau fermé sauf si une règle ou votre réponse l'ouvre ; `[sandbox] mode = "required"` refuse de s'exécuter sans elle ([utilisation](docs/fr/utilisation.md#isolation-système), [limites](docs/fr/securite.md#lisolation-système-et-ses-limites)).
-Le routage par sensibilité des données classe une session comme sensible (chemins et marquages comme `DIFFUSION RESTREINTE`, `EU RESTRICTED` ou les vôtres) : elle n'est alors envoyée qu'à un modèle local, avec une bascule ordonnée vers d'autres fournisseurs pour le reste ; le journal d'audit prouve chaque décision et l'export signale toute violation ([utilisation](docs/fr/utilisation.md#routage-par-sensibilité-des-données), [limites](docs/fr/securite.md#le-routage-par-sensibilité-et-ses-limites)).
-Une politique d'organisation signée (minisign) permet à un administrateur d'imposer un socle (profil, hôtes de fournisseurs autorisés, règles de permissions et de masquage, niveau d'audit, serveurs MCP) que les utilisateurs ne peuvent pas assouplir ; elle est vérifiée à chaque démarrage et tracée dans le journal d'audit ([politique](docs/fr/politique.md)).
-La mémoire gouvernée garde de courtes notes entre les sessions (`project`, `user`, `global`), écrites par le modèle avec approbation ou par vous avec `/remember`, chargées à la demande depuis un court index ; les entrées de projet ne sont chargées qu'après votre approbation sur ce poste, les entrées sensibles restent personnelles, les entrées personnelles expirent et `tenon memory` permet de tout lister et tout effacer ([utilisation](docs/fr/utilisation.md#mémoire)). La sobriété en tokens mesure l'usage réel (repli sur une estimation marquée), envoie une vue allégée du contexte (déduplication, masquage sous pression, troncature début-fin) sans jamais modifier l'historique, plafonne la session avec `[budget]` et peut confier compaction et sous-agents à un petit modèle (`[routing] compaction`, `subagents`) ; l'énergie et le CO2 n'apparaissent dans l'export qu'avec des facteurs que vous déclarez ([utilisation](docs/fr/utilisation.md#sobriété-en-tokens)).
-`tenon audit export` produit un rapport de conformité HTML et JSON tiré du journal d'audit (fournisseurs, consentements, permissions, fichiers modifiés, incidents), sans données de conversation sauf si vous les demandez.
-L'assistant Cyber Resilience Act (`tenon cra`) tient dans le dépôt une SBOM, un VEX, les échéances de signalement (article 14) et un dossier technique exportable, avec un scan de vulnérabilités OSV hors ligne utilisable en CI (`tenon cra scan --fail-on open`) et quatre skills intégrés ; rien n'est envoyé à l'ENISA ([assistant CRA](docs/fr/cra.md)).
-L'interface est en anglais par défaut : lancez `tenon --lang fr` ou mettez `lang = "fr"` dans la configuration.
 
-Documentation en français : [guide d'utilisation](docs/fr/utilisation.md), [sécurité et limites](docs/fr/securite.md), [politique d'organisation](docs/fr/politique.md), [tenon en CI](docs/fr/ci.md), [assistant CRA](docs/fr/cra.md).
+**Installation :** `brew install tenon-code-eu/tap/tenon`, ou le [script d'installation](install.sh). Dans VS Code, installez **tenon** (`tenon-code-eu.tenon`) depuis le Marketplace ; pour VSCodium et Cursor, le `.vsix` de la [dernière release](https://github.com/tenon-code-eu/tenon/releases/latest). Autres éditeurs : [Éditeurs](docs/fr/editeurs.md).
+
+**Démarrage :** `tenon key set mistral`, puis `tenon` dans le dossier du projet. L'interface est en anglais par défaut : `tenon --lang fr` ou `lang = "fr"` dans la configuration.
+
+**Souveraineté.** Fournisseurs européens (Mistral AI, Codestral, Scaleway, OVHcloud, Albert API de l'État) ou locaux (Ollama, vLLM). Tout envoi hors UE demande votre accord. Une session marquée `DIFFUSION RESTREINTE` ne part que vers un modèle local ([routage](docs/fr/utilisation.md#routage-par-sensibilité-des-données)). Profils de conformité (`eu-only`, `secnumcloud`, `strict-local`) et politique d'organisation signée ([politique](docs/fr/politique.md)).
+
+**Contrôle et sécurité.** Écritures, commandes et appels MCP attendent votre validation. Les commandes s'exécutent dans l'isolation système (Landlock, `sandbox-exec`) ([isolation](docs/fr/utilisation.md#isolation-système)). Secrets et données personnelles masqués avant tout envoi, au modèle comme à l'éditeur. Chaque prompt est un point de reprise (`/rewind`).
+
+**Preuve et conformité.** Journal d'audit chaîné et vérifiable, horodatage RFC 3161, rapport HTML et JSON pour votre DPO (`tenon audit export`), assistant Cyber Resilience Act (`tenon cra`) avec scan OSV hors ligne ([CRA](docs/fr/cra.md)).
+
+**Productivité.** Skills (`SKILL.md`), sous-agents, hooks, mémoire gouvernée entre les sessions ([mémoire](docs/fr/utilisation.md#mémoire)), sobriété en tokens ([sobriété](docs/fr/utilisation.md#sobriété-en-tokens)), serveurs MCP.
+
+**Partout.** Interface terminal, mode sans interface pour les scripts et la CI ([CI](docs/fr/ci.md)), `tenon acp` pour Zed, JetBrains et Neovim, et l'extension VS Code : panneau de chat, cartes d'accord, diffs natifs, barre d'état souveraine, mode terminal ([éditeurs](docs/fr/editeurs.md)).
+
+Documentation en français : [guide d'utilisation](docs/fr/utilisation.md), [éditeurs](docs/fr/editeurs.md), [sécurité et limites](docs/fr/securite.md), [politique d'organisation](docs/fr/politique.md), [tenon en CI](docs/fr/ci.md), [assistant CRA](docs/fr/cra.md).
