@@ -95,15 +95,16 @@ export class Agent {
       // the first before initialize rejects the start.
       child.on("error", (err) => {
         log.info(`tenon process error: ${err.message}`);
-        reject(new Error(`cannot start ${bin}: ${err.message}`));
+        reject(new Error(vscode.l10n.t("cannot start {0}: {1}", bin, err.message)));
       });
       void exited.then(({ code }) =>
-        reject(new Error(`tenon exited before initialize (code ${code ?? "none"})`)),
+        reject(new Error(vscode.l10n.t("tenon exited before initialize (code {0})", code ?? "none"))),
       );
       timer = setTimeout(
-        () => reject(new Error(`tenon did not answer initialize within ${timeoutMs} ms`)),
+        () => reject(new Error(vscode.l10n.t("tenon did not answer initialize within {0} ms", timeoutMs))),
         timeoutMs,
       );
+      // Never shown: a cancelled start raises no notification.
       onAbort = () => reject(new Error("tenon start cancelled"));
       opts.signal?.addEventListener("abort", onAbort, { once: true });
     });

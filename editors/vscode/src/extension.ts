@@ -33,6 +33,8 @@ export interface TenonTestApi {
   cancel(): Promise<void>;
   /** True once the chat webview's script ran under its CSP and posted "ready". */
   panelReady(): boolean;
+  /** True while the chat view is on screen. */
+  panelVisible(): boolean;
   /** Answers the oldest pending permission request, like a click on its card. */
   answer(optionId: string): void;
   /** The card's "Open diff" button. */
@@ -406,6 +408,7 @@ export function activate(ctx: vscode.ExtensionContext): Promise<TenonTestApi | u
   ctx.subscriptions.push(
     status,
     conv.onDidChange((s) => status.update(s.meta)),
+    view.onDidHide(() => permissions.viewHidden()),
     log,
     c,
     chat,
@@ -460,6 +463,7 @@ export function activate(ctx: vscode.ExtensionContext): Promise<TenonTestApi | u
       send: (text: string): Promise<StopReason> => chat.send(text),
       cancel: () => chat.cancel(),
       panelReady: () => view.scriptLoaded,
+      panelVisible: () => view.visible,
       answer: (optionId: string) => {
         const oldest = permissions.pendingIds()[0];
         if (oldest !== undefined) {

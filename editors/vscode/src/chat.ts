@@ -330,6 +330,9 @@ export class Chat implements vscode.Disposable {
       this.session = undefined;
       this.extras.permissions?.cancelAll();
       this.conv.setBusy(false);
+      // No tenon, no provider: the status bar shows `tenon` alone (spec §7);
+      // the session/load after a restart brings the meta back.
+      this.conv.setMeta(undefined);
       this.conv.setBanner({ kind: "stopped", text: vscode.l10n.t("tenon stopped") });
     });
     if (this.conv.state.banner?.kind === "stopped") {

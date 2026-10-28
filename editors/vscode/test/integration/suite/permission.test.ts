@@ -1,7 +1,8 @@
 // Permission cards and native diffs against the real `tenon acp`: a
 // write_file allowed from the card (file written, diff documents), Stop while
 // a request is pending (file unchanged, notification when the view is
-// hidden), and the "allow with network" option of a sandboxed shell.
+// hidden, or hidden while the request is open), and the "allow with network"
+// option of a sandboxed shell.
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as vscode from "vscode";
@@ -139,8 +140,19 @@ test("permission: Stop while a request is pending refuses it; a hidden view gets
 
 test("permission: two turns whose calls are both call_1 keep two tool items, each with its own diff", async () => {
   // Turn 1 wrote v1 → v2, turn 2 was stopped; turn 3 writes v2 → v4.
+  await waitFor(() => api.panelVisible() || undefined, 10_000, "the chat view on screen");
+  const before = api.notifications().length;
   const sending = api.send("write v4");
   await waitFor(pendingCard, 15_000, "a third permission card");
+  assert(api.notifications().length === before, `notification while visible: ${JSON.stringify(api.notifications().slice(before))}`);
+  // The view goes off screen while the request is open: the notification comes then.
+  await vscode.commands.executeCommand("workbench.action.closeSidebar");
+  const shown = await waitFor(
+    () => api.notifications().slice(before).find((n) => n.kind === "info"),
+    5_000,
+    "a notification once the view is hidden",
+  );
+  assert(shown.message.includes("a.txt"), `notification ${shown.message}`);
   api.answer("allow");
   const stop = await sending;
   assert(stop === "end_turn", `stop reason ${stop}`);
@@ -157,6 +169,7 @@ test("permission: two turns whose calls are both call_1 keep two tool items, eac
   const second = api.lastDiff();
   assert(second?.left === "v2" && second.right === "v4", `second diff ${JSON.stringify(second)}`);
   await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+  await vscode.commands.executeCommand("tenon.openChat");
 }, 30_000);
 
 test("permission: a sandboxed shell call offers allow_network", async () => {
@@ -166,9 +179,14 @@ test("permission: a sandboxed shell call offers allow_network", async () => {
   );
   const sending = api.send("run it");
   const card = await waitFor(pendingCard, 15_000, "the shell permission card");
-  const sandbox = (api.state().meta?.sandbox ?? {}) as { mechanism?: string; network?: string };
+  const sandbox = (api.state().meta?.sandbox ?? {}) as { mechanism?: string; network?: string; confined?: boolean };
   const ids = card.options.map((o) => o.optionId);
-  if (!sandbox.mechanism || sandbox.mechanism === "none" || sandbox.network === "none") {
+  if (process.platform === "darwin") {
+    // sandbox-exec ships with macOS: tenon confines commands, the bar says so.
+    assert(sandbox.mechanism === "sandbox-exec" && sandbox.confined === true, `sandbox ${JSON.stringify(sandbox)}`);
+    assert(api.status().text === "tenon · Test SAS · EU · sandboxed", `status ${api.status().text}`);
+  }
+  if (sandbox.confined !== true || sandbox.network === "none") {
     console.log(`  SKIP allow_network: no network-confining sandbox here (${JSON.stringify(sandbox)})`);
   } else {
     assert(ids.includes("allow_network"), `options ${JSON.stringify(card.options)} sandbox ${JSON.stringify(sandbox)}`);

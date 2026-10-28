@@ -1,5 +1,6 @@
 // session/request_permission: one card in the thread per request, plus a
-// notification when the chat view is hidden. The first answer (card or
+// notification when the chat view is hidden, or becomes hidden while the
+// request is open (once per request). The first answer (card or
 // notification) goes to tenon; a dismissed notification, Stop or tenon's exit
 // answer "cancelled", which tenon takes as a refusal. Nothing is ever
 // answered automatically and nothing is remembered here.
@@ -24,6 +25,8 @@ export interface PermissionsDeps {
 interface Pending {
   card: Card;
   resolve(r: RequestPermissionResponse): void;
+  /** A notification was raised for this request. */
+  notified?: boolean;
 }
 
 const CANCELLED: RequestPermissionResponse = { outcome: { outcome: "cancelled" } };
@@ -58,6 +61,15 @@ export class Permissions {
       this.notify(requestId, card);
     }
     return answer;
+  }
+
+  /** The chat view went off screen: every open request not yet notified gets its notification. */
+  viewHidden(): void {
+    for (const [id, p] of this.pending) {
+      if (!p.notified) {
+        this.notify(id, p.card);
+      }
+    }
   }
 
   /** A click on a card (or a notification button); ignored once the request is closed. */
@@ -102,6 +114,11 @@ export class Permissions {
    * answered, a late choice there is ignored (the request is closed).
    */
   private notify(requestId: string, card: Card): void {
+    const p = this.pending.get(requestId);
+    if (!p || p.notified) {
+      return;
+    }
+    p.notified = true;
     const names = card.options.map((o) => o.name);
     const message = vscode.l10n.t("tenon asks for permission: {0}", card.title);
     // By index: two options may carry the same name.

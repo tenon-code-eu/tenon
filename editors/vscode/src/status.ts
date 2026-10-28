@@ -29,13 +29,26 @@ function jurisdictionLabel(j: string, l10n: L10n): string {
   }
 }
 
+/**
+ * Whether tenon confines shell commands (ruling R8): `sandbox.confined === true`.
+ * An older tenon without `confined` sends mechanism "none" (never "") when
+ * off or unavailable: "", "none" or mode "off" mean not sandboxed.
+ */
+function isConfined(sandbox: Record<string, unknown>): boolean {
+  if ("confined" in sandbox) {
+    return sandbox.confined === true;
+  }
+  const mechanism = str(sandbox.mechanism);
+  return mechanism !== "" && mechanism !== "none" && str(sandbox.mode) !== "off";
+}
+
 export function statusText(meta: Record<string, unknown> | undefined, l10n: L10n): { text: string; warning: boolean } {
   if (!meta) {
     return { text: "tenon", warning: false };
   }
   const jurisdiction = str(meta.jurisdiction);
   const sandbox = typeof meta.sandbox === "object" && meta.sandbox !== null ? (meta.sandbox as Record<string, unknown>) : {};
-  const sandboxed = str(sandbox.mechanism) !== "";
+  const sandboxed = isConfined(sandbox);
   const parts = [
     "tenon",
     str(meta.providerName) || str(meta.provider),

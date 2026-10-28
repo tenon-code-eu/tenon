@@ -104,6 +104,13 @@
           "when": "resourceScheme == file",
           "group": "tenon@2"
         }
+      ],
+      "explorer/context": [
+        {
+          "command": "tenon.attachFile",
+          "when": "resourceScheme == file && !explorerResourceIsFolder",
+          "group": "tenon@1"
+        }
       ]
     },
     "keybindings": [

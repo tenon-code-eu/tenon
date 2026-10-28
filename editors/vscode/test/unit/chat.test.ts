@@ -154,6 +154,20 @@ describe("Chat permissions and diffs", () => {
     expect(permissions.cancelAll).toHaveBeenCalled();
   });
 
+  it("tenon exiting clears the meta: the status bar shows tenon alone (spec §7)", async () => {
+    const meta = { provider: "mistral", jurisdiction: "eu", sandbox: { mode: "auto", mechanism: "sandbox-exec", network: "full", confined: true } };
+    const conn: Conn = {
+      newSession: vi.fn().mockResolvedValue({ sessionId: "s1", _meta: { tenon: meta } }),
+      prompt: vi.fn().mockResolvedValue({ stopReason: "end_turn" }),
+    };
+    const { chat, conv, exit } = withPerms(conn);
+    await chat.send("go");
+    expect(conv.state.meta).toEqual(meta);
+    exit.fire({ code: null });
+    expect(conv.state.meta).toBeUndefined();
+    expect(conv.state.sessionId).toBe("s1");
+  });
+
   it("a superseded tenon exiting later does not cancel the new one's requests", async () => {
     const conn: Conn = { newSession: vi.fn().mockResolvedValue({ sessionId: "s1" }), prompt: vi.fn().mockResolvedValue({ stopReason: "end_turn" }) };
     const { chat, permissions, exit, restart } = withPerms(conn);

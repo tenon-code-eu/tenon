@@ -16,6 +16,9 @@ let fake: FakeLLM;
 let workspace = "";
 let sessionA = "";
 const SKILL_BODY = "FIX-SKILL-BODY: find the bug first.";
+// Isolation off: tenon reports mechanism "none" and confined false, so the
+// status bar label is fixed whatever the machine's sandbox.
+const SANDBOX_OFF = '\n[sandbox]\nmode = "off"\n';
 
 function thread(): { kind: string; text: string }[] {
   return api
@@ -45,7 +48,7 @@ test("history: two sessions are listed newest first, with their titles", async (
   const skillDir = path.join(workspace, ".tenon", "skills", "fix");
   fs.mkdirSync(skillDir, { recursive: true });
   fs.writeFileSync(path.join(skillDir, "SKILL.md"), `---\nname: fix\ndescription: Fixes the bug.\n---\n${SKILL_BODY}\n`);
-  Object.assign(process.env, makeEnv(fake, { projectDir: workspace }).env);
+  Object.assign(process.env, makeEnv(fake, { projectDir: workspace, extra: SANDBOX_OFF }).env);
   await vscode.commands.executeCommand("tenon.restart");
   await api.agentReady();
   await vscode.commands.executeCommand("tenon.newSession");
@@ -143,13 +146,13 @@ test("context: attach with nothing to attach says so", async () => {
 
 test("status bar: provider, jurisdiction and sandbox of the session", async () => {
   const s = await waitFor(() => (api.status().text !== "tenon" ? api.status() : undefined), 5_000, "the status bar");
-  assert(s.text.startsWith("tenon · Test SAS · EU · "), `status ${s.text}`);
-  assert(/ · (sandboxed|not sandboxed)$/.test(s.text), `status ${s.text}`);
+  assert(s.text === "tenon · Test SAS · EU · not sandboxed", `status ${s.text}`);
   assert(!s.warning, "EU shown as a warning");
-  const meta = api.state().meta;
-  const mech = (meta?.sandbox as { mechanism?: string } | undefined)?.mechanism ?? "";
-  assert(s.text.endsWith(mech !== "" ? "· sandboxed" : "· not sandboxed"), `status ${s.text} for mechanism "${mech}"`);
+  const sandbox = api.state().meta?.sandbox as Record<string, unknown> | undefined;
+  assert(sandbox?.mode === "off" && sandbox.mechanism === "none" && sandbox.confined === false, `sandbox ${JSON.stringify(sandbox)}`);
   await api.stopAgent();
+  // tenon stopped: no provider any more, `tenon` alone.
+  await waitFor(() => (api.status().text === "tenon" ? true : undefined), 5_000, "the status bar after stop");
   await fake.close();
   fs.rmSync(path.join(workspace, ".tenon"), { recursive: true, force: true });
   fs.rmSync(path.join(workspace, "ctx.txt"), { force: true });

@@ -71,6 +71,36 @@ describe("Permissions", () => {
     expect(await p).toEqual({ outcome: { outcome: "selected", optionId: "reject" } });
   });
 
+  it("the view hidden while a request is pending: one notification per request, once", async () => {
+    const pending = later<number | undefined>();
+    const notify = vi.fn<Notify>(() => pending.promise);
+    const { perms } = setup(true, notify);
+    const p1 = perms.request(req("one", "call_1"));
+    void perms.request(req("two", "call_2"));
+    expect(notify).not.toHaveBeenCalled();
+    perms.viewHidden();
+    expect(notify).toHaveBeenCalledTimes(2);
+    perms.viewHidden();
+    expect(notify).toHaveBeenCalledTimes(2);
+    pending.resolve(0);
+    expect(await p1).toEqual({ outcome: { outcome: "selected", optionId: "allow" } });
+  });
+
+  it("the view hidden: a request already notified, or closed, is not notified again", () => {
+    const notify = vi.fn<Notify>(() => new Promise(() => undefined));
+    let visible = false;
+    const conv = new Conversation();
+    conv.begin("s1", "/p");
+    const perms = new Permissions(conv, { visible: () => visible, notify, log: { info: vi.fn(), stderr: vi.fn() } });
+    void perms.request(req("hidden", "call_1"));
+    expect(notify).toHaveBeenCalledTimes(1);
+    visible = true;
+    void perms.request(req("answered", "call_2"));
+    perms.answer("p2", "allow");
+    perms.viewHidden();
+    expect(notify).toHaveBeenCalledTimes(1);
+  });
+
   it("shows no notification while the chat view is visible", () => {
     const { perms, notify } = setup(true);
     void perms.request(req());

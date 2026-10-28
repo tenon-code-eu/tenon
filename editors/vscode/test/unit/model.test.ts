@@ -125,14 +125,14 @@ describe("Conversation.apply", () => {
 
   it("a usage_update replaces provider, name and jurisdiction together", () => {
     const c = conv();
-    c.setMeta({ provider: "mistral", providerName: "Mistral AI", jurisdiction: "eu", sandbox: { mechanism: "seatbelt" } });
+    c.setMeta({ provider: "mistral", providerName: "Mistral AI", jurisdiction: "eu", sandbox: { mode: "auto", mechanism: "sandbox-exec", network: "full", confined: true } });
     usage(c, { tenon: { input: 10, provider: "us1", providerName: "US Corp", jurisdiction: "non-eu" } });
-    expect(c.state.meta).toEqual({ provider: "us1", providerName: "US Corp", jurisdiction: "non-eu", sandbox: { mechanism: "seatbelt" } });
+    expect(c.state.meta).toEqual({ provider: "us1", providerName: "US Corp", jurisdiction: "non-eu", sandbox: { mode: "auto", mechanism: "sandbox-exec", network: "full", confined: true } });
     usage(c, { tenon: { input: 10 } });
     usage(c, { tenon: { provider: 3 } });
     usage(c, undefined);
     usage(c, { tenon: { provider: "other", jurisdiction: "eu" } }, "s2");
-    expect(c.state.meta).toEqual({ provider: "us1", providerName: "US Corp", jurisdiction: "non-eu", sandbox: { mechanism: "seatbelt" } });
+    expect(c.state.meta).toEqual({ provider: "us1", providerName: "US Corp", jurisdiction: "non-eu", sandbox: { mode: "auto", mechanism: "sandbox-exec", network: "full", confined: true } });
   });
 
   it("a provider change without jurisdiction never keeps the old label", () => {

@@ -42,6 +42,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   /** True once a webview script has started and posted "ready" (test API). */
   scriptLoaded = false;
   private view: vscode.WebviewView | undefined;
+  private readonly hiddenEmitter = new vscode.EventEmitter<void>();
+  /** The chat view went off screen (hidden or disposed). */
+  readonly onDidHide = this.hiddenEmitter.event;
 
   /** True while the chat view is on screen. */
   get visible(): boolean {
@@ -85,12 +88,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         if (view.visible) {
           post();
           void this.chat.refreshSessions(false);
+        } else {
+          this.hiddenEmitter.fire();
         }
       }),
     ];
     view.onDidDispose(() => {
       if (this.view === view) {
         this.view = undefined;
+        this.hiddenEmitter.fire();
       }
       for (const s of subs) {
         s.dispose();
