@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"syscall"
@@ -810,5 +811,56 @@ func TestACPListSessionsMasksOldJournal(t *testing.T) {
 		if strings.Contains(l, key) {
 			t.Fatalf("clé envoyée à l'éditeur : %s", l)
 		}
+	}
+}
+
+// toolCallIDs renvoie les toolCallId des tool_call de us, dans l'ordre.
+func toolCallIDs(us []map[string]any) []string {
+	var ids []string
+	for _, u := range us {
+		if u["sessionUpdate"] == "tool_call" {
+			id, _ := u["toolCallId"].(string)
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+// Le fournisseur renvoie call_1 à chaque tour : deux identifiants ACP
+// distincts, et le rejeu d'une session chargée redonne ceux du direct.
+func TestACPToolCallIDsUniqueAndReplayed(t *testing.T) {
+	f := newFakeLLM(t,
+		sseCall("read_file", `{"path":"x.txt"}`), sseText("un"),
+		sseCall("read_file", `{"path":"x.txt"}`), sseText("deux"))
+	e := newEnv(t, f, "eu")
+	e.writeFile(filepath.Join(e.wd, "x.txt"), "contenu")
+	c := startACP(t, e, allowPerm)
+	c.initialize()
+	sid := c.newSession(e.wd, nil)
+	for _, p := range []string{"premier", "second"} {
+		if r := c.prompt(sid, p); r != "end_turn" {
+			t.Fatalf("stopReason=%q", r)
+		}
+	}
+	live := toolCallIDs(c.allUpdates())
+	if len(live) != 2 || live[0] == live[1] {
+		t.Fatalf("identifiants en direct %q", live)
+	}
+	if code := c.wait(); code != 0 {
+		t.Fatalf("code=%d", code)
+	}
+
+	c2 := startACP(t, e, nil)
+	c2.initialize()
+	c2.call("session/load", map[string]any{"sessionId": sid, "cwd": e.wd, "mcpServers": []any{}})
+	// Le rejeu suit la réponse de session/load.
+	var replayed []string
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		if replayed = toolCallIDs(c2.allUpdates()); len(replayed) >= len(live) {
+			break
+		}
+	}
+	if !reflect.DeepEqual(replayed, live) {
+		t.Fatalf("rejeu %q, direct %q", replayed, live)
 	}
 }

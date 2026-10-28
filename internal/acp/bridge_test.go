@@ -128,18 +128,18 @@ func TestToolCallLifecycle(t *testing.T) {
 	h.init()
 	id := h.newSession()
 	h.call("session/prompt", map[string]any{"sessionId": id, "prompt": []any{text("x")}})
-	jsonEq(t, h.nextUpdate("tool_call"), `{"sessionUpdate":"tool_call","toolCallId":"c1","title":"write_file · a.go","kind":"edit","status":"pending",
+	jsonEq(t, h.nextUpdate("tool_call"), `{"sessionUpdate":"tool_call","toolCallId":"t0-c1","title":"write_file · a.go","kind":"edit","status":"pending",
 		"rawInput":{"path":"a.go","content":"v2"},"locations":[{"path":"`+root+`/a.go"}]}`)
 	// ancien texte masqué, nouveau texte depuis les arguments
-	jsonEq(t, h.nextUpdate("tool_call_update"), `{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"completed",
+	jsonEq(t, h.nextUpdate("tool_call_update"), `{"sessionUpdate":"tool_call_update","toolCallId":"t0-c1","status":"completed",
 		"content":[{"type":"diff","path":"`+root+`/a.go","oldText":"v1 [MASKED]","newText":"v2"}]}`)
 	h.nextUpdate("tool_call")
 	// nouveau fichier : pas d'ancien texte
-	jsonEq(t, h.nextUpdate("tool_call_update"), `{"sessionUpdate":"tool_call_update","toolCallId":"c2","status":"completed",
+	jsonEq(t, h.nextUpdate("tool_call_update"), `{"sessionUpdate":"tool_call_update","toolCallId":"t0-c2","status":"completed",
 		"content":[{"type":"diff","path":"`+root+`/b.go","newText":"new"}]}`)
-	jsonEq(t, h.nextUpdate("tool_call"), `{"sessionUpdate":"tool_call","toolCallId":"c3","title":"shell · go test ./...","kind":"execute","status":"pending",
+	jsonEq(t, h.nextUpdate("tool_call"), `{"sessionUpdate":"tool_call","toolCallId":"t0-c3","title":"shell · go test ./...","kind":"execute","status":"pending",
 		"rawInput":{"command":"go test ./..."}}`)
-	jsonEq(t, h.nextUpdate("tool_call_update"), `{"sessionUpdate":"tool_call_update","toolCallId":"c3","status":"failed",
+	jsonEq(t, h.nextUpdate("tool_call_update"), `{"sessionUpdate":"tool_call_update","toolCallId":"t0-c3","status":"failed",
 		"content":[{"type":"content","content":{"type":"text","text":"boom!"}}]}`)
 }
 
@@ -163,13 +163,13 @@ func TestEditDiff(t *testing.T) {
 	h.init()
 	id := h.newSession()
 	h.call("session/prompt", map[string]any{"sessionId": id, "prompt": []any{text("x")}})
-	jsonEq(t, h.nextUpdate("tool_call_update"), `{"sessionUpdate":"tool_call_update","toolCallId":"e1","status":"completed",
+	jsonEq(t, h.nextUpdate("tool_call_update"), `{"sessionUpdate":"tool_call_update","toolCallId":"t0-e1","status":"completed",
 		"content":[{"type":"diff","path":"/p/a.go","oldText":"a [MASKED] b a","newText":"a [MASKED] B a"}]}`)
-	jsonEq(t, h.nextUpdate("tool_call_update"), `{"sessionUpdate":"tool_call_update","toolCallId":"e2","status":"completed",
+	jsonEq(t, h.nextUpdate("tool_call_update"), `{"sessionUpdate":"tool_call_update","toolCallId":"t0-e2","status":"completed",
 		"content":[{"type":"diff","path":"/p/a.go","oldText":"a [MASKED] b a","newText":"z [MASKED] b z"}]}`)
-	jsonEq(t, h.nextUpdate("tool_call_update"), `{"sessionUpdate":"tool_call_update","toolCallId":"e3","status":"completed",
+	jsonEq(t, h.nextUpdate("tool_call_update"), `{"sessionUpdate":"tool_call_update","toolCallId":"t0-e3","status":"completed",
 		"content":[{"type":"content","content":{"type":"text","text":"1 replacement(s)"}}]}`)
-	jsonEq(t, h.nextUpdate("tool_call_update"), `{"sessionUpdate":"tool_call_update","toolCallId":"e4","status":"completed",
+	jsonEq(t, h.nextUpdate("tool_call_update"), `{"sessionUpdate":"tool_call_update","toolCallId":"t0-e4","status":"completed",
 		"content":[{"type":"content","content":{"type":"text","text":"done"}}]}`)
 }
 
@@ -255,7 +255,7 @@ func TestPermissionRoundTrip(t *testing.T) {
 	id := h.newSession()
 	pr := h.send("session/prompt", map[string]any{"sessionId": id, "prompt": []any{text("x")}})
 	rid, p := h.permission()
-	if p.SessionID != "s1" || p.ToolCall.ToolCallID != "c1" {
+	if p.SessionID != "s1" || p.ToolCall.ToolCallID != "t0-c1" {
 		t.Fatalf("params %+v", p)
 	}
 	if got := optionIDs(p); !reflect.DeepEqual(got, []string{"allow:allow_once", "allow_session:allow_always", "reject:reject_once"}) {
@@ -269,7 +269,7 @@ func TestPermissionRoundTrip(t *testing.T) {
 		t.Fatalf("reply %+v", r)
 	}
 	// autorisé : l'appel passe en cours (R2)
-	jsonEq(t, h.nextUpdate("tool_call_update"), `{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"in_progress"}`)
+	jsonEq(t, h.nextUpdate("tool_call_update"), `{"sessionUpdate":"tool_call_update","toolCallId":"t0-c1","status":"in_progress"}`)
 	if r := h.read(); r.ID != pr || string(r.Result) != `{"stopReason":"end_turn"}` {
 		t.Fatalf("prompt %+v %s", r.Error, r.Result)
 	}
@@ -520,10 +520,10 @@ func TestLoadReplay(t *testing.T) {
 	}
 	want := []string{
 		`{"content":{"text":"/fix it","type":"text"},"sessionUpdate":"user_message_chunk"}`,
-		`{"kind":"read","locations":[{"path":"` + root + `/a.go"}],"rawInput":{"path":"a.go"},"sessionUpdate":"tool_call","status":"pending","title":"read_file · a.go","toolCallId":"c1"}`,
-		`{"content":[{"content":{"text":"pkg a","type":"text"},"type":"content"}],"sessionUpdate":"tool_call_update","status":"completed","toolCallId":"c1"}`,
-		`{"kind":"execute","rawInput":{"command":"x"},"sessionUpdate":"tool_call","status":"pending","title":"shell · x","toolCallId":"c2"}`,
-		`{"content":[{"content":{"text":"no","type":"text"},"type":"content"}],"sessionUpdate":"tool_call_update","status":"failed","toolCallId":"c2"}`,
+		`{"kind":"read","locations":[{"path":"` + root + `/a.go"}],"rawInput":{"path":"a.go"},"sessionUpdate":"tool_call","status":"pending","title":"read_file · a.go","toolCallId":"t1-c1"}`,
+		`{"content":[{"content":{"text":"pkg a","type":"text"},"type":"content"}],"sessionUpdate":"tool_call_update","status":"completed","toolCallId":"t1-c1"}`,
+		`{"kind":"execute","rawInput":{"command":"x"},"sessionUpdate":"tool_call","status":"pending","title":"shell · x","toolCallId":"t1-c2"}`,
+		`{"content":[{"content":{"text":"no","type":"text"},"type":"content"}],"sessionUpdate":"tool_call_update","status":"failed","toolCallId":"t1-c2"}`,
 		`{"content":{"text":"done","type":"text"},"sessionUpdate":"agent_message_chunk"}`,
 	}
 	for i := range want {
@@ -622,7 +622,7 @@ func TestSubagentEvents(t *testing.T) {
 	id := h.newSession()
 	h.send("session/prompt", map[string]any{"sessionId": id, "prompt": []any{text("x")}})
 	rid, p := h.permission()
-	if p.ToolCall.ToolCallID != "a1/s1c" {
+	if p.ToolCall.ToolCallID != "t0-a1/s1c" {
 		t.Fatalf("sub-agent permission toolCallId %q", p.ToolCall.ToolCallID)
 	}
 	h.respond(rid, selected("allow"), nil)
@@ -632,7 +632,7 @@ func TestSubagentEvents(t *testing.T) {
 		u := upd(t, m)
 		kinds = append(kinds, u["sessionUpdate"].(string)+":"+asString(u["toolCallId"]))
 	}
-	want := []string{"available_commands_update:", "tool_call:a1", "tool_call:a1/s1c", "tool_call_update:a1/s1c", "tool_call_update:a1"}
+	want := []string{"available_commands_update:", "tool_call:t0-a1", "tool_call:t0-a1/s1c", "tool_call_update:t0-a1/s1c", "tool_call_update:t0-a1"}
 	if !reflect.DeepEqual(kinds, want) {
 		t.Fatalf("updates %v, want %v", kinds, want)
 	}
@@ -759,8 +759,8 @@ func TestMaskReplay(t *testing.T) {
 	}
 	want := []string{
 		`{"content":{"text":"key [MASKED]","type":"text"},"sessionUpdate":"user_message_chunk"}`,
-		`{"kind":"read","locations":[{"path":"/p/[MASKED].txt"}],"rawInput":{"path":"[MASKED].txt"},"sessionUpdate":"tool_call","status":"pending","title":"read_file · [MASKED].txt","toolCallId":"c1"}`,
-		`{"content":[{"content":{"text":"[MASKED]","type":"text"},"type":"content"}],"sessionUpdate":"tool_call_update","status":"completed","toolCallId":"c1"}`,
+		`{"kind":"read","locations":[{"path":"/p/[MASKED].txt"}],"rawInput":{"path":"[MASKED].txt"},"sessionUpdate":"tool_call","status":"pending","title":"read_file · [MASKED].txt","toolCallId":"t1-c1"}`,
+		`{"content":[{"content":{"text":"[MASKED]","type":"text"},"type":"content"}],"sessionUpdate":"tool_call_update","status":"completed","toolCallId":"t1-c1"}`,
 		`{"content":{"text":"done","type":"text"},"sessionUpdate":"agent_message_chunk"}`,
 	}
 	for i := range want {
@@ -780,4 +780,37 @@ func TestUsageProviderMeta(t *testing.T) {
 	id := h.newSession()
 	h.call("session/prompt", map[string]any{"sessionId": id, "prompt": []any{text("x")}})
 	jsonEq(t, h.nextUpdate("usage_update"), `{"sessionUpdate":"usage_update","used":12,"_meta":{"tenon":{"input":10,"output":2,"cached":0,"sessionTokens":12,"provider":"mistral"}}}`)
+}
+
+// Les fournisseurs reprennent call_1 à chaque tour : l'identifiant ACP porte
+// le numéro du tour (messages de l'agent principal), sous-agents compris.
+func TestToolCallIDsPerTurn(t *testing.T) {
+	b := scripted(nil, func(ctx context.Context, f *fakeSession) error {
+		f.emit(event.UserMessage, event.UserMessagePayload{Text: "x"})
+		f.emit(event.ToolCallRequested, event.ToolCallRequestedPayload{CallID: "call_1", Tool: "agent", Args: json.RawMessage(`{"description":"d"}`)})
+		// Message reçu par le sous-agent : pas un nouveau tour.
+		f.emit(event.UserMessage, event.UserMessagePayload{Text: "sub", ParentCallID: "call_1"})
+		f.emit(event.ToolCallRequested, event.ToolCallRequestedPayload{CallID: "call_1", Tool: "grep", Args: json.RawMessage(`{"pattern":"x"}`), ParentCallID: "call_1"})
+		f.emit(event.ToolResult, event.ToolResultPayload{CallID: "call_1", Tool: "grep", Content: "hit", ParentCallID: "call_1"})
+		f.emit(event.ToolResult, event.ToolResultPayload{CallID: "call_1", Tool: "agent", Content: "ok"})
+		return done(f)
+	})
+	h := newHarness(t, b)
+	h.init()
+	id := h.newSession()
+	h.call("session/prompt", map[string]any{"sessionId": id, "prompt": []any{text("un")}})
+	h.call("session/prompt", map[string]any{"sessionId": id, "prompt": []any{text("deux")}})
+	var ids []string
+	for _, m := range h.held {
+		if u := upd(t, m); u["sessionUpdate"] == "tool_call" || u["sessionUpdate"] == "tool_call_update" {
+			ids = append(ids, u["sessionUpdate"].(string)+":"+asString(u["toolCallId"]))
+		}
+	}
+	want := []string{
+		"tool_call:t1-call_1", "tool_call:t1-call_1/call_1", "tool_call_update:t1-call_1/call_1", "tool_call_update:t1-call_1",
+		"tool_call:t2-call_1", "tool_call:t2-call_1/call_1", "tool_call_update:t2-call_1/call_1", "tool_call_update:t2-call_1",
+	}
+	if !reflect.DeepEqual(ids, want) {
+		t.Fatalf("ids %v, want %v", ids, want)
+	}
 }

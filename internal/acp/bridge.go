@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"unicode/utf8"
@@ -62,12 +63,32 @@ func stopReason(turnReason string) string {
 
 // toolCallID est l'identifiant ACP d'un appel : l'identifiant d'appel du
 // LLM, préfixé par l'appel agent parent pour un sous-agent (« a1/c1 ») : deux
-// agents peuvent produire le même identifiant.
-func toolCallID(parent, id string) string {
-	if parent == "" {
-		return id
+// agents peuvent produire le même identifiant. Le tout est préfixé par le
+// numéro du tour (« t2-c1 », « t2-a1/c1 ») : les fournisseurs reprennent
+// call_0, call_1… à chaque tour.
+func toolCallID(turn int, parent, id string) string {
+	if parent != "" {
+		id = parent + "/" + id
 	}
-	return parent + "/" + id
+	return "t" + strconv.Itoa(turn) + "-" + id
+}
+
+// countTurn compte les messages de l'agent principal (UserMessage sans
+// ParentCallID) : le numéro de tour des identifiants d'appel. Appelé sur
+// l'événement brut, avant masquage, en direct comme au rejeu, pour que les
+// identifiants rejoués d'une session chargée soient ceux du direct.
+func (b *bridge) countTurn(ev event.Event) {
+	if ev.Type != event.UserMessage {
+		return
+	}
+	if p, ok := decodeAs[event.UserMessagePayload](ev); ok && p.ParentCallID == "" {
+		b.turn++
+	}
+}
+
+// callID est toolCallID au tour en cours.
+func (b *bridge) callID(parent, id string) string {
+	return toolCallID(b.turn, parent, id)
 }
 
 // openCall est l'appel d'outil en cours d'un agent (principal ou sous-agent).
@@ -97,6 +118,7 @@ type bridge struct {
 	routing     headless.Routing
 	hookNoticed bool  // une notice de hook a expliqué l'arrêt du tour
 	tokens      int64 // jetons de la session (entrée + sortie)
+	turn        int   // messages de l'agent principal reçus (voir countTurn)
 
 	mu        sync.Mutex
 	reason    string // raison du dernier TurnCompleted du tour
@@ -125,6 +147,7 @@ func (b *bridge) start(notices []string, cmds []Command, replay []event.Event) {
 	}
 	b.update(map[string]any{"sessionUpdate": "available_commands_update", "availableCommands": list})
 	for _, ev := range replay {
+		b.countTurn(ev)
 		if ev, ok := b.mask(ev); ok {
 			b.replay(ev)
 		}
@@ -250,6 +273,7 @@ func (b *bridge) mask(ev event.Event) (event.Event, bool) {
 // live masque puis traduit un événement du direct. Une demande de
 // permission illisible une fois masquée est refusée sans être posée.
 func (b *bridge) live(ev event.Event) {
+	b.countTurn(ev)
 	m, ok := b.mask(ev)
 	if ok {
 		b.handle(m)
@@ -274,7 +298,7 @@ func (b *bridge) handle(ev event.Event) {
 		if p, ok := decodeAs[event.ToolCallRequestedPayload](ev); ok {
 			b.open[p.ParentCallID] = openCall{p.CallID, p.Tool}
 			if p.Tool == "write_file" || p.Tool == "edit_file" {
-				b.args[toolCallID(p.ParentCallID, p.CallID)] = p.Args
+				b.args[b.callID(p.ParentCallID, p.CallID)] = p.Args
 			}
 			b.update(b.toolCall(p))
 		}
@@ -296,7 +320,7 @@ func (b *bridge) handle(ev event.Event) {
 				delete(b.open, p.ParentCallID)
 			}
 			b.update(b.toolResult(p, true))
-			delete(b.args, toolCallID(p.ParentCallID, p.CallID))
+			delete(b.args, b.callID(p.ParentCallID, p.CallID))
 		}
 	case event.Usage:
 		if p, ok := decodeAs[event.UsagePayload](ev); ok {
@@ -437,7 +461,7 @@ func (b *bridge) toolCall(p event.ToolCallRequestedPayload) map[string]any {
 		title += " · " + target
 	}
 	u := map[string]any{
-		"sessionUpdate": "tool_call", "toolCallId": toolCallID(p.ParentCallID, p.CallID), "title": title,
+		"sessionUpdate": "tool_call", "toolCallId": b.callID(p.ParentCallID, p.CallID), "title": title,
 		"kind": toolKind(p.Tool), "status": "pending",
 	}
 	if len(p.Args) > 0 && json.Valid(p.Args) {
@@ -457,7 +481,7 @@ func (b *bridge) toolResult(p event.ToolResultPayload, live bool) map[string]any
 	if p.IsError || p.Denied != "" {
 		status = "failed"
 	}
-	u := map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": toolCallID(p.ParentCallID, p.CallID), "status": status}
+	u := map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": b.callID(p.ParentCallID, p.CallID), "status": status}
 	if status == "completed" && live && (p.Tool == "write_file" || p.Tool == "edit_file") {
 		if d := b.diff(p); d != nil {
 			u["content"] = []map[string]any{d}
@@ -478,7 +502,7 @@ func (b *bridge) toolResult(p event.ToolResultPayload, live bool) map[string]any
 // appliqué à l'ancien texte). Fichier nouveau : oldText absent. nil : texte
 // seul.
 func (b *bridge) diff(p event.ToolResultPayload) map[string]any {
-	args, ok := b.args[toolCallID(p.ParentCallID, p.CallID)]
+	args, ok := b.args[b.callID(p.ParentCallID, p.CallID)]
 	if !ok || p.Path == "" {
 		return nil
 	}
@@ -617,7 +641,7 @@ func (b *bridge) ask(p event.PermissionRequestedPayload) {
 		// Les appels d'un même agent sont séquentiels : la demande porte sur
 		// son appel en cours, s'il s'agit du même outil.
 		if o, ok := b.open[p.ParentCallID]; ok && o.tool == p.Tool {
-			callID = toolCallID(p.ParentCallID, o.id)
+			callID = b.callID(p.ParentCallID, o.id)
 			b.permCall[id] = callID
 		}
 	}
