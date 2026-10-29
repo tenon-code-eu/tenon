@@ -188,7 +188,7 @@ Exit code 0 when valid; 1 when invalid, or when no policy is found (`tenon: no p
 
 ## Traceability
 
-- The welcome screen and `tenon config check` show `policy: acme-dev v3 (key <KeyID>)` when a policy is active. The key id is 16 uppercase hexadecimal characters, as printed by minisign.
+- The side panel and `tenon config check` show `policy: acme-dev v3 (key <KeyID>)` when a policy is active. The key id is 16 uppercase hexadecimal characters, as printed by minisign.
 - `SessionStarted` records `policy` (`id`, `version`, `key_id`). Sessions without a policy have no such key.
 - The [compliance export](usage.md#compliance-export) lists the policies of the sessions in the range (`policies` key), with the number of sessions under each. At metadata level the policy is unknown: the report says "not available at metadata level".
 

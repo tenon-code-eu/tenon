@@ -188,7 +188,7 @@ Code 0 si la politique est valide ; 1 si elle est invalide ou absente (`tenon : 
 
 ## Traçabilité
 
-- L'écran d'accueil et `tenon config check` affichent `politique : acme-dev v3 (clé <KeyID>)` quand une politique est active. L'identifiant de clé fait 16 caractères hexadécimaux majuscules, comme dans minisign.
+- Le panneau latéral et `tenon config check` affichent `politique : acme-dev v3 (clé <KeyID>)` quand une politique est active. L'identifiant de clé fait 16 caractères hexadécimaux majuscules, comme dans minisign.
 - `SessionStarted` enregistre `policy` (`id`, `version`, `key_id`). Les sessions sans politique n'ont pas cette clé.
 - L'[export de conformité](utilisation.md#export-de-conformité) liste les politiques des sessions dans la plage (clé `policies`), avec le nombre de sessions de chacune. Au niveau metadata, la politique est inconnue : le rapport indique « non disponible au niveau metadata ».
 

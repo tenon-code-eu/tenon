@@ -173,10 +173,8 @@ func (m Model) handlePaletteKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			p.cursor = 0
 		}
 	case msg.Type == tea.KeyRunes || msg.Type == tea.KeySpace:
+		// KeySpace porte déjà son espace dans Runes.
 		p.query += cleanToken(string(msg.Runes))
-		if msg.Type == tea.KeySpace {
-			p.query += " "
-		}
 		p.cursor = 0
 	}
 	return m, nil
@@ -187,8 +185,16 @@ func (m Model) runPaletteItem(it paletteItem) (tea.Model, tea.Cmd) {
 	switch it.Kind {
 	case kindCommand, kindSkill:
 		m.pal = nil
-		m.input.SetValue(it.Action + " ")
+		// Le brouillon est gardé, après la commande.
+		m.input.SetValue(it.Action + " " + m.input.Value())
+		m.input.CursorEnd()
 	case kindTheme:
+		// Comme /theme tapé : refusé pendant un tour (la palette reste ouverte).
+		if m.busy() {
+			m.tr.notice(i18n.T(m.lang, "tui.palette.busy"))
+			m.pal = nil
+			return m, nil
+		}
 		m.pal = nil
 		m.homeDone = true
 		m.themeCommand(it.Action)

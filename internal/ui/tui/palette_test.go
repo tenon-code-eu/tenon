@@ -171,3 +171,58 @@ func TestHelpMentionsPalette(t *testing.T) {
 		}
 	}
 }
+
+func TestPaletteSpaceKey(t *testing.T) {
+	h := newHarness(t, newFake(), statusOpts(i18n.EN))
+	h.send(tea.WindowSizeMsg{Width: 100, Height: 30})
+	ctrlP(h)
+	typeText(h, "a")
+	h.send(tea.KeyMsg{Type: tea.KeySpace, Runes: []rune{' '}})
+	typeText(h, "b")
+	if h.m.pal.query != "a b" {
+		t.Fatalf("requête %q", h.m.pal.query)
+	}
+}
+
+func TestPaletteThemeBusy(t *testing.T) {
+	h := newHarness(t, newFake(), statusOpts(i18n.EN))
+	h.send(tea.WindowSizeMsg{Width: 100, Height: 30})
+	before := h.m.theme.Name
+	ctrlP(h)
+	typeText(h, "gruvbox")
+	h.m.turn.start(func() {}, make(chan struct{}))
+	enter(h)
+	if h.m.theme.Name != before {
+		t.Fatalf("thème changé pendant un tour : %q", h.m.theme.Name)
+	}
+	found := false
+	for _, it := range h.m.tr.Items() {
+		found = found || (it.Kind == ItemNotice && strings.Contains(it.Text, "unavailable"))
+	}
+	if !found {
+		t.Fatal("avis absent")
+	}
+}
+
+func TestPaletteKeepsDraft(t *testing.T) {
+	h := newHarness(t, newFake(), statusOpts(i18n.EN))
+	h.send(tea.WindowSizeMsg{Width: 100, Height: 30})
+	typeText(h, "mon brouillon")
+	ctrlP(h)
+	typeText(h, "memory")
+	enter(h)
+	if got := h.m.input.Value(); got != "/memory mon brouillon" {
+		t.Fatalf("saisie %q", got)
+	}
+}
+
+func TestPaletteClosesOnPermission(t *testing.T) {
+	f := newFake()
+	h := newHarness(t, f, statusOpts(i18n.EN))
+	h.send(tea.WindowSizeMsg{Width: 100, Height: 30})
+	ctrlP(h)
+	askPermNow(t, h, f, shellPerm("p1"))
+	if h.m.pal != nil {
+		t.Fatal("la palette doit se fermer à l'arrivée d'une demande")
+	}
+}

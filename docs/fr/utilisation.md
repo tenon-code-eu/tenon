@@ -134,13 +134,13 @@ Les juridictions hors UE et inconnues sont en ambre.
 ### Palette de commandes
 
 Ctrl+P ouvre une palette au milieu de l'écran. Tapez pour filtrer : les lettres doivent apparaître dans l'ordre, majuscules ou minuscules, et les correspondances en début de mot passent d'abord.
-Haut et Bas déplacent la sélection, Entrée exécute l'entrée, Échap ferme.
+Haut et Bas (ou Ctrl+N et Ctrl+P) déplacent la sélection, Entrée exécute l'entrée, Échap ferme.
 
 La palette liste :
 
-- les commandes intégrées et les skills : Entrée place `/<nom> ` dans la saisie ;
+- les commandes intégrées et les skills : Entrée place `/<nom> ` au début de la saisie, et garde après lui ce que vous aviez déjà tapé ;
 - les sessions passées du dossier : Entrée affiche `tenon --resume <id>`, car l'interface ne reprend pas une session sur place ;
-- les thèmes : Entrée applique le thème ;
+- les thèmes : Entrée applique le thème (pas pendant un tour) ;
 - le fournisseur actif, avec le rappel `tenon --provider <id>` (information seulement).
 
 Ctrl+P remplace la touche « ligne précédente » de la saisie (style emacs). Les flèches fonctionnent toujours.
@@ -1466,7 +1466,7 @@ Sous `secnumcloud`, les requêtes vers un fournisseur local (détection du modè
 - Défense en profondeur : avant chaque envoi au modèle, le profil est contrôlé de nouveau. En cas de violation, rien n'est envoyé, le journal enregistre un événement `Error` avec `code: "profile"`, et le tour est bloqué.
 
 Le profil en vigueur est enregistré dans le champ `profile` de `SessionStarted` (absent sans profil).
-L'écran d'accueil affiche une ligne `profil : <nom>`.
+La barre d'état et le panneau latéral affichent le nom du profil.
 `tenon config check` affiche une ligne `profil : <nom>` seulement quand un profil est actif, puis contrôle le fournisseur sélectionné (`--provider` est pris en compte) et sort avec le code 1 s'il est refusé.
 L'[export de conformité](#export-de-conformité) liste les profils des sessions dans la clé `profiles`.
 Au niveau metadata, le profil est inconnu (non disponible) et `profiles` vaut `[]`. Dans une plage aux niveaux mêlés, les sessions journalisées au niveau metadata n'ajoutent rien à `profiles`.

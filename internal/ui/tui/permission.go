@@ -148,6 +148,8 @@ func (m *Model) trackEvent(ev event.Event) tea.Cmd {
 		var pr *permPrompt
 		pr, cmd = m.newPrompt(p)
 		m.prompts = append(m.prompts, pr)
+		// La carte de permission ne doit pas rester derrière la palette.
+		m.pal = nil
 	case event.PermissionResolved:
 		var p event.PermissionResolvedPayload
 		if json.Unmarshal(ev.Payload, &p) == nil {

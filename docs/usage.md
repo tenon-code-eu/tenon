@@ -134,13 +134,13 @@ Non-EU and unknown jurisdictions are shown in amber.
 ### Command palette
 
 Ctrl+P opens a palette in the middle of the screen. Type to filter: letters must appear in order, upper or lower case, and matches at the start of a word come first.
-Up and Down move, Enter runs the entry, Esc closes.
+Up and Down (or Ctrl+N and Ctrl+P) move, Enter runs the entry, Esc closes.
 
 The palette lists:
 
-- the built-in commands and the skills: Enter puts `/<name> ` in the input;
+- the built-in commands and the skills: Enter puts `/<name> ` at the start of the input, and keeps what you already typed after it;
 - the past sessions of the folder: Enter shows `tenon --resume <id>`, as the interface cannot resume a session in place;
-- the themes: Enter applies the theme;
+- the themes: Enter applies the theme (not while a turn is running);
 - the active provider, with the reminder `tenon --provider <id>` (information only).
 
 Ctrl+P replaces the line-up key of the input (emacs style). The arrow keys still work.
@@ -1464,7 +1464,7 @@ Under `secnumcloud`, requests to a local provider (local model detection include
 - Defense in depth: before each send to the model, the profile is checked again. On a violation nothing is sent, the log records an `Error` event with `code: "profile"`, and the turn is blocked.
 
 The profile in force is recorded in the `profile` field of `SessionStarted` (omitted without a profile).
-The welcome screen shows a `profile: <name>` line.
+The status bar and the side panel show the profile name.
 `tenon config check` prints a `profile: <name>` line only when a profile is active, then checks the selected provider (`--provider` is honored) and exits with code 1 if it is refused.
 The [compliance export](#compliance-export) lists the profiles of the sessions in the `profiles` key.
 At metadata level the profile is unknown (not available) and `profiles` is `[]`. In a range with mixed levels, sessions logged at metadata level add nothing to `profiles`.
