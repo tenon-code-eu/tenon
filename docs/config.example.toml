@@ -304,3 +304,12 @@ disabled = false
 # set accept_editor_mcp = false.
 # [acp]
 # accept_editor_mcp = false
+
+# Terminal interface. theme: tenon (default), tokyonight, catppuccin, gruvbox
+# or light; `/theme <name>` switches it for the current session. animation:
+# the short intro animation (default true; it is skipped without a terminal,
+# with NO_COLOR or on a narrow terminal). NO_COLOR disables every color.
+# Global only: refused in .tenon/config.toml.
+# [ui]
+# theme = "tokyonight"
+# animation = false

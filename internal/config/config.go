@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -69,6 +70,8 @@ type Config struct {
 	Usage Usage `toml:"usage"`
 	// ACP : [acp], tenon comme agent d'éditeur. Clé globale uniquement.
 	ACP ACP `toml:"acp"`
+	// UI : [ui], thème et animation de la TUI. Clé globale uniquement.
+	UI UI `toml:"ui"`
 	// CRA : assistant Cyber Resilience Act. Clé globale uniquement.
 	CRA CRA `toml:"cra"`
 	// home : $HOME lu au chargement, pour développer « ~/ » de la politique.
@@ -171,6 +174,17 @@ var errMemoryRetention = errors.New("config: memory.retention_days must be betwe
 // l'éditeur (false par défaut ; la politique ne peut que le forcer à false).
 type ACP struct {
 	AcceptEditorMCP bool `toml:"accept_editor_mcp"`
+}
+
+// UIThemes liste les thèmes de la TUI (même ordre que tui.ThemeNames) ; le
+// paquet tui reste la source des palettes, un test les garde alignés.
+var UIThemes = []string{"tenon", "tokyonight", "catppuccin", "gruvbox", "light"}
+
+// UI : [ui]. Theme : un des UIThemes ("tenon" par défaut). Animation : nil
+// vaut vrai (animation d'ouverture de la TUI).
+type UI struct {
+	Theme     string `toml:"theme"`
+	Animation *bool  `toml:"animation"`
 }
 
 // Usage : [usage]. Facteurs déclarés par l'utilisateur, 0 = non déclaré.
@@ -620,6 +634,7 @@ func Defaults(getenv func(string) string) Config {
 	// Interface en anglais par défaut ; lang = "fr" (ou --lang fr) pour le
 	// français. $LANG n'est pas lu : la langue ne change pas d'une machine à
 	// l'autre sans configuration.
+	animationOn := true // pointeur frais : le décodage TOML écrit à travers
 	return Config{
 		Lang:                "en",
 		DefaultProvider:     "mistral",
@@ -630,6 +645,7 @@ func Defaults(getenv func(string) string) Config {
 		Audit:               Audit{Level: "full"},
 		Sandbox:             Sandbox{Mode: "auto"},
 		Checkpoints:         Checkpoints{RetentionDays: 30},
+		UI:                  UI{Theme: "tenon", Animation: &animationOn},
 		Providers:           presets(),
 	}
 }
@@ -735,6 +751,9 @@ func (c Config) validateFields() error {
 	}
 	if c.Usage.GCO2PerKWh != 0 && badFactor(c.Usage.GCO2PerKWh) {
 		return errors.New("config: usage.gco2_per_kwh must be positive")
+	}
+	if !slices.Contains(UIThemes, c.UI.Theme) {
+		return fmt.Errorf("config: unknown ui.theme %q", c.UI.Theme)
 	}
 	if c.Checkpoints.RetentionDays < 0 {
 		return errors.New("config: retention_days must be >= 0")

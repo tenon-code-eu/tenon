@@ -54,6 +54,7 @@ func TestConfigExampleLoads(t *testing.T) {
 		{"cra", func(c Config) bool { return c.CRA.OSVMirror != "" }},
 		{"budget", func(c Config) bool { return c.Budget.SessionTokens > 0 && c.Budget.WarnAt == 0.8 }},
 		{"usage", func(c Config) bool { return c.Usage.WhPerMTok > 0 && c.Usage.GCO2PerKWh > 0 }},
+		{"ui", func(c Config) bool { return c.UI.Theme == "tokyonight" && c.UI.Animation != nil && !*c.UI.Animation }},
 		{"routing", func(c Config) bool { return c.Routing.Compaction == "ollama" && c.Routing.Subagents == "ollama" }},
 	} {
 		var out []string

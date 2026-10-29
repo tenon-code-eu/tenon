@@ -26,26 +26,35 @@ type styles struct {
 	r *lipgloss.Renderer
 }
 
-func newStyles(r *lipgloss.Renderer) styles {
+// newStyles construit les styles du thème th ; NO_COLOR retire toute couleur
+// (gras, italique et inversion restent).
+func newStyles(r *lipgloss.Renderer, th Theme) styles {
+	fg := func(c lipgloss.Color) lipgloss.Style {
+		s := r.NewStyle()
+		if noColor() || c == "" {
+			return s
+		}
+		return s.Foreground(c)
+	}
 	return styles{
 		r:         r,
-		banner:    r.NewStyle().Bold(true).Foreground(lipgloss.Color("6")),
+		banner:    fg(th.Accent).Bold(true),
 		user:      r.NewStyle().Bold(true),
-		assistant: r.NewStyle(),
-		tool:      r.NewStyle().Foreground(lipgloss.Color("5")),
-		notice:    r.NewStyle().Italic(true).Foreground(lipgloss.Color("8")),
-		err:       r.NewStyle().Foreground(lipgloss.Color("1")),
+		assistant: fg(th.Text),
+		tool:      fg(th.Accent),
+		notice:    fg(th.Muted).Italic(true),
+		err:       fg(th.Alert),
 		busy:      r.NewStyle().Faint(true),
 		status:    r.NewStyle().Reverse(true),
-		eu:        r.NewStyle().Reverse(true).Foreground(lipgloss.Color("2")),
-		local:     r.NewStyle().Reverse(true).Foreground(lipgloss.Color("4")),
-		nonEU:     r.NewStyle().Reverse(true).Foreground(lipgloss.Color("208")),
-		perm:      r.NewStyle().Bold(true).Foreground(lipgloss.Color("3")),
-		add:       r.NewStyle().Foreground(lipgloss.Color("2")),
-		del:       r.NewStyle().Foreground(lipgloss.Color("1")),
+		eu:        fg(th.OK).Reverse(true),
+		local:     fg(th.Structure).Reverse(true),
+		nonEU:     fg(th.Alert).Reverse(true),
+		perm:      fg(th.Accent).Bold(true),
+		add:       fg(th.OK),
+		del:       fg(th.Alert),
 		md: mdStyles{
 			bold:    r.NewStyle().Bold(true),
-			code:    r.NewStyle().Foreground(lipgloss.Color("6")),
+			code:    fg(th.Accent),
 			heading: r.NewStyle().Bold(true).Underline(true),
 		},
 	}

@@ -27,7 +27,11 @@ import (
 
 // Options configure la TUI.
 type Options struct {
-	Lang          i18n.Lang
+	Lang i18n.Lang
+	// Theme est le thème de la TUI ([ui] theme ; "" ou inconnu : tenon).
+	Theme string
+	// Animation active l'animation d'ouverture ([ui] animation).
+	Animation     bool
 	SessionID     string
 	Provider      llm.ProviderInfo
 	ContextWindow int
@@ -91,6 +95,7 @@ const (
 	agentsCommand  = "/agents"
 	hooksCommand   = "/hooks"
 	memoryCommand  = "/memory"
+	themeCommand   = "/theme"
 	tokenRuneRatio = 4
 	// turnFinishTimeout borne l'attente de la fin du tour en cours à la
 	// sortie de Run.
@@ -170,6 +175,8 @@ type Model struct {
 	tr    *Transcript
 	input textarea.Model
 	st    styles
+	// theme est le thème actif (Options.Theme, ou /theme pour la session).
+	theme Theme
 
 	width, height int
 	// scrollBack est le nombre de lignes de conversation masquées sous la vue
@@ -228,6 +235,10 @@ func New(eng Engine, opts Options) Model {
 	in.KeyMap.InsertNewline = keys.Newline
 	in.SetHeight(inputHeight)
 	in.Focus()
+	th, ok := ThemeByName(opts.Theme)
+	if !ok {
+		th = defaultTheme()
+	}
 	m := Model{
 		eng:    eng,
 		opts:   opts,
@@ -236,7 +247,8 @@ func New(eng Engine, opts Options) Model {
 		tr:     seededTranscript(l, opts.SessionTokens),
 		redact: opts.Redact,
 		input:  in,
-		st:     newStyles(lipgloss.DefaultRenderer()),
+		st:     newStyles(lipgloss.DefaultRenderer(), th),
+		theme:  th,
 		now:    time.Now,
 		ctx:    context.Background(),
 		turn:   &turnState{},
@@ -269,7 +281,7 @@ func Run(ctx context.Context, eng Engine, opts Options, in io.Reader, out io.Wri
 	defer cancel()
 	m := New(eng, opts)
 	m.ctx = runCtx
-	m.st = newStyles(lipgloss.NewRenderer(out))
+	m.st = newStyles(lipgloss.NewRenderer(out), m.theme)
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion(), tea.WithContext(ctx), tea.WithInput(in), tea.WithOutput(out))
 	_, err := p.Run()
 	// L'état du tour est partagé : annulation, vidage de l'abonnement et
@@ -520,6 +532,12 @@ func (m Model) submit() (tea.Model, tea.Cmd) {
 	case rewindCommand:
 		m.input.Reset()
 		m.openRewind()
+		return m, nil
+	}
+	if text == themeCommand || strings.HasPrefix(text, themeCommand+" ") {
+		m.input.Reset()
+		m.themeCommand(strings.TrimSpace(strings.TrimPrefix(text, themeCommand)))
+		m.scrollBack, m.unseen = 0, false
 		return m, nil
 	}
 	if text == rememberCommand || strings.HasPrefix(text, rememberCommand+" ") {

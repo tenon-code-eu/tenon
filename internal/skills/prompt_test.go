@@ -139,7 +139,7 @@ func TestBuiltinsSingleSource(t *testing.T) {
 			t.Fatalf("IsBuiltin(%q) faux", n)
 		}
 	}
-	if len(Builtins) != 8 {
+	if len(Builtins) != 9 {
 		t.Fatalf("Builtins %v", Builtins)
 	}
 }

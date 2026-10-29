@@ -395,6 +395,8 @@ func runInteractive(ctx context.Context, fs *flag.FlagSet, lang i18n.Lang, o eng
 		SessionTokens:    st.eng.SessionTokens(st.sessionID),
 		ProjectRoot:      o.wd,
 		Version:          version,
+		Theme:            st.theme,
+		Animation:        st.animation,
 		Profile:          string(st.profile),
 		Policy:           st.policy,
 		Local:            st.local,
@@ -723,6 +725,9 @@ type started struct {
 	policy string
 	// local est le fournisseur local du routage ("" : aucun).
 	local string
+	// theme et animation viennent de [ui] (TUI).
+	theme     string
+	animation bool
 	// memory est le store mémoire (nil : mémoire coupée par memoryOffBy).
 	memory      *memory.Store
 	memoryOffBy string
@@ -1318,7 +1323,8 @@ func startEngine(o engineOptions) (started, error) {
 		eng: eng, redactor: red, sessionID: sid, close: closeAndAnchor, notices: slices.Concat(startNotices, detectNotices, routingNotices, skillNotices, ad.notices, hookNotices, ckNotices, memNotices, notices), skills: cat, agents: ad.cat, hooks: hookSet,
 		downNotices: downNotices(o.lang, unavailable, red),
 		provider:    info, contextWindow: pc.Window(), profile: cfg.Profile,
-		local:  routingLocal(router),
+		local: routingLocal(router),
+		theme: cfg.UI.Theme, animation: cfg.UI.Animation == nil || *cfg.UI.Animation,
 		memory: memStore, memoryOffBy: cfg.MemoryDisabledBy, memoryWrites: memoryWriteSeqs(events),
 		policy:      policyLine(lang, "tui.welcome.policy", cfg.Policy),
 		checkpoints: store, history: events,

@@ -121,7 +121,7 @@ func TestWelcomeSanitizedAndRedacted(t *testing.T) {
 func colored(m Model) Model {
 	r := lipgloss.NewRenderer(io.Discard)
 	r.SetColorProfile(2 /* termenv.ANSI256 */)
-	m.st = newStyles(r)
+	m.st = newStyles(r, m.theme)
 	return m
 }
 

@@ -28,12 +28,7 @@ var welcomeArt = [6]string{
 	"      ╲▁▁▁┻▁▁▁╱     ",
 }
 
-// welcomeGradient va du bleu au cyan, une teinte par ligne de l'art.
-var welcomeGradient = [6]string{"#1e3a8a", "#1d4ed8", "#2563eb", "#0ea5e9", "#06b6d4", "#22d3ee"}
-
 const (
-	welcomeBorderColor = "6"
-	welcomeTaglineGray = "250"
 	// welcomeFrameExtra : bordures et marges intérieures du cadre.
 	welcomeFrameExtra = 4
 	// welcomeMinFrame est la largeur sous laquelle le cadre est abandonné.
@@ -115,21 +110,23 @@ func (m Model) welcomeLines() []string {
 	}
 
 	colored := !noColor()
-	paint := func(s, color string) string {
-		if !colored {
+	paint := func(s string, color lipgloss.Color) string {
+		if !colored || color == "" {
 			return s
 		}
-		return m.st.r.NewStyle().Foreground(lipgloss.Color(color)).Render(s)
+		return m.st.r.NewStyle().Foreground(color).Render(s)
 	}
+	grad := m.theme.gradient(len(art))
+	gray := m.theme.Muted
 
 	var body []string
 	if useArt {
 		for i, l := range art[:5] {
-			body = append(body, paint(l, welcomeGradient[i]))
+			body = append(body, paint(l, grad[i]))
 		}
-		body = append(body, paint(art[5], welcomeGradient[5])+paint(tagline+"  "+version, welcomeTaglineGray))
+		body = append(body, paint(art[5], grad[5])+paint(tagline+"  "+version, gray))
 	} else {
-		body = append(body, paint("⬢ TENON", welcomeGradient[3])+"  "+paint(version, welcomeTaglineGray), paint(tagline, welcomeTaglineGray))
+		body = append(body, paint("⬢ TENON", grad[3])+"  "+paint(version, gray), paint(tagline, gray))
 	}
 	body = append(body, "")
 
@@ -175,8 +172,8 @@ func (m Model) welcomeLines() []string {
 		return lines
 	}
 	border := m.st.r.NewStyle().Border(lipgloss.RoundedBorder()).Padding(0, 1)
-	if colored {
-		border = border.BorderForeground(lipgloss.Color(welcomeBorderColor))
+	if colored && m.theme.Structure != "" {
+		border = border.BorderForeground(m.theme.Structure)
 	}
 	return strings.Split(border.Render(strings.Join(lines, "\n")), "\n")
 }

@@ -474,3 +474,21 @@ func TestHeadlessNoWelcome(t *testing.T) {
 		}
 	}
 }
+
+// [ui] theme et animation arrivent dans les options de la TUI.
+func TestTUIThemeOptions(t *testing.T) {
+	quit := func(tm *teatest.TestModel) {
+		tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+		tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+	}
+	e := newEnvExtra(t, newFakeLLM(t, sseText("x")), "eu", "[ui]\ntheme = \"gruvbox\"\nanimation = false\n")
+	res := e.runTUI(quit, "--lang", "en")
+	if res.opts.Theme != "gruvbox" || res.opts.Animation {
+		t.Fatalf("options %+v", res.opts)
+	}
+	e = newEnv(t, newFakeLLM(t, sseText("x")), "eu")
+	res = e.runTUI(quit, "--lang", "en")
+	if res.opts.Theme != "tenon" || !res.opts.Animation {
+		t.Fatalf("défauts %+v", res.opts)
+	}
+}
