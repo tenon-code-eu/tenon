@@ -76,9 +76,16 @@ It is not necessarily the root of the git repository.
 Run `tenon` without `-p`.
 Standard input and standard output must be a terminal. Otherwise tenon stops with code 1.
 
-The status bar always shows:
-`tenon · model · provider · country · jurisdiction · session · ~tokens/window`.
-The token count is an estimate. After each model call, the bar also shows the measured usage (see [Token sobriety](#token-sobriety)).
+The status bar shows, in this order:
+
+- the project folder (`~` for your home folder, cut in the middle when it is long);
+- the model, the provider and its country;
+- the jurisdiction pill (`EU`, `non-EU`, `local` or `unknown jurisdiction`) and, when known, the sandbox pill (`sandboxed` or `not sandboxed`);
+- the profile (`profile: <name>`), when one is active, and the sensitive-session indicator;
+- the token estimate `~tokens/window` and, after the first model call, the measured usage `in · out · session` (see [Token sobriety](#token-sobriety));
+- the session id.
+
+The `~tokens/window` count is an estimate. When the terminal is too narrow, items drop in this order: the session id, the token estimate, the country, the measured usage, the profile, then the provider. The project folder, the model and the pills stay.
 
 ### Keys
 
@@ -128,7 +135,7 @@ The panel shows:
 - the modified files (8 at most, then `+N`);
 - sovereignty: sends per provider and country (non-EU in amber), sandbox, profile and policy.
 
-Under each answer, a badge shows the provider, the country and the jurisdiction (`EU`, `non-EU` or `local`) of the last call of the turn.
+Under each answer, a badge shows the provider, the country and the jurisdiction (`EU`, `non-EU`, `local` or `unknown jurisdiction`) of the last call of the turn.
 Non-EU and unknown jurisdictions are shown in amber.
 
 ### Command palette
@@ -143,7 +150,7 @@ The palette lists:
 - the themes: Enter applies the theme (not while a turn is running);
 - the active provider, with the reminder `tenon --provider <id>` (information only).
 
-Ctrl+P replaces the line-up key of the input (emacs style). The arrow keys still work.
+Ctrl+P and Ctrl+B replace keys of the input (emacs style): Ctrl+P the line-up key, Ctrl+B the character-back key. The arrow keys still work.
 
 ### Themes
 

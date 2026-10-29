@@ -76,9 +76,16 @@ Ce n'est pas forcément la racine du dépôt git.
 Lancez `tenon` sans `-p`.
 L'entrée et la sortie standard doivent être un terminal ; sinon tenon s'arrête avec le code 1.
 
-La barre d'état affiche en permanence :
-`tenon · modèle · fournisseur · pays · juridiction · session · ~jetons/fenêtre`.
-Le nombre de jetons est une estimation. Après chaque appel au modèle, la barre affiche aussi l'usage mesuré (voir [Sobriété en tokens](#sobriété-en-tokens)).
+La barre d'état affiche, dans cet ordre :
+
+- le dossier du projet (`~` pour votre dossier personnel, coupé au milieu s'il est long) ;
+- le modèle, le fournisseur et son pays ;
+- la pastille de juridiction (`UE`, `hors UE`, `local` ou `juridiction inconnue`) et, si elle est connue, la pastille d'isolation (`isolé` ou `non isolé`) ;
+- le profil (`profil : <nom>`), s'il y en a un, et l'indicateur de session sensible ;
+- l'estimation de jetons `~jetons/fenêtre` et, après le premier appel au modèle, l'usage mesuré `entrée · sortie · session` (voir [Sobriété en tokens](#sobriété-en-tokens)) ;
+- l'identifiant de la session.
+
+Le nombre de jetons `~jetons/fenêtre` est une estimation. Quand le terminal est trop étroit, les éléments disparaissent dans cet ordre : l'identifiant de la session, l'estimation de jetons, le pays, l'usage mesuré, le profil, puis le fournisseur. Le dossier du projet, le modèle et les pastilles restent.
 
 ### Touches
 
@@ -128,7 +135,7 @@ Le panneau affiche :
 - les fichiers modifiés (8 au plus, puis `+N`) ;
 - la souveraineté : envois par fournisseur et pays (hors UE en ambre), sandbox, profil et politique.
 
-Sous chaque réponse, un badge indique le fournisseur, le pays et la juridiction (`UE`, `hors UE` ou `local`) du dernier appel du tour.
+Sous chaque réponse, un badge indique le fournisseur, le pays et la juridiction (`UE`, `hors UE`, `local` ou `juridiction inconnue`) du dernier appel du tour.
 Les juridictions hors UE et inconnues sont en ambre.
 
 ### Palette de commandes
@@ -143,7 +150,7 @@ La palette liste :
 - les thèmes : Entrée applique le thème (pas pendant un tour) ;
 - le fournisseur actif, avec le rappel `tenon --provider <id>` (information seulement).
 
-Ctrl+P remplace la touche « ligne précédente » de la saisie (style emacs). Les flèches fonctionnent toujours.
+Ctrl+P et Ctrl+B remplacent des touches de la saisie (style emacs) : Ctrl+P la touche « ligne précédente », Ctrl+B la touche « caractère précédent ». Les flèches fonctionnent toujours.
 
 ### Thèmes
 

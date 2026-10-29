@@ -109,6 +109,44 @@ describe("computeStats", () => {
     ]);
   });
 
+  it("uses tenon's session aggregate (_meta.tenon.sends, sessionIn, sessionOut): a sub-agent's non-EU call is counted, in the alert colour", () => {
+    const c = conv();
+    const agg = (tenon: Record<string, unknown>, used: number) =>
+      n({ sessionUpdate: "usage_update", used, size: 1000, _meta: { tenon: { provider: "mistral", providerName: "Mistral AI", jurisdiction: "eu", input: used, output: 2, ...tenon } } });
+    c.apply(agg({ sessionIn: 10, sessionOut: 2, sends: [{ provider: "mistral", providerName: "Mistral AI", jurisdiction: "eu", n: 1 }] }, 10));
+    // A sub-agent called a non-EU provider in between: no usage_update of its own.
+    c.apply(
+      agg(
+        {
+          sessionIn: 37,
+          sessionOut: 9,
+          sends: [
+            { provider: "mistral", providerName: "Mistral AI", jurisdiction: "eu", n: 2 },
+            { provider: "us1", providerName: "US Corp", jurisdiction: "non-eu", n: 1 },
+            { provider: "x", n: 1 },
+          ],
+        },
+        20,
+      ),
+    );
+    const s = computeStats(c.state);
+    expect(s.sends).toEqual([
+      { provider: "Mistral AI", jurisdiction: "eu", n: 2, alert: false },
+      { provider: "US Corp", jurisdiction: "non-eu", n: 1, alert: true },
+      { provider: "x", n: 1, alert: true },
+    ]);
+    expect(s.tokensIn).toBe(37);
+    expect(s.tokensOut).toBe(9);
+    expect(s.used).toBe(20);
+  });
+
+  it("ignores a malformed sends aggregate and keeps counting", () => {
+    const c = conv();
+    c.apply(usage("mistral", "Mistral AI", "eu", 100, 1000));
+    c.apply(n({ sessionUpdate: "usage_update", used: 1, size: 1000, _meta: { tenon: { provider: "mistral", providerName: "Mistral AI", jurisdiction: "eu", input: 1, output: 1, sends: "x" } } }));
+    expect(computeStats(c.state).sends).toEqual([{ provider: "Mistral AI", jurisdiction: "eu", n: 2, alert: false }]);
+  });
+
   it("the gauge comes from the last usage_update", () => {
     const c = conv();
     c.apply(usage("mistral", "Mistral AI", "eu", 100, 1000));

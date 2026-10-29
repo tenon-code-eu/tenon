@@ -29,10 +29,12 @@ settings. Otherwise the extension uses the bundled binary, then `tenon` on your
   turn's last call. Non-EU or unknown shows in the alert colour.
 - **Session view.** Under the chat: title, context gauge, tokens, modified files
   (click one to open its diff) and the calls per provider and jurisdiction,
-  sandbox, profile and policy. A resumed session's calls and tokens include its
-  history.
-- **Palette.** **tenon: Palette** (Cmd+Shift+;, Ctrl+Shift+; while the chat has
-  focus): tenon commands, skills, past sessions, themes and the active provider.
+  sandbox, profile and policy. Every call of the session counts, sub-agents
+  included. A resumed session's calls and tokens include its history.
+- **Palette.** **tenon: Palette** (Cmd+Shift+;, Ctrl+Shift+; on Linux and Windows,
+  while the chat has focus, or the `⋯` button next to Send): tenon commands,
+  skills, past sessions, themes and the active provider. On an AZERTY keyboard,
+  use the `⋯` button or run **tenon: Palette** from the Command Palette.
 - **Theme.** `tenon.theme`: `auto` (default, the editor's colours) or `tenon`
   (Europe blue and gold).
 - **Context.** Cmd+Alt+K (Ctrl+Alt+K) attaches the selection to your next

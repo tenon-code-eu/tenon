@@ -36,6 +36,31 @@ function str(v: unknown): string | undefined {
   return typeof v === "string" && v !== "" ? v : undefined;
 }
 
+/**
+ * text with every `$(name)` escaped (`\$(name)`), as VS Code's escapeIcons
+ * does: a skill name or a session title shows as typed, never as a codicon.
+ */
+export function escapeIcons(text: string): string {
+  return text.replace(/(\\)?\$\((?:[\w-]+(?:~[\w-]+)?)\)/g, (match: string, escaped: string | undefined) => (escaped ? match : `\\${match}`));
+}
+
+/** The part of a WorkspaceConfiguration (section `tenon`) that setTheme uses. */
+export interface ThemeConfig {
+  inspect(section: string): { workspaceValue?: unknown } | undefined;
+  update(section: string, value: unknown, target: vscode.ConfigurationTarget): Thenable<void>;
+}
+
+/**
+ * Writes tenon.theme where it takes effect: the workspace settings when they
+ * set it (they win over the user settings), else the user settings. The
+ * setting is window-scoped: folder settings never apply to it.
+ */
+export function setTheme(config: ThemeConfig, theme: Theme): Thenable<void> {
+  const target =
+    config.inspect("theme")?.workspaceValue !== undefined ? vscode.ConfigurationTarget.Workspace : vscode.ConfigurationTarget.Global;
+  return config.update("theme", theme, target);
+}
+
 /** The entries, section by section: commands, skills, sessions, themes, provider. */
 export function paletteItems(
   state: ConversationState,
@@ -59,7 +84,7 @@ export function paletteItems(
   if (skills.length > 0) {
     items.push(separator(vscode.l10n.t("Skills")));
     for (const s of skills) {
-      items.push({ label: `/${s.name}`, detail: s.description, action: { type: "skill", name: s.name } });
+      items.push({ label: `/${escapeIcons(s.name)}`, detail: escapeIcons(s.description), action: { type: "skill", name: s.name } });
     }
   }
 
@@ -68,8 +93,8 @@ export function paletteItems(
     items.push(separator(vscode.l10n.t("Sessions")));
     for (const s of past) {
       items.push({
-        label: `$(history) ${str(s.title) ?? vscode.l10n.t("Untitled session")}`,
-        description: s.updatedAt,
+        label: `$(history) ${escapeIcons(str(s.title) ?? vscode.l10n.t("Untitled session"))}`,
+        description: escapeIcons(s.updatedAt),
         action: { type: "session", sessionId: s.sessionId },
       });
     }
@@ -92,7 +117,7 @@ export function paletteItems(
   const meta = state.meta;
   const provider = str(meta?.providerName) ?? str(meta?.provider);
   items.push({
-    label: `$(info) ${provider ? vscode.l10n.t("Provider: {0}", provider) : vscode.l10n.t("Provider: not known until tenon starts")}`,
+    label: `$(info) ${provider ? vscode.l10n.t("Provider: {0}", escapeIcons(provider)) : vscode.l10n.t("Provider: not known until tenon starts")}`,
     detail: vscode.l10n.t("Change it with default_provider in the tenon configuration, then restart tenon."),
     action: { type: "info" },
   });

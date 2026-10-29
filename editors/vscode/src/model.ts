@@ -44,7 +44,7 @@ export type Item =
       refused?: boolean;
     };
 
-/** Calls sent to one provider, under one jurisdiction (one per usage_update). */
+/** Calls sent to one provider, under one jurisdiction. */
 export interface Send {
   provider: string;
   jurisdiction?: string;
@@ -71,9 +71,9 @@ export interface ConversationState {
   loading?: boolean;
   /** Context of the last usage_update: `used` input tokens of a `size` window. */
   usage?: { used: number; size: number };
-  /** Input and output tokens of the session's calls (`_meta.tenon` of each usage_update). */
+  /** Input and output tokens of the session's calls (`sessionIn`/`sessionOut` of `_meta.tenon`, else summed per usage_update). */
   tokens?: { input: number; output: number };
-  /** Calls per provider and jurisdiction, one per usage_update (a resumed session's replay included). */
+  /** Calls per provider and jurisdiction: `_meta.tenon.sends` of the last usage_update (every call of the session), else one per usage_update (a resumed session's replay included). */
   sends?: Send[];
 }
 
@@ -179,6 +179,32 @@ function usageProvider(t: Record<string, unknown>): AnswerProvider | undefined {
   }
   const jurisdiction = nonEmpty(t.jurisdiction);
   return jurisdiction ? { name, jurisdiction } : { name };
+}
+
+/**
+ * The session's sends from `_meta.tenon.sends` ([{provider, providerName,
+ * jurisdiction, n}], every call of the session); undefined when absent or
+ * malformed (older tenon: the caller counts instead).
+ */
+function sessionSends(v: unknown): Send[] | undefined {
+  if (!Array.isArray(v)) {
+    return undefined;
+  }
+  const out: Send[] = [];
+  for (const e of v as unknown[]) {
+    if (typeof e !== "object" || e === null) {
+      return undefined;
+    }
+    const r = e as Record<string, unknown>;
+    const provider = nonEmpty(r.providerName) ?? nonEmpty(r.provider);
+    const count = r.n;
+    if (!provider || typeof count !== "number" || !Number.isInteger(count) || count < 0) {
+      return undefined;
+    }
+    const jurisdiction = nonEmpty(r.jurisdiction);
+    out.push(jurisdiction ? { provider, jurisdiction, n: count } : { provider, n: count });
+  }
+  return out;
 }
 
 function sameProvider(a: AnswerProvider | undefined, b: AnswerProvider): boolean {
@@ -406,11 +432,21 @@ export class Conversation {
           break;
         }
         const tenon = t as Record<string, unknown>;
-        this.count(tenon);
         const p = usageProvider(tenon);
         this.badgeTurn(p);
-        if (p) {
+        // tenon >= the session aggregate: every call of the session (sub-agents,
+        // compaction, hooks included), like the TUI panel. Older tenon: count
+        // the main agent's calls, one per usage_update.
+        const sends = sessionSends(tenon.sends);
+        if (sends) {
+          this.state.sends = sends;
+        } else if (p) {
           this.addSend(p);
+        }
+        if (typeof tenon.sessionIn === "number" && typeof tenon.sessionOut === "number") {
+          this.state.tokens = { input: tenon.sessionIn, output: tenon.sessionOut };
+        } else {
+          this.count(tenon);
         }
         const meta = this.state.meta;
         const next = meta ? usageMeta(meta, tenon) : undefined;

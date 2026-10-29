@@ -4,7 +4,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ToSessionView } from "../../src/protocol";
 import { handleSessionMessage } from "../../src/sessionMessages";
-import type { SessionStats } from "../../src/stats";
+import { Conversation } from "../../src/model";
+import { computeStats, type SessionStats } from "../../src/stats";
 
 const STRINGS: Record<string, string> = {
   untitled: "Untitled session",
@@ -17,8 +18,8 @@ const STRINGS: Record<string, string> = {
   noSends: "no sends",
   sandboxed: "sandboxed",
   notSandboxed: "not sandboxed",
-  profile: "profile {0}",
-  policy: "policy {0}",
+  profile: "profile: {0}",
+  policy: "policy: {0}",
   jurisdiction_eu: "EU",
   jurisdiction_noneu: "non-EU",
   jurisdiction_local: "local",
@@ -114,8 +115,42 @@ describe("session webview (session.ts)", () => {
     ]);
     expect(document.querySelector(".s-sandbox")?.textContent).toBe("not sandboxed");
     expect(document.querySelector(".s-sandbox")?.classList.contains("alert")).toBe(true);
-    expect(text(".s-profile")).toBe("profile strict-local");
-    expect(text(".s-policy")).toBe("policy acme v2");
+    expect(text(".s-profile")).toBe("profile: strict-local");
+    expect(text(".s-policy")).toBe("policy: acme v2");
+  });
+
+  it("a sub-agent's non-EU call (tenon's sends aggregate) shows in the Sovereignty section, in the alert colour", () => {
+    const c = new Conversation();
+    c.begin("s1", "/p");
+    c.apply({
+      sessionId: "s1",
+      update: {
+        sessionUpdate: "usage_update",
+        used: 10,
+        size: 1000,
+        _meta: {
+          tenon: {
+            provider: "mistral",
+            providerName: "Mistral AI",
+            jurisdiction: "eu",
+            input: 10,
+            output: 2,
+            sessionIn: 17,
+            sessionOut: 3,
+            sends: [
+              { provider: "us1", providerName: "US Corp", jurisdiction: "non-eu", n: 1 },
+              { provider: "mistral", providerName: "Mistral AI", jurisdiction: "eu", n: 1 },
+            ],
+          },
+        },
+      },
+    });
+    show(computeStats(c.state));
+    const sends = [...document.querySelectorAll<HTMLElement>(".s-send")];
+    expect(sends.map((s) => [s.textContent, s.classList.contains("alert")])).toEqual([
+      ["● 1 → US Corp · non-EU", true],
+      ["● 1 → Mistral AI · EU", false],
+    ]);
   });
 
   it("tenon.theme tenon puts the theme class on the root", () => {

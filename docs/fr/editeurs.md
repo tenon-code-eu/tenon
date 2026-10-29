@@ -119,7 +119,7 @@ tenon 0.9.0 ou plus récent est requis. Si tenon est absent ou trop ancien, une 
 
 **Le panneau.** Cliquez sur l'icône tenon de la barre d'activité, ou lancez **tenon : Ouvrir la discussion**. Ouvrez d'abord un dossier : tenon travaille dans le dossier. Tapez votre demande et appuyez sur Entrée (Maj+Entrée pour un saut de ligne). Arrêter met fin au tour. Tapez `/` pour voir les skills et commandes du projet. La liste Sessions reprend une session précédente du dossier. Le bouton `+` ouvre une nouvelle session.
 
-**Accueil.** Jusqu'au premier message d'une session, la discussion affiche l'accueil de tenon : le logo, `agent de code souverain` et la version de tenon, la zone de saisie au centre, les raccourcis (`/ skills · Maj+Entrée nouvelle ligne · Tab compléter · Cmd+Maj+; palette`, Ctrl+Maj+; sous Linux), une astuce et trois liens : docs, github, signaler un bug. Les liens s'ouvrent dans votre navigateur ; la page de discussion elle-même ne contient aucune URL et ne fait aucune requête. Une session reprise affiche directement son fil. L'animation du logo est coupée quand le système demande de réduire les animations.
+**Accueil.** Jusqu'au premier message d'une session, la discussion affiche l'accueil de tenon : le logo, `agent de code souverain` et la version de tenon, la zone de saisie au centre, les raccourcis (`/ skills · Maj+Entrée nouvelle ligne · Tab compléter · Cmd+Maj+; palette`, Ctrl+Maj+; sous Linux et Windows), une astuce et trois liens : docs, github, signaler un bug. Les liens s'ouvrent dans votre navigateur ; la page de discussion elle-même ne contient aucune URL et ne fait aucune requête. Une session reprise affiche directement son fil. L'animation du logo est coupée quand le système demande de réduire les animations.
 
 **Badges des réponses.** Sous chaque réponse terminée, un badge indique le fournisseur du dernier appel du tour et sa juridiction : `<fournisseur> · <UE|hors UE|local>`. Un fournisseur hors UE, ou une juridiction inconnue, s'affiche en couleur d'alerte. Après un repli du routage, le badge montre le fournisseur qui a répondu. tenon n'envoie pas de pays à l'éditeur : le badge n'en affiche pas.
 
@@ -130,15 +130,17 @@ tenon 0.9.0 ou plus récent est requis. Si tenon est absent ou trop ancien, une 
 - les fichiers modifiés (`A` créé, `M` modifié). Un clic sur un fichier ouvre son dernier diff, comme **Voir le diff** ;
 - la souveraineté : le nombre d'appels par fournisseur et juridiction, hors UE et inconnu en couleur d'alerte, puis l'isolation, le profil et la politique.
 
-La vue compte ce que `tenon acp` envoie : les appels de l'agent principal (un `usage_update` par appel), pas ceux des sous-agents. Pour une session reprise, `session/load` rejoue le `usage_update` de chaque appel : les appels et les jetons incluent donc l'historique. Les diffs ne sont pas rejoués : une session reprise n'affiche aucun fichier modifié avant sa prochaine écriture.
+La vue compte tous les appels de la session, comme le panneau latéral du terminal : agent principal, sous-agents, compaction et hooks. Chaque `usage_update` de `tenon acp` porte les totaux de la session (`_meta.tenon.sends`, `sessionIn`, `sessionOut`) ; avec un tenon plus ancien, la vue ne compte que les appels de l'agent principal, un par `usage_update`. Pour une session reprise, `session/load` rejoue le `usage_update` de chaque appel : les appels et les jetons incluent donc l'historique. Les diffs ne sont pas rejoués : une session reprise n'affiche aucun fichier modifié avant sa prochaine écriture.
 
-**Palette.** **tenon : Palette** (Cmd+Maj+;, Ctrl+Maj+; sous Linux, quand la discussion a le focus, ou le bouton `⋯` à côté d'Envoyer) ouvre une liste de choix avec :
+**Palette.** **tenon : Palette** (Cmd+Maj+;, Ctrl+Maj+; sous Linux et Windows, quand la discussion a le focus, ou le bouton `⋯` à côté d'Envoyer) ouvre une liste de choix avec :
 
 - les commandes : nouvelle session, joindre la sélection, joindre le fichier, ouvrir dans le terminal, relancer, journaux ;
 - les skills de la session : un choix place `/<skill> ` dans la zone de saisie ;
 - les sessions passées du dossier : un choix reprend la session ;
-- les thèmes, `auto` et `tenon` : un choix règle `tenon.theme` ;
+- les thèmes, `auto` et `tenon` : un choix règle `tenon.theme`, dans les paramètres de l'espace de travail s'ils le règlent déjà (ils priment sur vos paramètres utilisateur), sinon dans vos paramètres utilisateur ;
 - le fournisseur actif. L'extension ne peut pas le changer : réglez `default_provider` dans la configuration de tenon, puis relancez tenon.
+
+Sur un clavier AZERTY, `;` se tape sans Maj : le raccourci peut ne pas fonctionner. Utilisez le bouton `⋯` ou lancez **tenon : Palette** depuis la palette de commandes.
 
 **Thème.** Le réglage `tenon.theme` colore la discussion et la vue Session. `auto` (par défaut) reprend les couleurs de votre thème VS Code. `tenon` applique les couleurs de tenon : bleu Europe `#003399`, accent or `#FFCC00`, vert pour UE et local, ambre pour hors UE. Sur un thème sombre, le texte bleu est plus clair, pour le contraste.
 
@@ -216,6 +218,6 @@ Les variables d'environnement et en-têtes HTTP fournis par l'éditeur sont igno
 - tenon ne lit pas les tampons de l'éditeur. Il lit les fichiers sur le disque avec ses outils. Enregistrez vos fichiers avant de demander.
 - Les fichiers joints (blocs `resource`) sont ajoutés au message : ils sont masqués et classés comme un texte saisi. Les liens de fichiers (`resource_link`) sont cités par leur chemin ; tenon les lit avec ses outils, sous permission.
 - Un seul tour à la fois par session. Un second prompt pendant un tour reçoit `turn in progress`.
-- tenon envoie ses avis (avis du démarrage, arrêts par hook) comme pensées de l'agent (`agent_thought_chunk`, préfixe `tenon:`), et les jetons en `usage_update` (`used` : jetons d'entrée du dernier appel, `size` : fenêtre de contexte de son fournisseur). Certains clients ignorent `usage_update`.
+- tenon envoie ses avis (avis du démarrage, arrêts par hook) comme pensées de l'agent (`agent_thought_chunk`, préfixe `tenon:`), et les jetons en `usage_update` (`used` : jetons d'entrée du dernier appel, `size` : fenêtre de contexte de son fournisseur). Un `usage_update` est envoyé pour chaque appel de l'agent principal ; son `_meta.tenon` porte aussi les totaux de la session sur tous les appels, sous-agents, compaction et hooks compris : `sends` (`provider`, `providerName`, `jurisdiction`, `n` par fournisseur), `sessionIn` et `sessionOut`. Certains clients ignorent `usage_update`.
 - `session/load` rejoue les messages, les appels d'outils (sous forme de texte) et le `usage_update` de chaque appel, puis répond. Le compte de jetons d'une session reprise (`sessionTokens`) inclut donc son historique. Les diffs ne sont pas rejoués.
 - Pas de modes ACP (`session/set_mode`), pas de transport distant.

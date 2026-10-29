@@ -119,7 +119,7 @@ tenon 0.9.0 or later is required. If tenon is missing or too old, a notification
 
 **The panel.** Click the tenon icon in the activity bar, or run **tenon: Open Chat**. Open a folder first: tenon works in the folder. Type your request and press Enter (Shift+Enter for a new line). Stop ends the turn. Type `/` to see the project skills and commands. The Sessions list resumes an earlier session of the folder. The `+` button starts a new session.
 
-**Home.** Until the first message of a session, the chat shows the tenon home: the logo, `sovereign coding agent` and the tenon version, the input in the middle, the shortcuts (`/ skills · Shift+Enter new line · Tab complete · Cmd+Shift+; palette`, Ctrl+Shift+; on Linux), a tip and three links: docs, github, report a bug. The links open in your browser; the chat page itself holds no URL and makes no request. A resumed session shows its thread at once. The logo animation is off when the system asks for reduced motion.
+**Home.** Until the first message of a session, the chat shows the tenon home: the logo, `sovereign coding agent` and the tenon version, the input in the middle, the shortcuts (`/ skills · Shift+Enter new line · Tab complete · Cmd+Shift+; palette`, Ctrl+Shift+; on Linux and Windows), a tip and three links: docs, github, report a bug. The links open in your browser; the chat page itself holds no URL and makes no request. A resumed session shows its thread at once. The logo animation is off when the system asks for reduced motion.
 
 **Answer badges.** Under each finished answer, a badge names the provider of the turn's last call and its jurisdiction: `<provider> · <EU|non-EU|local>`. A provider outside the EU, or an unknown jurisdiction, shows in the alert colour. After a routing fallback, the badge shows the provider that answered. tenon sends no country to the editor, so the badge has none.
 
@@ -130,15 +130,17 @@ tenon 0.9.0 or later is required. If tenon is missing or too old, a notification
 - the modified files (`A` created, `M` modified). Click a file to open its last diff, as with **Open diff**;
 - sovereignty: the number of calls per provider and jurisdiction, non-EU and unknown in the alert colour, then the sandbox, the profile and the policy.
 
-The view counts what `tenon acp` sends: the calls of the main agent (one `usage_update` per call), not those of sub-agents. For a resumed session, `session/load` replays each call's `usage_update`, so the calls and tokens include the history. Diffs are not replayed, so a resumed session lists no modified files until its next write.
+The view counts every call of the session, like the terminal side panel: the main agent, sub-agents, compaction and hooks. Each `usage_update` of `tenon acp` carries the session totals (`_meta.tenon.sends`, `sessionIn`, `sessionOut`); with an older tenon, the view counts only the main agent's calls, one per `usage_update`. For a resumed session, `session/load` replays each call's `usage_update`, so the calls and tokens include the history. Diffs are not replayed, so a resumed session lists no modified files until its next write.
 
-**Palette.** **tenon: Palette** (Cmd+Shift+;, Ctrl+Shift+; on Linux, while the chat has focus, or the `⋯` button next to Send) opens a quick pick with:
+**Palette.** **tenon: Palette** (Cmd+Shift+;, Ctrl+Shift+; on Linux and Windows, while the chat has focus, or the `⋯` button next to Send) opens a quick pick with:
 
 - the commands: new session, attach selection, attach file, open in terminal, restart, logs;
 - the skills of the session: a pick puts `/<skill> ` in the input;
 - the past sessions of the folder: a pick resumes the session;
-- the themes, `auto` and `tenon`: a pick sets `tenon.theme`;
+- the themes, `auto` and `tenon`: a pick sets `tenon.theme`, in your workspace settings when they already set it (they win over your user settings), else in your user settings;
 - the active provider. The extension cannot change it: set `default_provider` in the tenon configuration, then restart tenon.
+
+On an AZERTY keyboard, `;` is typed without Shift, so the shortcut may not work: use the `⋯` button or run **tenon: Palette** from the Command Palette.
 
 **Theme.** The `tenon.theme` setting colours the chat and the Session view. `auto` (default) takes the colours of your VS Code theme. `tenon` applies the tenon colours: Europe blue `#003399`, gold accent `#FFCC00`, green for EU and local, amber for non-EU. On a dark theme the blue text is lighter, for contrast.
 
@@ -216,6 +218,6 @@ Environment variables and HTTP headers sent by the editor are dropped, with a no
 - tenon does not read editor buffers. It reads files from disk with its own tools. Save your files before you ask.
 - Attached files (`resource` blocks) are added to the message, so they are masked and classified like typed text. File links (`resource_link`) are mentioned by path; tenon reads them with its tools, under permission.
 - One turn at a time per session. A second prompt during a turn gets `turn in progress`.
-- tenon sends its notices (startup notices, hook stops) as agent thoughts (`agent_thought_chunk`, prefixed `tenon:`), and tokens as `usage_update` (`used`: input tokens of the last call, `size`: context window of its provider). Some clients ignore `usage_update`.
+- tenon sends its notices (startup notices, hook stops) as agent thoughts (`agent_thought_chunk`, prefixed `tenon:`), and tokens as `usage_update` (`used`: input tokens of the last call, `size`: context window of its provider). A `usage_update` is sent for each call of the main agent; its `_meta.tenon` also carries the session totals over every call, sub-agents, compaction and hooks included: `sends` (`provider`, `providerName`, `jurisdiction`, `n` per provider), `sessionIn` and `sessionOut`. Some clients ignore `usage_update`.
 - `session/load` replays messages, tool calls (as text) and the `usage_update` of each call, then replies. A resumed session's token count (`sessionTokens`) therefore includes its history. Diffs are not replayed.
 - No ACP modes (`session/set_mode`), no remote transport.

@@ -12,7 +12,7 @@ import { formatVersion, meetsMinimum, MINIMUM_VERSION, parseVersion, readVersion
 import { OutputLog } from "./log";
 import { Conversation, type ConversationState, homeVisible } from "./model";
 import { onDidShow, showError, showInfo, showInfoChoice, showWarning, type Shown } from "./notify";
-import { showPalette } from "./palette";
+import { setTheme, showPalette } from "./palette";
 import { CHAT_VIEW, ChatViewProvider } from "./panel";
 import { Permissions } from "./permissions";
 import { type Theme, themeOf } from "./protocol";
@@ -425,7 +425,7 @@ export function activate(ctx: vscode.ExtensionContext): Promise<TenonTestApi | u
         await vscode.commands.executeCommand(`${CHAT_VIEW}.focus`);
         view.insert(text);
       },
-      setTheme: (t) => vscode.workspace.getConfiguration("tenon").update("theme", t, vscode.ConfigurationTarget.Global),
+      setTheme: (t) => setTheme(vscode.workspace.getConfiguration("tenon"), t),
     }).catch((err: unknown) => log.info(`palette: ${errorMessage(err)}`));
   const view = new ChatViewProvider(ctx.extensionUri, chat, log, {
     version: () => c.version,

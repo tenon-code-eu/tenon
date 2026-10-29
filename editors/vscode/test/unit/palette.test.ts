@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import * as vscode from "vscode";
 import type { ConversationState } from "../../src/model";
-import { type PaletteItem, paletteItems, runPaletteAction } from "../../src/palette";
+import { escapeIcons, type PaletteItem, paletteItems, runPaletteAction, setTheme } from "../../src/palette";
 
 function state(over: Partial<ConversationState> = {}): ConversationState {
   return { items: [], busy: false, commands: [], sessions: [], attachments: [], ...over };
@@ -65,6 +65,47 @@ describe("paletteItems", () => {
     const seps = items.filter((i) => i.kind === vscode.QuickPickItemKind.Separator).map((i) => i.label);
     expect(seps).toEqual(["Commands", "Theme", "Provider"]);
     expect(items.find((i) => i.action?.type === "info")?.label).toContain("not known");
+  });
+});
+
+describe("escaping codicons", () => {
+  it("skill names, descriptions, session titles and the provider cannot inject a $(icon)", () => {
+    const items = paletteItems(
+      state({ sessionId: "s1", meta: { providerName: "$(alert) Evil" } }),
+      [{ name: "$(zap)x", description: "do $(trash) it" }],
+      [{ sessionId: "s9", title: "fix $(check) now", updatedAt: "$(clock)" }],
+    );
+    const skill = items.find((i) => i.action?.type === "skill");
+    expect(skill?.label).toBe("/\\$(zap)x");
+    expect(skill?.detail).toBe("do \\$(trash) it");
+    expect(skill?.action).toEqual({ type: "skill", name: "$(zap)x" });
+    const session = items.find((i) => i.action?.type === "session");
+    expect(session?.label).toBe("$(history) fix \\$(check) now");
+    expect(session?.description).toBe("\\$(clock)");
+    expect(items.find((i) => i.action?.type === "info")?.label).toBe("$(info) Provider: \\$(alert) Evil");
+  });
+
+  it("escapeIcons leaves plain text and an already escaped icon alone", () => {
+    expect(escapeIcons("plain (text) $5")).toBe("plain (text) $5");
+    expect(escapeIcons("\\$(x)")).toBe("\\$(x)");
+  });
+});
+
+describe("setTheme", () => {
+  function config(inspect: Record<string, unknown> | undefined) {
+    return { inspect: vi.fn().mockReturnValue(inspect), update: vi.fn().mockResolvedValue(undefined) };
+  }
+
+  it("writes the user settings when no workspace value shadows them", async () => {
+    const c = config({ key: "tenon.theme", defaultValue: "auto", globalValue: "auto" });
+    await setTheme(c, "tenon");
+    expect(c.update).toHaveBeenCalledWith("theme", "tenon", vscode.ConfigurationTarget.Global);
+  });
+
+  it("writes the workspace settings when they set tenon.theme (they win over the user settings)", async () => {
+    const c = config({ key: "tenon.theme", defaultValue: "auto", globalValue: "tenon", workspaceValue: "auto" });
+    await setTheme(c, "tenon");
+    expect(c.update).toHaveBeenCalledWith("theme", "tenon", vscode.ConfigurationTarget.Workspace);
   });
 });
 

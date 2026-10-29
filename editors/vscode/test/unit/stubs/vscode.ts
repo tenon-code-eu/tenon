@@ -48,3 +48,5 @@ export const commands = {
 };
 
 export const QuickPickItemKind = { Separator: -1, Default: 0 } as const;
+
+export const ConfigurationTarget = { Global: 1, Workspace: 2, WorkspaceFolder: 3 } as const;

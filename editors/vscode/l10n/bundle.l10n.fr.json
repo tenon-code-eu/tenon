@@ -83,8 +83,8 @@
   "in {0} · out {1}": "entrée {0} · sortie {1}",
   "Modified files": "Fichiers modifiés",
   "Sovereignty": "Souveraineté",
-  "profile {0}": "profil {0}",
-  "policy {0}": "politique {0}",
+  "profile: {0}": "profil : {0}",
+  "policy: {0}": "politique : {0}",
   "none": "aucun",
   "no sends yet": "aucun envoi"
 }

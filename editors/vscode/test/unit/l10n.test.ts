@@ -62,6 +62,15 @@ describe("French UI", () => {
     expect(missing).toEqual([]);
   });
 
+  it("the Session view words profile and policy like the TUI (profile: x, policy: x)", () => {
+    const view = fs.readFileSync(path.join(root, "src/sessionView.ts"), "utf8");
+    expect(view).toContain('profile: vscode.l10n.t("profile: {0}")');
+    expect(view).toContain('policy: vscode.l10n.t("policy: {0}")');
+    const fr = readJson("l10n/bundle.l10n.fr.json");
+    expect(fr["profile: {0}"]).toBe("profil : {0}");
+    expect(fr["policy: {0}"]).toBe("politique : {0}");
+  });
+
   it("the scanner sees literals split over lines and escaped quotes", () => {
     const r = l10nCalls('vscode.l10n.t(\n  "a {0}",\n  x,\n); l10n.t("say \\"hi\\"")');
     expect(r).toEqual({ calls: 2, literals: ["a {0}", 'say "hi"'] });
