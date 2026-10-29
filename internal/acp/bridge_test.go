@@ -505,7 +505,8 @@ func TestLoadReplay(t *testing.T) {
 		add(event.ToolResult, event.ToolResultPayload{CallID: "c2", Tool: "shell", Content: "no", IsError: true})
 		add(event.AssistantMessage, event.AssistantMessagePayload{Text: "done"})
 		// Usage : rejoué comme en direct (badge de la réponse) ; celui d'un
-		// sous-agent compte dans les jetons de la session sans être envoyé.
+		// sous-agent compte dans les jetons et les envois de la session sans
+		// usage_update propre.
 		add(event.Usage, event.UsagePayload{ParentCallID: "a1", Provider: "sub", Purpose: "turn", Input: 3, Output: 1})
 		add(event.Usage, event.UsagePayload{Provider: "mistral", ProviderName: "Mistral AI", Jurisdiction: "eu", Purpose: "turn", Input: 10, Output: 2, Window: 256000})
 		add(event.TurnCompleted, event.TurnCompletedPayload{Reason: "done"})
@@ -531,7 +532,7 @@ func TestLoadReplay(t *testing.T) {
 		`{"kind":"execute","rawInput":{"command":"x"},"sessionUpdate":"tool_call","status":"pending","title":"shell · x","toolCallId":"t1-c2"}`,
 		`{"content":[{"content":{"text":"no","type":"text"},"type":"content"}],"sessionUpdate":"tool_call_update","status":"failed","toolCallId":"t1-c2"}`,
 		`{"content":{"text":"done","type":"text"},"sessionUpdate":"agent_message_chunk"}`,
-		`{"_meta":{"tenon":{"cached":0,"input":10,"jurisdiction":"eu","output":2,"provider":"mistral","providerName":"Mistral AI","sessionTokens":16}},"sessionUpdate":"usage_update","size":256000,"used":10}`,
+		`{"_meta":{"tenon":{"cached":0,"input":10,"jurisdiction":"eu","output":2,"provider":"mistral","providerName":"Mistral AI","sends":[{"n":1,"provider":"sub"},{"jurisdiction":"eu","n":1,"provider":"mistral","providerName":"Mistral AI"}],"sessionIn":13,"sessionOut":3,"sessionTokens":16}},"sessionUpdate":"usage_update","size":256000,"used":10}`,
 	}
 	for i := range want {
 		if got[i] != want[i] {
@@ -610,8 +611,8 @@ func TestUsageUpdate(t *testing.T) {
 	h.init()
 	id := h.newSession()
 	h.call("session/prompt", map[string]any{"sessionId": id, "prompt": []any{text("x")}})
-	jsonEq(t, h.nextUpdate("usage_update"), `{"sessionUpdate":"usage_update","used":100,"size":128000,"_meta":{"tenon":{"input":100,"output":20,"cached":5,"sessionTokens":120}}}`)
-	jsonEq(t, h.nextUpdate("usage_update"), `{"sessionUpdate":"usage_update","used":150,"size":32000,"_meta":{"tenon":{"input":150,"output":30,"cached":0,"sessionTokens":308}}}`)
+	jsonEq(t, h.nextUpdate("usage_update"), `{"sessionUpdate":"usage_update","used":100,"size":128000,"_meta":{"tenon":{"input":100,"output":20,"cached":5,"sessionTokens":120,"sessionIn":100,"sessionOut":20,"sends":[{"provider":"","n":1}]}}}`)
+	jsonEq(t, h.nextUpdate("usage_update"), `{"sessionUpdate":"usage_update","used":150,"size":32000,"_meta":{"tenon":{"input":150,"output":30,"cached":0,"sessionTokens":308,"sessionIn":257,"sessionOut":51,"sends":[{"provider":"","n":3}]}}}`)
 }
 
 func TestSubagentEvents(t *testing.T) {
@@ -773,7 +774,7 @@ func TestMaskReplay(t *testing.T) {
 		`{"kind":"read","locations":[{"path":"/p/[MASKED].txt"}],"rawInput":{"path":"[MASKED].txt"},"sessionUpdate":"tool_call","status":"pending","title":"read_file · [MASKED].txt","toolCallId":"t1-c1"}`,
 		`{"content":[{"content":{"text":"[MASKED]","type":"text"},"type":"content"}],"sessionUpdate":"tool_call_update","status":"completed","toolCallId":"t1-c1"}`,
 		`{"content":{"text":"done","type":"text"},"sessionUpdate":"agent_message_chunk"}`,
-		`{"_meta":{"tenon":{"cached":0,"input":1,"output":0,"provider":"p","providerName":"[MASKED] Corp","sessionTokens":1}},"sessionUpdate":"usage_update","size":` + strconv.Itoa(engine.DefaultContextWindow) + `,"used":1}`,
+		`{"_meta":{"tenon":{"cached":0,"input":1,"output":0,"provider":"p","providerName":"[MASKED] Corp","sends":[{"n":1,"provider":"p","providerName":"[MASKED] Corp"}],"sessionIn":1,"sessionOut":0,"sessionTokens":1}},"sessionUpdate":"usage_update","size":` + strconv.Itoa(engine.DefaultContextWindow) + `,"used":1}`,
 	}
 	for i := range want {
 		if got[i] != want[i] {
@@ -793,8 +794,8 @@ func TestUsageProviderMeta(t *testing.T) {
 	h.init()
 	id := h.newSession()
 	h.call("session/prompt", map[string]any{"sessionId": id, "prompt": []any{text("x")}})
-	jsonEq(t, h.nextUpdate("usage_update"), `{"sessionUpdate":"usage_update","used":10,"size":256000,"_meta":{"tenon":{"input":10,"output":2,"cached":0,"sessionTokens":12,"provider":"mistral","providerName":"Mistral AI","jurisdiction":"eu"}}}`)
-	jsonEq(t, h.nextUpdate("usage_update"), `{"sessionUpdate":"usage_update","used":5,"size":128000,"_meta":{"tenon":{"input":5,"output":1,"cached":0,"sessionTokens":18,"provider":"us1","providerName":"US Corp","jurisdiction":"non-eu"}}}`)
+	jsonEq(t, h.nextUpdate("usage_update"), `{"sessionUpdate":"usage_update","used":10,"size":256000,"_meta":{"tenon":{"input":10,"output":2,"cached":0,"sessionTokens":12,"sessionIn":10,"sessionOut":2,"provider":"mistral","providerName":"Mistral AI","jurisdiction":"eu","sends":[{"provider":"mistral","providerName":"Mistral AI","jurisdiction":"eu","n":1}]}}}`)
+	jsonEq(t, h.nextUpdate("usage_update"), `{"sessionUpdate":"usage_update","used":5,"size":128000,"_meta":{"tenon":{"input":5,"output":1,"cached":0,"sessionTokens":18,"sessionIn":15,"sessionOut":3,"provider":"us1","providerName":"US Corp","jurisdiction":"non-eu","sends":[{"provider":"mistral","providerName":"Mistral AI","jurisdiction":"eu","n":1},{"provider":"us1","providerName":"US Corp","jurisdiction":"non-eu","n":1}]}}}`)
 }
 
 // Les fournisseurs reprennent call_1 à chaque tour : l'identifiant ACP porte
@@ -827,5 +828,49 @@ func TestToolCallIDsPerTurn(t *testing.T) {
 	}
 	if !reflect.DeepEqual(ids, want) {
 		t.Fatalf("ids %v, want %v", ids, want)
+	}
+}
+
+// TestUsageSends : chaque usage_update porte l'agrégat des envois de toute la
+// session (agent principal, sous-agents, compaction, hooks), comme le panneau
+// du TUI, et les jetons d'entrée et de sortie de la session.
+func TestUsageSends(t *testing.T) {
+	b := scripted(nil, func(ctx context.Context, f *fakeSession) error {
+		f.emit(event.Usage, event.UsagePayload{Provider: "mistral", ProviderName: "Mistral AI", Jurisdiction: "eu", Purpose: "turn", Input: 10, Output: 2, Window: 256000})
+		// Sous-agent hors UE : pas de usage_update, mais compté.
+		f.emit(event.Usage, event.UsagePayload{Provider: "us1", ProviderName: "US Corp", Jurisdiction: "non-eu", Purpose: "subagent", Input: 7, Output: 1, ParentCallID: "a1"})
+		f.emit(event.Usage, event.UsagePayload{Provider: "mistral", ProviderName: "Mistral AI", Jurisdiction: "eu", Purpose: "compaction", Input: 4, Output: 3})
+		f.emit(event.Usage, event.UsagePayload{Provider: "mistral", ProviderName: "Mistral AI", Jurisdiction: "eu", Purpose: "turn", Input: 20, Output: 5, Window: 256000})
+		return done(f)
+	})
+	h := newHarness(t, b)
+	h.init()
+	id := h.newSession()
+	h.call("session/prompt", map[string]any{"sessionId": id, "prompt": []any{text("x")}})
+	jsonEq(t, h.nextUpdate("usage_update"), `{"sessionUpdate":"usage_update","used":10,"size":256000,"_meta":{"tenon":{"input":10,"output":2,"cached":0,"sessionTokens":12,"sessionIn":10,"sessionOut":2,"provider":"mistral","providerName":"Mistral AI","jurisdiction":"eu","sends":[{"provider":"mistral","providerName":"Mistral AI","jurisdiction":"eu","n":1}]}}}`)
+	jsonEq(t, h.nextUpdate("usage_update"), `{"sessionUpdate":"usage_update","used":20,"size":256000,"_meta":{"tenon":{"input":20,"output":5,"cached":0,"sessionTokens":52,"sessionIn":41,"sessionOut":11,"provider":"mistral","providerName":"Mistral AI","jurisdiction":"eu","sends":[{"provider":"mistral","providerName":"Mistral AI","jurisdiction":"eu","n":3},{"provider":"us1","providerName":"US Corp","jurisdiction":"non-eu","n":1}]}}}`)
+}
+
+// TestReplaySends : au rejeu, l'envoi d'un sous-agent hors UE figure dans
+// l'agrégat du usage_update suivant, masqué comme le reste.
+func TestReplaySends(t *testing.T) {
+	b := &fakeBackend{loadFn: func(id string) (*fakeSession, []event.Event) {
+		s := newFakeSession(id)
+		var evs []event.Event
+		add := func(typ event.Type, p any) {
+			ev, _ := event.New(id, uint64(len(evs)+1), time.Now(), typ, p)
+			evs = append(evs, ev)
+		}
+		add(event.Usage, event.UsagePayload{ParentCallID: "a1", Provider: "us1", ProviderName: "SECRET Corp", Jurisdiction: "non-eu", Purpose: "subagent", Input: 3, Output: 1})
+		add(event.Usage, event.UsagePayload{Provider: "mistral", ProviderName: "Mistral AI", Jurisdiction: "eu", Purpose: "turn", Input: 10, Output: 2, Window: 256000})
+		return s, evs
+	}}
+	h := newHarness(t, b)
+	h.init()
+	h.send("session/load", map[string]any{"sessionId": "old", "cwd": "/p", "mcpServers": []any{}})
+	h.recv() // available_commands_update
+	jsonEq(t, upd(t, h.recv()), `{"sessionUpdate":"usage_update","used":10,"size":256000,"_meta":{"tenon":{"input":10,"output":2,"cached":0,"sessionTokens":16,"sessionIn":13,"sessionOut":3,"provider":"mistral","providerName":"Mistral AI","jurisdiction":"eu","sends":[{"provider":"us1","providerName":"[MASKED] Corp","jurisdiction":"non-eu","n":1},{"provider":"mistral","providerName":"Mistral AI","jurisdiction":"eu","n":1}]}}}`)
+	if m := h.recv(); m.Method != "" || string(m.Result) != "{}" {
+		t.Fatalf("want the response after the replay, got %+v", m)
 	}
 }

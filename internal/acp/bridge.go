@@ -116,9 +116,11 @@ type bridge struct {
 	permCall    map[string]string          // PermissionID → toolCallId
 	args        map[string]json.RawMessage // toolCallId → arguments masqués, jusqu'au résultat
 	routing     headless.Routing
-	hookNoticed bool  // une notice de hook a expliqué l'arrêt du tour
-	tokens      int64 // jetons de la session (entrée + sortie)
-	turn        int   // messages de l'agent principal reçus (voir countTurn)
+	hookNoticed bool   // une notice de hook a expliqué l'arrêt du tour
+	tokens      int64  // jetons de la session (entrée + sortie)
+	in, out     int64  // jetons d'entrée et de sortie de la session
+	sends       []send // envois de la session par fournisseur, dans l'ordre d'apparition
+	turn        int    // messages de l'agent principal reçus (voir countTurn)
 
 	mu        sync.Mutex
 	reason    string // raison du dernier TurnCompleted du tour
@@ -430,17 +432,57 @@ func (b *bridge) replay(ev event.Event) {
 	}
 }
 
-// usage compte les jetons d'un appel et, pour un appel de tour de l'agent
+// send compte les appels de la session à un fournisseur (charge masquée).
+type send struct {
+	provider, name, jurisdiction string
+	n                            int
+}
+
+// addSend compte l'appel p dans les envois de la session, comme le panneau
+// du TUI : un fournisseur par identifiant, nom et juridiction du premier appel.
+func (b *bridge) addSend(p event.UsagePayload) {
+	for i := range b.sends {
+		if b.sends[i].provider == p.Provider {
+			b.sends[i].n++
+			return
+		}
+	}
+	b.sends = append(b.sends, send{provider: p.Provider, name: p.ProviderName, jurisdiction: string(p.Jurisdiction), n: 1})
+}
+
+// sendsMeta est l'agrégat des envois pour _meta.tenon.sends.
+func (b *bridge) sendsMeta() []map[string]any {
+	list := make([]map[string]any, 0, len(b.sends))
+	for _, s := range b.sends {
+		m := map[string]any{"provider": s.provider, "n": s.n}
+		if s.name != "" {
+			m["providerName"] = s.name
+		}
+		if s.jurisdiction != "" {
+			m["jurisdiction"] = s.jurisdiction
+		}
+		list = append(list, m)
+	}
+	return list
+}
+
+// usage compte les jetons et l'envoi d'un appel (tous : agent principal,
+// sous-agents, compaction, hooks) et, pour un appel de tour de l'agent
 // principal, envoie usage_update : fournisseur de l'appel (repli : il peut
-// changer en cours de session) dans _meta.tenon, contexte occupé et fenêtre.
-// Même traduction en direct et au rejeu.
+// changer en cours de session) dans _meta.tenon avec l'agrégat des envois et
+// les jetons de la session, contexte occupé et fenêtre. Même traduction en
+// direct et au rejeu.
 func (b *bridge) usage(p event.UsagePayload) {
 	b.tokens += int64(p.Input) + int64(p.Output)
+	b.in += int64(p.Input)
+	b.out += int64(p.Output)
+	b.addSend(p)
 	if p.ParentCallID != "" || (p.Purpose != "turn" && p.Purpose != "") {
 		return
 	}
 	tn := map[string]any{
 		"input": p.Input, "output": p.Output, "cached": p.Cached, "sessionTokens": b.tokens,
+		"sessionIn": b.in, "sessionOut": b.out, "sends": b.sendsMeta(),
 	}
 	if p.Provider != "" {
 		tn["provider"] = p.Provider

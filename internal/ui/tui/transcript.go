@@ -325,9 +325,9 @@ func (t *Transcript) Apply(ev event.Event) {
 		t.turnOut += int64(p.Output)
 		t.sessionTokens += int64(p.Input) + int64(p.Output)
 		t.usageSeen = true
-		// Badge : appels de l'agent principal qui produisent sa réponse (ni
-		// sous-agent, ni compaction).
-		if p.ParentCallID == "" && p.Purpose != purposeCompaction {
+		// Badge : appels de tour de l'agent principal, qui produisent sa
+		// réponse (ni sous-agent, ni compaction, ni hook), comme tenon acp.
+		if p.ParentCallID == "" && (p.Purpose == purposeTurn || p.Purpose == "") {
 			t.turnBadge = &answerBadge{ID: p.Provider, Name: p.ProviderName, Jurisdiction: p.Jurisdiction}
 		}
 	case event.BudgetWarning:

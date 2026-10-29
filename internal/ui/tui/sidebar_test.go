@@ -247,9 +247,9 @@ func TestBadgeFallback(t *testing.T) {
 	f.emit(t, event.Usage, event.UsagePayload{Provider: "autre", ProviderName: "Autre", Purpose: "turn", Input: 10, Output: 5})
 	f.emit(t, event.AssistantMessage, event.AssistantMessagePayload{Text: "réponse trois"})
 	f.emit(t, event.TurnCompleted, event.TurnCompletedPayload{Reason: "done"})
-	h.until("tour 3", func() bool { return strings.Contains(h.m.View(), "Autre · hors UE") })
+	h.until("tour 3", func() bool { return strings.Contains(h.m.View(), "Autre · juridiction inconnue") })
 	m = colored(h.m)
-	if b := badgeAfter(t, m, "réponse trois"); b != m.st.alert.Render("Autre · hors UE") {
+	if b := badgeAfter(t, m, "réponse trois"); b != m.st.alert.Render("Autre · juridiction inconnue") {
 		t.Fatalf("badge inconnu : %q", b)
 	}
 	// Le panneau montre aussi le fournisseur qui a répondu, en ambre.
@@ -423,5 +423,23 @@ func TestHelpMentionsSidebar(t *testing.T) {
 		if !strings.Contains(i18n.T(l, "tui.help"), "Ctrl+B") {
 			t.Fatalf("%s : Ctrl+B absent de l'aide", l)
 		}
+	}
+}
+
+// TestBadgeTurnCallsOnly : comme tenon acp, seul un appel de tour de l'agent
+// principal (Purpose « turn » ou vide, sans parent) fait le badge.
+func TestBadgeTurnCallsOnly(t *testing.T) {
+	f := newFake()
+	h := newHarness(t, f, sidebarOpts(i18n.EN))
+	h.send(tea.WindowSizeMsg{Width: 120, Height: 40})
+	f.emit(t, event.UserMessage, event.UserMessagePayload{Text: "one"})
+	f.emit(t, event.Usage, event.UsagePayload{Provider: "mistral", ProviderName: "Mistral", Jurisdiction: llm.EU, Purpose: "turn", Input: 10, Output: 5})
+	// Appel sans parent mais d'un autre objet (sous-agent, hook) : ignoré.
+	f.emit(t, event.Usage, event.UsagePayload{Provider: "openai", ProviderName: "OpenAI", Jurisdiction: llm.NonEU, Purpose: "subagent", Input: 10, Output: 5})
+	f.emit(t, event.AssistantMessage, event.AssistantMessagePayload{Text: "answer one"})
+	f.emit(t, event.TurnCompleted, event.TurnCompletedPayload{Reason: "done"})
+	h.until("turn", func() bool { return strings.Contains(h.m.View(), "Mistral · FR · EU") })
+	if b := badgeAfter(t, h.m, "answer one"); ansi.Strip(b) != "Mistral · FR · EU" {
+		t.Fatalf("badge : %q", ansi.Strip(b))
 	}
 }

@@ -554,13 +554,15 @@ func (m Model) statusLine() string {
 }
 
 // jurisdictionPill renvoie le libellé de la pastille de juridiction
-// (inconnue : hors UE).
+// (inconnue : « juridiction inconnue », comme l'extension).
 func (m Model) jurisdictionPill(j llm.Jurisdiction) string {
 	switch j {
 	case llm.EU:
 		return i18n.T(m.lang, "tui.pill.eu")
 	case llm.Local:
 		return i18n.T(m.lang, "tui.pill.local")
+	case llm.NonEU:
+		return i18n.T(m.lang, "tui.pill.non_eu")
 	}
-	return i18n.T(m.lang, "tui.pill.non_eu")
+	return i18n.T(m.lang, "tui.pill.unknown")
 }

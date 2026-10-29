@@ -44,8 +44,9 @@ func newStyles(r *lipgloss.Renderer, th Theme) styles {
 	structure := th.StructureFg(r.HasDarkBackground())
 	local := r.NewStyle().Reverse(true)
 	if !noColor() {
-		// Structure en fond, avec un texte explicite : jamais le fond du terminal.
-		local = r.NewStyle().Background(th.Structure).Foreground(onFill(th.Structure))
+		// Vert OK en fond (spéc. §3), avec un texte explicite : jamais le fond
+		// du terminal.
+		local = r.NewStyle().Background(th.OK).Foreground(onFill(th.OK))
 	}
 	return styles{
 		r:         r,

@@ -162,6 +162,17 @@ func TestLocalBadgeExplicitForeground(t *testing.T) {
 	}
 }
 
+// TestLocalPillOK : la pastille locale prend le vert OK (spéc. §3, R12).
+func TestLocalPillOK(t *testing.T) {
+	for _, name := range ThemeNames() {
+		th, _ := ThemeByName(name)
+		st := newStyles(darkRenderer(true), th)
+		if st.local.GetBackground() != th.OK {
+			t.Errorf("%s : pastille locale %v, attendu OK %q", name, st.local.GetBackground(), th.OK)
+		}
+	}
+}
+
 func TestErrorRole(t *testing.T) {
 	for _, name := range ThemeNames() {
 		th, _ := ThemeByName(name)

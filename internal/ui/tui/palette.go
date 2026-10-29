@@ -133,8 +133,12 @@ func (m Model) paletteItems() []paletteItem {
 	for _, n := range ThemeNames() {
 		items = append(items, paletteItem{kindTheme, i18n.T(m.lang, "tui.palette.theme", n), "/theme " + n, n})
 	}
-	p := m.text(m.opts.Provider.ID)
-	items = append(items, paletteItem{kindInfo, i18n.T(m.lang, "tui.palette.provider", p, p), "", ""})
+	// Fournisseur effectif : le dernier retenu (bascule), comme la barre d'état.
+	p := m.opts.Provider.ID
+	if m.tr.selected != nil {
+		p = m.tr.selected.ID
+	}
+	items = append(items, paletteItem{kindInfo, i18n.T(m.lang, "tui.palette.provider", m.text(p)), "", ""})
 	return items
 }
 

@@ -32,6 +32,8 @@ const (
 	sidebarSep = "│"
 	// purposeCompaction est l'objet d'un appel de compaction (Usage.Purpose).
 	purposeCompaction = "compaction"
+	// purposeTurn est l'objet d'un appel de tour (Usage.Purpose).
+	purposeTurn = "turn"
 )
 
 // fileChange est un fichier modifié pendant la session : Op vaut M (modifié),

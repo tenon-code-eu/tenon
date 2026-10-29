@@ -226,3 +226,28 @@ func TestPaletteClosesOnPermission(t *testing.T) {
 		t.Fatal("la palette doit se fermer à l'arrivée d'une demande")
 	}
 }
+
+// TestPaletteProviderEntry : l'entrée fournisseur montre le fournisseur
+// effectif (bascule comprise) et un <id> littéral dans l'indication.
+func TestPaletteProviderEntry(t *testing.T) {
+	info := func(m Model) string {
+		for _, it := range m.paletteItems() {
+			if it.Kind == kindInfo {
+				return it.Label
+			}
+		}
+		return ""
+	}
+	m := New(newFake(), statusOpts(i18n.EN))
+	if got, want := info(m), "provider: mistral — change with tenon --provider <id>"; got != want {
+		t.Fatalf("EN : %q, attendu %q", got, want)
+	}
+	m.tr.selected = &llm.ProviderInfo{ID: "ollama", Jurisdiction: llm.Local}
+	if got, want := info(m), "provider: ollama — change with tenon --provider <id>"; got != want {
+		t.Fatalf("après bascule : %q, attendu %q", got, want)
+	}
+	m = New(newFake(), statusOpts(i18n.FR))
+	if got, want := info(m), "fournisseur : mistral — changer avec tenon --provider <id>"; got != want {
+		t.Fatalf("FR : %q, attendu %q", got, want)
+	}
+}

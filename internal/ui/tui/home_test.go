@@ -354,6 +354,21 @@ func TestStatusLine(t *testing.T) {
 	if s := statusLineOf(t, o, 200); !strings.Contains(s, " local ") {
 		t.Errorf("pastille locale absente : %q", s)
 	}
+	// Juridiction inconnue : libellé explicite, en ambre (R11).
+	o.Provider = llm.ProviderInfo{ID: "x", Name: "X", Model: "m"}
+	if s := statusLineOf(t, o, 200); !strings.Contains(s, " unknown jurisdiction ") {
+		t.Errorf("EN : pastille inconnue absente : %q", s)
+	}
+	fr := homeOpts(i18n.FR)
+	fr.Provider = llm.ProviderInfo{ID: "x", Name: "X", Model: "m"}
+	if s := statusLineOf(t, fr, 200); !strings.Contains(s, " juridiction inconnue ") {
+		t.Errorf("FR : pastille inconnue absente : %q", s)
+	}
+	m := New(newFake(), homeOpts(i18n.EN))
+	m.st = newStyles(darkRenderer(true), m.theme)
+	if m.jurisdictionStyle("").GetForeground() != m.theme.Alert {
+		t.Errorf("pastille inconnue hors ambre")
+	}
 	// Sans information d'isolation, aucune pastille d'isolation.
 	if s := statusLineOf(t, homeOpts(i18n.EN), 200); strings.Contains(s, "sandboxed") {
 		t.Errorf("pastille d'isolation inventée : %q", s)
