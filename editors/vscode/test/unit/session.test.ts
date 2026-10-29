@@ -1,7 +1,7 @@
 import { RequestError } from "@agentclientprotocol/sdk";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Agent } from "../../src/agent";
-import { Conversation } from "../../src/model";
+import { Conversation, homeVisible } from "../../src/model";
 import { SessionController } from "../../src/session";
 
 type Conn = Record<string, ReturnType<typeof vi.fn>>;
@@ -81,11 +81,44 @@ describe("SessionController", () => {
     const { s, conv } = setup({ loadSession });
     conv0.conv = conv;
     conv.addUser("stale");
-    await s.load("s0", "/p");
+    const loading = s.load("s0", "/p");
+    await vi.runAllTimersAsync();
+    await loading;
     expect(loadSession).toHaveBeenCalledWith({ sessionId: "s0", cwd: "/p", mcpServers: [] });
     expect(conv.state.sessionId).toBe("s0");
     expect(conv.state.items).toEqual([{ kind: "user", text: "old" }]);
     expect(conv.state.meta).toEqual({ provider: "P" });
+  });
+
+  it("load shows no home while the history loads: tenon replays it after its reply", async () => {
+    let reply: (v: object) => void = () => undefined;
+    const loadSession = vi.fn().mockReturnValue(new Promise((r) => (reply = r)));
+    const { s, conv } = setup({ loadSession });
+    const loading = s.load("s0", "/p");
+    // begin() emptied the thread: still no home.
+    expect(conv.state.items).toEqual([]);
+    expect(conv.state.loading).toBe(true);
+    expect(homeVisible(conv.state)).toBe(false);
+    reply({});
+    await Promise.resolve();
+    await Promise.resolve();
+    // The reply is in, the replay right behind it on the wire: still loading.
+    expect(homeVisible(conv.state)).toBe(false);
+    conv.apply({ sessionId: "s0", update: { sessionUpdate: "user_message_chunk", content: { type: "text", text: "old" } } });
+    await vi.runAllTimersAsync();
+    await loading;
+    expect(conv.state.loading).toBe(false);
+    expect(homeVisible(conv.state)).toBe(false);
+  });
+
+  it("an empty loaded session ends on the home; a failed load clears loading", async () => {
+    const { s, conv } = setup({ loadSession: vi.fn().mockResolvedValueOnce({}).mockRejectedValueOnce(new Error("gone")) });
+    const loading = s.load("s0", "/p");
+    await vi.runAllTimersAsync();
+    await loading;
+    expect(homeVisible(conv.state)).toBe(true);
+    await expect(s.load("s1", "/p")).rejects.toThrow("gone");
+    expect(conv.state.loading).toBe(false);
   });
 
   it("a failed load rolls back to the session that was open", async () => {
@@ -118,7 +151,9 @@ describe("SessionController", () => {
       update: { sessionUpdate: "usage_update", used: 1, size: 2, _meta: { tenon: { provider: "us1", providerName: "US", jurisdiction: "non-eu" } } },
     });
     expect(conv.state.meta).toEqual({ provider: "us1", providerName: "US", jurisdiction: "non-eu" });
-    await s.load("s0", "/p");
+    const loading = s.load("s0", "/p");
+    await vi.runAllTimersAsync();
+    await loading;
     expect(conv.state.meta).toEqual({ provider: "b", providerName: "B", jurisdiction: "local" });
     conv.apply({
       sessionId: "s0",

@@ -86,19 +86,26 @@ export class SessionController {
 
   /**
    * session/load: the thread is rebuilt from the replayed updates. On
-   * failure the conversation goes back to the session that was open.
+   * failure the conversation goes back to the session that was open. The
+   * conversation is marked loading from before begin() (which empties the
+   * thread) until the replay, which tenon sends right after its reply, has
+   * reached the model: the home screen never flashes in between.
    */
   async load(sessionId: string, cwd: string): Promise<void> {
     const before = this.conv.snapshot();
+    this.conv.setLoading(true);
     this.conv.begin(sessionId, cwd);
     try {
       const res = await this.agent.connection.loadSession({ sessionId, cwd, mcpServers: [] });
       this.conv.setMeta(tenonMeta(res));
       this.conv.setBanner(undefined);
+      await settle();
     } catch (err) {
       this.conv.restore(before);
       this.conv.setBanner({ kind: "error", text: errorMessage(err) });
       throw err;
+    } finally {
+      this.conv.setLoading(false);
     }
   }
 

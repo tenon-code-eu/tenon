@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as vscode from "vscode";
 import type { Agent } from "../../src/agent";
 import { Chat } from "../../src/chat";
-import { Conversation } from "../../src/model";
+import { Conversation, homeVisible } from "../../src/model";
 
 type Conn = Record<string, ReturnType<typeof vi.fn>>;
 
@@ -124,6 +124,23 @@ describe("Chat permissions and diffs", () => {
     };
     return { chat, conv, permissions, diffs, exit, order, restart };
   }
+
+  it("a restart resumes the open session without showing the home meanwhile", async () => {
+    const { conv, restart } = withPerms({});
+    conv.begin("s1", "/p");
+    conv.addUser("hi");
+    const reply = later<object>();
+    const loadSession = vi.fn().mockReturnValue(reply.promise);
+    const exit = new vscode.EventEmitter<{ code: number | null }>();
+    restart({ connection: { loadSession }, hasExited: false, onExit: exit.event } as unknown as Agent);
+    expect(loadSession).toHaveBeenCalledWith({ sessionId: "s1", cwd: "/p", mcpServers: [] });
+    expect(conv.state.items).toEqual([]);
+    expect(homeVisible(conv.state)).toBe(false);
+    conv.apply({ sessionId: "s1", update: { sessionUpdate: "user_message_chunk", content: { type: "text", text: "hi" } } });
+    reply.resolve({});
+    await vi.waitFor(() => expect(conv.state.loading).toBe(false));
+    expect(homeVisible(conv.state)).toBe(false);
+  });
 
   it("Stop sends session/cancel, then answers every pending request cancelled", async () => {
     const turn = later<{ stopReason: string }>();

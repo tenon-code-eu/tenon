@@ -13,9 +13,9 @@ import { applyTheme, renderHome, welcomeVersion } from "../../webview/home";
 const STRINGS: Record<string, string> = {
   slogan: "sovereign coding agent",
   shortcuts: "/ skills · Shift+Enter new line · Tab complete",
-  docs: "docs",
-  github: "github",
-  bug: "report a bug",
+  link_docs: "docs",
+  link_github: "github",
+  link_bug: "report a bug",
   tip1: "Tip: one",
   tip2: "Tip: two",
   jurisdiction_eu: "EU",
@@ -74,6 +74,8 @@ describe("homeVisible", () => {
     expect(homeVisible(state({ busy: true }))).toBe(false);
     expect(homeVisible(state({ banner: { kind: "noFolder", text: "x" } }))).toBe(false);
     expect(homeVisible(state({ banner: { kind: "stopped", text: "x" } }))).toBe(false);
+    // A session/load in progress (thread emptied, replay to come).
+    expect(homeVisible(state({ sessionId: "s1", loading: true }))).toBe(false);
   });
 });
 
@@ -108,6 +110,8 @@ describe("chat webview (main.ts)", () => {
     });
     innerHTML = vi.fn<(html: string) => void>();
     vi.spyOn(Element.prototype, "innerHTML", "set").mockImplementation(innerHTML);
+    vi.spyOn(Element.prototype, "outerHTML", "set").mockImplementation(innerHTML);
+    vi.spyOn(Element.prototype, "insertAdjacentHTML").mockImplementation((_, html) => innerHTML(html));
     vi.resetModules();
     await import("../../webview/main");
   });
@@ -149,6 +153,11 @@ describe("chat webview (main.ts)", () => {
     show(state(), { version: "" });
     expect(document.querySelector(".home-slogan")?.textContent).toBe("sovereign coding agent dev");
     expect(document.querySelector(".home svg.logo")).toBe(logo);
+  });
+
+  it("no home while a session loads (thread emptied before the replay)", () => {
+    show(state({ sessionId: "s1", loading: true }));
+    expect(home()).toBeNull();
   });
 
   it("a resumed session shows the thread directly", () => {

@@ -63,7 +63,7 @@ export function renderHome(strings: Strings, version: string | undefined, tip: s
     if (i > 0) {
       links.append(el("span", "sep", " · "));
     }
-    const b = el("button", "link", strings[id] ?? id);
+    const b = el("button", "link", strings[`link_${id}`] ?? id);
     b.type = "button";
     b.dataset.action = "openLink";
     b.dataset.link = id;

@@ -60,16 +60,18 @@ export interface ConversationState {
   attachments: { id: string; label: string }[];
   meta?: Record<string, unknown>;
   banner?: Banner;
+  /** A session/load is in progress: the thread was emptied and its replay is on its way. */
+  loading?: boolean;
 }
 
 /**
  * Whether the chat shows its home screen: until the first message of the
  * session (tenon's notices, thought items, do not count), never while a turn
- * starts, nor under the noFolder or stopped banner.
+ * starts or a session loads, nor under the noFolder or stopped banner.
  */
 export function homeVisible(s: ConversationState): boolean {
   const kind = s.banner?.kind;
-  if (s.busy || kind === "noFolder" || kind === "stopped") {
+  if (s.busy || s.loading || kind === "noFolder" || kind === "stopped") {
     return false;
   }
   return s.items.every((i) => i.kind === "thought");
@@ -83,8 +85,10 @@ const MAX_EARLY = 10_000;
 
 type Listener = (s: ConversationState) => unknown;
 
-/** What session/load replaces, kept to roll back a failed load. */
-export type Snapshot = Pick<ConversationState, "sessionId" | "cwd" | "meta" | "items" | "commands">;
+/** What session/load replaces, kept to roll back a failed load (with the turn's provider). */
+export type Snapshot = Pick<ConversationState, "sessionId" | "cwd" | "meta" | "items" | "commands"> & {
+  provider?: AnswerProvider;
+};
 
 /** Text of a content block as shown in the thread. */
 function blockText(b: ContentBlock): string {
@@ -211,14 +215,24 @@ export class Conversation {
 
   snapshot(): Snapshot {
     const { sessionId, cwd, meta, items, commands } = this.state;
-    return { sessionId, cwd, meta, items, commands };
+    return { sessionId, cwd, meta, items, commands, provider: this.provider };
   }
 
   /** Puts back a snapshot (a failed session/load); buffered updates are dropped. */
   restore(s: Snapshot): void {
     this.early = [];
-    Object.assign(this.state, s);
+    const { provider, ...state } = s;
+    this.provider = provider;
+    Object.assign(this.state, state);
     this.changed();
+  }
+
+  /** Marks a session/load in progress (no home screen meanwhile). */
+  setLoading(loading: boolean): void {
+    if (Boolean(this.state.loading) !== loading) {
+      this.state.loading = loading;
+      this.changed();
+    }
   }
 
   /** Sets the metadata of the current session (`_meta.tenon`). */

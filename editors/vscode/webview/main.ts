@@ -113,7 +113,7 @@ function renderHomeScreen(s: ConversationState): void {
     return;
   }
   const text = tip();
-  const key = JSON.stringify([text, strings.slogan, strings.shortcuts, strings.docs, strings.github, strings.bug]);
+  const key = JSON.stringify([text, strings.slogan, strings.shortcuts, strings.link_docs, strings.link_github, strings.link_bug]);
   if (home?.key !== key) {
     const el = renderHome(strings, version, text);
     if (home) {

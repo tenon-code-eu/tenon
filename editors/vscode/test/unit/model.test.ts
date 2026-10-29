@@ -189,6 +189,16 @@ describe("Conversation.apply", () => {
     expect(c.state.items[0]).toEqual({ kind: "agent", text: "a" });
   });
 
+  it("restore puts back the turn's provider with the snapshot (failed session/load)", () => {
+    const c = conv();
+    usage(c, { tenon: { provider: "mistral", providerName: "Mistral", jurisdiction: "eu" } });
+    const snap = c.snapshot();
+    c.begin("s2", "/p");
+    c.restore(snap);
+    c.apply(chunk("agent_message_chunk", "a"));
+    expect(c.state.items[0]).toEqual({ kind: "agent", text: "a", provider: { name: "Mistral", jurisdiction: "eu" } });
+  });
+
   it("keeps attachment labels for the webview", () => {
     const c = conv();
     c.setAttachments([{ id: "a1", label: "a.go:1-2" }]);

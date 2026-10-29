@@ -91,6 +91,13 @@ test("history: loading A rebuilds its thread from the replay", async () => {
     { kind: "agent", text: "two" },
   ];
   await waitFor(() => JSON.stringify(thread()) === JSON.stringify(want), 10_000, `A's thread, got ${JSON.stringify(thread())}`);
+  assert(!api.homeVisible(), "the home is shown over a loaded session");
+  // The replay carries each call's usage: the replayed answers keep their badge (ruling R7).
+  const answers = api.state().items.filter((i) => i.kind === "agent");
+  assert(
+    answers.length === 2 && answers.every((i) => i.kind === "agent" && i.provider?.name === "Test SAS" && i.provider.jurisdiction === "eu"),
+    `badges ${JSON.stringify(answers)}`,
+  );
   // The list still shows both sessions.
   assert(api.state().sessions.length === 2, `sessions ${JSON.stringify(api.state().sessions)}`);
 }, 30_000);

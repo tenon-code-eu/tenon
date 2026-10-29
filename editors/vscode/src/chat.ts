@@ -52,9 +52,9 @@ export function webviewStrings(): Record<string, string> {
     // Home screen (webview/home.ts).
     slogan: vscode.l10n.t("sovereign coding agent"),
     shortcuts: vscode.l10n.t("/ skills · Shift+Enter new line · Tab complete"),
-    docs: vscode.l10n.t("docs"),
-    github: vscode.l10n.t("github"),
-    bug: vscode.l10n.t("report a bug"),
+    link_docs: vscode.l10n.t("docs"),
+    link_github: vscode.l10n.t("github"),
+    link_bug: vscode.l10n.t("report a bug"),
     ...tips(),
     // Answer badges: the status bar's labels.
     jurisdiction_eu: jurisdictionLabel("eu", vscode.l10n),
