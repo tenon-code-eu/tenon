@@ -407,6 +407,8 @@ func runInteractive(ctx context.Context, fs *flag.FlagSet, lang i18n.Lang, o eng
 		Memory:           st.memory,
 		MemoryDisabledBy: st.memoryOffBy,
 		MemoryWriteSeqs:  st.memoryWrites,
+		Resumed:          o.resume != "",
+		Sandbox:          tuiSandbox(st.confined),
 		// Serveurs indisponibles signalés dès l'ouverture, en plus de
 		// l'événement McpServerDown émis au premier tour.
 		Notices: append(slices.Clone(st.notices), st.downNotices...),
@@ -744,6 +746,15 @@ type started struct {
 	// confined indique que les commandes shell sont confinées (Spec de
 	// l'outil shell non nil : mode différent de off et sonde disponible).
 	confined bool
+}
+
+// tuiSandbox renvoie l'état d'isolation affiché par la TUI, selon la même
+// règle que _meta.tenon.sandbox.confined de tenon acp.
+func tuiSandbox(confined bool) string {
+	if confined {
+		return tui.SandboxOn
+	}
+	return tui.SandboxOff
 }
 
 // providerInfo décrit le fournisseur configuré pc.

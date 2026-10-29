@@ -361,13 +361,13 @@ func statusOpts(l i18n.Lang) Options {
 }
 
 func TestStatusBar(t *testing.T) {
-	for l, jur := range map[i18n.Lang]string{i18n.FR: "juridiction UE", i18n.EN: "jurisdiction EU"} {
+	for l, jur := range map[i18n.Lang]string{i18n.FR: " UE ", i18n.EN: " EU "} {
 		f := newFake()
 		h := newHarness(t, f, statusOpts(l))
 		h.send(tea.WindowSizeMsg{Width: 200, Height: 30})
 		lines := strings.Split(h.m.View(), "\n")
 		status := lines[len(lines)-1]
-		for _, want := range []string{"tenon", "mistral-large", "Mistral AI", "FR", jur, "sess-42", "/128000"} {
+		for _, want := range []string{"mistral-large", "Mistral AI", "FR", jur, "sess-42", "/128000"} {
 			if !strings.Contains(status, want) {
 				t.Errorf("%s : barre d'état %q sans %q", l, status, want)
 			}

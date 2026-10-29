@@ -238,13 +238,13 @@ func TestNoPolicyUnchangedE2E(t *testing.T) {
 	}
 }
 
-// TUI : la ligne de la politique est transmise à l'écran de bienvenue.
+// TUI : la ligne de la politique est transmise à la TUI (panneau latéral).
 func TestPolicyTUIWelcomeE2E(t *testing.T) {
 	f := newFakeLLM(t, sseText("salut"))
 	e := newEnv(t, f, "eu")
 	_, key := e.withPolicy(policyHead)
 	r := e.runTUI(func(tm *teatest.TestModel) {
-		waitText(t, tm, "acme-dev")
+		waitText(t, tm, "agent de code souverain")
 		quitTUI(t, tm)
 	})
 	if r.code != 0 || r.opts.Policy != "politique : acme-dev v3 (clé "+key+")" {

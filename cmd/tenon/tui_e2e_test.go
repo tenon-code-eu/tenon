@@ -160,7 +160,7 @@ func TestTUIConversation(t *testing.T) {
 	if r.code != 0 {
 		t.Fatalf("code=%d stderr=%q", r.code, r.stderr)
 	}
-	for _, want := range []string{"Bonjour, je suis le faux serveur", "juridiction UE", "› bonjour"} {
+	for _, want := range []string{"Bonjour, je suis le faux serveur", " UE ", "› bonjour"} {
 		if !strings.Contains(r.view, want) {
 			t.Errorf("vue finale sans %q :\n%s", want, r.view)
 		}
@@ -173,26 +173,21 @@ func TestTUIConversation(t *testing.T) {
 	if err != nil || len(ents) != 1 {
 		t.Fatalf("sessions : %v %v", ents, err)
 	}
-	if !strings.Contains(r.view, strings.TrimSuffix(ents[0].Name(), ".jsonl")) {
-		t.Errorf("identifiant de session absent de la barre d'état :\n%s", r.view)
-	}
-	// Le cadre de bienvenue est un affichage local : version transmise, rien
-	// dans la session ni dans l'audit.
+	// L'accueil est un affichage local, remplacé par le fil dès le premier
+	// message : version transmise, rien dans la session ni dans l'audit.
 	if r.opts.Version != version {
 		t.Errorf("version transmise %q, attendu %q", r.opts.Version, version)
 	}
-	for _, want := range []string{"████████", "Harness open-source"} {
-		if !strings.Contains(r.view, want) {
-			t.Errorf("vue finale sans %q :\n%s", want, r.view)
-		}
+	if strings.Contains(r.view, "████████") {
+		t.Errorf("accueil encore affiché après le premier message :\n%s", r.view)
 	}
 	b, err := os.ReadFile(filepath.Join(e.sessionsDir(), ents[0].Name()))
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, where := range []string{string(b), e.auditContents()} {
-		if strings.Contains(where, "████") || strings.Contains(where, "Harness open-source") {
-			t.Errorf("cadre de bienvenue persisté :\n%s", where)
+		if strings.Contains(where, "████") || strings.Contains(where, "agent de code souverain") {
+			t.Errorf("accueil persisté :\n%s", where)
 		}
 	}
 }
@@ -252,6 +247,9 @@ func TestTUIResume(t *testing.T) {
 	if !strings.Contains(r.view, "(reprise)") {
 		t.Errorf("bannière sans reprise :\n%s", r.view)
 	}
+	if !r.opts.Resumed {
+		t.Error("Options.Resumed faux pour --resume")
+	}
 	reqs := f.requests()
 	if len(reqs) != 2 || !strings.Contains(reqs[1], "je m'appelle Ada") || !strings.Contains(reqs[1], "comment je m'appelle ?") {
 		t.Fatalf("requêtes : %q", reqs)
@@ -282,6 +280,22 @@ func TestTUIAuditVerifies(t *testing.T) {
 	}
 	if !strings.Contains(e.auditContents(), "write_file") {
 		t.Error("appel write_file absent de l'audit")
+	}
+}
+
+// Une nouvelle session ouvre l'accueil ; l'isolation est toujours connue.
+func TestTUIHomeOptions(t *testing.T) {
+	f := newFakeLLM(t)
+	e := newEnv(t, f, "eu")
+	r := e.runTUI(func(tm *teatest.TestModel) {
+		waitText(t, tm, "/help /skills /rewind /memory")
+		quitTUI(t, tm)
+	})
+	if r.code != 0 || r.opts.Resumed {
+		t.Fatalf("code=%d resumed=%v stderr=%q", r.code, r.opts.Resumed, r.stderr)
+	}
+	if r.opts.Sandbox != tui.SandboxOn && r.opts.Sandbox != tui.SandboxOff {
+		t.Fatalf("Sandbox %q", r.opts.Sandbox)
 	}
 }
 
@@ -339,7 +353,7 @@ func TestTUIRealRunQuits(t *testing.T) {
 	if code != 0 || errb.Len() != 0 {
 		t.Fatalf("code=%d stderr=%q", code, errb.String())
 	}
-	if !strings.Contains(out.String(), "juridiction UE") {
+	if !strings.Contains(out.String(), "test-model") || !strings.Contains(out.String(), " UE ") {
 		t.Fatalf("barre d'état absente de la sortie : %q", out.String())
 	}
 	if len(f.requests()) != 0 {
@@ -412,7 +426,7 @@ func TestTUIRealRunCancelMidPrompt(t *testing.T) {
 			}
 		}
 	}
-	waitOut("juridiction UE")
+	waitOut("agent de code souverain")
 	write("écris x.txt " + secret)
 	write("\r")
 	waitOut("Autoriser cette action ?")
@@ -460,7 +474,7 @@ func TestTUIRealRunCancelMidPrompt(t *testing.T) {
 	}
 }
 
-// Le mode non interactif n'affiche jamais le cadre de bienvenue.
+// Le mode non interactif n'affiche jamais l'accueil.
 func TestHeadlessNoWelcome(t *testing.T) {
 	f := newFakeLLM(t, sseText("salut"))
 	e := newEnv(t, f, "eu")
@@ -469,8 +483,8 @@ func TestHeadlessNoWelcome(t *testing.T) {
 		t.Fatalf("code=%d stderr=%q", code, errb)
 	}
 	for _, s := range []string{out, errb} {
-		if strings.Contains(s, "████") || strings.Contains(s, "Harness open-source") || strings.Contains(s, "⬢ TENON") {
-			t.Errorf("cadre de bienvenue en mode -p :\n%s", s)
+		if strings.Contains(s, "████") || strings.Contains(s, "agent de code souverain") || strings.Contains(s, "⬢ TENON") {
+			t.Errorf("accueil en mode -p :\n%s", s)
 		}
 	}
 }

@@ -84,12 +84,12 @@ func TestThemeFromOptions(t *testing.T) {
 
 // Les couleurs changent avec le thème (sortie colorée forcée).
 func TestThemeChangesColors(t *testing.T) {
-	m := colored(New(newFake(), welcomeOpts(i18n.EN)))
+	m := colored(New(newFake(), homeOpts(i18n.EN)))
 	m.resize(100, 30)
-	a := strings.Join(m.welcomeLines(), "\n")
+	a := strings.Join(m.homeLines(), "\n")
 	g, _ := ThemeByName("gruvbox")
 	m.setTheme(g)
-	b := strings.Join(m.welcomeLines(), "\n")
+	b := strings.Join(m.homeLines(), "\n")
 	if a == b {
 		t.Fatal("le rendu ne dépend pas du thème")
 	}
@@ -100,7 +100,7 @@ var colorSGR = regexp.MustCompile(`\x1b\[[0-9;]*(38|48|3[0-7]|4[0-7]|9[0-7]|10[0
 func themedView(name string) string {
 	r := lipgloss.NewRenderer(io.Discard)
 	r.SetColorProfile(0 /* termenv.TrueColor */)
-	o := welcomeOpts(i18n.EN)
+	o := homeOpts(i18n.EN)
 	o.Theme = name
 	m := New(newFake(), o)
 	m.st = newStyles(r, m.theme)
@@ -141,11 +141,11 @@ func TestStructureAdaptive(t *testing.T) {
 	if got := newStyles(darkRenderer(false), th).structure; got != "#003399" {
 		t.Fatalf("fond clair : %q", got)
 	}
-	// Le cadre de bienvenue utilise la variante claire sur fond sombre.
-	m := New(newFake(), welcomeOpts(i18n.EN))
+	// L'accueil utilise la variante claire sur fond sombre.
+	m := New(newFake(), homeOpts(i18n.EN))
 	m.st = newStyles(darkRenderer(true), m.theme)
 	m.resize(100, 30)
-	if v := strings.Join(m.welcomeLines(), "\n"); !strings.Contains(v, "38;2;108;140;255") {
+	if v := strings.Join(m.homeLines(), "\n"); !strings.Contains(v, "38;2;108;140;255") {
 		t.Fatalf("bordure sans bleu clair :\n%q", v)
 	}
 }

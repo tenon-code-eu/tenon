@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"io"
+	"math/rand/v2"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -38,8 +40,8 @@ type Options struct {
 	// SessionTokens : total de jetons déjà compté (session reprise).
 	SessionTokens int64
 	ProjectRoot   string
-	// Profile est le profil de conformité actif, affiché dans l'écran de
-	// bienvenue ("" : aucun profil, aucune ligne).
+	// Profile est le profil de conformité actif, affiché dans la barre
+	// d'état ("" : aucun profil).
 	Profile string
 	// Policy est la ligne de la politique d'organisation, déjà traduite
 	// (« policy: acme-dev v3 (key …) »), affichée sous celle du profil
@@ -48,7 +50,7 @@ type Options struct {
 	// Local est le fournisseur local du routage ("" : celui de
 	// SessionStarted, ou le fournisseur courant s'il est local).
 	Local string
-	// Version est la version affichée dans l'écran de bienvenue ("dev" si vide).
+	// Version est la version affichée dans l'accueil ("dev" si vide).
 	Version string
 	// Redact masque tout texte venu des événements avant affichage (même
 	// fonction que le mode non interactif) ; nil : aucun masquage.
@@ -74,6 +76,12 @@ type Options struct {
 	// MemoryWriteSeqs : séquences des MemoryWritten de la session reprise
 	// (--resume), pour l'avis de /rewind.
 	MemoryWriteSeqs []uint64
+	// Resumed indique une session reprise (--resume) : le fil s'affiche
+	// directement, sans l'accueil.
+	Resumed bool
+	// Sandbox est l'état d'isolation des commandes shell, pour la pastille de
+	// la barre d'état : SandboxOn, SandboxOff, ou "" (inconnu : aucune pastille).
+	Sandbox string
 	// Now remplace l'horloge (délai d'armement des acceptations, double
 	// Ctrl+C). Réservé aux tests ; nil : time.Now.
 	Now func() time.Time
@@ -218,6 +226,23 @@ type Model struct {
 	// subagents garde les sous-agents lancés pendant le tour, par call_id de
 	// l'appel « agent » ; vidé en fin de tour.
 	subagents map[string]subagentInfo
+
+	// homeDone indique que l'accueil a cédé la place au fil (premier envoi,
+	// session reprise) ; seedItems est le nombre d'éléments de la
+	// transcription à l'ouverture (avis du démarrage, affichés sous
+	// l'accueil) : tout élément de plus masque l'accueil.
+	homeDone  bool
+	seedItems int
+	// links indique que le terminal gère les hyperliens OSC 8.
+	links bool
+	// tip est l'astuce du jour de l'accueil.
+	tip string
+	// introFrame est l'image courante de l'animation d'ouverture (-1 :
+	// aucune animation).
+	introFrame int
+	// inputW est la largeur appliquée à la saisie (cadre de l'accueil, ou
+	// toute la largeur).
+	inputW int
 }
 
 // New crée le modèle et s'abonne aux événements de eng.
@@ -269,6 +294,11 @@ func New(eng Engine, opts Options) Model {
 	for _, n := range opts.Notices {
 		m.tr.notice(strings.ReplaceAll(m.redact(headless.Clean(n)), "\n", " "))
 	}
+	m.seedItems = len(m.tr.Items())
+	m.homeDone = opts.Resumed
+	m.links = supportsHyperlinks(os.Getenv)
+	m.tip = tipOfTheDay(l, rand.IntN)
+	m.introFrame = -1
 	m.resize(defaultWidth, defaultHeight)
 	return m
 }
@@ -282,6 +312,11 @@ func Run(ctx context.Context, eng Engine, opts Options, in io.Reader, out io.Wri
 	m := New(eng, opts)
 	m.ctx = runCtx
 	m.st = newStyles(lipgloss.NewRenderer(out), m.theme)
+	// Animation d'ouverture : la largeur réelle arrive avec le premier
+	// WindowSizeMsg, qui l'arrête sous homeMinWide colonnes.
+	if m.homeShown() && introEnabled(opts.Animation, isTTY(out), homeMinWide) {
+		m.introFrame = 0
+	}
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion(), tea.WithContext(ctx), tea.WithInput(in), tea.WithOutput(out))
 	_, err := p.Run()
 	// L'état du tour est partagé : annulation, vidage de l'abonnement et
@@ -335,15 +370,30 @@ func readEvent(ch <-chan event.Event) tea.Cmd {
 	}
 }
 
-// Init lance la lecture de l'abonnement.
-func (m Model) Init() tea.Cmd { return readEvent(m.sub) }
+// Init lance la lecture de l'abonnement, et l'animation d'ouverture.
+func (m Model) Init() tea.Cmd {
+	if m.introActive() {
+		return tea.Batch(readEvent(m.sub), introTick())
+	}
+	return readEvent(m.sub)
+}
 
 // busy indique qu'un tour est en cours (Submit n'a pas rendu la main).
 func (m Model) busy() bool { return m.turn.active() }
 
-// Update applique un message.
+// Update applique un message, puis ajuste la saisie à la vue (cadre de
+// l'accueil ou toute la largeur).
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	next, cmd := m.update(msg)
+	nm := next.(Model)
+	nm.syncInput()
+	return nm, cmd
+}
+
+func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case introTickMsg:
+		return m.introStep()
 	case eventMsg:
 		if msg.Type == event.UserMessage && m.busy() {
 			m.userSeen = true
@@ -391,9 +441,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		before := m.prompting() && m.approvable()
 		m.resize(msg.Width, msg.Height)
+		if m.width < homeMinWide {
+			m.stopIntro()
+		}
 		m.rearmIf(before)
 		return m, nil
 	case tea.KeyMsg:
+		// Toute touche interrompt l'animation d'ouverture, puis est traitée
+		// normalement : elle n'est jamais perdue.
+		m.stopIntro()
 		return m.handleKey(msg)
 	case tea.MouseMsg:
 		if msg.Action == tea.MouseActionPress {
@@ -493,6 +549,10 @@ func (m Model) submit() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	text := strings.TrimSpace(m.input.Value())
+	if text != "" {
+		// Premier envoi (message ou commande) : le fil remplace l'accueil.
+		m.homeDone = true
+	}
 	switch text {
 	case "":
 		return m, nil
@@ -606,7 +666,8 @@ func (m *Model) resize(w, h int) {
 		h = 1
 	}
 	m.width, m.height = w, h
-	m.input.SetWidth(w)
+	m.inputW = -1
+	m.syncInput()
 	m.input.SetHeight(inputHeight)
 }
 

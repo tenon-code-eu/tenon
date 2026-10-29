@@ -42,8 +42,7 @@ func TestConversationSpacing(t *testing.T) {
 	apply(event.ToolCallRequested, event.ToolCallRequestedPayload{CallID: "2", Tool: "shell", Args: json.RawMessage(`{"command":"go run ."}`)})
 	apply(event.AssistantMessage, event.AssistantMessagePayload{Text: "\nLe fichier **main.go** est corrigé.\n"})
 	var got []string
-	// Le cadre de bienvenue, puis sa ligne vide de séparation, précèdent.
-	for _, l := range m.conversationLines()[len(m.welcomeLines())+1:] {
+	for _, l := range m.conversationLines() {
 		got = append(got, strings.TrimRight(ansi.Strip(l), " "))
 	}
 	want := []string{

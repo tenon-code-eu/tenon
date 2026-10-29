@@ -11,7 +11,6 @@ import (
 
 	"github.com/tenon-code-eu/tenon/internal/i18n"
 	"github.com/tenon-code-eu/tenon/internal/llm"
-	"github.com/tenon-code-eu/tenon/internal/ui/headless"
 )
 
 const tabSpaces = "    "
@@ -24,7 +23,7 @@ type styles struct {
 	md                                                       mdStyles
 	// structure est la couleur de texte de Structure (adaptée au fond).
 	structure lipgloss.Color
-	// r est le renderer qui a produit ces styles (écran de bienvenue).
+	// r est le renderer qui a produit ces styles (accueil).
 	r *lipgloss.Renderer
 }
 
@@ -73,6 +72,9 @@ func newStyles(r *lipgloss.Renderer, th Theme) styles {
 // View rend la conversation, la saisie et la barre d'état ; aucune ligne ne
 // dépasse la largeur courante.
 func (m Model) View() string {
+	if m.homeShown() {
+		return m.homeView()
+	}
 	conv := m.conversationLines()
 	h := m.convHeight()
 	end := max(0, len(conv)-m.scrollBack)
@@ -84,7 +86,7 @@ func (m Model) View() string {
 	}
 	lines = append(lines, visible...)
 	lines = append(lines, m.bottomLines()...)
-	lines = append(lines, m.statusBar())
+	lines = append(lines, m.statusLine())
 	if len(lines) > m.height {
 		lines = lines[len(lines)-m.height:]
 	}
@@ -99,9 +101,7 @@ func (m Model) View() string {
 // conversationLines rend les éléments de la transcription, repliés à la
 // largeur courante.
 func (m Model) conversationLines() []string {
-	// Le cadre de bienvenue est un élément d'affichage local, premier de la
-	// conversation : il défile avec elle et n'entre pas dans la transcription.
-	out := m.welcomeLines()
+	var out []string
 	prev := ItemKind(-1)
 	for _, it := range m.tr.Items() {
 		// Un texte vide (fragment de l'assistant entre deux appels d'outils)
@@ -184,56 +184,6 @@ func sanitize(s string) string {
 		}
 		return r
 	}, strings.ReplaceAll(s, "\t", tabSpaces))
-}
-
-// statusBar rend la barre d'état :
-// tenon · modèle · fournisseur · pays · juridiction · [sensible → local] ·
-// session · ~jetons/fenêtre.
-func (m Model) statusBar() string {
-	// Fournisseur effectif : le dernier retenu (bascule, session sensible).
-	p := m.opts.Provider
-	if m.tr.selected != nil {
-		p = *m.tr.selected
-	}
-	parts := []string{"tenon", p.Model, headless.ProviderLabel(p), p.Country}
-	jur := i18n.T(m.lang, "banner.prefix", headless.JurisdictionLabel(m.lang, p.Jurisdiction))
-	var tail []string
-	if r := m.tr.routing; r.Sensitive {
-		ind := i18n.T(m.lang, "tui.status_sensitive_no_local")
-		if r.Local != "" {
-			ind = i18n.T(m.lang, "tui.status_sensitive", r.Local)
-		}
-		tail = append(tail, ind)
-	}
-	tail = append(tail, m.opts.SessionID, i18n.T(m.lang, "tui.status_tokens", m.estimateTokens(), m.opts.ContextWindow))
-	if t := m.tr; t.usageSeen {
-		tail = append(tail, i18n.T(m.lang, "tui.status_usage", compactCount(m.lang, t.turnIn), compactCount(m.lang, t.turnOut), compactCount(m.lang, t.sessionTokens)))
-	}
-	sep := " · "
-	var b strings.Builder
-	write := func(ss []string) {
-		for _, s := range ss {
-			if s == "" {
-				continue
-			}
-			if b.Len() > 0 {
-				b.WriteString(m.st.status.Render(sep))
-			}
-			b.WriteString(m.st.status.Render(sanitize(s)))
-		}
-	}
-	if m.unseen {
-		b.WriteString(m.st.status.Render(i18n.T(m.lang, "tui.scroll.new")))
-	}
-	write(parts)
-	b.WriteString(m.st.status.Render(sep))
-	b.WriteString(m.jurisdictionStyle(p.Jurisdiction).Render(jur))
-	write(tail)
-	line := b.String()
-	if pad := m.width - lipgloss.Width(line); pad > 0 {
-		line += m.st.status.Render(strings.Repeat(" ", pad))
-	}
-	return line
 }
 
 func (m Model) jurisdictionStyle(j llm.Jurisdiction) lipgloss.Style {
