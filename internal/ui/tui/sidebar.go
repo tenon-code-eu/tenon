@@ -134,7 +134,8 @@ func (s *sessionStats) apply(ev event.Event) {
 		}
 		d := lineDelta{add: countLines(a.Content), known: false}
 		if p.Tool == "edit_file" {
-			d = lineDelta{add: countLines(a.NewString), del: countLines(a.OldString), known: true}
+			add, del := changedLines(a.OldString, a.NewString)
+			d = lineDelta{add: add, del: del, known: true}
 		}
 		if s.pending == nil {
 			s.pending = map[string]lineDelta{}
@@ -213,6 +214,26 @@ func (s *sessionStats) relPath(path string) string {
 		return path
 	}
 	return filepath.ToSlash(rel)
+}
+
+// changedLines compte les lignes ajoutées et retirées d'un remplacement, sans
+// les lignes de contexte communes au début et à la fin.
+func changedLines(old, new string) (add, del int) {
+	o := strings.Split(strings.TrimSuffix(old, "\n"), "\n")
+	n := strings.Split(strings.TrimSuffix(new, "\n"), "\n")
+	if old == "" {
+		o = nil
+	}
+	if new == "" {
+		n = nil
+	}
+	for len(o) > 0 && len(n) > 0 && o[0] == n[0] {
+		o, n = o[1:], n[1:]
+	}
+	for len(o) > 0 && len(n) > 0 && o[len(o)-1] == n[len(n)-1] {
+		o, n = o[:len(o)-1], n[:len(n)-1]
+	}
+	return len(n), len(o)
 }
 
 // countLines compte les lignes d'un texte (une dernière ligne sans saut

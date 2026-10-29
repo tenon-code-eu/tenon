@@ -316,3 +316,112 @@ func TestSidebarSessionPolicyCounts(t *testing.T) {
 		}
 	}
 }
+
+func histEv(t *testing.T, typ event.Type, payload any) event.Event { return ev(t, typ, payload) }
+
+// Session reprise : le panneau est restauré depuis l'historique (titre,
+// envois, fichiers, jetons, jauge), cohérent avec le total de la barre d'état.
+func TestSidebarResumedHistory(t *testing.T) {
+	root := t.TempDir()
+	o := sidebarOpts(i18n.EN)
+	o.ProjectRoot = root
+	o.SessionTokens = 41000
+	a := filepath.Join(root, "a.go")
+	raw, _ := json.Marshal(map[string]any{"path": a, "content": "x\n"})
+	o.History = []event.Event{
+		histEv(t, event.UserMessage, event.UserMessagePayload{Text: "reprise du travail"}),
+		histEv(t, event.Usage, event.UsagePayload{Provider: "mistral", ProviderName: "Mistral", Jurisdiction: llm.EU, Purpose: "turn", Input: 1000, Output: 500, Window: 128000}),
+		histEv(t, event.Usage, event.UsagePayload{Provider: "openai", ProviderName: "OpenAI", Jurisdiction: llm.NonEU, Purpose: "turn", Input: 39000, Output: 500, Window: 128000}),
+		histEv(t, event.ToolCallRequested, event.ToolCallRequestedPayload{CallID: "c1", Tool: "write_file", Args: raw}),
+		histEv(t, event.ToolResult, event.ToolResultPayload{CallID: "c1", Tool: "write_file", Path: a, HashAfter: "h1", Content: "ok"}),
+		histEv(t, event.TurnCompleted, event.TurnCompletedPayload{Reason: "done"}),
+	}
+	h := newHarness(t, newFake(), o)
+	h.send(tea.WindowSizeMsg{Width: 140, Height: 40})
+	m := colored(h.m)
+	p := panelText(m)
+	for _, want := range []string{"reprise du travail", "in 40k · out 1k", "A a.go +1", "███░░░░░░░ 30%", "● 1 → Mistral · FR"} {
+		if !strings.Contains(ansi.Strip(p), want) {
+			t.Fatalf("%q absent :\n%s", want, ansi.Strip(p))
+		}
+	}
+	if !strings.Contains(p, m.st.alert.Render("● 1 → OpenAI · US")) {
+		t.Fatalf("envoi hors UE de l'historique pas en alerte :\n%q", p)
+	}
+	if s := lastLine(m.View()); !strings.Contains(s, "session 41k") {
+		t.Fatalf("barre d'état : %q", s)
+	}
+	// L'historique ne passe pas par la transcription.
+	if strings.Contains(strings.Join(m.conversationLines(), "\n"), "reprise du travail") {
+		t.Fatal("historique rejoué dans le fil")
+	}
+}
+
+// edit_file : les lignes de contexte communes ne comptent pas.
+func TestSidebarEditContextLines(t *testing.T) {
+	root := t.TempDir()
+	o := sidebarOpts(i18n.EN)
+	o.ProjectRoot = root
+	f := newFake()
+	h := newHarness(t, f, o)
+	h.send(tea.WindowSizeMsg{Width: 120, Height: 40})
+	ctx := strings.Repeat("ctx\n", 5)
+	a := filepath.Join(root, "a.go")
+	fileEvents(t, f, "c1", "edit_file", a, map[string]any{"path": a, "old_string": ctx + "old\n" + ctx, "new_string": ctx + "new\n" + ctx}, "h0")
+	h.until("fichier", func() bool { return strings.Contains(panelText(h.m), "a.go") })
+	if p := panelText(h.m); !strings.Contains(p, "M a.go +1 −1") {
+		t.Fatalf("compte :\n%s", p)
+	}
+}
+
+// Aucune ligne ne dépasse la largeur, panneau ouvert, avec des textes longs.
+func TestSidebarWidthSweep(t *testing.T) {
+	root := t.TempDir()
+	o := sidebarOpts(i18n.FR)
+	o.ProjectRoot = root
+	o.Policy = "politique : " + strings.Repeat("organisation-tres-longue-", 6) + " v3 (clé " + strings.Repeat("ab", 40) + ")"
+	o.Profile = strings.Repeat("profil-", 10)
+	o.Sandbox = SandboxOff
+	f := newFake()
+	h := newHarness(t, f, o)
+	f.emit(t, event.UserMessage, event.UserMessagePayload{Text: strings.Repeat("titre très long ", 20)})
+	p := filepath.Join(root, strings.Repeat("dossier-long/", 10)+"fichier.go")
+	fileEvents(t, f, "c1", "write_file", p, map[string]any{"path": p, "content": "x"}, "")
+	f.emit(t, event.Usage, event.UsagePayload{Provider: "x", ProviderName: strings.Repeat("Fournisseur", 8), Purpose: "turn", Input: 10, Output: 5})
+	f.emit(t, event.AssistantMessage, event.AssistantMessagePayload{Text: strings.Repeat("réponse ", 50)})
+	f.emit(t, event.TurnCompleted, event.TurnCompletedPayload{Reason: "done"})
+	h.send(tea.WindowSizeMsg{Width: 120, Height: 40})
+	h.until("tour", func() bool { return !h.m.tr.Busy() && strings.Contains(h.m.View(), "FournisseurFournisseur") })
+	for w := 100; w <= 200; w++ {
+		h.send(tea.WindowSizeMsg{Width: w, Height: 40})
+		if !panelOpen(h.m) {
+			t.Fatalf("largeur %d : panneau fermé", w)
+		}
+		assertFits(t, h.m, fmt.Sprint(w))
+	}
+}
+
+// Tour annulé ou bloqué : des données sont parties, le badge reste.
+func TestBadgeCancelledTurn(t *testing.T) {
+	for _, reason := range []string{"cancelled", "blocked"} {
+		f := newFake()
+		h := newHarness(t, f, sidebarOpts(i18n.EN))
+		h.send(tea.WindowSizeMsg{Width: 120, Height: 40})
+		f.emit(t, event.UserMessage, event.UserMessagePayload{Text: "un"})
+		f.emit(t, event.AssistantDelta, event.AssistantDeltaPayload{Text: "début de réponse"})
+		f.emit(t, event.Usage, event.UsagePayload{Provider: "openai", ProviderName: "OpenAI", Jurisdiction: llm.NonEU, Purpose: "turn", Input: 10, Output: 5})
+		f.emit(t, event.TurnCompleted, event.TurnCompletedPayload{Reason: reason})
+		h.until(reason, func() bool { return !h.m.tr.Busy() && strings.Contains(h.m.View(), "OpenAI · US · non-EU") })
+		if b := badgeAfter(t, h.m, "début de réponse"); ansi.Strip(b) != "OpenAI · US · non-EU" {
+			t.Fatalf("%s : badge %q", reason, b)
+		}
+	}
+}
+
+func TestHelpMentionsSidebar(t *testing.T) {
+	for _, l := range []i18n.Lang{i18n.FR, i18n.EN} {
+		if !strings.Contains(i18n.T(l, "tui.help"), "Ctrl+B") {
+			t.Fatalf("%s : Ctrl+B absent de l'aide", l)
+		}
+	}
+}

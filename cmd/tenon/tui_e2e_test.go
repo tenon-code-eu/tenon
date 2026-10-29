@@ -14,6 +14,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/exp/teatest"
 
+	"github.com/tenon-code-eu/tenon/internal/event"
 	"github.com/tenon-code-eu/tenon/internal/ui/tui"
 )
 
@@ -236,6 +237,11 @@ func TestTUIResume(t *testing.T) {
 		t.Fatalf("run 1 : code=%d stdout=%q stderr=%q", code, out, errb)
 	}
 	r := e.runTUI(func(tm *teatest.TestModel) {
+		// Panneau restauré depuis l'historique : titre et envoi de la session
+		// (une seule attente : WaitFor consomme la sortie lue).
+		teatest.WaitFor(t, tm.Output(), func(b []byte) bool {
+			return bytes.Contains(b, []byte("je m'appelle Ada")) && bytes.Contains(b, []byte("● 1 → Test SAS · FR"))
+		}, teatest.WithDuration(tuiTimeout), teatest.WithCheckInterval(10*time.Millisecond))
 		typeText(tm, "comment je m'appelle ?")
 		pressEnter(tm)
 		waitText(t, tm, "Vous êtes Ada")
@@ -249,6 +255,15 @@ func TestTUIResume(t *testing.T) {
 	}
 	if !r.opts.Resumed {
 		t.Error("Options.Resumed faux pour --resume")
+	}
+	usage := 0
+	for _, ev := range r.opts.History {
+		if ev.Type == event.Usage {
+			usage++
+		}
+	}
+	if usage != 1 {
+		t.Errorf("Options.History : %d Usage, attendu 1", usage)
 	}
 	reqs := f.requests()
 	if len(reqs) != 2 || !strings.Contains(reqs[1], "je m'appelle Ada") || !strings.Contains(reqs[1], "comment je m'appelle ?") {

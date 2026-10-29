@@ -410,6 +410,8 @@ func runInteractive(ctx context.Context, fs *flag.FlagSet, lang i18n.Lang, o eng
 		Resumed:          o.resume != "",
 		Sandbox:          tuiSandbox(st.confined),
 		Providers:        st.providers,
+		// Événements de la session reprise : panneau latéral restauré.
+		History: st.history,
 		// Serveurs indisponibles signalés dès l'ouverture, en plus de
 		// l'événement McpServerDown émis au premier tour.
 		Notices: append(slices.Clone(st.notices), st.downNotices...),

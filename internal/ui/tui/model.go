@@ -86,6 +86,10 @@ type Options struct {
 	// juridiction des envois du panneau latéral et des badges (Usage ne porte
 	// pas de pays) ; nil : pays inconnus.
 	Providers map[string]llm.ProviderInfo
+	// History sont les événements de la session reprise (--resume) : ils
+	// restaurent le panneau latéral seul (titre, envois, fichiers, jetons,
+	// jauge), jamais la transcription.
+	History []event.Event
 	// Now remplace l'horloge (délai d'armement des acceptations, double
 	// Ctrl+C). Réservé aux tests ; nil : time.Now.
 	Now func() time.Time
@@ -310,6 +314,9 @@ func New(eng Engine, opts Options) Model {
 	m.tip = tipOfTheDay(l, rand.IntN)
 	m.introFrame = -1
 	m.stats = newSessionStats(opts)
+	for _, ev := range opts.History {
+		m.stats.apply(ev)
+	}
 	m.resize(defaultWidth, defaultHeight)
 	return m
 }
