@@ -901,14 +901,8 @@ func TestACPToolCallIDsUniqueAndReplayed(t *testing.T) {
 	c2 := startACP(t, e, nil)
 	c2.initialize()
 	c2.call("session/load", map[string]any{"sessionId": sid, "cwd": e.wd, "mcpServers": []any{}})
-	// Le rejeu suit la réponse de session/load.
-	var replayed []string
-	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
-		if replayed = toolCallIDs(c2.allUpdates()); len(replayed) >= len(live) {
-			break
-		}
-	}
-	if !reflect.DeepEqual(replayed, live) {
+	// Le rejeu précède la réponse de session/load (ACP) : il est là dès la réponse.
+	if replayed := toolCallIDs(c2.allUpdates()); !reflect.DeepEqual(replayed, live) {
 		t.Fatalf("rejeu %q, direct %q", replayed, live)
 	}
 }

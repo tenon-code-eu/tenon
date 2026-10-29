@@ -135,8 +135,8 @@ func newBridge(conn *Conn, lang i18n.Lang, s Session) *bridge {
 }
 
 // start envoie les notices, les commandes et les événements rejoués, puis
-// lance la pompe. Appelé une fois la réponse session/new ou session/load
-// écrite.
+// lance la pompe. Appelé une fois la réponse session/new écrite, avant la
+// réponse session/load (register).
 func (b *bridge) start(notices []string, cmds []Command, replay []event.Event) {
 	for _, n := range notices {
 		b.notice(n)

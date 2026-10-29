@@ -513,15 +513,16 @@ func TestLoadReplay(t *testing.T) {
 	}}
 	h := newHarness(t, b)
 	h.init()
+	// ACP : l'historique est rejoué, puis la réponse à session/load.
 	h.send("session/load", map[string]any{"sessionId": "old", "cwd": root, "mcpServers": []any{}})
-	if m := h.recv(); m.Method != "" || string(m.Result) != "{}" {
-		t.Fatalf("want the response first, got %+v", m)
-	}
 	jsonEq(t, upd(t, h.recv()), `{"sessionUpdate":"available_commands_update","availableCommands":[]}`)
 	var got []string
 	for i := 0; i < 7; i++ {
 		b, _ := json.Marshal(upd(t, h.recv()))
 		got = append(got, string(b))
+	}
+	if m := h.recv(); m.Method != "" || string(m.Result) != "{}" {
+		t.Fatalf("want the response after the replay, got %+v", m)
 	}
 	want := []string{
 		`{"content":{"text":"/fix it","type":"text"},"sessionUpdate":"user_message_chunk"}`,
@@ -758,12 +759,14 @@ func TestMaskReplay(t *testing.T) {
 	h := newHarness(t, b)
 	h.init()
 	h.send("session/load", map[string]any{"sessionId": "old", "cwd": "/p", "mcpServers": []any{}})
-	h.recv()
 	h.recv() // available_commands_update
 	var got []string
 	for i := 0; i < 5; i++ {
 		b, _ := json.Marshal(upd(t, h.recv()))
 		got = append(got, string(b))
+	}
+	if m := h.recv(); m.Method != "" || string(m.Result) != "{}" {
+		t.Fatalf("want the response after the replay, got %+v", m)
 	}
 	want := []string{
 		`{"content":{"text":"key [MASKED]","type":"text"},"sessionUpdate":"user_message_chunk"}`,

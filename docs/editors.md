@@ -194,5 +194,5 @@ Environment variables and HTTP headers sent by the editor are dropped, with a no
 - Attached files (`resource` blocks) are added to the message, so they are masked and classified like typed text. File links (`resource_link`) are mentioned by path; tenon reads them with its tools, under permission.
 - One turn at a time per session. A second prompt during a turn gets `turn in progress`.
 - tenon sends its notices (startup notices, hook stops) as agent thoughts (`agent_thought_chunk`, prefixed `tenon:`), and tokens as `usage_update` (`used`: input tokens of the last call, `size`: context window of its provider). Some clients ignore `usage_update`.
-- `session/load` replays messages and tool calls as text. Diffs are not replayed.
+- `session/load` replays messages, tool calls (as text) and the `usage_update` of each call, then replies. A resumed session's token count (`sessionTokens`) therefore includes its history. Diffs are not replayed.
 - No ACP modes (`session/set_mode`), no remote transport.

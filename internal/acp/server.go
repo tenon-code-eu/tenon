@@ -212,7 +212,7 @@ func (s *Server) newSession(ctx context.Context, params json.RawMessage) (any, e
 	if err != nil {
 		return nil, backendErr(err)
 	}
-	return s.register(sess, nil, withMeta(map[string]any{"sessionId": sess.ID()}, sess))
+	return s.register(sess, nil, withMeta(map[string]any{"sessionId": sess.ID()}, sess), true)
 }
 
 // withMeta ajoute _meta.tenon au résultat quand la session en fournit un.
@@ -282,19 +282,20 @@ func (s *Server) loadSession(ctx context.Context, params json.RawMessage) (any, 
 		return nil, backendErr(err)
 	}
 	// LoadSessionResponse est un objet (vide), jamais null.
-	return s.register(sess, replay, withMeta(map[string]any{}, sess))
+	return s.register(sess, replay, withMeta(map[string]any{}, sess), false)
 }
 
 // register enregistre la session et l'abonne à son pont ; une session de
-// même id est fermée et remplacée. Le résultat renvoyé (result) est suivi,
-// une fois écrit, des notices, des commandes et du rejeu : le client ne
-// connaît l'identifiant qu'en lisant la réponse.
+// même id est fermée et remplacée. Notices, commandes et rejeu suivent la
+// réponse (result) quand afterReply est vrai : session/new, le client ne
+// connaît l'identifiant qu'en lisant la réponse. Sinon ils la précèdent :
+// session/load, ACP diffuse tout l'historique puis répond.
 //
 // Une session de même id en plein tour n'est pas remplacée : la nouvelle est
 // fermée et l'erreur turn in progress renvoyée. Le contrôle et le marquage
 // closed de l'ancienne se font sous son verrou : aucun tour ne peut y
 // commencer ensuite.
-func (s *Server) register(sess Session, replay []event.Event, result any) (any, error) {
+func (s *Server) register(sess Session, replay []event.Event, result any, afterReply bool) (any, error) {
 	s.mu.Lock()
 	old := s.sessions[sess.ID()]
 	if old != nil && old.s != sess {
@@ -314,10 +315,15 @@ func (s *Server) register(sess Session, replay []event.Event, result any) (any, 
 	if old != nil && old.s != sess {
 		old.close()
 	}
-	return AfterReply{Result: result, Then: func() {
+	start := func() {
 		e.b.start(sess.Notices(), sess.Commands(), replay)
 		close(e.ready)
-	}}, nil
+	}
+	if !afterReply {
+		start()
+		return result, nil
+	}
+	return AfterReply{Result: result, Then: start}, nil
 }
 
 func (s *Server) entry(id string) (*entry, error) {
