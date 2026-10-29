@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -503,6 +504,10 @@ func TestLoadReplay(t *testing.T) {
 		add(event.ToolCallRequested, event.ToolCallRequestedPayload{CallID: "c2", Tool: "shell", Args: json.RawMessage(`{"command":"x"}`)})
 		add(event.ToolResult, event.ToolResultPayload{CallID: "c2", Tool: "shell", Content: "no", IsError: true})
 		add(event.AssistantMessage, event.AssistantMessagePayload{Text: "done"})
+		// Usage : rejoué comme en direct (badge de la réponse) ; celui d'un
+		// sous-agent compte dans les jetons de la session sans être envoyé.
+		add(event.Usage, event.UsagePayload{ParentCallID: "a1", Provider: "sub", Purpose: "turn", Input: 3, Output: 1})
+		add(event.Usage, event.UsagePayload{Provider: "mistral", ProviderName: "Mistral AI", Jurisdiction: "eu", Purpose: "turn", Input: 10, Output: 2, Window: 256000})
 		add(event.TurnCompleted, event.TurnCompletedPayload{Reason: "done"})
 		return s, evs
 	}}
@@ -514,7 +519,7 @@ func TestLoadReplay(t *testing.T) {
 	}
 	jsonEq(t, upd(t, h.recv()), `{"sessionUpdate":"available_commands_update","availableCommands":[]}`)
 	var got []string
-	for i := 0; i < 6; i++ {
+	for i := 0; i < 7; i++ {
 		b, _ := json.Marshal(upd(t, h.recv()))
 		got = append(got, string(b))
 	}
@@ -525,6 +530,7 @@ func TestLoadReplay(t *testing.T) {
 		`{"kind":"execute","rawInput":{"command":"x"},"sessionUpdate":"tool_call","status":"pending","title":"shell · x","toolCallId":"t1-c2"}`,
 		`{"content":[{"content":{"text":"no","type":"text"},"type":"content"}],"sessionUpdate":"tool_call_update","status":"failed","toolCallId":"t1-c2"}`,
 		`{"content":{"text":"done","type":"text"},"sessionUpdate":"agent_message_chunk"}`,
+		`{"_meta":{"tenon":{"cached":0,"input":10,"jurisdiction":"eu","output":2,"provider":"mistral","providerName":"Mistral AI","sessionTokens":16}},"sessionUpdate":"usage_update","size":256000,"used":10}`,
 	}
 	for i := range want {
 		if got[i] != want[i] {
@@ -746,6 +752,7 @@ func TestMaskReplay(t *testing.T) {
 		add(event.ToolCallRequested, event.ToolCallRequestedPayload{CallID: "c1", Tool: "read_file", Args: json.RawMessage(`{"path":"SECRET.txt"}`)})
 		add(event.ToolResult, event.ToolResultPayload{CallID: "c1", Tool: "read_file", Content: "SECRET"})
 		add(event.AssistantMessage, event.AssistantMessagePayload{Text: "done"})
+		add(event.Usage, event.UsagePayload{Provider: "p", ProviderName: "SECRET Corp", Purpose: "turn", Input: 1})
 		return s, evs
 	}}
 	h := newHarness(t, b)
@@ -754,7 +761,7 @@ func TestMaskReplay(t *testing.T) {
 	h.recv()
 	h.recv() // available_commands_update
 	var got []string
-	for i := 0; i < 4; i++ {
+	for i := 0; i < 5; i++ {
 		b, _ := json.Marshal(upd(t, h.recv()))
 		got = append(got, string(b))
 	}
@@ -763,6 +770,7 @@ func TestMaskReplay(t *testing.T) {
 		`{"kind":"read","locations":[{"path":"/p/[MASKED].txt"}],"rawInput":{"path":"[MASKED].txt"},"sessionUpdate":"tool_call","status":"pending","title":"read_file · [MASKED].txt","toolCallId":"t1-c1"}`,
 		`{"content":[{"content":{"text":"[MASKED]","type":"text"},"type":"content"}],"sessionUpdate":"tool_call_update","status":"completed","toolCallId":"t1-c1"}`,
 		`{"content":{"text":"done","type":"text"},"sessionUpdate":"agent_message_chunk"}`,
+		`{"_meta":{"tenon":{"cached":0,"input":1,"output":0,"provider":"p","providerName":"[MASKED] Corp","sessionTokens":1}},"sessionUpdate":"usage_update","size":` + strconv.Itoa(engine.DefaultContextWindow) + `,"used":1}`,
 	}
 	for i := range want {
 		if got[i] != want[i] {

@@ -324,34 +324,7 @@ func (b *bridge) handle(ev event.Event) {
 		}
 	case event.Usage:
 		if p, ok := decodeAs[event.UsagePayload](ev); ok {
-			b.tokens += int64(p.Input) + int64(p.Output)
-			if p.ParentCallID == "" && (p.Purpose == "turn" || p.Purpose == "") {
-				tn := map[string]any{
-					"input": p.Input, "output": p.Output, "cached": p.Cached, "sessionTokens": b.tokens,
-				}
-				// Fournisseur de l'appel (repli : il peut changer en cours de session).
-				if p.Provider != "" {
-					tn["provider"] = p.Provider
-				}
-				if p.ProviderName != "" {
-					tn["providerName"] = p.ProviderName
-				}
-				if p.Jurisdiction != "" {
-					tn["jurisdiction"] = string(p.Jurisdiction)
-				}
-				// ACP : size (requis) est la fenêtre de contexte du fournisseur
-				// de l'appel, used le contexte occupé (jetons d'entrée).
-				size := p.Window
-				if size <= 0 {
-					size = engine.DefaultContextWindow
-				}
-				b.update(map[string]any{
-					"sessionUpdate": "usage_update",
-					"used":          p.Input,
-					"size":          size,
-					"_meta":         map[string]any{"tenon": tn},
-				})
-			}
+			b.usage(p)
 		}
 	case event.HookCompleted:
 		if p, ok := decodeAs[event.HookCompletedPayload](ev); ok && p.ParentCallID == "" {
@@ -425,8 +398,8 @@ func (b *bridge) turnCompleted(reason string) {
 }
 
 // replay traduit un événement rejoué (déjà masqué) par session/load : messages de
-// l'agent principal et appels d'outils (résultats en texte seul : le disque
-// n'est plus dans l'état d'alors).
+// l'agent principal, appels d'outils (résultats en texte seul : le disque
+// n'est plus dans l'état d'alors) et usage des appels.
 func (b *bridge) replay(ev event.Event) {
 	switch ev.Type {
 	case event.UserMessage:
@@ -449,7 +422,47 @@ func (b *bridge) replay(ev event.Event) {
 		if p, ok := decodeAs[event.ToolResultPayload](ev); ok {
 			b.update(b.toolResult(p, false))
 		}
+	case event.Usage:
+		// Comme en direct : le fournisseur de chaque réponse (badge).
+		if p, ok := decodeAs[event.UsagePayload](ev); ok {
+			b.usage(p)
+		}
 	}
+}
+
+// usage compte les jetons d'un appel et, pour un appel de tour de l'agent
+// principal, envoie usage_update : fournisseur de l'appel (repli : il peut
+// changer en cours de session) dans _meta.tenon, contexte occupé et fenêtre.
+// Même traduction en direct et au rejeu.
+func (b *bridge) usage(p event.UsagePayload) {
+	b.tokens += int64(p.Input) + int64(p.Output)
+	if p.ParentCallID != "" || (p.Purpose != "turn" && p.Purpose != "") {
+		return
+	}
+	tn := map[string]any{
+		"input": p.Input, "output": p.Output, "cached": p.Cached, "sessionTokens": b.tokens,
+	}
+	if p.Provider != "" {
+		tn["provider"] = p.Provider
+	}
+	if p.ProviderName != "" {
+		tn["providerName"] = p.ProviderName
+	}
+	if p.Jurisdiction != "" {
+		tn["jurisdiction"] = string(p.Jurisdiction)
+	}
+	// ACP : size (requis) est la fenêtre de contexte du fournisseur de
+	// l'appel, used le contexte occupé (jetons d'entrée).
+	size := p.Window
+	if size <= 0 {
+		size = engine.DefaultContextWindow
+	}
+	b.update(map[string]any{
+		"sessionUpdate": "usage_update",
+		"used":          p.Input,
+		"size":          size,
+		"_meta":         map[string]any{"tenon": tn},
+	})
 }
 
 // toolArgs sont les champs des arguments qui désignent la cible d'un appel.
