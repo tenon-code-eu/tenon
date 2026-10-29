@@ -177,6 +177,8 @@ export class Conversation {
   private early: SessionNotification[] = [];
   /** Provider of the current turn's last call (badge of its new answers). */
   private provider: AnswerProvider | undefined;
+  /** Token of the latest session/load (startLoading). */
+  private loads = 0;
 
   /** Fires with the whole state, at most once per CHANGE_INTERVAL_MS. */
   readonly onDidChange: vscode.Event<ConversationState> = (listener, thisArgs?: unknown, disposables?) => {
@@ -227,10 +229,23 @@ export class Conversation {
     this.changed();
   }
 
-  /** Marks a session/load in progress (no home screen meanwhile). */
-  setLoading(loading: boolean): void {
-    if (Boolean(this.state.loading) !== loading) {
-      this.state.loading = loading;
+  /**
+   * A session/load starts (no home screen meanwhile); the token returned
+   * ends it. Loads may overlap: only the latest one's end clears the flag.
+   */
+  startLoading(): number {
+    const token = ++this.loads;
+    if (!this.state.loading) {
+      this.state.loading = true;
+      this.changed();
+    }
+    return token;
+  }
+
+  /** The load of token is over; no effect when a newer load started since. */
+  endLoading(token: number): void {
+    if (token === this.loads && this.state.loading) {
+      this.state.loading = false;
       this.changed();
     }
   }

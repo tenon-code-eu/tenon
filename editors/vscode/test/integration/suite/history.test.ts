@@ -90,8 +90,10 @@ test("history: loading A rebuilds its thread from the replay", async () => {
     { kind: "user", text: "second of A" },
     { kind: "agent", text: "two" },
   ];
-  await waitFor(() => JSON.stringify(thread()) === JSON.stringify(want), 10_000, `A's thread, got ${JSON.stringify(thread())}`);
-  assert(!api.homeVisible(), "the home is shown over a loaded session");
+  // tenon replays the history before its reply (ACP): the thread is whole
+  // once the load resolves, so no home shows in between (ruling R8).
+  assert(JSON.stringify(thread()) === JSON.stringify(want), `A's thread at the reply, got ${JSON.stringify(thread())}`);
+  assert(!api.homeVisible() && !api.state().loading, "the home is shown over a loaded session");
   // The replay carries each call's usage: the replayed answers keep their badge (ruling R7).
   const answers = api.state().items.filter((i) => i.kind === "agent");
   assert(

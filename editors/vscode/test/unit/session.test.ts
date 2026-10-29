@@ -90,25 +90,44 @@ describe("SessionController", () => {
     expect(conv.state.meta).toEqual({ provider: "P" });
   });
 
-  it("load shows no home while the history loads: tenon replays it after its reply", async () => {
+  it("load shows no home at any point: tenon replays the history, then replies", async () => {
     let reply: (v: object) => void = () => undefined;
     const loadSession = vi.fn().mockReturnValue(new Promise((r) => (reply = r)));
     const { s, conv } = setup({ loadSession });
+    const seen: boolean[] = [];
+    conv.onDidChange((st) => seen.push(homeVisible(st)));
     const loading = s.load("s0", "/p");
-    // begin() emptied the thread: still no home.
+    // begin() emptied the thread: no home.
     expect(conv.state.items).toEqual([]);
     expect(conv.state.loading).toBe(true);
     expect(homeVisible(conv.state)).toBe(false);
-    reply({});
-    await Promise.resolve();
-    await Promise.resolve();
-    // The reply is in, the replay right behind it on the wire: still loading.
-    expect(homeVisible(conv.state)).toBe(false);
+    await vi.advanceTimersByTimeAsync(50);
+    // The replay comes before the reply (ACP).
     conv.apply({ sessionId: "s0", update: { sessionUpdate: "user_message_chunk", content: { type: "text", text: "old" } } });
-    await vi.runAllTimersAsync();
+    conv.apply({ sessionId: "s0", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "answer" } } });
+    await vi.advanceTimersByTimeAsync(50);
+    reply({});
     await loading;
+    // Cleared as soon as the reply resolves: no timer involved.
     expect(conv.state.loading).toBe(false);
+    await vi.runAllTimersAsync();
+    expect(seen.length).toBeGreaterThan(1);
+    expect(seen.every((v) => !v)).toBe(true);
+  });
+
+  it("overlapping loads: the first load's end does not clear the second's loading", async () => {
+    const replies: ((v: object) => void)[] = [];
+    const loadSession = vi.fn().mockImplementation(() => new Promise((r) => replies.push(r)));
+    const { s, conv } = setup({ loadSession });
+    const a = s.load("a", "/p");
+    const b = s.load("b", "/p");
+    replies[0]({});
+    await a;
+    expect(conv.state.loading).toBe(true);
     expect(homeVisible(conv.state)).toBe(false);
+    replies[1]({});
+    await b;
+    expect(conv.state.loading).toBe(false);
   });
 
   it("an empty loaded session ends on the home; a failed load clears loading", async () => {
