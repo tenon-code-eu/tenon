@@ -19,7 +19,7 @@
 - `NO_COLOR` disables every color whatever the theme.
 - Links (constants): docs `https://tenon-code-eu.github.io/tenon/`, github `https://github.com/tenon-code-eu/tenon`, bug `https://github.com/tenon-code-eu/tenon/issues/new`. TUI: OSC 8 hyperlinks only when the terminal supports them, plain text otherwise. Extension: webview sends `openLink` with id `docs` | `github` | `bug`, never a URL.
 - Home: shown until the first message; a resumed session shows the thread directly. Input box width `min(72, width − 8)`. Under 70 columns: compact `⬢ TENON`.
-- Shortcuts line: `/help /skills /rewind /memory · Ctrl+P palette · Tab agents` (localised).
+- Shortcuts line: `/help /skills /rewind /memory · Ctrl+P palette · Tab complete` (localised; FR `… · Tab compléter`).
 - TUI keys: `Ctrl+B` toggles the side panel, `Ctrl+P` opens the palette (both free in `keys.go`).
 - Side panel: 26 columns, separator line, open by default at width ≥ 100, closed below; a manual `Ctrl+B` choice wins for the rest of the session. Order: title, context gauge (10 cells + %), session tokens in/out, modified files (max 8 then `+N`), sovereignty (sends per provider · country, non-EU in amber, sandbox, profile, policy).
 - Badge: under each completed main-agent answer, `<provider name> · <country> · <EU|non-EU|local>` (FR `UE|hors UE|local`) of the turn's last call; non-EU and unknown jurisdiction in the alert color.

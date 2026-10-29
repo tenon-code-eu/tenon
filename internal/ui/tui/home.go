@@ -45,6 +45,8 @@ const (
 	homeBoxMin = 12
 	// homeBoxExtra : bordures et marges intérieures du cadre de saisie.
 	homeBoxExtra = 4
+	// homeNoticeMin est la réserve minimale des avis sous l'accueil.
+	homeNoticeMin = 4
 	// homeTips est le nombre d'astuces du jour (clés tui.tip.1 à N).
 	homeTips = 11
 	// statusProjectMin est la largeur minimale du dossier du projet dans la
@@ -211,11 +213,74 @@ func (m Model) artLines(off int) []string {
 	return out
 }
 
-// homeLines rend l'accueil : logo, slogan et version, zone de saisie
+// homeLines rend l'accueil seul, à la hauteur que lui laissent les avis du
+// démarrage (voir homeView).
+func (m Model) homeLines() []string {
+	avail := max(0, m.height-statusHeight)
+	return m.homeBlock(avail - noticeReserve(avail, m.homeNotices()))
+}
+
+// homeNotices rend les avis du démarrage, un élément par avis.
+func (m Model) homeNotices() [][]string {
+	var out [][]string
+	for _, it := range m.tr.Items() {
+		if it.Kind != ItemTool && strings.TrimSpace(it.Text) == "" {
+			continue
+		}
+		out = append(out, strings.Split(m.renderItem(it), "\n"))
+	}
+	return out
+}
+
+// noticeReserve renvoie les lignes réservées aux avis sous l'accueil : tous
+// (et une ligne vide) s'ils tiennent dans un tiers de la hauteur, sinon ce
+// tiers (au moins homeNoticeMin lignes : « … +N » et le dernier avis, chacun
+// précédé d'une ligne vide).
+func noticeReserve(avail int, notes [][]string) int {
+	if len(notes) == 0 {
+		return 0
+	}
+	n := 0
+	for _, l := range notes {
+		n += len(l) + 1
+	}
+	return min(n, max(homeNoticeMin, avail/3))
+}
+
+// fitNotices garde les derniers avis qui tiennent en room lignes, chacun
+// précédé d'une ligne vide, avec « … +N » en tête quand N avis sont omis.
+func (m Model) fitNotices(notes [][]string, room int) []string {
+	used, k := 0, 0
+	for i := len(notes) - 1; i >= 0; i-- {
+		need := len(notes[i]) + 1
+		if i > 0 {
+			// Des avis plus anciens resteront cachés : place pour « … +N ».
+			need += 2
+		}
+		if used+need > room {
+			break
+		}
+		used += len(notes[i]) + 1
+		k++
+	}
+	var out []string
+	if hidden := len(notes) - k; hidden > 0 {
+		if room-used < 2 {
+			return nil
+		}
+		out = append(out, "", m.st.notice.Render(ansi.Truncate(i18n.T(m.lang, "tui.home.more_notices", hidden), m.width, "")))
+	}
+	for _, l := range notes[len(notes)-k:] {
+		out = append(append(out, ""), l...)
+	}
+	return out
+}
+
+// homeBlock rend l'accueil : logo, slogan et version, zone de saisie
 // encadrée, raccourcis, astuce du jour et liens ; chaque élément est centré et
 // aucune ligne ne dépasse la largeur. Les éléments secondaires disparaissent
-// quand la hauteur manque.
-func (m Model) homeLines() []string {
+// quand la hauteur avail manque ; la zone de saisie reste toujours.
+func (m Model) homeBlock(avail int) []string {
 	gray := m.theme.Muted
 	version := welcomeVersion(m.opts.Version)
 	wide := m.width >= homeMinWide
@@ -249,10 +314,6 @@ func (m Model) homeLines() []string {
 	links := []string{m.center(link(linkDocs, "tui.home.docs") + m.paint(" · ", gray) +
 		link(linkGitHub, "tui.home.github") + m.paint(" · ", gray) + link(linkBug, "tui.home.bug"))}
 
-	avail := m.height - statusHeight
-	if n := len(m.conversationLines()); n > 0 {
-		avail -= n + 1
-	}
 	build := func(logo, slogan, shortcuts, tip, links []string) []string {
 		var out []string
 		out = append(out, logo...)
@@ -315,12 +376,14 @@ func (m Model) homeBox() []string {
 // dessous, puis la barre d'état.
 func (m Model) homeView() string {
 	avail := max(0, m.height-statusHeight)
-	content := m.homeLines()
-	if notes := m.conversationLines(); len(notes) > 0 {
-		content = append(append(content, ""), notes...)
-	}
+	notes := m.homeNotices()
+	content := m.homeBlock(avail - noticeReserve(avail, notes))
 	if len(content) > avail {
+		// Même réduit, l'accueil dépasse : le haut cède, la zone de saisie
+		// (en bas du bloc minimal) reste.
 		content = content[len(content)-avail:]
+	} else {
+		content = append(content, m.fitNotices(notes, avail-len(content))...)
 	}
 	lines := make([]string, 0, m.height)
 	for range (avail - len(content)) / 2 {

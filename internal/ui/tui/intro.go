@@ -41,6 +41,16 @@ func isTTY(w io.Writer) bool {
 	return ok && term.IsTerminal(int(f.Fd()))
 }
 
+// maybeStartIntro lance l'animation d'ouverture si l'accueil est affiché
+// (jamais pour une session reprise) et si introEnabled l'autorise ; la largeur
+// réelle arrive avec le premier WindowSizeMsg, qui l'arrête sous homeMinWide
+// colonnes.
+func (m *Model) maybeStartIntro(tty bool) {
+	if m.homeShown() && introEnabled(m.opts.Animation, tty, homeMinWide) {
+		m.introFrame = 0
+	}
+}
+
 // introActive indique que l'animation d'ouverture est en cours.
 func (m Model) introActive() bool { return m.introFrame >= 0 }
 

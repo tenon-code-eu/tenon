@@ -39,6 +39,29 @@ func TestIntroSkipped(t *testing.T) {
 	}
 }
 
+// Garde de Run : l'intro ne démarre ni pour une session reprise, ni sans
+// TTY, ni avec l'animation coupée.
+func TestIntroRunGate(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
+	start := func(o Options, tty bool) bool {
+		m := New(newFake(), o)
+		m.maybeStartIntro(tty)
+		return m.introActive()
+	}
+	if !start(Options{Lang: i18n.EN, Animation: true}, true) {
+		t.Fatal("intro attendue (nouvelle session, TTY, animation)")
+	}
+	if start(Options{Lang: i18n.EN, Animation: true, Resumed: true}, true) {
+		t.Error("session reprise animée")
+	}
+	if start(Options{Lang: i18n.EN, Animation: true}, false) {
+		t.Error("sortie non TTY animée")
+	}
+	if start(Options{Lang: i18n.EN}, true) {
+		t.Error("animation coupée mais jouée")
+	}
+}
+
 // 6 à 8 images à environ 80 ms, moins de 700 ms au total ; la dernière est
 // l'art de l'accueil.
 func TestIntroFrames(t *testing.T) {

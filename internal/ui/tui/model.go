@@ -312,11 +312,7 @@ func Run(ctx context.Context, eng Engine, opts Options, in io.Reader, out io.Wri
 	m := New(eng, opts)
 	m.ctx = runCtx
 	m.st = newStyles(lipgloss.NewRenderer(out), m.theme)
-	// Animation d'ouverture : la largeur réelle arrive avec le premier
-	// WindowSizeMsg, qui l'arrête sous homeMinWide colonnes.
-	if m.homeShown() && introEnabled(opts.Animation, isTTY(out), homeMinWide) {
-		m.introFrame = 0
-	}
+	m.maybeStartIntro(isTTY(out))
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion(), tea.WithContext(ctx), tea.WithInput(in), tea.WithOutput(out))
 	_, err := p.Run()
 	// L'état du tour est partagé : annulation, vidage de l'abonnement et

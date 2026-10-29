@@ -239,7 +239,7 @@ func TestNoPolicyUnchangedE2E(t *testing.T) {
 }
 
 // TUI : la ligne de la politique est transmise à la TUI (panneau latéral).
-func TestPolicyTUIWelcomeE2E(t *testing.T) {
+func TestPolicyTUIOptionE2E(t *testing.T) {
 	f := newFakeLLM(t, sseText("salut"))
 	e := newEnv(t, f, "eu")
 	_, key := e.withPolicy(policyHead)

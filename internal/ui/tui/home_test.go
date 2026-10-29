@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -38,7 +39,8 @@ func homeView(t *testing.T, o Options, width int) string {
 }
 
 const (
-	shortcutsEN = "/help /skills /rewind /memory · Ctrl+P palette · Tab agents"
+	shortcutsEN = "/help /skills /rewind /memory · Ctrl+P palette · Tab complete"
+	shortcutsFR = "/help /skills /rewind /memory · Ctrl+P palette · Tab compléter"
 	linksEN     = "docs · github · report a bug"
 	linksFR     = "docs · github · signaler un bug"
 )
@@ -76,7 +78,7 @@ func TestHomeWidths(t *testing.T) {
 
 func TestHomeFrench(t *testing.T) {
 	v := homeView(t, homeOpts(i18n.FR), 120)
-	for _, want := range []string{"agent de code souverain  v1.2.3", linksFR, "Astuce : ", "/help /skills /rewind /memory"} {
+	for _, want := range []string{"agent de code souverain  v1.2.3", linksFR, "Astuce : ", shortcutsFR} {
 		if !strings.Contains(v, want) {
 			t.Errorf("vue sans %q :\n%s", want, v)
 		}
@@ -195,6 +197,40 @@ func TestHomeStartupNotices(t *testing.T) {
 	v := homeView(t, o, 120)
 	if !strings.Contains(v, shortcutsEN) || !strings.Contains(v, "mcp: server down") {
 		t.Fatalf("accueil ou avis absent :\n%s", v)
+	}
+}
+
+// Des avis du démarrage trop nombreux pour la hauteur ne masquent jamais la
+// zone de saisie : seuls les derniers restent, précédés de « … +N ».
+func TestHomeNoticesNeverHideInput(t *testing.T) {
+	for _, c := range []struct{ notices, w, h int }{{3, 80, 12}, {20, 80, 24}, {40, 120, 30}, {5, 60, 8}} {
+		for _, l := range []i18n.Lang{i18n.EN, i18n.FR} {
+			o := homeOpts(l)
+			for i := range c.notices {
+				o.Notices = append(o.Notices, fmt.Sprintf("mcp: server s%02d down", i))
+			}
+			noLinkEnv(t)
+			h := newHarness(t, newFake(), o)
+			h.send(tea.WindowSizeMsg{Width: c.w, Height: c.h})
+			typeText(h, "tapé")
+			v := h.m.View()
+			if !strings.Contains(v, "tapé") {
+				t.Errorf("%d avis à %d×%d %s : saisie invisible :\n%s", c.notices, c.w, c.h, l, v)
+			}
+			if n := len(strings.Split(v, "\n")); n > c.h {
+				t.Errorf("%d×%d : %d lignes", c.w, c.h, n)
+			}
+			last := fmt.Sprintf("s%02d down", c.notices-1)
+			if c.h >= 12 && !strings.Contains(v, last) {
+				t.Errorf("%d×%d %s : dernier avis absent :\n%s", c.w, c.h, l, v)
+			}
+			if c.notices >= 20 {
+				more := map[i18n.Lang]string{i18n.EN: " notices", i18n.FR: " avis"}[l]
+				if !strings.Contains(v, "… +") || !strings.Contains(v, more) || strings.Contains(v, "s00 down") {
+					t.Errorf("%d×%d %s : avis non résumés :\n%s", c.w, c.h, l, v)
+				}
+			}
+		}
 	}
 }
 

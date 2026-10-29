@@ -42,7 +42,7 @@ Critères de succès :
 
 ### Accueil
 
-- Écran vide, contenu centré verticalement et horizontalement : logo (6 lignes) ; slogan + version ; zone de saisie encadrée (largeur `min(72, largeur − 8)`) ; ligne de raccourcis `/help /skills /rewind /memory · Ctrl+P palette · Tab agents` ; astuce du jour (tirée au hasard dans une liste i18n d'au moins 8 astuces) ; liens `docs · github · signaler un bug` en hyperliens OSC 8 quand le terminal les gère, texte sinon.
+- Écran vide, contenu centré verticalement et horizontalement : logo (6 lignes) ; slogan + version ; zone de saisie encadrée (largeur `min(72, largeur − 8)`) ; ligne de raccourcis `/help /skills /rewind /memory · Ctrl+P palette · Tab compléter` (EN `… · Tab complete`) ; astuce du jour (tirée au hasard dans une liste i18n d'au moins 8 astuces) ; liens `docs · github · signaler un bug` en hyperliens OSC 8 quand le terminal les gère, texte sinon.
 - Barre d'état en bas : dossier du projet (`~` abrégé, coupé au milieu), modèle, fournisseur, pastilles juridiction et isolation, profil s'il est actif, jetons de la session.
 - Moins de 70 colonnes : logo compact `⬢ TENON` sur une ligne.
 - Remplace le cadre actuel (`welcome.go`) ; les infos qu'il portait (projet, profil, politique, nombre de skills/agents/hooks) passent dans la barre d'état et le panneau.
