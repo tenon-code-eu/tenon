@@ -47,6 +47,9 @@ type Item struct {
 	sub bool
 	// raw est le texte brut accumulé d'un assistant en streaming.
 	raw string
+	// badge est le fournisseur du dernier appel du tour, posé sur la réponse
+	// finale de l'agent principal à la fin du tour ; nil sinon.
+	badge *answerBadge
 }
 
 // Transcript accumule les éléments affichables d'une session. Tout texte
@@ -70,6 +73,11 @@ type Transcript struct {
 	// et tour clos (la prochaine consommation repart de zéro).
 	turnIn, turnOut, sessionTokens int64
 	turnClosed, usageSeen          bool
+	// turnStart est l'index du premier élément du tour en cours ; turnBadge
+	// le fournisseur du dernier appel de l'agent principal du tour (nil :
+	// aucun appel).
+	turnStart int
+	turnBadge *answerBadge
 }
 
 // hookRun est le hook d'un HookStarted : événement et libellé court.
@@ -179,9 +187,11 @@ func (t *Transcript) Apply(ev event.Event) {
 		}
 		t.busy = true
 		if p.Hook != "" {
+			// Retour d'un hook Stop : le tour continue.
 			t.notice(t.oneLine(p.Text))
 			return
 		}
+		t.turnStart, t.turnBadge = len(t.items), nil
 		shown := p.Text
 		if p.Typed != "" {
 			shown = p.Typed // saisie brute, pas le corps du skill
@@ -315,6 +325,11 @@ func (t *Transcript) Apply(ev event.Event) {
 		t.turnOut += int64(p.Output)
 		t.sessionTokens += int64(p.Input) + int64(p.Output)
 		t.usageSeen = true
+		// Badge : appels de l'agent principal qui produisent sa réponse (ni
+		// sous-agent, ni compaction).
+		if p.ParentCallID == "" && p.Purpose != purposeCompaction {
+			t.turnBadge = &answerBadge{ID: p.Provider, Name: p.ProviderName, Jurisdiction: p.Jurisdiction}
+		}
 	case event.BudgetWarning:
 		var p event.BudgetWarningPayload
 		if !t.decode(ev, &p) {
@@ -352,6 +367,7 @@ func (t *Transcript) Apply(ev event.Event) {
 		t.busy = false
 		t.turnClosed = true
 		t.endStreaming()
+		t.placeBadge()
 		switch p.Reason {
 		case "max_iterations", "incomplete", "blocked", "cancelled", "context_too_large", "budget_exceeded":
 			t.notice(i18n.T(t.lang, "tui.turn_reason."+p.Reason))
@@ -359,6 +375,22 @@ func (t *Transcript) Apply(ev event.Event) {
 			t.notice(i18n.T(t.lang, "turn.blocked_by_hook"))
 		case "stopped_by_hook":
 			t.notice(i18n.T(t.lang, "tui.turn.stopped_by_hook"))
+		}
+	}
+}
+
+// placeBadge pose le badge du tour sur sa dernière réponse de l'agent
+// principal, s'il y a eu un appel et une réponse.
+func (t *Transcript) placeBadge() {
+	b := t.turnBadge
+	t.turnBadge = nil
+	if b == nil {
+		return
+	}
+	for i := len(t.items) - 1; i >= t.turnStart && i >= 0; i-- {
+		if it := &t.items[i]; it.Kind == ItemAssistant && strings.TrimSpace(it.Text) != "" {
+			it.badge = b
+			return
 		}
 	}
 }

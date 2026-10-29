@@ -9,6 +9,7 @@ type keyMap struct {
 	Cancel    key.Binding // annule le tour en cours
 	Interrupt key.Binding // annule le tour, ou quitte
 	Complete  key.Binding // complète une commande /...
+	Sidebar   key.Binding // ouvre ou ferme le panneau latéral
 	PageUp    key.Binding
 	PageDown  key.Binding
 	LineUp    key.Binding // une ligne vers le haut
@@ -27,6 +28,7 @@ var keys = keyMap{
 	Cancel:    key.NewBinding(key.WithKeys("esc")),
 	Interrupt: key.NewBinding(key.WithKeys("ctrl+c")),
 	Complete:  key.NewBinding(key.WithKeys("tab")),
+	Sidebar:   key.NewBinding(key.WithKeys("ctrl+b")),
 	PageUp:    key.NewBinding(key.WithKeys("pgup")),
 	PageDown:  key.NewBinding(key.WithKeys("pgdown")),
 	LineUp:    key.NewBinding(key.WithKeys("shift+up")),

@@ -19,8 +19,11 @@ const tabSpaces = "    "
 type styles struct {
 	banner, user, assistant, tool, notice, err, busy, status lipgloss.Style
 	eu, local, nonEU                                         lipgloss.Style
-	perm, add, del                                           lipgloss.Style
-	md                                                       mdStyles
+	// muted, alert et ok : texte atténué, ambre et vert ; head : titres du
+	// panneau latéral.
+	muted, alert, ok, head lipgloss.Style
+	perm, add, del         lipgloss.Style
+	md                     mdStyles
 	// structure est la couleur de texte de Structure (adaptée au fond).
 	structure lipgloss.Color
 	// r est le renderer qui a produit ces styles (accueil).
@@ -58,6 +61,10 @@ func newStyles(r *lipgloss.Renderer, th Theme) styles {
 		eu:        fg(th.OK).Reverse(true),
 		local:     local,
 		nonEU:     fg(th.Alert).Reverse(true),
+		muted:     fg(th.Muted),
+		alert:     fg(th.Alert),
+		ok:        fg(th.OK),
+		head:      fg(structure).Bold(true),
 		perm:      fg(th.Accent).Bold(true),
 		add:       fg(th.OK),
 		del:       fg(th.Error),
@@ -85,6 +92,10 @@ func (m Model) View() string {
 		lines = append(lines, "")
 	}
 	lines = append(lines, visible...)
+	// Le panneau latéral longe la zone du fil, à sa droite.
+	if m.sidebarShown() {
+		lines = m.withSidebar(lines)
+	}
 	lines = append(lines, m.bottomLines()...)
 	lines = append(lines, m.statusLine())
 	if len(lines) > m.height {
@@ -99,8 +110,10 @@ func (m Model) View() string {
 }
 
 // conversationLines rend les éléments de la transcription, repliés à la
-// largeur courante.
+// largeur du fil (sans le panneau latéral).
 func (m Model) conversationLines() []string {
+	// Copie locale : tout le rendu du fil (wrap, badges) suit sa largeur.
+	m.width = m.convWidth()
 	var out []string
 	prev := ItemKind(-1)
 	for _, it := range m.tr.Items() {
@@ -149,7 +162,12 @@ func (m Model) renderItem(it Item) string {
 		return m.st.err.Render(m.wrap(it.Text))
 	}
 	text := strings.Trim(sanitize(it.Text), "\n")
-	return m.st.assistant.Render(m.wrapStyled(renderMarkdown(text, m.st.md)))
+	out := m.st.assistant.Render(m.wrapStyled(renderMarkdown(text, m.st.md)))
+	if it.badge != nil {
+		// Fournisseur du dernier appel du tour, sous la réponse finale.
+		out += "\n" + m.badgeLine(*it.badge)
+	}
+	return out
 }
 
 // wrap nettoie s des caractères de contrôle puis le replie à la largeur. Le

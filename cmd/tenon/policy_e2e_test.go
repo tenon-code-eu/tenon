@@ -245,10 +245,20 @@ func TestPolicyTUIOptionE2E(t *testing.T) {
 	_, key := e.withPolicy(policyHead)
 	r := e.runTUI(func(tm *teatest.TestModel) {
 		waitText(t, tm, "agent de code souverain")
+		// Après le premier message, le panneau latéral (100 colonnes) montre
+		// la politique, la réponse porte le badge du fournisseur.
+		typeText(tm, "bonjour")
+		pressEnter(tm)
+		waitText(t, tm, "politique : acme-dev v3")
+		waitText(t, tm, "Test SAS · FR · UE")
 		quitTUI(t, tm)
 	})
 	if r.code != 0 || r.opts.Policy != "politique : acme-dev v3 (clé "+key+")" {
 		t.Fatalf("code=%d Options.Policy=%q stderr=%q", r.code, r.opts.Policy, r.stderr)
+	}
+	// Fournisseurs configurés, par identifiant : pays des badges et du panneau.
+	if p, ok := r.opts.Providers["test"]; !ok || p.Country != "FR" {
+		t.Fatalf("Options.Providers = %+v", r.opts.Providers)
 	}
 }
 

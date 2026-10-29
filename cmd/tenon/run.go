@@ -409,6 +409,7 @@ func runInteractive(ctx context.Context, fs *flag.FlagSet, lang i18n.Lang, o eng
 		MemoryWriteSeqs:  st.memoryWrites,
 		Resumed:          o.resume != "",
 		Sandbox:          tuiSandbox(st.confined),
+		Providers:        st.providers,
 		// Serveurs indisponibles signalés dès l'ouverture, en plus de
 		// l'événement McpServerDown émis au premier tour.
 		Notices: append(slices.Clone(st.notices), st.downNotices...),
@@ -720,6 +721,9 @@ type started struct {
 	// provider et contextWindow décrivent le fournisseur choisi (barre d'état).
 	provider      llm.ProviderInfo
 	contextWindow int
+	// providers : fournisseurs configurés, par identifiant (pays des envois
+	// et des badges de la TUI).
+	providers map[string]llm.ProviderInfo
 	// profile est le profil de conformité effectif (écran de bienvenue).
 	profile profile.Name
 	// policy est la ligne de la politique d'organisation, déjà traduite
@@ -765,6 +769,15 @@ func providerInfo(pc config.Provider) llm.ProviderInfo {
 		Qualifications: slices.Clone(pc.Qualifications),
 		NoStreamUsage:  pc.StreamUsage != nil && !*pc.StreamUsage,
 	}
+}
+
+// providerInfos décrit les fournisseurs configurés, par identifiant.
+func providerInfos(pcs []config.Provider) map[string]llm.ProviderInfo {
+	out := make(map[string]llm.ProviderInfo, len(pcs))
+	for _, pc := range pcs {
+		out[pc.ID] = providerInfo(pc)
+	}
+	return out
 }
 
 // profileJurisdiction rend une juridiction lisible (« inconnue » si vide).
@@ -1334,8 +1347,9 @@ func startEngine(o engineOptions) (started, error) {
 		eng: eng, redactor: red, sessionID: sid, close: closeAndAnchor, notices: slices.Concat(startNotices, detectNotices, routingNotices, skillNotices, ad.notices, hookNotices, ckNotices, memNotices, notices), skills: cat, agents: ad.cat, hooks: hookSet,
 		downNotices: downNotices(o.lang, unavailable, red),
 		provider:    info, contextWindow: pc.Window(), profile: cfg.Profile,
-		local: routingLocal(router),
-		theme: cfg.UI.Theme, animation: cfg.UI.Animation == nil || *cfg.UI.Animation,
+		providers: providerInfos(cfg.Providers),
+		local:     routingLocal(router),
+		theme:     cfg.UI.Theme, animation: cfg.UI.Animation == nil || *cfg.UI.Animation,
 		memory: memStore, memoryOffBy: cfg.MemoryDisabledBy, memoryWrites: memoryWriteSeqs(events),
 		policy:      policyLine(lang, "tui.welcome.policy", cfg.Policy),
 		checkpoints: store, history: events,
