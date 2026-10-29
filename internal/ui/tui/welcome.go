@@ -116,7 +116,7 @@ func (m Model) welcomeLines() []string {
 		}
 		return m.st.r.NewStyle().Foreground(color).Render(s)
 	}
-	grad := m.theme.gradient(len(art))
+	grad := m.theme.gradient(len(art), m.st.structure)
 	gray := m.theme.Muted
 
 	var body []string
@@ -172,8 +172,8 @@ func (m Model) welcomeLines() []string {
 		return lines
 	}
 	border := m.st.r.NewStyle().Border(lipgloss.RoundedBorder()).Padding(0, 1)
-	if colored && m.theme.Structure != "" {
-		border = border.BorderForeground(m.theme.Structure)
+	if colored && m.st.structure != "" {
+		border = border.BorderForeground(m.st.structure)
 	}
 	return strings.Split(border.Render(strings.Join(lines, "\n")), "\n")
 }

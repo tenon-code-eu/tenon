@@ -22,6 +22,8 @@ type styles struct {
 	eu, local, nonEU                                         lipgloss.Style
 	perm, add, del                                           lipgloss.Style
 	md                                                       mdStyles
+	// structure est la couleur de texte de Structure (adaptée au fond).
+	structure lipgloss.Color
 	// r est le renderer qui a produit ces styles (écran de bienvenue).
 	r *lipgloss.Renderer
 }
@@ -36,22 +38,30 @@ func newStyles(r *lipgloss.Renderer, th Theme) styles {
 		}
 		return s.Foreground(c)
 	}
+	// Structure en texte : variante claire sur fond sombre.
+	structure := th.StructureFg(r.HasDarkBackground())
+	local := r.NewStyle().Reverse(true)
+	if !noColor() {
+		// Structure en fond, avec un texte explicite : jamais le fond du terminal.
+		local = r.NewStyle().Background(th.Structure).Foreground(onFill(th.Structure))
+	}
 	return styles{
 		r:         r,
+		structure: structure,
 		banner:    fg(th.Accent).Bold(true),
 		user:      r.NewStyle().Bold(true),
 		assistant: fg(th.Text),
 		tool:      fg(th.Accent),
 		notice:    fg(th.Muted).Italic(true),
-		err:       fg(th.Alert),
+		err:       fg(th.Error),
 		busy:      r.NewStyle().Faint(true),
 		status:    r.NewStyle().Reverse(true),
 		eu:        fg(th.OK).Reverse(true),
-		local:     fg(th.Structure).Reverse(true),
+		local:     local,
 		nonEU:     fg(th.Alert).Reverse(true),
 		perm:      fg(th.Accent).Bold(true),
 		add:       fg(th.OK),
-		del:       fg(th.Alert),
+		del:       fg(th.Error),
 		md: mdStyles{
 			bold:    r.NewStyle().Bold(true),
 			code:    fg(th.Accent),

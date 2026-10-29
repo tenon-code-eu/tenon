@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
@@ -14,14 +15,19 @@ import (
 // par ces rôles (jamais par une couleur en dur).
 type Theme struct {
 	Name string
-	// Structure : cadres, séparateurs, début du dégradé du logo.
+	// Structure : fond (badges) et, sur fond clair, texte (cadres, logo).
 	Structure lipgloss.Color
+	// StructureDark remplace Structure comme couleur de texte sur fond sombre
+	// ("" : Structure), pour garder un contraste d'au moins 4,5:1.
+	StructureDark lipgloss.Color
 	// Accent : titres, outils, fin du dégradé du logo.
 	Accent lipgloss.Color
 	// OK : réussite, juridiction UE, ajouts.
 	OK lipgloss.Color
-	// Alert : alerte et erreur (hors UE, refus, suppressions).
+	// Alert : avertissement (ambre : hors UE, juridiction inconnue).
 	Alert lipgloss.Color
+	// Error : lignes d'erreur et suppressions d'un diff (rouge).
+	Error lipgloss.Color
 	// Muted : texte atténué (avis, aides).
 	Muted lipgloss.Color
 	// Text : texte courant ("" : couleur du terminal).
@@ -33,24 +39,25 @@ type Theme struct {
 // themes, dans l'ordre de ThemeNames ; le premier est le thème par défaut.
 var themes = []Theme{
 	// tenon : bleu et or du drapeau européen (#003399 et #FFCC00, couleurs
-	// officielles du drapeau de l'UE) ; vert, ambre et gris propres à tenon.
-	{Name: "tenon", Structure: "#003399", Accent: "#FFCC00", OK: "#2EA043", Alert: "#FFB000", Muted: "#8B949E", Text: "", Selection: "#1B3A8C"},
+	// officielles du drapeau de l'UE ; StructureDark : bleu plus clair, 5,4:1 sur
+	// #1e1e1e) ; rouge #F85149 (danger Primer dark) ; vert, ambre et gris propres à tenon.
+	{Name: "tenon", Structure: "#003399", StructureDark: "#6C8CFF", Accent: "#FFCC00", OK: "#2EA043", Alert: "#FFB000", Error: "#F85149", Muted: "#8B949E", Text: "", Selection: "#1B3A8C"},
 	// Tokyo Night (variante night) : https://github.com/folke/tokyonight.nvim
 	// (extras/lua/tokyonight_night.lua) : blue #7aa2f7, yellow #e0af68,
-	// green #9ece6a, orange #ff9e64, comment #565f89, fg #c0caf5, bg_highlight #292e42.
-	{Name: "tokyonight", Structure: "#7aa2f7", Accent: "#e0af68", OK: "#9ece6a", Alert: "#ff9e64", Muted: "#565f89", Text: "#c0caf5", Selection: "#292e42"},
+	// red #f7768e, green #9ece6a, orange #ff9e64, comment #565f89, fg #c0caf5, bg_highlight #292e42.
+	{Name: "tokyonight", Structure: "#7aa2f7", Accent: "#e0af68", OK: "#9ece6a", Alert: "#ff9e64", Error: "#f7768e", Muted: "#565f89", Text: "#c0caf5", Selection: "#292e42"},
 	// Catppuccin Mocha : https://catppuccin.com/palette (flavor Mocha) :
-	// blue #89b4fa, yellow #f9e2af, green #a6e3a1, peach #fab387, overlay0 #6c7086,
+	// red #f38ba8, blue #89b4fa, yellow #f9e2af, green #a6e3a1, peach #fab387, overlay0 #6c7086,
 	// text #cdd6f4, surface1 #45475a.
-	{Name: "catppuccin", Structure: "#89b4fa", Accent: "#f9e2af", OK: "#a6e3a1", Alert: "#fab387", Muted: "#6c7086", Text: "#cdd6f4", Selection: "#45475a"},
+	{Name: "catppuccin", Structure: "#89b4fa", Accent: "#f9e2af", OK: "#a6e3a1", Alert: "#fab387", Error: "#f38ba8", Muted: "#6c7086", Text: "#cdd6f4", Selection: "#45475a"},
 	// Gruvbox dark : https://github.com/morhetz/gruvbox#palette : bright blue
-	// #83a598, bright yellow #fabd2f, bright green #b8bb26, bright orange #fe8019,
+	// #83a598, bright red #fb4934, bright yellow #fabd2f, bright green #b8bb26, bright orange #fe8019,
 	// gray #928374, fg1 #ebdbb2, bg2 #504945.
-	{Name: "gruvbox", Structure: "#83a598", Accent: "#fabd2f", OK: "#b8bb26", Alert: "#fe8019", Muted: "#928374", Text: "#ebdbb2", Selection: "#504945"},
+	{Name: "gruvbox", Structure: "#83a598", Accent: "#fabd2f", OK: "#b8bb26", Alert: "#fe8019", Error: "#fb4934", Muted: "#928374", Text: "#ebdbb2", Selection: "#504945"},
 	// light, pour fond clair : GitHub Primer (light) :
 	// https://primer.style/foundations/color : accent #0969da, attention #9a6700,
-	// success #1a7f37, severe #bc4c00, muted #57606a, fg #1f2328, accent-subtle #ddf4ff.
-	{Name: "light", Structure: "#0969da", Accent: "#9a6700", OK: "#1a7f37", Alert: "#bc4c00", Muted: "#57606a", Text: "#1f2328", Selection: "#ddf4ff"},
+	// success #1a7f37, danger #cf222e, severe #bc4c00, muted #57606a, fg #1f2328, accent-subtle #ddf4ff.
+	{Name: "light", Structure: "#0969da", Accent: "#9a6700", OK: "#1a7f37", Alert: "#bc4c00", Error: "#cf222e", Muted: "#57606a", Text: "#1f2328", Selection: "#ddf4ff"},
 }
 
 // ThemeNames renvoie les noms des thèmes, le thème par défaut en premier.
@@ -75,11 +82,40 @@ func ThemeByName(name string) (Theme, bool) {
 // defaultTheme est le thème « tenon ».
 func defaultTheme() Theme { return themes[0] }
 
+// StructureFg renvoie la couleur de texte de Structure : la variante claire
+// sur fond sombre (dark), Structure sinon.
+func (t Theme) StructureFg(dark bool) lipgloss.Color {
+	if dark && t.StructureDark != "" {
+		return t.StructureDark
+	}
+	return t.Structure
+}
+
+// onFill renvoie le texte (noir ou blanc) le plus lisible sur le fond c.
+func onFill(c lipgloss.Color) lipgloss.Color {
+	r, g, b, ok := parseHex(c)
+	if !ok {
+		return "#FFFFFF"
+	}
+	lin := func(v int) float64 {
+		x := float64(v) / 255
+		if x <= 0.03928 {
+			return x / 12.92
+		}
+		return math.Pow((x+0.055)/1.055, 2.4)
+	}
+	l := 0.2126*lin(r) + 0.7152*lin(g) + 0.0722*lin(b)
+	if 1.05/(l+0.05) >= (l+0.05)/0.05 {
+		return "#FFFFFF"
+	}
+	return "#000000"
+}
+
 // gradient renvoie n teintes allant de Structure à Accent (logo de bienvenue).
-func (t Theme) gradient(n int) []lipgloss.Color {
+func (t Theme) gradient(n int, from lipgloss.Color) []lipgloss.Color {
 	out := make([]lipgloss.Color, n)
 	for i := range out {
-		out[i] = lerpColor(t.Structure, t.Accent, i, n-1)
+		out[i] = lerpColor(from, t.Accent, i, n-1)
 	}
 	return out
 }

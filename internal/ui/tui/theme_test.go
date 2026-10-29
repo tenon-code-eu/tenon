@@ -97,21 +97,83 @@ func TestThemeChangesColors(t *testing.T) {
 
 var colorSGR = regexp.MustCompile(`\x1b\[[0-9;]*(38|48|3[0-7]|4[0-7]|9[0-7]|10[0-7])[0-9;]*m`)
 
+func themedView(name string) string {
+	r := lipgloss.NewRenderer(io.Discard)
+	r.SetColorProfile(0 /* termenv.TrueColor */)
+	o := welcomeOpts(i18n.EN)
+	o.Theme = name
+	m := New(newFake(), o)
+	m.st = newStyles(r, m.theme)
+	m.resize(100, 30)
+	m.tr.notice("avis")
+	m.tr.add(Item{Kind: ItemError, Text: "erreur"})
+	m.tr.add(Item{Kind: ItemTool, Text: "outil"})
+	return m.View()
+}
+
 func TestNoColorIgnoresTheme(t *testing.T) {
+	for _, name := range ThemeNames() {
+		// Base : sans NO_COLOR, la regex voit bien des couleurs.
+		if v := themedView(name); !colorSGR.MatchString(v) {
+			t.Fatalf("thème %s : aucune couleur sans NO_COLOR :\n%q", name, v)
+		}
+	}
 	t.Setenv("NO_COLOR", "1")
 	for _, name := range ThemeNames() {
-		r := lipgloss.NewRenderer(io.Discard)
-		r.SetColorProfile(3) // TrueColor
-		o := welcomeOpts(i18n.EN)
-		o.Theme = name
-		m := New(newFake(), o)
-		m.st = newStyles(r, m.theme)
-		m.resize(100, 30)
-		m.tr.notice("avis")
-		m.tr.add(Item{Kind: ItemError, Text: "erreur"})
-		m.tr.add(Item{Kind: ItemTool, Text: "outil"})
-		if v := m.View(); colorSGR.MatchString(v) {
+		if v := themedView(name); colorSGR.MatchString(v) {
 			t.Errorf("thème %s : couleur avec NO_COLOR :\n%q", name, v)
+		}
+	}
+}
+
+func darkRenderer(dark bool) *lipgloss.Renderer {
+	r := lipgloss.NewRenderer(io.Discard)
+	r.SetColorProfile(0 /* termenv.TrueColor */)
+	r.SetHasDarkBackground(dark)
+	return r
+}
+
+func TestStructureAdaptive(t *testing.T) {
+	th, _ := ThemeByName("tenon")
+	if got := newStyles(darkRenderer(true), th).structure; got != "#6C8CFF" {
+		t.Fatalf("fond sombre : %q", got)
+	}
+	if got := newStyles(darkRenderer(false), th).structure; got != "#003399" {
+		t.Fatalf("fond clair : %q", got)
+	}
+	// Le cadre de bienvenue utilise la variante claire sur fond sombre.
+	m := New(newFake(), welcomeOpts(i18n.EN))
+	m.st = newStyles(darkRenderer(true), m.theme)
+	m.resize(100, 30)
+	if v := strings.Join(m.welcomeLines(), "\n"); !strings.Contains(v, "38;2;108;140;255") {
+		t.Fatalf("bordure sans bleu clair :\n%q", v)
+	}
+}
+
+func TestLocalBadgeExplicitForeground(t *testing.T) {
+	for _, name := range ThemeNames() {
+		th, _ := ThemeByName(name)
+		for _, dark := range []bool{true, false} {
+			st := newStyles(darkRenderer(dark), th)
+			if st.local.GetForeground() == (lipgloss.NoColor{}) || st.local.GetBackground() == (lipgloss.NoColor{}) || st.local.GetReverse() {
+				t.Errorf("%s : badge local sans fond/texte explicites", name)
+			}
+		}
+	}
+}
+
+func TestErrorRole(t *testing.T) {
+	for _, name := range ThemeNames() {
+		th, _ := ThemeByName(name)
+		if th.Error == "" || th.Error == th.Alert {
+			t.Errorf("%s : Error %q Alert %q", name, th.Error, th.Alert)
+		}
+		st := newStyles(darkRenderer(true), th)
+		if st.err.GetForeground() != th.Error || st.del.GetForeground() != th.Error {
+			t.Errorf("%s : err/del hors rôle Error", name)
+		}
+		if st.nonEU.GetForeground() != th.Alert {
+			t.Errorf("%s : nonEU hors rôle Alert", name)
 		}
 	}
 }
