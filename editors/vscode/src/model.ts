@@ -6,9 +6,20 @@ import type * as vscode from "vscode";
 
 export type ToolStatus = "pending" | "in_progress" | "completed" | "failed";
 
+/**
+ * Provider of the turn's last call, shown as a badge under the answer
+ * (`_meta.tenon` of usage_update: providerName or provider, jurisdiction;
+ * tenon sends no country, so it stays unset in the extension).
+ */
+export interface AnswerProvider {
+  name: string;
+  country?: string;
+  jurisdiction?: string;
+}
+
 export type Item =
   | { kind: "user"; text: string }
-  | { kind: "agent"; text: string }
+  | { kind: "agent"; text: string; provider?: AnswerProvider }
   | { kind: "thought"; text: string }
   | {
       kind: "tool";
@@ -49,6 +60,19 @@ export interface ConversationState {
   attachments: { id: string; label: string }[];
   meta?: Record<string, unknown>;
   banner?: Banner;
+}
+
+/**
+ * Whether the chat shows its home screen: until the first message of the
+ * session (tenon's notices, thought items, do not count), never while a turn
+ * starts, nor under the noFolder or stopped banner.
+ */
+export function homeVisible(s: ConversationState): boolean {
+  const kind = s.banner?.kind;
+  if (s.busy || kind === "noFolder" || kind === "stopped") {
+    return false;
+  }
+  return s.items.every((i) => i.kind === "thought");
 }
 
 /** Minimum interval between two onDidChange events (one animation frame). */
@@ -127,12 +151,28 @@ function usageMeta(meta: Record<string, unknown>, t: Record<string, unknown>): R
   return same ? undefined : next;
 }
 
+/** The answer badge of a usage_update's `_meta.tenon`; undefined without a provider. */
+function usageProvider(t: Record<string, unknown>): AnswerProvider | undefined {
+  const name = nonEmpty(t.providerName) ?? nonEmpty(t.provider);
+  if (!name) {
+    return undefined;
+  }
+  const jurisdiction = nonEmpty(t.jurisdiction);
+  return jurisdiction ? { name, jurisdiction } : { name };
+}
+
+function sameProvider(a: AnswerProvider | undefined, b: AnswerProvider): boolean {
+  return a !== undefined && a.name === b.name && a.country === b.country && a.jurisdiction === b.jurisdiction;
+}
+
 export class Conversation {
   state: ConversationState = { items: [], busy: false, commands: [], sessions: [], attachments: [] };
 
   private readonly listeners = new Set<Listener>();
   private timer: ReturnType<typeof setTimeout> | undefined;
   private early: SessionNotification[] = [];
+  /** Provider of the current turn's last call (badge of its new answers). */
+  private provider: AnswerProvider | undefined;
 
   /** Fires with the whole state, at most once per CHANGE_INTERVAL_MS. */
   readonly onDidChange: vscode.Event<ConversationState> = (listener, thisArgs?: unknown, disposables?) => {
@@ -158,6 +198,7 @@ export class Conversation {
     this.state.meta = meta;
     this.state.items = [];
     this.state.commands = [];
+    this.provider = undefined;
     if (sessionId !== undefined) {
       for (const n of early) {
         if (n.sessionId === sessionId) {
@@ -193,6 +234,8 @@ export class Conversation {
   }
 
   addUser(text: string): void {
+    // A new turn: its answers wait for its own calls.
+    this.provider = undefined;
     this.state.items.push({ kind: "user", text });
     this.changed();
   }
@@ -240,6 +283,7 @@ export class Conversation {
         if (last && last.kind === "user") {
           last.text = last.text && text ? `${last.text}\n${text}` : last.text + text;
         } else {
+          this.provider = undefined;
           items.push({ kind: "user", text });
         }
         break;
@@ -251,6 +295,8 @@ export class Conversation {
         const last = items[items.length - 1];
         if (last && last.kind === kind) {
           last.text += text;
+        } else if (kind === "agent" && this.provider) {
+          items.push({ kind, text, provider: { ...this.provider } });
         } else {
           items.push({ kind, text });
         }
@@ -302,13 +348,20 @@ export class Conversation {
         this.state.commands = u.availableCommands.map((c) => ({ name: c.name, description: c.description }));
         break;
       case "usage_update": {
-        const meta = this.state.meta;
         const t = u._meta?.tenon;
-        const next = meta && typeof t === "object" && t !== null ? usageMeta(meta, t as Record<string, unknown>) : undefined;
-        if (!next) {
+        if (typeof t !== "object" || t === null) {
           return;
         }
-        this.state.meta = next;
+        const tenon = t as Record<string, unknown>;
+        const badged = this.badgeTurn(usageProvider(tenon));
+        const meta = this.state.meta;
+        const next = meta ? usageMeta(meta, tenon) : undefined;
+        if (next) {
+          this.state.meta = next;
+        }
+        if (!next && !badged) {
+          return;
+        }
         break;
       }
       case "session_info_update": {
@@ -345,6 +398,31 @@ export class Conversation {
         l(this.state);
       }
     }, CHANGE_INTERVAL_MS);
+  }
+
+  /**
+   * A call of the current turn ended on provider p: the turn's answers so
+   * far (since the last user message) take it, and so do its next ones
+   * (the badge shows the turn's last call). True when an item changed.
+   */
+  private badgeTurn(p: AnswerProvider | undefined): boolean {
+    if (!p) {
+      return false;
+    }
+    this.provider = p;
+    let changed = false;
+    const items = this.state.items;
+    for (let i = items.length - 1; i >= 0; i--) {
+      const it = items[i];
+      if (it.kind === "user") {
+        break;
+      }
+      if (it.kind === "agent" && !sameProvider(it.provider, p)) {
+        it.provider = { ...p };
+        changed = true;
+      }
+    }
+    return changed;
   }
 
   /** The diff of a tool item of the thread (what "Open diff" shows). */

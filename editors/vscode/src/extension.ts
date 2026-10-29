@@ -10,10 +10,11 @@ import { fileBlock, lineRange, selectionBlock, selectionLabel } from "./context"
 import { DIFF_SCHEME, DiffProvider, type OpenedDiff } from "./diff";
 import { formatVersion, meetsMinimum, MINIMUM_VERSION, parseVersion, readVersion, resolveBinary } from "./binary";
 import { OutputLog } from "./log";
-import { Conversation, type ConversationState } from "./model";
+import { Conversation, type ConversationState, homeVisible } from "./model";
 import { onDidShow, showError, showInfo, showInfoChoice, showWarning, type Shown } from "./notify";
 import { CHAT_VIEW, ChatViewProvider } from "./panel";
 import { Permissions } from "./permissions";
+import { themeOf } from "./protocol";
 import { StatusBar } from "./status";
 import { closeTenonTerminal, editorReference, isTerminalVisible, openTenonTerminal, tenonTerminal } from "./terminal";
 
@@ -47,9 +48,15 @@ export interface TenonTestApi {
   status(): { text: string; warning: boolean };
   /** The open tenon terminal: its name and folder, and the `tenon.terminalVisible` value. */
   terminal(): { name: string; cwd: string; visible: boolean } | undefined;
+  /** True while the chat shows its home screen (same rule as the webview). */
+  homeVisible(): boolean;
+  /** A message as if posted by the chat webview (validated like one). */
+  webviewMessage(m: unknown): void;
+  /** URLs of the home links opened so far (test mode records them instead of opening a browser). */
+  openedLinks(): string[];
 }
 
-/** The only URL the extension opens. */
+/** The install page; the home links are LINKS (panel.ts), the only other URLs opened. */
 const INSTALL_URL = "https://tenon-code-eu.github.io/tenon/editors/";
 
 function isFile(p: string): boolean {
@@ -133,6 +140,11 @@ class Controller implements vscode.Disposable {
 
   get pid(): number | undefined {
     return this.agent?.pid;
+  }
+
+  /** tenon's version from initialize ("" when it names none); undefined while none runs. */
+  get version(): string | undefined {
+    return this.agent && (this.agent.init.agentInfo?.version ?? "");
   }
 
   async restart(): Promise<void> {
@@ -393,7 +405,19 @@ export function activate(ctx: vscode.ExtensionContext): Promise<TenonTestApi | u
   const c = new Controller(ctx, log, clientHandlers(conv, permissions));
   controller = c;
   const chat = new Chat(c, conv, log, () => log.show(), { permissions, diffs });
-  const view = new ChatViewProvider(ctx.extensionUri, chat, log);
+  const testMode = process.env.TENON_VSCODE_TEST === "1";
+  const opened: string[] = [];
+  const view = new ChatViewProvider(ctx.extensionUri, chat, log, {
+    version: () => c.version,
+    theme: () => themeOf(vscode.workspace.getConfiguration("tenon").get("theme")),
+    openUrl: (url) => {
+      if (testMode) {
+        opened.push(url);
+        return;
+      }
+      void vscode.env.openExternal(vscode.Uri.parse(url));
+    },
+  });
   const status = new StatusBar({
     item: vscode.window.createStatusBarItem("tenon.status", vscode.StatusBarAlignment.Left, 0),
     warningColor: new vscode.ThemeColor("statusBarItem.warningBackground"),
@@ -409,6 +433,12 @@ export function activate(ctx: vscode.ExtensionContext): Promise<TenonTestApi | u
     status,
     conv.onDidChange((s) => status.update(s.meta)),
     view.onDidHide(() => permissions.viewHidden()),
+    c.onDidStart(() => view.refresh()),
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration("tenon.theme")) {
+        view.refresh();
+      }
+    }),
     log,
     c,
     chat,
@@ -448,7 +478,7 @@ export function activate(ctx: vscode.ExtensionContext): Promise<TenonTestApi | u
   );
 
   let api: TenonTestApi | undefined;
-  if (process.env.TENON_VSCODE_TEST === "1") {
+  if (testMode) {
     const shown: Shown[] = [];
     ctx.subscriptions.push(onDidShow((n) => shown.push(n)));
     api = {
@@ -478,6 +508,9 @@ export function activate(ctx: vscode.ExtensionContext): Promise<TenonTestApi | u
         const open = tenonTerminal();
         return open && { name: open.terminal.name, cwd: open.cwd, visible: isTerminalVisible() };
       },
+      homeVisible: () => homeVisible(chat.conv.state),
+      webviewMessage: (m: unknown) => view.receive(m),
+      openedLinks: () => [...opened],
     };
   }
 

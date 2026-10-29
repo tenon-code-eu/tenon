@@ -1,6 +1,38 @@
-/* Chat webview: dense, monospace, theme colours only (--vscode-*). */
+/* Chat webview: dense, monospace. tenon.theme auto takes the editor's
+   colours (--vscode-*); tenon (class theme-tenon on the root) the tenon ones:
+   Europe blue structure, gold accent, green ok, amber alert, gray muted. */
 :root {
   --gap: 6px;
+  --t-structure: var(--vscode-textLink-foreground);
+  --t-structure-fill: var(--vscode-badge-background);
+  --t-on-structure: var(--vscode-badge-foreground);
+  --t-accent: var(--vscode-charts-yellow, var(--vscode-focusBorder));
+  --t-alert: var(--vscode-editorWarning-foreground, var(--vscode-foreground));
+  --t-alert-fill: var(--vscode-inputValidation-warningBackground, transparent);
+  --t-on-alert: var(--vscode-inputValidation-warningForeground, var(--vscode-foreground));
+  --t-muted: var(--vscode-descriptionForeground);
+  --t-link: var(--vscode-textLink-foreground);
+}
+
+/* #003399 fills (badges, send) with white text; as a foreground it is
+   #003399 on light editors and a lighter Europe blue on dark ones (ruling R3). */
+:root.theme-tenon {
+  --t-structure: #003399;
+  --t-structure-fill: #003399;
+  --t-on-structure: #ffffff;
+  --t-accent: #ffcc00;
+  --t-alert: #9a6700;
+  --t-alert-fill: #ffb000;
+  --t-on-alert: #1f2328;
+  --t-muted: #8b949e;
+  --t-link: #003399;
+}
+
+:root.theme-tenon body.vscode-dark,
+:root.theme-tenon body.vscode-high-contrast:not(.vscode-high-contrast-light) {
+  --t-structure: #6c8cff;
+  --t-alert: #ffb000;
+  --t-link: #6c8cff;
 }
 
 html,
@@ -48,6 +80,12 @@ summary:focus-visible {
   outline-offset: -1px;
 }
 
+.theme-tenon button:focus-visible,
+.theme-tenon textarea:focus-visible,
+.theme-tenon summary:focus-visible {
+  outline-color: var(--t-accent);
+}
+
 [hidden] {
   display: none !important;
 }
@@ -91,7 +129,7 @@ summary:focus-visible {
 
 .item.user {
   padding: 2px var(--gap);
-  border-left: 2px solid var(--vscode-textLink-foreground);
+  border-left: 2px solid var(--t-structure);
   background: var(--vscode-input-background);
 }
 
@@ -193,7 +231,33 @@ summary:focus-visible {
 }
 
 .item.agent a {
-  color: var(--vscode-textLink-foreground);
+  color: var(--t-link);
+}
+
+/* Provider of the turn's last call, under its last answer. */
+.item.agent .badge {
+  display: inline-block;
+  margin-top: 2px;
+  padding: 0 6px;
+  font-size: 0.85em;
+  color: var(--t-muted);
+  border: 1px solid var(--vscode-panel-border, transparent);
+}
+
+.item.agent .badge.alert {
+  color: var(--t-alert);
+  border-color: var(--t-alert);
+}
+
+.theme-tenon .item.agent .badge {
+  color: var(--t-on-structure);
+  background: var(--t-structure-fill);
+  border-color: transparent;
+}
+
+.theme-tenon .item.agent .badge.alert {
+  color: var(--t-on-alert);
+  background: var(--t-alert-fill);
 }
 
 .item code {
@@ -278,6 +342,127 @@ pre {
 
 .actions .send:hover:not(:disabled) {
   background: var(--vscode-button-hoverBackground);
+}
+
+.theme-tenon .actions .send,
+.theme-tenon .actions .send:hover:not(:disabled) {
+  color: var(--t-on-structure);
+  background: var(--t-structure-fill);
+}
+
+/* ---- home (until the first message) ---- */
+
+.home {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px var(--gap);
+  overflow-y: auto;
+  text-align: center;
+}
+
+/* tenon's notices stay visible under the home, without taking its room. */
+.home ~ .thread {
+  flex: 0 1 auto;
+  max-height: 30vh;
+}
+
+.home-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.home .logo {
+  width: 44px;
+  height: 44px;
+}
+
+.home .logo .mortise {
+  fill: var(--t-structure);
+}
+
+.home .logo .tenon {
+  fill: var(--t-accent);
+}
+
+.home-word {
+  font-size: 1.6em;
+  font-weight: bold;
+  letter-spacing: 0.15em;
+  color: var(--t-structure);
+}
+
+.home-slogan,
+.home-shortcuts,
+.home-tip {
+  color: var(--t-muted);
+}
+
+.home-input-slot {
+  width: min(72ch, 100%);
+  text-align: left;
+}
+
+.home-input-slot .composer {
+  border-top: none;
+  padding: 0;
+}
+
+.home-links {
+  color: var(--t-muted);
+}
+
+.home-links .link {
+  padding: 0;
+  color: var(--t-link);
+  background: transparent;
+  border: none;
+  text-decoration: underline;
+}
+
+.home-links .link:hover:not(:disabled) {
+  background: transparent;
+}
+
+/* The two halves fit together (< 700 ms), unless motion is reduced. */
+@media (prefers-reduced-motion: no-preference) {
+  .home .logo .half {
+    animation: 560ms ease-out both;
+  }
+
+  .home .logo .mortise {
+    animation-name: tenon-mortise;
+  }
+
+  .home .logo .tenon {
+    animation-name: tenon-tenon;
+  }
+}
+
+@keyframes tenon-mortise {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes tenon-tenon {
+  from {
+    opacity: 0;
+    transform: translateX(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 /* Past sessions (session/list), above the thread. */

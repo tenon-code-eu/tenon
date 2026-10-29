@@ -9,6 +9,7 @@ import type { Log } from "./log";
 import type { Conversation } from "./model";
 import type { FromWebview } from "./protocol";
 import { SessionController } from "./session";
+import { jurisdictionLabel } from "./status";
 
 /** Permission cards and diffs, as the chat uses them (Permissions, DiffProvider). */
 export interface ChatExtras {
@@ -48,7 +49,36 @@ export function webviewStrings(): Record<string, string> {
     detach: vscode.l10n.t("Remove"),
     sessions: vscode.l10n.t("Sessions"),
     untitled: vscode.l10n.t("Untitled session"),
+    // Home screen (webview/home.ts).
+    slogan: vscode.l10n.t("sovereign coding agent"),
+    shortcuts: vscode.l10n.t("/ skills · Shift+Enter new line · Tab complete"),
+    docs: vscode.l10n.t("docs"),
+    github: vscode.l10n.t("github"),
+    bug: vscode.l10n.t("report a bug"),
+    ...tips(),
+    // Answer badges: the status bar's labels.
+    jurisdiction_eu: jurisdictionLabel("eu", vscode.l10n),
+    jurisdiction_noneu: jurisdictionLabel("non-eu", vscode.l10n),
+    jurisdiction_local: jurisdictionLabel("local", vscode.l10n),
+    jurisdiction_unknown: jurisdictionLabel("", vscode.l10n),
   };
+}
+
+/** Tips of the day of the home screen (tip1…tipN); the webview draws one. */
+function tips(): Record<string, string> {
+  const list = [
+    vscode.l10n.t("Type / to pick a skill; Tab or Enter completes it."),
+    vscode.l10n.t("Shift+Enter inserts a new line."),
+    vscode.l10n.t("Ctrl+Alt+K (Cmd+Alt+K on macOS) attaches the editor selection to the chat."),
+    vscode.l10n.t("Right-click a file in the Explorer to attach it to the chat."),
+    vscode.l10n.t("The Sessions list above the thread reopens a past session of this folder."),
+    vscode.l10n.t("Open diff on a file change shows it in the editor's diff view."),
+    vscode.l10n.t("Ctrl+Escape (Cmd+Escape on macOS) opens the tenon terminal beside the editor."),
+    vscode.l10n.t("The status bar shows the provider, its jurisdiction and the sandbox; non-EU turns it to the warning colour."),
+    vscode.l10n.t("Set tenon.theme to tenon for the Europe blue and gold colours."),
+    vscode.l10n.t("tenon audit verify checks the integrity of the audit log."),
+  ];
+  return Object.fromEntries(list.map((tip, i) => [`tip${i + 1}`, vscode.l10n.t("Tip: {0}", tip)]));
 }
 
 export class Chat implements vscode.Disposable {

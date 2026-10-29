@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" class="logo" role="img" aria-label="tenon">
+  <path class="half mortise" d="M31 4 7 18v28l24 14V42h-8V22h8Z"/>
+  <path class="half tenon" d="M33 4l24 14v28L33 60V41h-8V23h8Z"/>
+</svg>

@@ -1,5 +1,7 @@
-// Chat panel against the real `tenon acp` and a fake provider: a prompt and
-// its answer, Stop mid-answer, and the "tenon stopped" banner after a crash.
+// Chat panel against the real `tenon acp` and a fake provider: the home
+// screen until the first prompt, a prompt and its answer with its
+// jurisdiction badge, the home links, Stop mid-answer, and the "tenon
+// stopped" banner after a crash.
 import * as vscode from "vscode";
 import type { TenonTestApi } from "../../../src/extension";
 import type { Item } from "../../../src/model";
@@ -34,8 +36,11 @@ test("chat: a prompt shows the user message and the streamed answer", async () =
   await vscode.commands.executeCommand("tenon.openChat");
   // The webview script loaded under the CSP and asked for the state.
   await waitFor(() => api.panelReady(), 15_000, "the chat webview to post ready");
+  // First open: the home screen, until the first message.
+  assert(api.homeVisible(), "the home is not shown on first open");
 
   const stop = await api.send("hi");
+  assert(!api.homeVisible(), "the home is still shown after the first prompt");
   assert(stop === "end_turn", `stop reason ${stop}`);
   const items = thread();
   assert(
@@ -46,7 +51,34 @@ test("chat: a prompt shows the user message and the streamed answer", async () =
   assert(api.state().sessionId, "no session id");
   assert(fake.requests().length === 1, `requests ${fake.requests().length}`);
   assert(fake.requests()[0].includes('"hi"'), "prompt did not reach the provider");
+  // The answer carries the badge of the provider that produced it (makeEnv: "Test SAS", eu).
+  const answer = api.state().items.find((i) => i.kind === "agent");
+  assert(
+    answer?.kind === "agent" && answer.provider?.name === "Test SAS" && answer.provider.jurisdiction === "eu",
+    `badge ${JSON.stringify(answer)}`,
+  );
 }, 60_000);
+
+test("chat: home links open their constant URL; forged ids and URLs open nothing (Review Focus 5)", () => {
+  const before = api.openedLinks().length;
+  for (const forged of [
+    { type: "openLink", id: "evil" },
+    { type: "openLink", id: "https://evil.example" },
+    { type: "openLink", id: "docs", url: "https://evil.example" },
+    { type: "openLink", url: "https://evil.example" },
+  ]) {
+    api.webviewMessage(forged);
+  }
+  assert(api.openedLinks().length === before, `opened ${JSON.stringify(api.openedLinks())}`);
+  api.webviewMessage({ type: "openLink", id: "docs" });
+  api.webviewMessage({ type: "openLink", id: "bug" });
+  const opened = api.openedLinks().slice(before);
+  assert(
+    JSON.stringify(opened) ===
+      JSON.stringify(["https://tenon-code-eu.github.io/tenon/", "https://github.com/tenon-code-eu/tenon/issues/new"]),
+    `opened ${JSON.stringify(opened)}`,
+  );
+});
 
 test("chat: Stop during a slow answer ends the turn as cancelled", async () => {
   const sending = api.send("long");

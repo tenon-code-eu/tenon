@@ -4,8 +4,19 @@ import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 
 const manifest = JSON.parse(fs.readFileSync(path.resolve(__dirname, "../../package.json"), "utf8")) as {
-  contributes: { menus: Record<string, { command: string; when?: string }[]> };
+  contributes: {
+    menus: Record<string, { command: string; when?: string }[]>;
+    configuration: { properties: Record<string, { default?: unknown; enum?: unknown[] }> };
+  };
 };
+
+describe("settings", () => {
+  it("tenon.theme is auto (default) or tenon", () => {
+    const theme = manifest.contributes.configuration.properties["tenon.theme"];
+    expect(theme?.default).toBe("auto");
+    expect(theme?.enum).toEqual(["auto", "tenon"]);
+  });
+});
 
 describe("menus", () => {
   it("right-click a file in the Explorer attaches it (files only)", () => {

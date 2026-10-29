@@ -140,6 +140,19 @@
           "default": "",
           "scope": "machine",
           "markdownDescription": "%config.path%"
+        },
+        "tenon.theme": {
+          "type": "string",
+          "default": "auto",
+          "enum": [
+            "auto",
+            "tenon"
+          ],
+          "enumDescriptions": [
+            "%config.theme.auto%",
+            "%config.theme.tenon%"
+          ],
+          "markdownDescription": "%config.theme%"
         }
       }
     },

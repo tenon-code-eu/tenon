@@ -148,6 +148,47 @@ describe("Conversation.apply", () => {
     expect(c.state.meta).toBeUndefined();
   });
 
+  it("an agent answer carries the provider of the last usage_update (badge)", () => {
+    const c = conv();
+    usage(c, { tenon: { provider: "mistral", providerName: "Mistral", jurisdiction: "eu" } });
+    c.apply(chunk("agent_message_chunk", "hello"));
+    expect(c.state.items[0]).toEqual({ kind: "agent", text: "hello", provider: { name: "Mistral", jurisdiction: "eu" } });
+  });
+
+  it("a usage_update after the answer badges the answers of the turn with the call's provider (fallback)", () => {
+    const c = conv();
+    usage(c, { tenon: { provider: "mistral", providerName: "Mistral", jurisdiction: "eu" } });
+    c.addUser("hi");
+    c.apply(chunk("agent_message_chunk", "a"));
+    c.apply(n({ sessionUpdate: "tool_call", toolCallId: "t1", title: "read_file", kind: "read", status: "pending" }));
+    c.apply(chunk("agent_message_chunk", "b"));
+    usage(c, { tenon: { provider: "us1", jurisdiction: "non-eu" } });
+    const agents = c.state.items.filter((i) => i.kind === "agent");
+    expect(agents.map((i) => i.provider)).toEqual([
+      { name: "us1", jurisdiction: "non-eu" },
+      { name: "us1", jurisdiction: "non-eu" },
+    ]);
+  });
+
+  it("a new turn starts without the previous turn's provider; an earlier turn keeps its own", () => {
+    const c = conv();
+    c.addUser("one");
+    c.apply(chunk("agent_message_chunk", "a"));
+    usage(c, { tenon: { provider: "mistral", providerName: "Mistral", jurisdiction: "eu" } });
+    c.addUser("two");
+    c.apply(chunk("agent_message_chunk", "b"));
+    expect(c.state.items[1]).toMatchObject({ kind: "agent", provider: { name: "Mistral" } });
+    expect(c.state.items[3]).toEqual({ kind: "agent", text: "b" });
+  });
+
+  it("a usage_update without a provider leaves the answers unbadged", () => {
+    const c = conv();
+    c.apply(chunk("agent_message_chunk", "a"));
+    usage(c, { tenon: { input: 3 } });
+    usage(c, { tenon: { provider: 3 } });
+    expect(c.state.items[0]).toEqual({ kind: "agent", text: "a" });
+  });
+
   it("keeps attachment labels for the webview", () => {
     const c = conv();
     c.setAttachments([{ id: "a1", label: "a.go:1-2" }]);

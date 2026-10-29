@@ -1,9 +1,20 @@
 // Chat webview: renders the state posted by the extension host (whole state
 // on every change) and posts user actions back. Strings come with the state;
 // this bundle has no l10n and makes no network request.
-import type { ConversationState, Item } from "../src/model";
-import type { FromWebview, ToWebview } from "../src/protocol";
-import { enterCompletes, matchCommands, renderAttachments, renderCompletions, renderItem, renderSessions, type Strings } from "./render";
+import { type ConversationState, homeVisible, type Item } from "../src/model";
+import { type FromWebview, isLinkId, themeOf, type ToWebview } from "../src/protocol";
+import { applyTheme, renderHome, sloganText } from "./home";
+import {
+  badgedAnswers,
+  enterCompletes,
+  matchCommands,
+  renderAttachments,
+  renderBadge,
+  renderCompletions,
+  renderItem,
+  renderSessions,
+  type Strings,
+} from "./render";
 
 interface VsCodeApi {
   postMessage(m: FromWebview): void;
@@ -18,6 +29,10 @@ const post = (m: FromWebview) => vscode.postMessage(m);
 
 let strings: Strings = {};
 let state: ConversationState | undefined;
+/** tenon's version, from the host once tenon answered initialize. */
+let version: string | undefined;
+/** Tip of the day: drawn once per webview load, among the strings tip1…tipN. */
+const tipDraw = Math.random();
 
 function t(key: string): string {
   return strings[key] ?? key;
@@ -63,6 +78,61 @@ if (typeof saved?.draft === "string") {
 
 // ---- rendering ----
 
+/**
+ * The home screen while shown, and the strings it was built from: rebuilt
+ * only when they change, so the logo animates once and the input keeps its
+ * focus; the version, known later, updates the slogan in place.
+ */
+let home: { el: HTMLElement; key: string } | undefined;
+
+function tip(): string {
+  const keys = Object.keys(strings)
+    .filter((k) => /^tip\d+$/.test(k))
+    .sort((a, b) => Number(a.slice(3)) - Number(b.slice(3)));
+  return keys.length > 0 ? t(keys[Math.floor(tipDraw * keys.length)]) : "";
+}
+
+/** Moves the input, keeping its focus (a moved element loses it). */
+function place(parent: HTMLElement, before: Node | null): void {
+  if (composer.parentElement === parent && composer.nextSibling === before) {
+    return;
+  }
+  const focused = document.activeElement === input;
+  parent.insertBefore(composer, before);
+  if (focused) {
+    input.focus();
+  }
+}
+
+/** Home until the first message: logo, slogan, the input in the middle, shortcuts, tip, links. */
+function renderHomeScreen(s: ConversationState): void {
+  if (!homeVisible(s)) {
+    home?.el.remove();
+    home = undefined;
+    place(app, null);
+    return;
+  }
+  const text = tip();
+  const key = JSON.stringify([text, strings.slogan, strings.shortcuts, strings.docs, strings.github, strings.bug]);
+  if (home?.key !== key) {
+    const el = renderHome(strings, version, text);
+    if (home) {
+      home.el.replaceWith(el);
+    } else {
+      app.insertBefore(el, thread);
+    }
+    home = { el, key };
+  }
+  const slogan = home.el.querySelector(".home-slogan");
+  if (slogan) {
+    slogan.textContent = sloganText(strings, version);
+  }
+  const slot = home.el.querySelector<HTMLElement>(".home-input-slot");
+  if (slot) {
+    place(slot, null);
+  }
+}
+
 /** Keeps a user-opened <details> open across re-renders. */
 const opened = new Set<string>();
 
@@ -105,8 +175,12 @@ function renderBanner(s: ConversationState): void {
 
 function renderThread(s: ConversationState): void {
   const atBottom = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 40;
+  const badged = badgedAnswers(s.items, s.busy);
   const nodes = s.items.map((item, i) => {
     const el = renderItem(item, strings);
+    if (item.kind === "agent" && item.provider && badged.has(i)) {
+      el.appendChild(renderBadge(item.provider, strings));
+    }
     const key = itemKey(item, i);
     el.dataset.key = key;
     if (el instanceof HTMLDetailsElement && opened.has(key)) {
@@ -176,6 +250,7 @@ function render(s: ConversationState): void {
   renderHistory(s);
   chips.replaceChildren(...(s.attachments.length > 0 ? [renderAttachments(s.attachments, strings)] : []));
   renderCompletionList();
+  renderHomeScreen(s);
   renderThread(s);
 }
 
@@ -272,6 +347,12 @@ document.addEventListener("click", (e) => {
     case "pickFolder":
       post({ type: "pickFolder" });
       break;
+    case "openLink":
+      // The id only: the host maps it to its URL.
+      if (isLinkId(d.link)) {
+        post({ type: "openLink", id: d.link });
+      }
+      break;
     case "detach":
       if (d.id) {
         post({ type: "detach", id: d.id });
@@ -318,6 +399,8 @@ window.addEventListener("message", (e: MessageEvent<unknown>) => {
     return;
   }
   strings = typeof m.strings === "object" && m.strings !== null ? m.strings : {};
+  version = typeof m.version === "string" ? m.version : undefined;
+  applyTheme(document.documentElement, themeOf(m.theme));
   render(m.state);
 });
 

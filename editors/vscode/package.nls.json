@@ -10,5 +10,8 @@
   "command.attachSelection": "Attach Selection to Chat",
   "command.attachFile": "Attach File to Chat",
   "command.openTerminal": "Open in Terminal",
-  "command.insertReference": "Insert Selection Reference in Terminal"
+  "command.insertReference": "Insert Selection Reference in Terminal",
+  "config.theme": "Colours of the tenon chat panel.",
+  "config.theme.auto": "The editor's theme colours.",
+  "config.theme.tenon": "The tenon colours: Europe blue, gold accent, green for EU and local, amber for non-EU."
 }

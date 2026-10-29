@@ -42,5 +42,21 @@
   "Open a file to attach its selection to the tenon chat.": "Ouvrez un fichier pour joindre sa sélection à la discussion tenon.",
   "Only a file saved on disk can be attached to the tenon chat.": "Seul un fichier enregistré sur le disque peut être joint à la discussion tenon.",
   "Open a file to insert a reference to it in the tenon terminal.": "Ouvrez un fichier pour en insérer une référence dans le terminal tenon.",
-  "Only a file saved on disk can be referenced in the tenon terminal.": "Seul un fichier enregistré sur le disque peut être référencé dans le terminal tenon."
+  "Only a file saved on disk can be referenced in the tenon terminal.": "Seul un fichier enregistré sur le disque peut être référencé dans le terminal tenon.",
+  "sovereign coding agent": "agent de code souverain",
+  "/ skills · Shift+Enter new line · Tab complete": "/ skills · Maj+Entrée nouvelle ligne · Tab compléter",
+  "docs": "docs",
+  "github": "github",
+  "report a bug": "signaler un bug",
+  "Tip: {0}": "Astuce : {0}",
+  "Type / to pick a skill; Tab or Enter completes it.": "Tapez / pour choisir un skill ; Tab ou Entrée le complète.",
+  "Shift+Enter inserts a new line.": "Maj+Entrée insère un retour à la ligne.",
+  "Ctrl+Alt+K (Cmd+Alt+K on macOS) attaches the editor selection to the chat.": "Ctrl+Alt+K (Cmd+Alt+K sur macOS) joint la sélection de l’éditeur à la discussion.",
+  "Right-click a file in the Explorer to attach it to the chat.": "Un clic droit sur un fichier de l’explorateur le joint à la discussion.",
+  "The Sessions list above the thread reopens a past session of this folder.": "La liste Sessions au-dessus du fil rouvre une session passée de ce dossier.",
+  "Open diff on a file change shows it in the editor's diff view.": "Voir le diff sur une modification de fichier l’affiche dans la vue de comparaison de l’éditeur.",
+  "Ctrl+Escape (Cmd+Escape on macOS) opens the tenon terminal beside the editor.": "Ctrl+Échap (Cmd+Échap sur macOS) ouvre le terminal tenon à côté de l’éditeur.",
+  "The status bar shows the provider, its jurisdiction and the sandbox; non-EU turns it to the warning colour.": "La barre d’état montre le fournisseur, sa juridiction et l’isolation ; hors UE, elle prend la couleur d’avertissement.",
+  "Set tenon.theme to tenon for the Europe blue and gold colours.": "Réglez tenon.theme sur tenon pour les couleurs bleu Europe et or.",
+  "tenon audit verify checks the integrity of the audit log.": "tenon audit verify vérifie l’intégrité du journal d’audit."
 }

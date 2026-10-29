@@ -14,7 +14,7 @@ function str(v: unknown): string {
 }
 
 /** Label of a tenon jurisdiction (internal/llm: eu, non-eu, local); anything else as is, none as unknown. */
-function jurisdictionLabel(j: string, l10n: L10n): string {
+export function jurisdictionLabel(j: string, l10n: L10n): string {
   switch (j) {
     case "eu":
       return l10n.t("EU");

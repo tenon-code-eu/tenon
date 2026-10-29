@@ -10,5 +10,8 @@
   "command.attachSelection": "Joindre la sélection à la discussion",
   "command.attachFile": "Joindre le fichier à la discussion",
   "command.openTerminal": "Ouvrir dans le terminal",
-  "command.insertReference": "Insérer la référence de la sélection dans le terminal"
+  "command.insertReference": "Insérer la référence de la sélection dans le terminal",
+  "config.theme": "Couleurs du panneau de discussion tenon.",
+  "config.theme.auto": "Les couleurs du thème de l’éditeur.",
+  "config.theme.tenon": "Les couleurs de tenon : bleu Europe, accent or, vert pour UE et local, ambre pour hors UE."
 }

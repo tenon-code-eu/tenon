@@ -3,7 +3,30 @@
 // (anything else is ignored).
 import type { ConversationState } from "./model";
 
-export type ToWebview = { type: "state"; state: ConversationState; strings: Record<string, string> };
+/** Links of the home screen, by id: the URLs stay on the host (panel.ts). */
+export const LINK_IDS = ["docs", "github", "bug"] as const;
+export type LinkId = (typeof LINK_IDS)[number];
+
+export function isLinkId(x: unknown): x is LinkId {
+  return typeof x === "string" && (LINK_IDS as readonly string[]).includes(x);
+}
+
+/** `tenon.theme`: auto follows the editor theme (--vscode-*), tenon applies the tenon colours. */
+export type Theme = "auto" | "tenon";
+
+/** The theme of a `tenon.theme` value; anything but "tenon" is auto. */
+export function themeOf(v: unknown): Theme {
+  return v === "tenon" ? "tenon" : "auto";
+}
+
+export type ToWebview = {
+  type: "state";
+  state: ConversationState;
+  strings: Record<string, string>;
+  /** tenon's version (initialize agentInfo); absent until tenon answered. */
+  version?: string;
+  theme: Theme;
+};
 
 export type FromWebview =
   | { type: "send"; text: string }
@@ -16,10 +39,14 @@ export type FromWebview =
   | { type: "ready" }
   | { type: "restart" }
   | { type: "showLogs" }
-  | { type: "detach"; id: string };
+  | { type: "detach"; id: string }
+  | { type: "openLink"; id: LinkId };
 
-/** Required string fields per message type; empty identifiers are refused. */
-const SHAPES: Record<FromWebview["type"], { field: string; nonEmpty: boolean }[]> = {
+/**
+ * Required string fields per message type; empty identifiers are refused,
+ * and a field with `oneOf` takes only those values.
+ */
+const SHAPES: Record<FromWebview["type"], { field: string; nonEmpty: boolean; oneOf?: readonly string[] }[]> = {
   send: [{ field: "text", nonEmpty: false }],
   cancel: [],
   permission: [
@@ -34,6 +61,7 @@ const SHAPES: Record<FromWebview["type"], { field: string; nonEmpty: boolean }[]
   restart: [],
   showLogs: [],
   detach: [{ field: "id", nonEmpty: true }],
+  openLink: [{ field: "id", nonEmpty: true, oneOf: LINK_IDS }],
 };
 
 export function isFromWebview(x: unknown): x is FromWebview {
@@ -50,8 +78,8 @@ export function isFromWebview(x: unknown): x is FromWebview {
   if (keys.length !== shape.length + 1) {
     return false;
   }
-  return shape.every(({ field, nonEmpty }) => {
+  return shape.every(({ field, nonEmpty, oneOf }) => {
     const v = m[field];
-    return typeof v === "string" && (!nonEmpty || v !== "");
+    return typeof v === "string" && (!nonEmpty || v !== "") && (!oneOf || oneOf.includes(v));
   });
 }

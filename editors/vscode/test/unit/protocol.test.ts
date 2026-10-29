@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isFromWebview } from "../../src/protocol";
+import { isFromWebview, themeOf } from "../../src/protocol";
 
 describe("isFromWebview", () => {
   it("accepts every well-formed message", () => {
@@ -15,6 +15,9 @@ describe("isFromWebview", () => {
       { type: "restart" },
       { type: "showLogs" },
       { type: "detach", id: "a1" },
+      { type: "openLink", id: "docs" },
+      { type: "openLink", id: "github" },
+      { type: "openLink", id: "bug" },
     ]) {
       expect(isFromWebview(m), JSON.stringify(m)).toBe(true);
     }
@@ -41,9 +44,27 @@ describe("isFromWebview", () => {
       { type: "toString" },
       { type: "detach", id: "" },
       { type: "detach", id: 1 },
+      // Review Focus 5: only the three link ids, never a URL.
+      { type: "openLink", id: "evil" },
+      { type: "openLink", id: "https://x" },
+      { type: "openLink", id: "" },
+      { type: "openLink", id: "constructor" },
+      { type: "openLink", id: "toString" },
+      { type: "openLink" },
+      { type: "openLink", id: "docs", url: "https://x" },
+      { type: "openLink", url: "https://x" },
       { type: "send", text: "hi", attachments: [{ type: "resource", resource: { uri: "file:///etc/passwd", text: "x" } }] },
     ]) {
       expect(isFromWebview(m), JSON.stringify(m)).toBe(false);
+    }
+  });
+});
+
+describe("themeOf (tenon.theme)", () => {
+  it("is tenon only for the value tenon; auto for anything else", () => {
+    expect(themeOf("tenon")).toBe("tenon");
+    for (const v of ["auto", "", undefined, null, 1, "Tenon", "gruvbox"]) {
+      expect(themeOf(v), String(v)).toBe("auto");
     }
   });
 });

@@ -3,9 +3,9 @@
 // ul, ol, li, a, h1–h4, blockquote, plus div/button for the Copy control):
 // raw HTML in model output stays text, and only `https:` links become `a`.
 // The composer extras (chips, `/` completions, sessions) use span, details,
-// summary, time and button, with text only.
+// summary, time and button, with text only; the answer badge is a div.
 // Nothing here ever assigns innerHTML.
-import type { Item } from "../src/model";
+import type { AnswerProvider, Item } from "../src/model";
 
 export type Strings = Record<string, string>;
 
@@ -317,6 +317,55 @@ export function renderItem(item: Item, strings: Strings): HTMLElement {
       return e;
     }
   }
+}
+
+/**
+ * Badge under an answer: `<provider> · [<country> · ]<EU|non-EU|local>`, with
+ * the status bar's labels (strings jurisdiction_*); anything but EU or local,
+ * an unknown jurisdiction included, gets the alert class.
+ */
+export function renderBadge(p: AnswerProvider, strings: Strings): HTMLElement {
+  const j = p.jurisdiction ?? "";
+  const label =
+    j === "eu"
+      ? str(strings, "jurisdiction_eu")
+      : j === "non-eu"
+        ? str(strings, "jurisdiction_noneu")
+        : j === "local"
+          ? str(strings, "jurisdiction_local")
+          : j === ""
+            ? str(strings, "jurisdiction_unknown")
+            : j;
+  const parts = [p.name, p.country, label].filter((x): x is string => typeof x === "string" && x !== "");
+  return el("div", j === "eu" || j === "local" ? "badge" : "badge alert", parts.join(" · "));
+}
+
+/**
+ * Indexes of the answers that get a badge: the last agent item of each
+ * turn (up to the next user message), once the turn is over (not the one in
+ * progress while busy), and only when tenon named its provider.
+ */
+export function badgedAnswers(items: Item[], busy: boolean): Set<number> {
+  const out = new Set<number>();
+  let last = -1;
+  const close = () => {
+    const it = items[last];
+    if (it?.kind === "agent" && it.provider) {
+      out.add(last);
+    }
+    last = -1;
+  };
+  items.forEach((it, i) => {
+    if (it.kind === "user") {
+      close();
+    } else if (it.kind === "agent") {
+      last = i;
+    }
+  });
+  if (!busy) {
+    close();
+  }
+  return out;
 }
 
 export interface Command {
