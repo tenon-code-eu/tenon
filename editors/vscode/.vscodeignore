@@ -2,6 +2,7 @@
 !dist/extension.js
 !dist/webview.js
 !dist/webview.css
+!dist/session.js
 !bin/tenon
 !media/icon.png
 !media/activity.svg

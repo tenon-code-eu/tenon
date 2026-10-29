@@ -13,5 +13,7 @@
   "command.insertReference": "Insérer la référence de la sélection dans le terminal",
   "config.theme": "Couleurs du panneau de discussion tenon.",
   "config.theme.auto": "Les couleurs du thème de l’éditeur.",
-  "config.theme.tenon": "Les couleurs de tenon : bleu Europe, accent or, vert pour UE et local, ambre pour hors UE."
+  "config.theme.tenon": "Les couleurs de tenon : bleu Europe, accent or, vert pour UE et local, ambre pour hors UE.",
+  "command.palette": "Palette",
+  "view.session": "Session"
 }

@@ -5,6 +5,7 @@ import "./agent.test";
 import "./chat.test";
 import "./permission.test";
 import "./history.test";
+import "./session.test";
 import "./terminal.test";
 
 export async function run(): Promise<void> {

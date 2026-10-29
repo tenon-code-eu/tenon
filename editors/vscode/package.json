@@ -65,6 +65,11 @@
         "command": "tenon.showLogs",
         "title": "%command.showLogs%",
         "category": "tenon"
+      },
+      {
+        "command": "tenon.palette",
+        "title": "%command.palette%",
+        "category": "tenon"
       }
     ],
     "viewsContainers": {
@@ -82,6 +87,11 @@
           "type": "webview",
           "id": "tenon.chat",
           "name": "%view.chat%"
+        },
+        {
+          "type": "webview",
+          "id": "tenon.session",
+          "name": "%view.session%"
         }
       ]
     },
@@ -130,6 +140,12 @@
         "key": "ctrl+alt+k",
         "mac": "cmd+alt+k",
         "when": "tenon.terminalVisible"
+      },
+      {
+        "command": "tenon.palette",
+        "key": "ctrl+shift+;",
+        "mac": "cmd+shift+;",
+        "when": "focusedView == tenon.chat"
       }
     ],
     "configuration": {

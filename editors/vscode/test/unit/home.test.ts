@@ -189,6 +189,23 @@ describe("chat webview (main.ts)", () => {
     expect(posted.filter((m) => m.type === "openLink")).toEqual([]);
   });
 
+  it("the palette button posts palette", () => {
+    show(state());
+    document.querySelector<HTMLButtonElement>("button[data-action=palette]")?.click();
+    expect(posted.filter((m) => m.type === "palette")).toEqual([{ type: "palette" }]);
+  });
+
+  it("an insert message from the host (a skill picked in the palette) fills the input and focuses it", () => {
+    show(state());
+    window.dispatchEvent(new MessageEvent("message", { data: { type: "insert", text: "/review " } }));
+    const input = document.querySelector<HTMLTextAreaElement>("textarea.input");
+    expect(input?.value).toBe("/review ");
+    expect(document.activeElement).toBe(input);
+    // Anything else is ignored.
+    window.dispatchEvent(new MessageEvent("message", { data: { type: "insert", text: 42 } }));
+    expect(input?.value).toBe("/review ");
+  });
+
   it("tenon.theme: tenon puts the theme class on the root, auto takes it off", () => {
     show(state(), { theme: "tenon" });
     expect(document.documentElement.classList.contains("theme-tenon")).toBe(true);

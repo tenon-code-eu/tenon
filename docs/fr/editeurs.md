@@ -119,6 +119,29 @@ tenon 0.9.0 ou plus récent est requis. Si tenon est absent ou trop ancien, une 
 
 **Le panneau.** Cliquez sur l'icône tenon de la barre d'activité, ou lancez **tenon : Ouvrir la discussion**. Ouvrez d'abord un dossier : tenon travaille dans le dossier. Tapez votre demande et appuyez sur Entrée (Maj+Entrée pour un saut de ligne). Arrêter met fin au tour. Tapez `/` pour voir les skills et commandes du projet. La liste Sessions reprend une session précédente du dossier. Le bouton `+` ouvre une nouvelle session.
 
+**Accueil.** Jusqu'au premier message d'une session, la discussion affiche l'accueil de tenon : le logo, `agent de code souverain` et la version de tenon, la zone de saisie au centre, les raccourcis (`/ skills · Maj+Entrée nouvelle ligne · Tab compléter · Cmd+Maj+; palette`, Ctrl+Maj+; sous Linux), une astuce et trois liens : docs, github, signaler un bug. Les liens s'ouvrent dans votre navigateur ; la page de discussion elle-même ne contient aucune URL et ne fait aucune requête. Une session reprise affiche directement son fil. L'animation du logo est coupée quand le système demande de réduire les animations.
+
+**Badges des réponses.** Sous chaque réponse terminée, un badge indique le fournisseur du dernier appel du tour et sa juridiction : `<fournisseur> · <UE|hors UE|local>`. Un fournisseur hors UE, ou une juridiction inconnue, s'affiche en couleur d'alerte. Après un repli du routage, le badge montre le fournisseur qui a répondu. tenon n'envoie pas de pays à l'éditeur : le badge n'en affiche pas.
+
+**Vue Session.** La vue **Session**, sous la discussion dans la barre latérale tenon, montre la session ouverte comme le panneau latéral de l'interface terminal :
+
+- le titre (celui de la session, sinon son premier message) ;
+- la jauge de contexte (jetons d'entrée du dernier appel rapportés à la fenêtre de son fournisseur) et les jetons d'entrée et de sortie de la session ;
+- les fichiers modifiés (`A` créé, `M` modifié). Un clic sur un fichier ouvre son dernier diff, comme **Voir le diff** ;
+- la souveraineté : le nombre d'appels par fournisseur et juridiction, hors UE et inconnu en couleur d'alerte, puis l'isolation, le profil et la politique.
+
+La vue compte ce que `tenon acp` envoie : les appels de l'agent principal (un `usage_update` par appel), pas ceux des sous-agents. Pour une session reprise, `session/load` rejoue le `usage_update` de chaque appel : les appels et les jetons incluent donc l'historique. Les diffs ne sont pas rejoués : une session reprise n'affiche aucun fichier modifié avant sa prochaine écriture.
+
+**Palette.** **tenon : Palette** (Cmd+Maj+;, Ctrl+Maj+; sous Linux, quand la discussion a le focus, ou le bouton `⋯` à côté d'Envoyer) ouvre une liste de choix avec :
+
+- les commandes : nouvelle session, joindre la sélection, joindre le fichier, ouvrir dans le terminal, relancer, journaux ;
+- les skills de la session : un choix place `/<skill> ` dans la zone de saisie ;
+- les sessions passées du dossier : un choix reprend la session ;
+- les thèmes, `auto` et `tenon` : un choix règle `tenon.theme` ;
+- le fournisseur actif. L'extension ne peut pas le changer : réglez `default_provider` dans la configuration de tenon, puis relancez tenon.
+
+**Thème.** Le réglage `tenon.theme` colore la discussion et la vue Session. `auto` (par défaut) reprend les couleurs de votre thème VS Code. `tenon` applique les couleurs de tenon : bleu Europe `#003399`, accent or `#FFCC00`, vert pour UE et local, ambre pour hors UE. Sur un thème sombre, le texte bleu est plus clair, pour le contraste.
+
 **Contexte.** Sélectionnez du code et appuyez sur Cmd+Option+K (Ctrl+Alt+K sous Linux), ou faites un clic droit puis **Joindre la sélection à la discussion**. La sélection part avec votre prochain message, avec ses lignes. **Joindre le fichier à la discussion**, dans l'éditeur ou sur un fichier de l'explorateur, envoie un lien vers un fichier ; tenon le lit avec ses outils, sous accord.
 
 **Accords.** Quand tenon veut écrire un fichier, lancer une commande ou appeler un outil MCP, une carte apparaît dans la discussion. Cliquez sur l'une des options de tenon : Autoriser, Toujours pour cette session, Refuser, et Autoriser avec réseau pour une commande isolée. Si le panneau est masqué, une notification pose la question. Fermer la notification vaut refus. Arrêter refuse toutes les demandes en attente. L'extension ne répond jamais d'elle-même.
@@ -133,7 +156,7 @@ tenon 0.9.0 ou plus récent est requis. Si tenon est absent ou trop ancien, une 
 
 **Journaux.** **tenon : Voir les journaux** ouvre le canal de sortie « tenon ». **tenon : Relancer** redémarre `tenon acp`.
 
-**Fonctionnement.** Pour lister et reprendre les sessions du dossier ouvert, l'extension utilise `session/list` et les métadonnées `_meta.tenon` (fournisseur, nom du fournisseur, modèle, juridiction, isolation avec son indicateur `confined`, profil, politique) que `tenon acp` renvoie pour `session/new` et `session/load`. Chaque `usage_update` porte le fournisseur, le nom et la juridiction de l'appel, si bien qu'un repli s'affiche aussitôt. L'extension ne fait aucun appel réseau et n'envoie aucune télémétrie.
+**Fonctionnement.** Pour lister et reprendre les sessions du dossier ouvert, l'extension utilise `session/list` et les métadonnées `_meta.tenon` (fournisseur, nom du fournisseur, modèle, juridiction, isolation avec son indicateur `confined`, profil, politique) que `tenon acp` renvoie pour `session/new` et `session/load`. Chaque `usage_update` porte le fournisseur, le nom et la juridiction de l'appel, si bien qu'un repli s'affiche aussitôt. L'extension ne fait aucun appel réseau et n'envoie aucune télémétrie. Ses vues web n'envoient à l'extension que des messages fixes (un identifiant de lien, jamais une URL ; l'identifiant d'un appel d'outil pour un diff), et l'extension vérifie chacun avant d'agir.
 
 ### Client tiers
 

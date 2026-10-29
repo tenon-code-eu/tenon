@@ -2,7 +2,7 @@
 // on every change) and posts user actions back. Strings come with the state;
 // this bundle has no l10n and makes no network request.
 import { type ConversationState, homeVisible, type Item } from "../src/model";
-import { type FromWebview, isLinkId, themeOf, type ToWebview } from "../src/protocol";
+import { type FromWebview, isLinkId, themeOf, type ToChatWebview } from "../src/protocol";
 import { applyTheme, renderHome, sloganText } from "./home";
 import {
   badgedAnswers,
@@ -67,7 +67,8 @@ const actions = make("div", "actions");
 const busyLabel = make("span", "busy");
 const sendButton = button("send", "send");
 const stopButton = button("stop", "cancel");
-actions.append(busyLabel, stopButton, sendButton);
+const paletteButton = button("palette", "palette");
+actions.append(paletteButton, busyLabel, stopButton, sendButton);
 composer.append(chips, completions, input, actions);
 app.append(banner, sessions, thread, composer);
 
@@ -227,11 +228,7 @@ function renderCompletionList(): void {
 }
 
 function complete(name: string): void {
-  input.value = `/${name} `;
-  vscode.setState({ draft: input.value });
-  dismissed = true;
-  renderCompletionList();
-  input.focus();
+  insert(`/${name} `);
 }
 
 function render(s: ConversationState): void {
@@ -239,6 +236,9 @@ function render(s: ConversationState): void {
   sendButton.textContent = t("send");
   stopButton.textContent = t("stop");
   busyLabel.textContent = t("busy");
+  paletteButton.textContent = "⋯";
+  paletteButton.title = t("palette");
+  paletteButton.setAttribute("aria-label", t("palette"));
   input.placeholder = t("placeholder");
   const noFolder = s.banner?.kind === "noFolder";
   input.disabled = noFolder;
@@ -347,6 +347,9 @@ document.addEventListener("click", (e) => {
     case "pickFolder":
       post({ type: "pickFolder" });
       break;
+    case "palette":
+      post({ type: "palette" });
+      break;
     case "openLink":
       // The id only: the host maps it to its URL.
       if (isLinkId(d.link)) {
@@ -393,8 +396,26 @@ document.addEventListener("click", (e) => {
   }
 });
 
+/** Text for the input from the host (a skill picked in the palette), like a completion. */
+function insert(text: string): void {
+  if (input.disabled) {
+    return;
+  }
+  input.value = text;
+  vscode.setState({ draft: input.value });
+  dismissed = true;
+  renderCompletionList();
+  input.focus();
+}
+
 window.addEventListener("message", (e: MessageEvent<unknown>) => {
-  const m = e.data as Partial<ToWebview> | null;
+  const m = e.data as Partial<ToChatWebview> | null;
+  if (m?.type === "insert") {
+    if (typeof m.text === "string" && m.text.length <= 1000) {
+      insert(m.text);
+    }
+    return;
+  }
   if (!m || m.type !== "state" || typeof m.state !== "object" || m.state === null) {
     return;
   }

@@ -46,3 +46,5 @@ export const window: Record<string, unknown> = {
 export const commands = {
   executeCommand: (): Promise<undefined> => Promise.resolve(undefined),
 };
+
+export const QuickPickItemKind = { Separator: -1, Default: 0 } as const;

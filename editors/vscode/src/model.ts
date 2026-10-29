@@ -44,6 +44,13 @@ export type Item =
       refused?: boolean;
     };
 
+/** Calls sent to one provider, under one jurisdiction (one per usage_update). */
+export interface Send {
+  provider: string;
+  jurisdiction?: string;
+  n: number;
+}
+
 export interface Banner {
   kind: "stopped" | "error" | "noFolder";
   text: string;
@@ -62,6 +69,12 @@ export interface ConversationState {
   banner?: Banner;
   /** A session/load is in progress: the thread was emptied and its replay is on its way. */
   loading?: boolean;
+  /** Context of the last usage_update: `used` input tokens of a `size` window. */
+  usage?: { used: number; size: number };
+  /** Input and output tokens of the session's calls (`_meta.tenon` of each usage_update). */
+  tokens?: { input: number; output: number };
+  /** Calls per provider and jurisdiction, one per usage_update (a resumed session's replay included). */
+  sends?: Send[];
 }
 
 /**
@@ -86,7 +99,10 @@ const MAX_EARLY = 10_000;
 type Listener = (s: ConversationState) => unknown;
 
 /** What session/load replaces, kept to roll back a failed load (with the turn's provider). */
-export type Snapshot = Pick<ConversationState, "sessionId" | "cwd" | "meta" | "items" | "commands"> & {
+export type Snapshot = Pick<
+  ConversationState,
+  "sessionId" | "cwd" | "meta" | "items" | "commands" | "usage" | "tokens" | "sends"
+> & {
   provider?: AnswerProvider;
 };
 
@@ -204,6 +220,9 @@ export class Conversation {
     this.state.meta = meta;
     this.state.items = [];
     this.state.commands = [];
+    this.state.usage = undefined;
+    this.state.tokens = undefined;
+    this.state.sends = [];
     this.provider = undefined;
     if (sessionId !== undefined) {
       for (const n of early) {
@@ -216,8 +235,9 @@ export class Conversation {
   }
 
   snapshot(): Snapshot {
-    const { sessionId, cwd, meta, items, commands } = this.state;
-    return { sessionId, cwd, meta, items, commands, provider: this.provider };
+    const { sessionId, cwd, meta, items, commands, usage, tokens, sends } = this.state;
+    // sends are counted in place: the snapshot keeps its own copy.
+    return { sessionId, cwd, meta, items, commands, usage, tokens, sends: sends?.map((x) => ({ ...x })), provider: this.provider };
   }
 
   /** Puts back a snapshot (a failed session/load); buffered updates are dropped. */
@@ -377,19 +397,25 @@ export class Conversation {
         this.state.commands = u.availableCommands.map((c) => ({ name: c.name, description: c.description }));
         break;
       case "usage_update": {
+        // The session view's gauge, whatever the agent.
+        if (typeof u.used === "number" && typeof u.size === "number") {
+          this.state.usage = { used: u.used, size: u.size };
+        }
         const t = u._meta?.tenon;
         if (typeof t !== "object" || t === null) {
-          return;
+          break;
         }
         const tenon = t as Record<string, unknown>;
-        const badged = this.badgeTurn(usageProvider(tenon));
+        this.count(tenon);
+        const p = usageProvider(tenon);
+        this.badgeTurn(p);
+        if (p) {
+          this.addSend(p);
+        }
         const meta = this.state.meta;
         const next = meta ? usageMeta(meta, tenon) : undefined;
         if (next) {
           this.state.meta = next;
-        }
-        if (!next && !badged) {
-          return;
         }
         break;
       }
@@ -452,6 +478,24 @@ export class Conversation {
       }
     }
     return changed;
+  }
+
+  /** Adds the call's input and output tokens to the session's. */
+  private count(t: Record<string, unknown>): void {
+    const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 0);
+    const prev = this.state.tokens ?? { input: 0, output: 0 };
+    this.state.tokens = { input: prev.input + num(t.input), output: prev.output + num(t.output) };
+  }
+
+  /** One more call to p (the session view's sovereignty section). */
+  private addSend(p: AnswerProvider): void {
+    const sends = (this.state.sends ??= []);
+    const same = sends.find((s) => s.provider === p.name && s.jurisdiction === p.jurisdiction);
+    if (same) {
+      same.n++;
+    } else {
+      sends.push(p.jurisdiction ? { provider: p.name, jurisdiction: p.jurisdiction, n: 1 } : { provider: p.name, n: 1 });
+    }
   }
 
   /** The diff of a tool item of the thread (what "Open diff" shows). */

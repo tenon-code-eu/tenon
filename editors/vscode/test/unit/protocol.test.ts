@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isFromWebview, themeOf } from "../../src/protocol";
+import { isFromSessionView, isFromWebview, themeOf } from "../../src/protocol";
 
 describe("isFromWebview", () => {
   it("accepts every well-formed message", () => {
@@ -18,6 +18,8 @@ describe("isFromWebview", () => {
       { type: "openLink", id: "docs" },
       { type: "openLink", id: "github" },
       { type: "openLink", id: "bug" },
+      { type: "palette" },
+      { type: "openFileDiff", toolCallId: "t1-call_1" },
     ]) {
       expect(isFromWebview(m), JSON.stringify(m)).toBe(true);
     }
@@ -53,9 +55,33 @@ describe("isFromWebview", () => {
       { type: "openLink" },
       { type: "openLink", id: "docs", url: "https://x" },
       { type: "openLink", url: "https://x" },
+      { type: "palette", query: "x" },
+      { type: "openFileDiff", toolCallId: "" },
+      { type: "openFileDiff", toolCallId: 1 },
+      { type: "openFileDiff" },
+      { type: "openFileDiff", toolCallId: "t1", path: "/etc/passwd" },
       { type: "send", text: "hi", attachments: [{ type: "resource", resource: { uri: "file:///etc/passwd", text: "x" } }] },
     ]) {
       expect(isFromWebview(m), JSON.stringify(m)).toBe(false);
+    }
+  });
+});
+
+describe("isFromSessionView", () => {
+  it("takes only ready and openFileDiff", () => {
+    expect(isFromSessionView({ type: "ready" })).toBe(true);
+    expect(isFromSessionView({ type: "openFileDiff", toolCallId: "t1" })).toBe(true);
+    for (const m of [
+      { type: "openFileDiff", toolCallId: "" },
+      { type: "send", text: "hi" },
+      { type: "openDiff", toolCallId: "t1" },
+      { type: "load", sessionId: "s1" },
+      { type: "openLink", id: "docs" },
+      { type: "palette" },
+      null,
+      "openFileDiff",
+    ]) {
+      expect(isFromSessionView(m), JSON.stringify(m)).toBe(false);
     }
   });
 });

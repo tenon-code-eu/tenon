@@ -63,6 +63,20 @@ await esbuild.build({
   plugins: [raw],
 });
 
+// The Session view's script (dist/session.js); it shares dist/webview.css.
+await esbuild.build({
+  bundle: true,
+  platform: "browser",
+  format: "iife",
+  target: "es2022",
+  sourcemap: dev,
+  logLevel: "warning",
+  minify: !dev,
+  entryPoints: ["webview/session.ts"],
+  outfile: "dist/session.js",
+  plugins: [raw],
+});
+
 if (tests) {
   await esbuild.build({
     ...common,

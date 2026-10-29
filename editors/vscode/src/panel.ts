@@ -6,7 +6,7 @@ import { randomBytes } from "node:crypto";
 import * as vscode from "vscode";
 import { type Chat, webviewStrings } from "./chat";
 import type { Log } from "./log";
-import { isFromWebview, type LinkId, type Theme, type ToWebview } from "./protocol";
+import { isFromWebview, type LinkId, type Theme, type ToChatWebview, type ToWebview } from "./protocol";
 
 export const CHAT_VIEW = "tenon.chat";
 
@@ -24,13 +24,19 @@ export interface PanelHost {
   theme(): Theme;
   /** Opens a home link (vscode.env.openExternal; recorded in test mode). */
   openUrl(url: string): void;
+  /** Opens the palette (tenon.palette). */
+  palette(): void;
 }
 
-function nonce(): string {
+export function nonce(): string {
   return randomBytes(18).toString("base64");
 }
 
-export function chatHtml(webview: vscode.Webview, extensionUri: vscode.Uri, n: string): string {
+/**
+ * The page of a tenon webview view: the shared stylesheet and one script
+ * (webview.js for the chat, session.js for the Session view).
+ */
+export function chatHtml(webview: vscode.Webview, extensionUri: vscode.Uri, n: string, script = "webview.js"): string {
   const asset = (name: string) => webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, "dist", name)).toString();
   const csp = [
     "default-src 'none'",
@@ -50,7 +56,7 @@ export function chatHtml(webview: vscode.Webview, extensionUri: vscode.Uri, n: s
 </head>
 <body>
 <div id="app"></div>
-<script nonce="${n}" src="${asset("webview.js")}"></script>
+<script nonce="${n}" src="${asset(script)}"></script>
 </body>
 </html>`;
 }
@@ -61,6 +67,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   private view: vscode.WebviewView | undefined;
   /** Posts the state to the webview on screen, if any. */
   private post: (() => void) | undefined;
+  /** Text for the input, kept until the webview is ready (a skill picked in the palette). */
+  private pendingInsert: string | undefined;
+  /** The script of the webview on screen posted ready (its content is dropped when hidden). */
+  private live = false;
   private readonly hiddenEmitter = new vscode.EventEmitter<void>();
   /** The chat view went off screen (hidden or disposed). */
   readonly onDidHide = this.hiddenEmitter.event;
@@ -76,6 +86,27 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     private readonly log: Log,
     private readonly host: PanelHost,
   ) {}
+
+  /**
+   * Puts text in the chat input: now when the webview is ready, else once
+   * it posts ready.
+   */
+  insert(text: string): void {
+    this.pendingInsert = text;
+    if (this.view && this.live) {
+      this.flushInsert();
+    }
+  }
+
+  private flushInsert(): void {
+    const text = this.pendingInsert;
+    if (text === undefined || !this.view) {
+      return;
+    }
+    this.pendingInsert = undefined;
+    const msg: ToChatWebview = { type: "insert", text };
+    void this.view.webview.postMessage(msg);
+  }
 
   /** Re-posts the state (tenon started, tenon.theme changed). */
   refresh(): void {
@@ -94,10 +125,19 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     switch (m.type) {
       case "ready":
         this.scriptLoaded = true;
+        this.live = true;
         this.post?.();
+        this.flushInsert();
         break;
       case "openLink":
         this.host.openUrl(LINKS[m.id]);
+        return;
+      case "palette":
+        this.host.palette();
+        return;
+      case "openFileDiff":
+        // The Session view's message, not the chat's.
+        this.log.info("chat: openFileDiff ignored");
         return;
     }
     this.chat.handle(m);
@@ -105,6 +145,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
   resolveWebviewView(view: vscode.WebviewView): void {
     this.view = view;
+    this.live = false;
     const webview = view.webview;
     webview.options = {
       enableScripts: true,
@@ -132,6 +173,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           post();
           void this.chat.refreshSessions(false);
         } else {
+          this.live = false;
           this.hiddenEmitter.fire();
         }
       }),

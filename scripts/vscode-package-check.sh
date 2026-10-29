@@ -63,7 +63,7 @@ for pair in darwin/arm64:darwin-arm64 darwin/amd64:darwin-x64 linux/amd64:linux-
 		die "$vsix: targetPlatform is not $target."
 	unzip -p "$vsix" extension/package.json | grep -q "\"version\": \"$ext_version\"" ||
 		die "$vsix: version is not $ext_version."
-	for f in extension/dist/extension.js extension/dist/webview.js extension/l10n/bundle.l10n.fr.json \
+	for f in extension/dist/extension.js extension/dist/webview.js extension/dist/session.js extension/l10n/bundle.l10n.fr.json \
 		extension/package.nls.fr.json extension/media/icon.png extension/LICENSE.txt; do
 		unzip -l "$vsix" | grep -q " $f\$" || die "$vsix: $f missing."
 	done

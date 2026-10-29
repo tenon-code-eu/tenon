@@ -23,6 +23,18 @@ settings. Otherwise the extension uses the bundled binary, then `tenon` on your
 - **Chat.** Click the tenon icon in the activity bar. Open a folder first. Enter
   sends, Shift+Enter adds a line, Stop ends the turn. Type `/` for the project
   skills. The Sessions list resumes an earlier session.
+- **Home.** Until the first message, the chat shows the tenon home: logo,
+  version, shortcuts, a tip and links to the docs, GitHub and the bug tracker.
+- **Answer badges.** Under each answer: `<provider> · <EU|non-EU|local>` of the
+  turn's last call. Non-EU or unknown shows in the alert colour.
+- **Session view.** Under the chat: title, context gauge, tokens, modified files
+  (click one to open its diff) and the calls per provider and jurisdiction,
+  sandbox, profile and policy. A resumed session's calls and tokens include its
+  history.
+- **Palette.** **tenon: Palette** (Cmd+Shift+;, Ctrl+Shift+; while the chat has
+  focus): tenon commands, skills, past sessions, themes and the active provider.
+- **Theme.** `tenon.theme`: `auto` (default, the editor's colours) or `tenon`
+  (Europe blue and gold).
 - **Context.** Cmd+Alt+K (Ctrl+Alt+K) attaches the selection to your next
   message. Right-click a file, in the Explorer or the editor, to attach it.
 - **Permissions.** tenon asks before it writes, runs a command or calls an MCP

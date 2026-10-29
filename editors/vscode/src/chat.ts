@@ -51,7 +51,12 @@ export function webviewStrings(): Record<string, string> {
     untitled: vscode.l10n.t("Untitled session"),
     // Home screen (webview/home.ts).
     slogan: vscode.l10n.t("sovereign coding agent"),
-    shortcuts: vscode.l10n.t("/ skills · Shift+Enter new line · Tab complete"),
+    // The palette key (tenon.palette) as the keybinding gives it per platform.
+    shortcuts:
+      process.platform === "darwin"
+        ? vscode.l10n.t("/ skills · Shift+Enter new line · Tab complete · Cmd+Shift+; palette")
+        : vscode.l10n.t("/ skills · Shift+Enter new line · Tab complete · Ctrl+Shift+; palette"),
+    palette: vscode.l10n.t("Palette"),
     link_docs: vscode.l10n.t("docs"),
     link_github: vscode.l10n.t("github"),
     link_bug: vscode.l10n.t("report a bug"),

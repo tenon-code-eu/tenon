@@ -12,6 +12,7 @@
   --t-on-alert: var(--vscode-inputValidation-warningForeground, var(--vscode-foreground));
   --t-muted: var(--vscode-descriptionForeground);
   --t-link: var(--vscode-textLink-foreground);
+  --t-ok: var(--vscode-testing-iconPassed, var(--vscode-foreground));
 }
 
 /* #003399 fills (badges, send) with white text; as a foreground it is
@@ -26,6 +27,7 @@
   --t-on-alert: #1f2328;
   --t-muted: #8b949e;
   --t-link: #003399;
+  --t-ok: #1a7f37;
 }
 
 :root.theme-tenon body.vscode-dark,
@@ -33,6 +35,7 @@
   --t-structure: #6c8cff;
   --t-alert: #ffb000;
   --t-link: #6c8cff;
+  --t-ok: #3fb950;
 }
 
 html,
@@ -561,4 +564,66 @@ pre {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Palette button (tenon.palette) before Send/Stop. */
+.actions .palette {
+  margin-right: auto;
+}
+
+/* Session view (webview/session.ts): the TUI's side panel. */
+.session {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: var(--gap) 10px;
+  overflow-y: auto;
+}
+
+.session .s-title {
+  font-weight: bold;
+  overflow-wrap: anywhere;
+}
+
+.session .s-head {
+  font-size: inherit;
+  font-weight: bold;
+  margin: 12px 0 4px;
+  color: var(--t-structure);
+}
+
+.session .muted {
+  color: var(--t-muted);
+}
+
+.session .ok {
+  color: var(--t-ok);
+}
+
+.session .alert {
+  color: var(--t-alert);
+}
+
+.session .s-file {
+  display: block;
+  width: 100%;
+  text-align: left;
+  color: var(--vscode-foreground);
+  background: none;
+  border: none;
+  padding: 1px 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.session .s-file:hover:not(:disabled) {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.session .s-op {
+  color: var(--t-accent);
+}
+
+.session .op-A .s-op {
+  color: var(--t-ok);
 }

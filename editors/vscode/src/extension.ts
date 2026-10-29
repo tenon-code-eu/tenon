@@ -12,9 +12,12 @@ import { formatVersion, meetsMinimum, MINIMUM_VERSION, parseVersion, readVersion
 import { OutputLog } from "./log";
 import { Conversation, type ConversationState, homeVisible } from "./model";
 import { onDidShow, showError, showInfo, showInfoChoice, showWarning, type Shown } from "./notify";
+import { showPalette } from "./palette";
 import { CHAT_VIEW, ChatViewProvider } from "./panel";
 import { Permissions } from "./permissions";
-import { themeOf } from "./protocol";
+import { type Theme, themeOf } from "./protocol";
+import { SESSION_VIEW, SessionViewProvider } from "./sessionView";
+import type { SessionStats } from "./stats";
 import { StatusBar } from "./status";
 import { closeTenonTerminal, editorReference, isTerminalVisible, openTenonTerminal, tenonTerminal } from "./terminal";
 
@@ -54,6 +57,12 @@ export interface TenonTestApi {
   webviewMessage(m: unknown): void;
   /** URLs of the home links opened so far (test mode records them instead of opening a browser). */
   openedLinks(): string[];
+  /** True once the Session view's script ran under its CSP and posted ready. */
+  sessionViewReady(): boolean;
+  /** The stats last posted to the Session view. */
+  sessionViewStats(): SessionStats | undefined;
+  /** A message as if posted by the Session view (validated like one). */
+  sessionViewMessage(m: unknown): void;
 }
 
 /** The install page; the home links are LINKS (panel.ts), the only other URLs opened. */
@@ -407,9 +416,21 @@ export function activate(ctx: vscode.ExtensionContext): Promise<TenonTestApi | u
   const chat = new Chat(c, conv, log, () => log.show(), { permissions, diffs });
   const testMode = process.env.TENON_VSCODE_TEST === "1";
   const opened: string[] = [];
+  const theme = (): Theme => themeOf(vscode.workspace.getConfiguration("tenon").get("theme"));
+  const palette = (): Promise<void> =>
+    showPalette(chat.conv.state, theme(), {
+      executeCommand: (command) => vscode.commands.executeCommand(command),
+      load: (sessionId) => chat.load(sessionId),
+      insert: async (text) => {
+        await vscode.commands.executeCommand(`${CHAT_VIEW}.focus`);
+        view.insert(text);
+      },
+      setTheme: (t) => vscode.workspace.getConfiguration("tenon").update("theme", t, vscode.ConfigurationTarget.Global),
+    }).catch((err: unknown) => log.info(`palette: ${errorMessage(err)}`));
   const view = new ChatViewProvider(ctx.extensionUri, chat, log, {
     version: () => c.version,
-    theme: () => themeOf(vscode.workspace.getConfiguration("tenon").get("theme")),
+    theme,
+    palette: () => void palette(),
     openUrl: (url) => {
       if (testMode) {
         opened.push(url);
@@ -418,6 +439,7 @@ export function activate(ctx: vscode.ExtensionContext): Promise<TenonTestApi | u
       void vscode.env.openExternal(vscode.Uri.parse(url));
     },
   });
+  const sessionView = new SessionViewProvider(ctx.extensionUri, conv, diffs, log, theme);
   const status = new StatusBar({
     item: vscode.window.createStatusBarItem("tenon.status", vscode.StatusBarAlignment.Left, 0),
     warningColor: new vscode.ThemeColor("statusBarItem.warningBackground"),
@@ -437,6 +459,7 @@ export function activate(ctx: vscode.ExtensionContext): Promise<TenonTestApi | u
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration("tenon.theme")) {
         view.refresh();
+        sessionView.refresh();
       }
     }),
     log,
@@ -446,6 +469,10 @@ export function activate(ctx: vscode.ExtensionContext): Promise<TenonTestApi | u
     vscode.window.registerWebviewViewProvider(CHAT_VIEW, view, {
       webviewOptions: { retainContextWhenHidden: false },
     }),
+    vscode.window.registerWebviewViewProvider(SESSION_VIEW, sessionView, {
+      webviewOptions: { retainContextWhenHidden: false },
+    }),
+    vscode.commands.registerCommand("tenon.palette", palette),
     vscode.commands.registerCommand("tenon.restart", () => c.restart()),
     vscode.commands.registerCommand("tenon.showLogs", () => log.show()),
     vscode.commands.registerCommand("tenon.openChat", openChat),
@@ -511,6 +538,9 @@ export function activate(ctx: vscode.ExtensionContext): Promise<TenonTestApi | u
       homeVisible: () => homeVisible(chat.conv.state),
       webviewMessage: (m: unknown) => view.receive(m),
       openedLinks: () => [...opened],
+      sessionViewReady: () => sessionView.scriptLoaded,
+      sessionViewStats: () => sessionView.lastPosted,
+      sessionViewMessage: (m: unknown) => sessionView.receive(m),
     };
   }
 

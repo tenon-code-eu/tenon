@@ -34,7 +34,7 @@ export function jurisdictionLabel(j: string, l10n: L10n): string {
  * An older tenon without `confined` sends mechanism "none" (never "") when
  * off or unavailable: "", "none" or mode "off" mean not sandboxed.
  */
-function isConfined(sandbox: Record<string, unknown>): boolean {
+export function isConfined(sandbox: Record<string, unknown>): boolean {
   if ("confined" in sandbox) {
     return sandbox.confined === true;
   }
