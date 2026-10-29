@@ -387,6 +387,8 @@ func runInteractive(ctx context.Context, fs *flag.FlagSet, lang i18n.Lang, o eng
 	// Serveurs MCP puis sinks sont fermés après le retour de la TUI, qui
 	// attend la fin du tour en cours.
 	defer st.close()
+	// Sessions passées du dossier, pour la palette (liste vide en cas d'erreur).
+	past, _ := session.List(sessionsDir(o.getenv), o.wd)
 	err = startTUI(ctx, st.eng, tui.Options{
 		Lang:             lang,
 		SessionID:        st.sessionID,
@@ -410,6 +412,7 @@ func runInteractive(ctx context.Context, fs *flag.FlagSet, lang i18n.Lang, o eng
 		Resumed:          o.resume != "",
 		Sandbox:          tuiSandbox(st.confined),
 		Providers:        st.providers,
+		Sessions:         past,
 		// Événements de la session reprise : panneau latéral restauré.
 		History: st.history,
 		// Serveurs indisponibles signalés dès l'ouverture, en plus de

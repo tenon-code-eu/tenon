@@ -79,6 +79,15 @@ func newStyles(r *lipgloss.Renderer, th Theme) styles {
 // View rend la conversation, la saisie et la barre d'état ; aucune ligne ne
 // dépasse la largeur courante.
 func (m Model) View() string {
+	v := m.baseView()
+	if m.pal != nil {
+		v = m.overlayPalette(v)
+	}
+	return v
+}
+
+// baseView rend l'écran sans la palette.
+func (m Model) baseView() string {
 	if m.homeShown() {
 		return m.homeView()
 	}

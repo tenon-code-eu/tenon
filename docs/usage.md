@@ -93,6 +93,8 @@ The token count is an estimate. After each model call, the bar also shows the me
 | Mouse wheel or trackpad | Scrolls by 3 lines. To select text with the mouse, hold Option (iTerm2, Terminal) or Shift (most Linux terminals) while dragging. |
 | Ctrl+U / Ctrl+D | Scrolls by half a page, when the input is empty (otherwise they edit the input). |
 | Home / End | Goes to the top or the bottom of the conversation, when the input is empty. |
+| Ctrl+B | Shows or hides the side panel. |
+| Ctrl+P | Opens the command palette. |
 | `/help` | Shows the key help, one line per built-in command, and the available skills. |
 | `/skills` | Lists the skills. |
 | `/agents` | Lists the sub-agents (see [Sub-agents](#sub-agents)). |
@@ -104,20 +106,61 @@ The token count is an estimate. After each model call, the bar also shows the me
 
 While you read higher up, new text does not move the view: the status bar starts with `↓ new text`. End, PgDn or the wheel down to the bottom brings back automatic following.
 
-### Welcome screen
+### Home screen
 
-At startup, below the project line, the welcome screen shows:
+When you start tenon, the home screen shows the logo, the slogan with the version, the input box, a line of shortcuts, a tip and three links (docs, GitHub, bug report).
+A short intro animation plays first. Any key stops it, and the key is kept for the input.
+The home screen stays until your first message. A resumed session (`--resume`) shows the conversation directly.
+Under 70 columns, it shows a compact `⬢ TENON` instead of the logo.
+Links are clickable only in terminals that support them.
 
+The animation is skipped without a terminal, with `NO_COLOR`, with `animation = false` and under 70 columns.
+
+### Side panel
+
+Ctrl+B shows or hides a panel on the right, 26 columns wide.
+It is open by default from 100 columns and closed below. Your Ctrl+B choice wins for the rest of the session.
+
+The panel shows:
+
+- the session title and the context gauge;
+- the tokens sent and received;
+- the modified files (8 at most, then `+N`);
+- sovereignty: sends per provider and country (non-EU in amber), sandbox, profile and policy.
+
+Under each answer, a badge shows the provider, the country and the jurisdiction (`EU`, `non-EU` or `local`) of the last call of the turn.
+Non-EU and unknown jurisdictions are shown in amber.
+
+### Command palette
+
+Ctrl+P opens a palette in the middle of the screen. Type to filter: letters must appear in order, upper or lower case, and matches at the start of a word come first.
+Up and Down move, Enter runs the entry, Esc closes.
+
+The palette lists:
+
+- the built-in commands and the skills: Enter puts `/<name> ` in the input;
+- the past sessions of the folder: Enter shows `tenon --resume <id>`, as the interface cannot resume a session in place;
+- the themes: Enter applies the theme;
+- the active provider, with the reminder `tenon --provider <id>` (information only).
+
+Ctrl+P replaces the line-up key of the input (emacs style). The arrow keys still work.
+
+### Themes
+
+Five themes exist: `tenon` (default), `tokyonight`, `catppuccin`, `gruvbox` and `light`.
+`/theme` lists them. `/theme <name>` changes the theme for the current session.
+
+To set the theme and the animation for every session, use `[ui]` in the global configuration:
+
+```toml
+[ui]
+theme = "tokyonight"   # tenon (default), tokyonight, catppuccin, gruvbox, light
+animation = false      # default: true
 ```
-skills: 5 · agents: 3 · hooks: 2
-commands: /help · /quit · /skills · /agents · /hooks · /rewind
-Enter to send · Esc twice to rewind · Ctrl+C to quit
-```
 
-- The counts are the number of entries listed by `/skills`, `/agents` (the built-in `general-purpose` included) and `/hooks`. They are shown even at 0.
-- The command list is the list of built-in commands (the one Tab completes). Skills are not in it.
-- Long lines wrap at the ` · ` separators instead of being cut.
-- `/help` shows the same commands, one per line, with a short description.
+An unknown theme is an error: `config: unknown ui.theme "<value>"`.
+`[ui]` is refused in `.tenon/config.toml`: `config: ui not allowed in project configuration`.
+`NO_COLOR` turns off every color, whatever the theme.
 
 When you quit, tenon waits at most 10 s for the current turn to end.
 After that, it exits with code 1.

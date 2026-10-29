@@ -93,6 +93,8 @@ Le nombre de jetons est une estimation. Après chaque appel au modèle, la barre
 | Molette ou trackpad | Fait défiler de 3 lignes. Pour sélectionner du texte à la souris, maintenez Option (iTerm2, Terminal) ou Maj (la plupart des terminaux Linux) en glissant. |
 | Ctrl+U / Ctrl+D | Fait défiler d'une demi-page, quand la saisie est vide (sinon, ces touches modifient la saisie). |
 | Début / Fin | Va en haut ou en bas de la conversation, quand la saisie est vide. |
+| Ctrl+B | Affiche ou masque le panneau latéral. |
+| Ctrl+P | Ouvre la palette de commandes. |
 | `/help` | Affiche l'aide des touches, une ligne par commande intégrée, et les skills disponibles. |
 | `/skills` | Liste les skills. |
 | `/agents` | Liste les sous-agents (voir [Sous-agents](#sous-agents)). |
@@ -106,18 +108,59 @@ Pendant que vous lisez plus haut, le nouveau texte ne déplace pas la vue : la b
 
 ### Écran d'accueil
 
-Au démarrage, sous la ligne du projet, l'écran d'accueil affiche :
+Au démarrage, l'écran d'accueil affiche le logo, la devise avec la version, la zone de saisie, une ligne de raccourcis, une astuce et trois liens (documentation, GitHub, signaler un bug).
+Une courte animation d'ouverture passe d'abord. Toute touche l'arrête, et la touche est conservée pour la saisie.
+L'accueil reste jusqu'à votre premier message. Une session reprise (`--resume`) affiche directement la conversation.
+Sous 70 colonnes, il affiche un `⬢ TENON` compact à la place du logo.
+Les liens sont cliquables seulement dans les terminaux qui le permettent.
 
-```
-skills : 5 · agents : 3 · hooks : 2
-commandes : /help · /quit · /skills · /agents · /hooks · /rewind
-Entrée pour envoyer · Échap ×2 pour revenir en arrière · Ctrl+C pour quitter
+L'animation est sautée sans terminal, avec `NO_COLOR`, avec `animation = false` et sous 70 colonnes.
+
+### Panneau latéral
+
+Ctrl+B affiche ou masque un panneau à droite, large de 26 colonnes.
+Il est ouvert d'office à partir de 100 colonnes et fermé en dessous. Votre choix avec Ctrl+B prime jusqu'à la fin de la session.
+
+Le panneau affiche :
+
+- le titre de la session et la jauge de contexte ;
+- les jetons envoyés et reçus ;
+- les fichiers modifiés (8 au plus, puis `+N`) ;
+- la souveraineté : envois par fournisseur et pays (hors UE en ambre), sandbox, profil et politique.
+
+Sous chaque réponse, un badge indique le fournisseur, le pays et la juridiction (`UE`, `hors UE` ou `local`) du dernier appel du tour.
+Les juridictions hors UE et inconnues sont en ambre.
+
+### Palette de commandes
+
+Ctrl+P ouvre une palette au milieu de l'écran. Tapez pour filtrer : les lettres doivent apparaître dans l'ordre, majuscules ou minuscules, et les correspondances en début de mot passent d'abord.
+Haut et Bas déplacent la sélection, Entrée exécute l'entrée, Échap ferme.
+
+La palette liste :
+
+- les commandes intégrées et les skills : Entrée place `/<nom> ` dans la saisie ;
+- les sessions passées du dossier : Entrée affiche `tenon --resume <id>`, car l'interface ne reprend pas une session sur place ;
+- les thèmes : Entrée applique le thème ;
+- le fournisseur actif, avec le rappel `tenon --provider <id>` (information seulement).
+
+Ctrl+P remplace la touche « ligne précédente » de la saisie (style emacs). Les flèches fonctionnent toujours.
+
+### Thèmes
+
+Cinq thèmes existent : `tenon` (par défaut), `tokyonight`, `catppuccin`, `gruvbox` et `light`.
+`/theme` les liste. `/theme <nom>` change le thème pour la session en cours.
+
+Pour fixer le thème et l'animation à chaque session, utilisez `[ui]` dans la configuration globale :
+
+```toml
+[ui]
+theme = "tokyonight"   # tenon (défaut), tokyonight, catppuccin, gruvbox, light
+animation = false      # défaut : true
 ```
 
-- Les compteurs sont le nombre d'entrées listées par `/skills`, `/agents` (l'agent intégré `general-purpose` compris) et `/hooks`. Ils sont affichés même à 0.
-- La liste des commandes est celle des commandes intégrées (celle que Tab complète). Les skills n'y figurent pas.
-- Les lignes longues passent à la ligne aux séparateurs ` · ` au lieu d'être coupées.
-- `/help` affiche les mêmes commandes, une par ligne, avec une courte description.
+Un thème inconnu est une erreur : `config: unknown ui.theme "<valeur>"`.
+`[ui]` est refusé dans `.tenon/config.toml` : `config: ui not allowed in project configuration`.
+`NO_COLOR` désactive toute couleur, quel que soit le thème.
 
 En quittant, tenon attend la fin du tour en cours au plus 10 s.
 Au-delà, il sort avec le code 1.

@@ -23,6 +23,7 @@ import (
 	"github.com/tenon-code-eu/tenon/internal/i18n"
 	"github.com/tenon-code-eu/tenon/internal/llm"
 	"github.com/tenon-code-eu/tenon/internal/memory"
+	"github.com/tenon-code-eu/tenon/internal/session"
 	"github.com/tenon-code-eu/tenon/internal/skills"
 	"github.com/tenon-code-eu/tenon/internal/ui/headless"
 )
@@ -90,6 +91,9 @@ type Options struct {
 	// restaurent le panneau latéral seul (titre, envois, fichiers, jetons,
 	// jauge), jamais la transcription.
 	History []event.Event
+	// Sessions sont les sessions passées du dossier (palette Ctrl+P), la plus
+	// récente d'abord ; la session courante en est exclue à l'affichage.
+	Sessions []session.Summary
 	// Now remplace l'horloge (délai d'armement des acceptations, double
 	// Ctrl+C). Réservé aux tests ; nil : time.Now.
 	Now func() time.Time
@@ -257,6 +261,8 @@ type Model struct {
 	// panelSet indique un choix manuel du panneau (Ctrl+B), qui prime sur la
 	// largeur jusqu'à la fin de la session ; panelOpen est ce choix.
 	panelSet, panelOpen bool
+	// pal est la palette Ctrl+P ; nil quand elle est fermée.
+	pal *paletteUI
 }
 
 // New crée le modèle et s'abonne aux événements de eng.
@@ -487,6 +493,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if !key.Matches(msg, keys.Cancel) {
 		m.lastEsc = time.Time{}
 	}
+	if m.pal != nil {
+		return m.handlePaletteKey(msg)
+	}
 	if m.rw != nil {
 		return m.handleRewindKey(msg)
 	}
@@ -545,6 +554,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.submit()
 	case key.Matches(msg, keys.Complete):
 		m.complete()
+		return m, nil
+	case key.Matches(msg, keys.Palette):
+		m.openPalette()
 		return m, nil
 	case key.Matches(msg, keys.Sidebar):
 		// Le fil change de largeur : la position de lecture est bornée.
