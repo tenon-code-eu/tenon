@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.10.0 — unreleased
+## 0.10.0 — 2026-10-30
 
 - Home screen until the first message: logo, slogan and version, shortcuts, a tip, links to the docs, GitHub and the bug tracker (opened by the extension; the webview holds no URL).
 - Answer badges: provider and jurisdiction of the turn's last call, non-EU or unknown in the alert colour.
