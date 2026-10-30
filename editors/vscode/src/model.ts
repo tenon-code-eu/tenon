@@ -196,9 +196,11 @@ function sessionSends(v: unknown): Send[] | undefined {
       return undefined;
     }
     const r = e as Record<string, unknown>;
-    const provider = nonEmpty(r.providerName) ?? nonEmpty(r.provider);
+    // A call without a provider id is still a send: shown as "?" (no
+    // jurisdiction, so in the alert color) rather than dropping the aggregate.
+    const provider = nonEmpty(r.providerName) ?? nonEmpty(r.provider) ?? "?";
     const count = r.n;
-    if (!provider || typeof count !== "number" || !Number.isInteger(count) || count < 0) {
+    if (typeof count !== "number" || !Number.isInteger(count) || count < 0) {
       return undefined;
     }
     const jurisdiction = nonEmpty(r.jurisdiction);

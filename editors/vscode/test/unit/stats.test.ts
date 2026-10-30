@@ -147,6 +147,19 @@ describe("computeStats", () => {
     expect(computeStats(c.state).sends).toEqual([{ provider: "Mistral AI", jurisdiction: "eu", n: 2, alert: false }]);
   });
 
+  it("keeps the aggregate when an entry has no provider, shown as unknown", () => {
+    const c = conv();
+    const sends = [
+      { provider: "", n: 1 },
+      { provider: "openai", providerName: "OpenAI", jurisdiction: "non-eu", n: 2 },
+    ];
+    c.apply(n({ sessionUpdate: "usage_update", used: 1, size: 1000, _meta: { tenon: { provider: "mistral", providerName: "Mistral AI", jurisdiction: "eu", input: 1, output: 1, sends } } }));
+    expect(computeStats(c.state).sends).toEqual([
+      { provider: "?", n: 1, alert: true },
+      { provider: "OpenAI", jurisdiction: "non-eu", n: 2, alert: true },
+    ]);
+  });
+
   it("the gauge comes from the last usage_update", () => {
     const c = conv();
     c.apply(usage("mistral", "Mistral AI", "eu", 100, 1000));
