@@ -192,8 +192,7 @@ func permScript(p event.PermissionRequestedPayload) func(ctx context.Context, f 
 		f.emit(event.ToolCallRequested, event.ToolCallRequestedPayload{CallID: "c1", Tool: p.Tool, Args: json.RawMessage(`{"path":"a.go"}`)})
 		f.emit(event.PermissionRequested, p)
 		select {
-		case r := <-f.replies:
-			f.replies <- r // gardé pour le test
+		case r := <-f.gate:
 			f.emit(event.PermissionResolved, event.PermissionResolvedPayload{PermissionID: p.PermissionID, Allowed: r.r.Allow, Remember: r.r.Remember, Network: r.r.Network})
 		case <-ctx.Done():
 			return ctx.Err()

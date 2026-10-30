@@ -32,7 +32,9 @@ type fakeSession struct {
 	// submit, si non nil, remplace le corps de Submit (événements scriptés).
 	submit  func(ctx context.Context, f *fakeSession) error
 	replies chan permReply
-	seq     uint64
+	// gate reçoit aussi chaque Respond, pour les scripts : replies reste au test.
+	gate chan permReply
+	seq  uint64
 	// onClose, si non nil, s'exécute dans Close (tour annulé qui émet).
 	onClose func(f *fakeSession)
 	// breakPayload, si non vide, rend illisible toute charge utile qui le
@@ -64,7 +66,7 @@ func (f *fakeSession) emit(t event.Type, payload any) {
 }
 
 func newFakeSession(id string) *fakeSession {
-	return &fakeSession{id: id, root: "/p", ch: make(chan event.Event, 64), entered: make(chan struct{}, 4), replies: make(chan permReply, 8)}
+	return &fakeSession{id: id, root: "/p", ch: make(chan event.Event, 64), entered: make(chan struct{}, 4), replies: make(chan permReply, 8), gate: make(chan permReply, 64)}
 }
 func (f *fakeSession) ID() string                    { return f.id }
 func (f *fakeSession) ProjectRoot() string           { return f.root }
@@ -88,6 +90,7 @@ func (f *fakeSession) Submit(ctx context.Context, in engine.Input) error {
 }
 func (f *fakeSession) Respond(id string, r engine.Reply) error {
 	f.replies <- permReply{id, r}
+	f.gate <- permReply{id, r}
 	return nil
 }
 func (f *fakeSession) Notices() []string {
