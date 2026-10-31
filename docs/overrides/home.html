@@ -115,6 +115,16 @@
   'ci_title': 'Un agent de code dans votre CI, sous contrôle et prouvé.' if fr else 'A coding agent in your CI — controlled and proven.',
   'ci_lede': "Chaque exécution laisse un journal d'audit vérifiable et un rapport de conformité. La clé du fournisseur reste dans des variables protégées." if fr else 'Every run leaves a verifiable audit log and a compliance report. The provider key stays in protected variables.',
   'ci_label': "Animation : une merge request arrive, le job tenon passe par quatre étapes. Installer : version épinglée, signature minisign vérifiée. Exécuter : une commande refusée, code de sortie 3. Prouver, même en cas d'échec : audit verify et audit export. Archiver : trois artefacts." if fr else 'Animation: a merge request arrives and the tenon job runs four stages. Install: pinned release, minisign signature checked. Run: one command denied, exit code 3. Prove, even on failure: audit verify and audit export. Archive: three artifacts.',
+  'ci_result': "Job en échec, code 3 : la commande refusée est dans le journal, et les preuves sont archivées." if fr else 'Job failed with exit code 3: the denied command is in the log, and the evidence is archived.',
+  'ci_result_t': 'Échec, mais prouvé' if fr else 'Failed, and proven',
+  'ci_st_install': 'Installer' if fr else 'Install',
+  'ci_st_install_d': 'v0.10.0 · minisign ✓',
+  'ci_st_run': 'Exécuter' if fr else 'Run',
+  'ci_st_run_d': 'go test ✓ · git push ✗',
+  'ci_st_prove': 'Prouver' if fr else 'Prove',
+  'ci_st_prove_d': 'audit verify ✓ · audit export',
+  'ci_st_archive': 'Archiver' if fr else 'Archive',
+  'ci_st_archive_d': '3 artefacts' if fr else '3 artifacts',
   'ci_mr': 'Merge request !42 · « Corriger la vérification d’expiration »' if fr else 'Merge request !42 · “Fix the expiry check”',
   'ci_job': 'job tenon' if fr else 'tenon job',
   'ci_log': 'Journal du job' if fr else 'Job log',
@@ -221,6 +231,17 @@
   {'id': 'ci', 'name': 'In your pipelines', 'desc': 'GitLab CI, Forgejo/Gitea and GitHub Actions templates, --strict exit codes, audit verify and the compliance export as artifacts. tenon git install-hook marks the commits written by the agent.'},
   {'id': 'cra', 'name': 'CRA assistant', 'desc': 'tenon cra: SBOM, VEX, reporting deadlines and the Cyber Resilience Act technical dossier, with an offline OSV scan.'},
   {'id': 'policy', 'name': 'Organisation policy', 'desc': 'A floor signed with minisign, verified at every startup, that nobody can loosen.'}
+] %}
+{#- Les quatre stations du pipeline CI (section 3D). -#}
+{% set ci_chapters = [
+  {'t': 'Installer, vérifié' if fr else 'Install, verified',
+   'd': "Une version épinglée, vérifiée par sa signature minisign avant toute exécution. Depuis GitHub, votre forge ou un miroir isolé." if fr else 'A pinned release, checked against its minisign signature before anything runs. From GitHub, your forge or an air-gapped mirror.'},
+  {'t': 'Exécuter, sous vos règles' if fr else 'Run, under your rules',
+   'd': "Aucun accord possible en CI : go test passe par une règle allow, git push est refusé. Avec --strict, le job échoue avec le code 3." if fr else 'No approval is possible in CI: go test passes on an allow rule, git push is denied. With --strict, the job fails with exit code 3.'},
+  {'t': 'Prouver, toujours' if fr else 'Prove, always',
+   'd': "audit verify contrôle la chaîne de hachage et audit export écrit le rapport HTML et JSON, même après un échec." if fr else 'audit verify checks the hash chain and audit export writes the HTML and JSON report, even after a failure.'},
+  {'t': 'Archiver les preuves' if fr else 'Archive the evidence',
+   'd': "Trois artefacts gardés avec le job : tenon-events.jsonl, tenon-audit/ et tenon-audit-log/." if fr else 'Three artifacts kept with the job: tenon-events.jsonl, tenon-audit/ and tenon-audit-log/.'}
 ] %}
 {#- Les quatre étages de la vue éclatée (du bas vers le haut) et leurs composants. -#}
 {% set hs_layers = [
@@ -576,6 +597,26 @@
     <div class="h-wrap">
       <h2 class="h-h2" id="h-ci-title">{{ T.ci_title }}</h2>
       <p class="h-lede">{{ T.ci_lede }}</p>
+    </div>
+    {#- Le pipeline en 3D au défilement : une merge request traverse quatre stations. -#}
+    <figure class="h-ci3d" id="h-ci-3d">
+      <div class="h-ci3d__track">
+        <div class="h-ci3d__pin">
+          <canvas class="h-ci3d__canvas" role="img" aria-label="{{ T.ci_label }}"></canvas>
+          <ul class="h-ci3d__labels" aria-hidden="true">
+            {% for k in ['install', 'run', 'prove', 'archive'] %}<li data-k="{{ k }}"><b>{{ T['ci_st_' ~ k] }}</b><span>{{ T['ci_st_' ~ k ~ '_d'] }}</span></li>
+            {% endfor %}<li data-k="mr" class="is-mr"><span>!42 → {{ T.ci_job }}</span></li>
+            <li data-k="exit" class="is-exit"><b>exit 3</b></li>
+          </ul>
+          <ol class="h-ci3d__chapters">
+            {% for c in ci_chapters %}<li><span class="h-ci3d__cnum">{{ '%02d' % loop.index }}</span><h3 class="h-ci3d__ctitle">{{ c.t }}</h3><p class="h-ci3d__ctext">{{ c.d }}</p></li>
+            {% endfor %}<li class="is-result"><span class="h-ci3d__cnum">✓</span><h3 class="h-ci3d__ctitle">{{ T.ci_result_t }}</h3><p class="h-ci3d__ctext">{{ T.ci_result }}</p></li>
+          </ol>
+          <aside class="h-ci3d__log" aria-hidden="true"><p class="h-ci3d__log-title">{{ T.ci_log }}</p><ol class="h-ci3d__lines"></ol></aside>
+        </div>
+      </div>
+    </figure>
+    <div class="h-wrap">
       <figure class="h-pipe" id="h-pipe" data-running="{{ 'en cours' if fr else 'running' }}" data-ok="{{ 'réussi' if fr else 'passed' }}" data-fail="{{ 'échec · code 3' if fr else 'failed · exit 3' }}" data-wait="{{ 'en attente' if fr else 'waiting' }}">
         <div class="h-pipe__stage" role="img" tabindex="0" aria-label="{{ T.ci_label }}">
           <div class="h-pipe__mr" data-at="0.2"><span class="h-pipe__mr-ico" aria-hidden="true"></span><span>{{ T.ci_mr }}</span><span class="h-pipe__mr-job">→ {{ T.ci_job }}</span></div>
@@ -635,7 +676,7 @@
               <li data-at="11.6"><i>↑</i> tenon-events.jsonl · tenon-audit/ · tenon-audit-log/</li>
             </ol>
           </div>
-          <p class="h-pipe__result" data-at="13.3">{{ "Job en échec, code 3 : la commande refusée est dans le journal, et les preuves sont archivées." if fr else 'Job failed with exit code 3: the denied command is in the log, and the evidence is archived.' }}</p>
+          <p class="h-pipe__result" data-at="13.3">{{ T.ci_result }}</p>
         </div>
         <div class="h-pipe__ctl">
           <button class="h-tui__btn" type="button" id="h-pipe-toggle" data-play="{{ T.jr_play }}" data-pause="{{ T.jr_pause }}">{{ T.jr_pause }}</button>
