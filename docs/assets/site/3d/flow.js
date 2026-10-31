@@ -105,7 +105,7 @@ export function mount(fig, THREE, C) {
     set("project", P(A.project, 0).add(new THREE.Vector3(portrait ? 1.35 : 0, portrait ? 0 : 1.2, 0)));
     /* grand écran : libellés des portes alternés au-dessus et au-dessous ; mobile : à droite */
     ["mask", "perm", "log"].forEach((k, i) => set(k, P(A.gates[i], 0).add(new THREE.Vector3(portrait ? 1.45 : 0, portrait ? 0 : (i === 1 ? -1.85 : 1.8), 0))));
-    set("route", S.clone().add(new THREE.Vector3(portrait ? 1.0 : -1.3, portrait ? 0.25 : -1.0, 0)));
+    set("route", S.clone().add(new THREE.Vector3(portrait ? 1.0 : -0.8, portrait ? 0.25 : -2.0, 0)));
     set("local", P(DA("local"), B.local).add(new THREE.Vector3(0, portrait ? -0.95 : 1.0, 0)));
     set("eu", P(DA("eu"), B.eu).add(new THREE.Vector3(portrait ? 0 : 1.95, portrait ? -1.3 : 0, 0)));
     set("out", P(DA("out"), B.out).add(new THREE.Vector3(0, portrait ? -0.95 : -1.05, 0)));
