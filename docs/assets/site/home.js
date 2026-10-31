@@ -5,7 +5,8 @@
 
   /* ── Copie : succès silencieux, libellé échangé 1,5 s ─────────────── */
   function copyText(btn) {
-    var text = btn.getAttribute("data-copy");
+    var src = btn.getAttribute("data-copy-from"), from = src && document.getElementById(src);
+    var text = from ? from.textContent : btn.getAttribute("data-copy");
     var done = function () {
       var label = btn.textContent;
       btn.setAttribute("data-state", "done");
@@ -183,7 +184,7 @@
     return { tri: new Float32Array(tri), lines: new Float32Array(lines) };
   }
 
-  /* Les douze composants : formes, point d'ancrage de l'étiquette, cadrage du zoom. */
+  /* Les composants : formes, point d'ancrage de l'étiquette, cadrage du zoom. */
   var SHAPES = {
     tools: { at: [-8, 1.3, 0], d: 9, boxes: [B(-8, 0, -1.4, 1.6, 0.5, 1), B(-8, 0, 0, 1.6, 0.9, 1), B(-8, 0, 1.4, 1.6, 0.7, 1)] },
     sandbox: { at: [-6.9, 1.7, -2.3], d: 10, boxes: [B(-9.1, 0, -2.3, 0.14, 1.4, 0.14), B(-6.9, 0, -2.3, 0.14, 1.4, 0.14), B(-9.1, 0, 2.3, 0.14, 1.4, 0.14),
@@ -204,6 +205,16 @@
     hooks: { at: [-4.7, 1.9, -4.2], d: 7, boxes: [B(-5.1, 0, -4.2, 0.4, 1.5, 0.4), B(-4.6, 1.15, -4.2, 1.4, 0.35, 0.4), B(-4.1, 0.6, -4.2, 0.4, 0.9, 0.4)] },
     mcp: { at: [-7.5, 1.2, 4.5], d: 8, boxes: [B(-7.5, 0, 4.5, 2.2, 0.8, 1.6), B(-6.2, 0.25, 4.1, 0.5, 0.3, 0.3), B(-6.2, 0.25, 4.9, 0.5, 0.3, 0.3)] },
     checkpoints: { at: [-3.4, 1.6, 5.6], d: 8, boxes: [0, 1, 2, 3].map(function (i) { return B(-4.3 + i * 0.6, 0, 5.6, 0.55, 0.3 + i * 0.25, 1.2); }) },
+    /* Mémoire : trois fiches empilées, la plus haute décalée (une note lue). */
+    memory: { at: [-2.3, 1.2, -2.9], d: 7, boxes: [B(-2.3, 0, -2.9, 1.3, 0.14, 0.9), B(-2.25, 0.14, -2.9, 1.3, 0.14, 0.9), B(-2.15, 0.28, -2.95, 1.3, 0.14, 0.9), B(-2.0, 0.42, -3.05, 1.3, 0.14, 0.9)] },
+    /* Sobriété : une jauge, trois cellules pleines sur dix. */
+    sobriety: { at: [3.2, 1.1, 2.7], d: 7, boxes: [B(3.2, 0, 2.7, 2.2, 0.18, 0.8)].concat([0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(function (i) {
+      return B(2.33 + i * 0.193, 0.18, 2.7, 0.15, i < 3 ? 0.5 : 0.14, 0.5); })) },
+    /* Éditeurs : un écran sur son pied. */
+    editors: { at: [-5.3, 1.8, 2.9], d: 7, boxes: [B(-5.3, 0, 2.9, 0.9, 0.06, 0.55), B(-5.3, 0.06, 2.9, 0.18, 0.4, 0.18), B(-5.3, 0.46, 2.9, 1.7, 1.0, 0.12)] },
+    /* Pipelines : quatre étapes de plus en plus hautes sur un conduit. */
+    ci: { at: [-5.6, 1.4, -2.6], d: 7, boxes: [B(-5.6, 0, -2.6, 0.16, 0.16, 2.4)].concat([0, 1, 2, 3].map(function (i) {
+      return B(-5.6, 0, -3.5 + i * 0.6, 0.7, 0.35 + i * 0.18, 0.42); })) },
     policy: { at: [9.6, 1.1, -6.1], d: 13, boxes: [B(0, 0, -7.2, 21.6, 0.3, 0.12), B(0, 0, 7.4, 21.6, 0.3, 0.12), B(-10.8, 0, 0.1, 0.12, 0.3, 14.6),
       B(10.8, 0, 0.1, 0.12, 0.3, 14.6), B(9.6, 0, -6.1, 1, 0.5, 1)] }
   };
@@ -225,7 +236,12 @@
     { ends: ["engine", "subagents"], pts: [[1.0, -1.5], [1.0, -2.7], [4.8, -2.7], [4.8, -3.9]] },
     { ends: ["hooks", "permissions"], pts: [[-4.6, -4.0], [-4.6, -2.2], [-4.0, -2.2], [-4.0, -1.1]] },
     { ends: ["mcp", "permissions"], pts: [[-6.4, 4.5], [-4.0, 4.5], [-4.0, 1.1]] },
-    { ends: ["checkpoints", "engine"], pts: [[-3.1, 5.0], [-3.1, 2.4], [-1.0, 2.4], [-1.0, 1.5]] }
+    { ends: ["checkpoints", "engine"], pts: [[-3.1, 5.0], [-3.1, 2.4], [-1.0, 2.4], [-1.0, 1.5]] },
+    { ends: ["memory", "engine"], pts: [[-2.3, -2.45], [-2.3, -1.0], [-1.5, -1.0]] },
+    { ends: ["sobriety", "engine"], pts: [[2.1, 2.7], [1.0, 2.7], [1.0, 1.5]] },
+    { ends: ["sobriety", "routing"], pts: [[4.3, 2.7], [6.4, 2.7], [6.4, 1.5]] },
+    { ends: ["editors", "permissions"], pts: [[-4.45, 2.9], [-4.0, 2.9]] },
+    { ends: ["ci", "permissions"], pts: [[-5.25, -1.4], [-5.25, -0.9], [-4.2, -0.9]] }
   ];
   TRACES.forEach(function (t) {
     var len = 0, segs = [];

@@ -18,7 +18,7 @@
   'other_lang': 'English' if fr else 'Français',
   'other_href': root ~ ('/' if fr else '/fr/'),
   'title': "Codez avec l'IA. Vos données restent en Europe." if fr else 'Code with AI. Keep your data in Europe.',
-  'lede': "tenon est un agent de code open source pour le terminal. Il lit votre projet, propose des changements et lance des commandes, avec des modèles européens ou locaux. Chaque action attend votre accord, et chaque étape entre dans un journal vérifiable." if fr else 'tenon is an open-source coding agent for the terminal. It reads your project, proposes changes and runs commands, with European or local models. Every action waits for your approval, and every step goes into a verifiable audit log.',
+  'lede': "tenon est un agent de code open source pour le terminal et votre éditeur. Il lit votre projet, propose des changements et lance des commandes, avec des modèles européens ou locaux. Chaque action attend votre accord, et chaque étape entre dans un journal vérifiable." if fr else 'tenon is an open-source coding agent for the terminal and your editor. It reads your project, proposes changes and runs commands, with European or local models. Every action waits for your approval, and every step goes into a verifiable audit log.',
   'tab_script': 'Script' if fr else 'Script',
   'copy_label': 'Copier' if fr else 'Copy',
   'copied': 'Copié' if fr else 'Copied',
@@ -30,17 +30,17 @@
   'b_eu': "Conçu en Europe" if fr else 'Built in Europe',
   'read_script': 'Lire le script' if fr else 'Read the script',
   'stage_hint': 'Cliquez un composant · glissez pour tourner' if fr else 'Click a component · drag to orbit',
-  'stage_label': "Maquette 3D du harness tenon vue de haut : dix-huit composants reliés par des pistes de données. Flèches gauche et droite pour passer d'un composant à l'autre, Échap pour la vue d'ensemble." if fr else 'A 3D top-down model of the tenon harness: eighteen components linked by data traces. Left and right arrows move between components, Escape returns to the overview.',
+  'stage_label': "Maquette 3D du harness tenon vue de haut : vingt-deux composants reliés par des pistes de données. Flèches gauche et droite pour passer d'un composant à l'autre, Échap pour la vue d'ensemble." if fr else 'A 3D top-down model of the tenon harness: twenty-two components linked by data traces. Left and right arrows move between components, Escape returns to the overview.',
   'prev': 'Composant précédent' if fr else 'Previous component',
   'next': 'Composant suivant' if fr else 'Next component',
   'tour': 'Visite' if fr else 'Tour',
   'pause': 'Pause' if fr else 'Pause',
   'overview': "Vue d'ensemble" if fr else 'Overview',
   'overview_name': 'Le harness tenon' if fr else 'The tenon harness',
-  'overview_desc': "Dix-huit composants, une seule règle : rien ne sort sans passer par vos permissions, votre masquage et votre journal." if fr else 'Eighteen components, one rule: nothing leaves without going through your permissions, your masking and your log.',
+  'overview_desc': "Vingt-deux composants, une seule règle : rien ne sort sans passer par vos permissions, votre masquage et votre journal." if fr else 'Twenty-two components, one rule: nothing leaves without going through your permissions, your masking and your log.',
   'jr_title': "Le voyage d'une requête" if fr else 'The journey of a request',
   'jr_lede': "Le harness vu de l'intérieur : une demande fait tourner la boucle d'agent, et chaque étape s'inscrit en direct dans le journal d'audit, avec les vrais événements de tenon." if fr else "The harness from the inside: one request drives the agent loop, and every step lands live in the audit log, with tenon's real events.",
-  'jr_label': "Animation : plan du harness tenon vu de haut. Une étoile d'or, votre demande, fait tourner la boucle d'agent en quatre itérations : lecture, écriture avec accord et point de reprise, commande isolée, réponse finale ; puis journal, horodatage et export." if fr else 'Animation: top-down plan of the tenon harness. A gold star, your request, drives the agent loop through four iterations: a read, a write with approval and checkpoint, a sandboxed command, the final answer; then the log, timestamp and export.',
+  'jr_label': "Animation : plan du harness tenon vu de haut. Une étoile d'or, votre demande, passe par la mémoire puis fait tourner la boucle d'agent en quatre itérations : lecture, écriture avec accord et point de reprise, commande isolée, réponse finale et son badge de juridiction ; puis journal, horodatage et export." if fr else 'Animation: top-down plan of the tenon harness. A gold star, your request, passes the memory, then drives the agent loop through four iterations: a read, a write with approval and checkpoint, a sandboxed command, the final answer with its jurisdiction badge; then the log, timestamp and export.',
   'jr_play': 'Lecture' if fr else 'Play',
   'jr_pause': 'Pause' if fr else 'Pause',
   'jr_replay': 'Rejouer' if fr else 'Replay',
@@ -75,8 +75,6 @@
   'install_lede': 'Linux et macOS. Tout point d’accès compatible OpenAI fonctionne.' if fr else 'Linux and macOS. Any OpenAI-compatible endpoint works.',
   'verify_title': 'Vérifier une version' if fr else 'Verify a release',
   'verify_d': "Chaque version publie ses archives, paquets .deb et .rpm, une SBOM CycloneDX et un SHA256SUMS signé avec minisign." if fr else 'Each release ships archives, .deb and .rpm packages, a CycloneDX SBOM and a SHA256SUMS signed with minisign.',
-  'soon': 'En préparation' if fr else 'In the works',
-  'soon_d': 'Extensions VS Code et JetBrains, application de bureau.' if fr else 'VS Code and JetBrains extensions, a desktop app.',
   'read_docs': 'Lire la documentation' if fr else 'Read the docs',
   'foot_line': 'Votre code. Vos règles. Votre juridiction.' if fr else 'Your code. Your rules. Your jurisdiction.',
   'pal_go': 'Aller à' if fr else 'Go to',
@@ -89,16 +87,93 @@
   'security': 'Sécurité et limites' if fr else 'Security and limits',
   'policy': "Politique d'organisation" if fr else 'Organisation policy',
   'ci': 'Intégration CI' if fr else 'CI integration',
+  'editors': 'Éditeurs (ACP)' if fr else 'Editors (ACP)',
+  'editors_href': root ~ ('/fr/editeurs/' if fr else '/editors/'),
+  'usage_href': root ~ ('/fr/utilisation/' if fr else '/usage/'),
+  'vsc_note': "VSCodium, Cursor : le .vsix de la" if fr else 'VSCodium, Cursor: the .vsix from the',
+  'vsc_release': 'dernière release' if fr else 'latest release',
+  'vsc_then': ", puis « Extensions : Installer depuis un VSIX… »." if fr else ', then “Extensions: Install from VSIX…”.',
+  'vsc_market': 'Ouvrir sur le Marketplace' if fr else 'Open in the Marketplace',
+  'vsc_d': "Installez tenon-code-eu.tenon depuis le Marketplace. Chaque paquet contient le binaire tenon. macOS et Linux." if fr else 'Install tenon-code-eu.tenon from the Marketplace. Each package bundles the tenon binary. macOS and Linux.',
+  'rl_title': 'tenon, en vrai' if fr else 'tenon, for real',
+  'rl_lede': "L'interface du terminal de la v0.10.0 : un écran d'accueil, le fil de la conversation, un panneau latéral avec le contexte, les fichiers et la souveraineté, et un badge sous chaque réponse." if fr else 'The terminal interface of v0.10.0: a home screen, the thread, a side panel with context, files and sovereignty, and a badge under each answer.',
+  'rl_label': "Maquette animée de l'interface tenon dans le terminal : ouverture du logo, écran d'accueil, une demande tapée, le fil avec le panneau latéral, puis la réponse et son badge de juridiction." if fr else 'Animated mock of the tenon terminal interface: the logo intro, the home screen, a typed request, the thread with the side panel, then the answer and its jurisdiction badge.',
+  'rl_theme': 'Thème' if fr else 'Theme',
+  'rl_note': "Maquette en HTML et CSS. Le panneau latéral s'ouvre à partir de 100 colonnes ; Ctrl+B le montre ou le cache." if fr else 'HTML and CSS mock. The side panel opens from 100 columns; Ctrl+B shows or hides it.',
+  'ci_title': 'Un agent de code dans votre CI, sous contrôle et prouvé.' if fr else 'A coding agent in your CI — controlled and proven.',
+  'ci_lede': "Chaque exécution laisse un journal d'audit vérifiable et un rapport de conformité. La clé du fournisseur reste dans des variables protégées." if fr else 'Every run leaves a verifiable audit log and a compliance report. The provider key stays in protected variables.',
+  'ci_label': "Animation : une merge request arrive, le job tenon passe par quatre étapes. Installer : version épinglée, signature minisign vérifiée. Exécuter : une commande refusée, code de sortie 3. Prouver, même en cas d'échec : audit verify et audit export. Archiver : trois artefacts." if fr else 'Animation: a merge request arrives and the tenon job runs four stages. Install: pinned release, minisign signature checked. Run: one command denied, exit code 3. Prove, even on failure: audit verify and audit export. Archive: three artifacts.',
+  'ci_mr': 'Merge request !42 · « Corriger la vérification d’expiration »' if fr else 'Merge request !42 · “Fix the expiry check”',
+  'ci_job': 'job tenon' if fr else 'tenon job',
+  'ci_log': 'Journal du job' if fr else 'Job log',
+  'ci_exit_title': 'Codes de sortie' if fr else 'Exit codes',
+  'ci_code': 'Code' if fr else 'Code',
+  'ci_meaning': 'Signification en CI' if fr else 'Meaning in CI',
+  'ci_x0': 'Tour terminé.' if fr else 'Turn completed.',
+  'ci_x1': 'Erreur : configuration, clé absente, fournisseur, option invalide.' if fr else 'Error: configuration, missing key, provider, invalid option.',
+  'ci_x3': "Une action a été refusée, ou l'envoi a été bloqué par la juridiction." if fr else 'An action was denied, or the send was blocked by the jurisdiction.',
+  'ci_x4': 'Avec --strict : incomplete, max_iterations, stopped_by_hook, cancelled ou budget_exceeded.' if fr else 'With --strict: incomplete, max_iterations, stopped_by_hook, cancelled or budget_exceeded.',
+  'ci_tpl_title': "Partez d'un modèle" if fr else 'Start from a template',
+  'ci_lines': 'lignes' if fr else 'lines',
+  'ci_full': 'Fichier complet sur GitHub' if fr else 'Full file on GitHub',
+  'ci_safe_title': 'Pourquoi c’est sûr' if fr else 'Why it is safe',
+  'ci_s1_t': 'Aucun accord en CI' if fr else 'No approval in CI',
+  'ci_s1_d': "Personne ne valide en CI : toute action qui demande un accord est refusée. Seules les lectures dans le projet et vos règles allow minimales passent." if fr else 'Nobody approves in CI: any action that needs approval is denied. Only reads in the project and your minimal allow rules run.',
+  'ci_s2_t': 'Jamais sur un fork' if fr else 'Never on a fork',
+  'ci_s2_d': "Les modèles ignorent les merge et pull requests de forks : leur auteur contrôle le code, ci/tenon.toml et la tâche." if fr else 'The templates skip merge and pull requests from forks: their author controls the code, ci/tenon.toml and the task.',
+  'ci_s3_t': 'Miroir souverain' if fr else 'Sovereign mirror',
+  'ci_s3_d': "TENON_DOWNLOAD_BASE installe depuis votre forge ou un miroir isolé. La signature minisign reste vérifiée." if fr else 'TENON_DOWNLOAD_BASE installs from your forge or an air-gapped mirror. The minisign signature is still verified.',
+  'ci_s4_t': 'Isolation obligatoire' if fr else 'Mandatory sandbox',
+  'ci_s4_d': "Avec [sandbox] mode = \"required\", le job échoue plutôt que de tourner avec une isolation plus faible." if fr else 'With [sandbox] mode = "required", the job fails instead of running with a weaker sandbox.',
+  'ci_mark': "Marquage git : installez le hook une fois, et les commits qui contiennent du code écrit par l'agent portent AI-Assisted-By et AI-Session. Les relecteurs savent ce qui vient de l'IA." if fr else 'Git marking: install the hook once, and commits that contain code written by the agent carry AI-Assisted-By and AI-Session. Reviewers know what came from the AI.',
+  'ci_more': 'Lire le guide CI' if fr else 'Read the CI guide',
+  'ed_title': 'Dans votre éditeur' if fr else 'In your editor',
+  'ed_lede': "Le même agent dans VS Code, Zed, les IDE JetBrains et Neovim. L'éditeur ne fait qu'afficher : tenon garde ses règles." if fr else 'The same agent in VS Code, Zed, JetBrains IDEs and Neovim. The editor is only a display: tenon keeps its rules.',
+  'ed_label': "Maquette du panneau tenon dans VS Code : l'accueil, une réponse avec son badge, et la vue Session avec la jauge, les fichiers et la souveraineté." if fr else 'Mock of the tenon panel in VS Code: the home, an answer with its badge, and the Session view with the gauge, files and sovereignty.',
+  'ed_c1_t': 'Extension VS Code' if fr else 'VS Code extension',
+  'ed_c2_t': 'Zed · JetBrains · Neovim',
+  'ed_c2_d': "tenon acp fait de tenon un agent Agent Client Protocol. L'éditeur le lance et lui parle sur l'entrée et la sortie standard." if fr else 'tenon acp makes tenon an Agent Client Protocol agent. The editor starts it and talks to it over stdin and stdout.',
+  'ed_c2_l': 'Configurer votre éditeur' if fr else 'Set up your editor',
+  'ed_c3_t': 'Les mêmes garanties' if fr else 'The same guarantees',
+  'ed_c3_d': "Accords dans l'éditeur, même isolation système, secrets masqués avant le modèle, le journal et l'éditeur, même journal d'audit chaîné." if fr else 'Approvals in the editor, the same system sandbox, secrets masked before the model, the log and the editor, the same hash-chained audit log.',
+  'ed_c3_l': 'Ce qui reste appliqué' if fr else 'What stays enforced',
+} %}
+{#- Maquettes (terminal, VS Code) : textes de l'interface réelle (internal/i18n/catalog.go). -#}
+{% set ui = {
+  'slogan': 'agent de code souverain' if fr else 'sovereign coding agent',
+  'shortcuts': '/help /skills /rewind /memory · Ctrl+P palette · Tab compléter' if fr else '/help /skills /rewind /memory · Ctrl+P palette · Tab complete',
+  'tip': "Astuce : tenon audit verify vérifie l'intégrité du journal d'audit." if fr else 'Tip: tenon audit verify checks the integrity of the audit log.',
+  'links': ['docs', 'github', 'signaler un bug' if fr else 'report a bug'],
+  'prompt': "corrige le test qui échoue dans auth.go" if fr else 'fix the failing test in auth.go',
+  'tools': ['read_file auth_test.go', 'edit_file auth.go', 'shell go test ./...'],
+  'tool_r': ['ok' , ('autorisé' if fr else 'allowed') ~ ' · +1 −1', 'ok · ' ~ ('isolé' if fr else 'sandboxed')],
+  'answer': "Corrigé : la vérification d'expiration de auth.go utilisait < au lieu de <=. go test ./... passe." if fr else 'Fixed: the expiry check in auth.go used < instead of <=. go test ./... passes.',
+  'badge': 'Mistral AI · FR · ' ~ ('UE' if fr else 'EU'),
+  'context': 'Contexte' if fr else 'Context',
+  'pct': '31 %' if fr else '31%',
+  'tokens': 'entrée 301 k · sortie 2,1 k' if fr else 'in 301k · out 2.1k',
+  'files': 'Fichiers modifiés' if fr else 'Modified files',
+  'sov': 'Souveraineté' if fr else 'Sovereignty',
+  'sandboxed': 'isolé' if fr else 'sandboxed',
+  'profile': 'profil : eu-only' if fr else 'profile: eu-only',
+  'eu': 'UE' if fr else 'EU',
+  'usage': 'entrée 301 k · sortie 2,1 k · session 303 k' if fr else 'in 301k · out 2.1k · session 303k',
+  'untitled': 'nouvelle session' if fr else 'new session',
+  'vsc_short': '/ skills · Maj+Entrée nouvelle ligne · Tab compléter · Cmd+Maj+; palette' if fr else '/ skills · Shift+Enter new line · Tab complete · Cmd+Shift+; palette',
+  'vsc_badge': 'Mistral AI · ' ~ ('UE' if fr else 'EU'),
+  'session': 'Session',
 } %}
 {% set parts = [
   {'id': 'tools', 'name': 'Outils', 'desc': 'Lire, écrire, chercher, lancer une commande : chaque outil reste ancré à la racine du projet.'},
   {'id': 'sandbox', 'name': 'Isolation système', 'desc': "Commandes shell et serveurs MCP stdio confinés par le système (Landlock, sandbox-exec) : écriture dans le projet seulement, réseau fermé sauf accord."},
   {'id': 'permissions', 'name': 'Permissions', 'desc': 'Écritures, commandes et appels MCP attendent votre accord. Un dépôt ne peut rien assouplir.'},
   {'id': 'engine', 'name': 'Moteur', 'desc': "La boucle d'agent : lire, proposer, exécuter, tour après tour, chaque événement émis vers le journal."},
+  {'id': 'memory', 'name': 'Mémoire gouvernée', 'desc': "Notes project, user et global, écrites par le modèle avec votre accord ou par vous avec /remember. Une note du projet ne se charge qu'après votre approbation ; une note sensible reste personnelle. tenon memory liste et efface."},
   {'id': 'redaction', 'name': 'Masquage', 'desc': 'Secrets et certaines données personnelles masqués avant que la requête ne quitte la machine.'},
   {'id': 'routing', 'name': 'Routage par sensibilité', 'desc': "Chemins et marquages comme DIFFUSION RESTREINTE rendent la session sensible : elle ne part plus qu'au modèle local, et chaque décision entre au journal."},
   {'id': 'profile', 'name': 'Profil · liste blanche', 'desc': "Profils eu-only, secnumcloud, strict-local et liste blanche d'hôtes : vérifiés au démarrage et avant chaque envoi."},
   {'id': 'providers', 'name': 'Fournisseurs', 'desc': 'Mistral AI, Codestral, Scaleway, OVHcloud, Albert API, ou local avec Ollama et vLLM. Hors UE : votre consentement.'},
+  {'id': 'sobriety', 'name': 'Sobriété en jetons', 'desc': "Consommation mesurée à chaque appel, vue allégée du contexte, budget de session [budget], petits modèles pour la compaction et les sous-agents [routing]. Énergie et CO2 seulement avec les facteurs que vous déclarez."},
   {'id': 'audit', 'name': "Journal d'audit", 'desc': "Chaque ligne scelle la précédente par hachage. tenon audit verify le prouve, l'horodatage RFC 3161 le date."},
   {'id': 'timestamp', 'name': 'Horodatage RFC 3161', 'desc': "Seul le hash de tête du journal part vers une autorité d'horodatage : un journal réécrit après coup est détecté."},
   {'id': 'export', 'name': 'Export de conformité', 'desc': "tenon audit export : un rapport HTML et JSON pour votre DPO, construit depuis le journal, sans contenu de conversation."},
@@ -107,6 +182,8 @@
   {'id': 'hooks', 'name': 'Hooks', 'desc': "Vos commandes avant et après les outils : bloquer, demander, ajouter du contexte. Les hooks d'un dépôt ne tournent jamais."},
   {'id': 'mcp', 'name': 'MCP', 'desc': 'Serveurs stdio ou http à juridiction déclarée, filtrés par profil et par la politique.'},
   {'id': 'checkpoints', 'name': 'Points de reprise', 'desc': 'Chaque message est un point de restauration : /rewind rend les fichiers, la conversation, ou les deux.'},
+  {'id': 'editors', 'name': 'Éditeurs (ACP)', 'desc': "tenon acp pour Zed, JetBrains, Neovim et VS Code : mêmes accords, même isolation, même journal. Tout ce qui part vers l'éditeur est masqué."},
+  {'id': 'ci', 'name': 'Dans vos pipelines', 'desc': "Modèles GitLab CI, Forgejo/Gitea et GitHub Actions, codes de sortie --strict, audit verify et export de conformité en artefacts. tenon git install-hook marque les commits écrits par l'agent."},
   {'id': 'cra', 'name': 'Assistant CRA', 'desc': "tenon cra : SBOM, VEX, échéances de signalement et dossier technique du Cyber Resilience Act, scan OSV hors ligne."},
   {'id': 'policy', 'name': "Politique d'organisation", 'desc': 'Un plancher signé avec minisign, vérifié à chaque démarrage, que personne ne peut desserrer.'}
 ] if fr else [
@@ -114,10 +191,12 @@
   {'id': 'sandbox', 'name': 'System sandbox', 'desc': 'Shell commands and stdio MCP servers confined by the OS (Landlock, sandbox-exec): writes only in the project, network closed unless you allow it.'},
   {'id': 'permissions', 'name': 'Permissions', 'desc': 'Writes, commands and MCP calls wait for your approval. A repository cannot loosen anything.'},
   {'id': 'engine', 'name': 'Engine', 'desc': 'The agent loop: read, propose, run, turn after turn, every event sent to the log.'},
+  {'id': 'memory', 'name': 'Governed memory', 'desc': 'project, user and global notes, written by the model with your approval or by you with /remember. A project note loads only once you trust it; a sensitive note stays personal. tenon memory lists and erases.'},
   {'id': 'redaction', 'name': 'Masking', 'desc': 'Secrets and some personal data masked before the request leaves the machine.'},
   {'id': 'routing', 'name': 'Sensitivity routing', 'desc': 'Paths and markers such as EU RESTRICTED make the session sensitive: from then on it goes only to the local model, and every decision is logged.'},
   {'id': 'profile', 'name': 'Profile · allowlist', 'desc': 'eu-only, secnumcloud and strict-local profiles and a provider host allowlist, checked at startup and before each send.'},
   {'id': 'providers', 'name': 'Providers', 'desc': 'Mistral AI, Codestral, Scaleway, OVHcloud, Albert API, or local with Ollama and vLLM. Outside the EU: your consent.'},
+  {'id': 'sobriety', 'name': 'Token sobriety', 'desc': 'Usage measured on every call, a lighter view of the context, a session budget [budget], small models for compaction and sub-agents [routing]. Energy and CO2 only with factors you declare.'},
   {'id': 'audit', 'name': 'Audit log', 'desc': 'Each line seals the previous one by hash. tenon audit verify proves it, RFC 3161 timestamps date it.'},
   {'id': 'timestamp', 'name': 'RFC 3161 timestamp', 'desc': 'Only the head hash of the log goes to a timestamp authority: a log rewritten afterwards is detected.'},
   {'id': 'export', 'name': 'Compliance export', 'desc': 'tenon audit export: an HTML and JSON report for your DPO, built from the log, with no conversation content.'},
@@ -126,12 +205,16 @@
   {'id': 'hooks', 'name': 'Hooks', 'desc': "Your commands before and after tools: block, ask, add context. A repository's hooks never run."},
   {'id': 'mcp', 'name': 'MCP', 'desc': 'stdio or http servers with a declared jurisdiction, filtered by profile and policy.'},
   {'id': 'checkpoints', 'name': 'Checkpoints', 'desc': 'Every prompt is a restore point: /rewind brings back the files, the conversation, or both.'},
+  {'id': 'editors', 'name': 'Editors (ACP)', 'desc': 'tenon acp for Zed, JetBrains, Neovim and VS Code: the same approvals, sandbox and audit. Everything sent to the editor is masked.'},
+  {'id': 'ci', 'name': 'In your pipelines', 'desc': 'GitLab CI, Forgejo/Gitea and GitHub Actions templates, --strict exit codes, audit verify and the compliance export as artifacts. tenon git install-hook marks the commits written by the agent.'},
   {'id': 'cra', 'name': 'CRA assistant', 'desc': 'tenon cra: SBOM, VEX, reporting deadlines and the Cyber Resilience Act technical dossier, with an offline OSV scan.'},
   {'id': 'policy', 'name': 'Organisation policy', 'desc': 'A floor signed with minisign, verified at every startup, that nobody can loosen.'}
 ] %}
-{% set jr = {"machine": "VOTRE MACHINE · POLITIQUE SIGNÉE", "n": {"you": "Vous", "hooks": "Hooks", "skills": "Skills", "engine": "Moteur", "redaction": "Masquage", "routing": "Routage", "model": "Modèle local", "permissions": "Permissions", "tool": "Outil", "result": "Résultat", "checkpoints": "Points de reprise", "eu": "Fournisseurs UE", "sandbox": "Isolation système", "loop": "BOUCLE D'AGENT"}, "chapters": ["Contexte", "Boucle", "Garde-fous", "Preuves"], "prompt": "corrige le test qui échoue", "final": "✓ test corrigé", "ctx": "+ contexte", "skill": "SKILL.md", "secret": "sk-9f3a2c7e", "masked": "[MASQUÉ]", "stamp": "DIFFUSION RESTREINTE", "local": "local", "eu": "UE", "replies": ["read_file main_test.go", "write_file main.go", "shell go test ./...", "Test corrigé."], "tools": ["read_file", "write_file", "shell"], "tool_ok": ["main_test.go lu", "main.go écrit", "ok"], "perm_auto": "Lecture : auto", "perm_ask": "Accord ?", "perm_ok": "Autorisé", "snap": "copie avant écriture", "escape": ["~/.ssh", "réseau"], "refused": "refusé", "sb": "Landlock · sandbox-exec", "iter": "itération", "proofs": ["Journal chaîné par hachage : tenon audit verify ✓", "Horodatage RFC 3161 : seul le hash de tête sort", "Export de conformité : rapport HTML et JSON pour le DPO"], "log_title": "Journal d'audit · en direct", "log_note": "Les vrais types d'événements de tenon, chaque ligne scellée par le hash de la précédente.", "ev": {"user": "« corrige le test qui échoue »", "hook_s": "UserPromptSubmit", "hook_c": "+ contexte", "redact": "1 secret masqué", "class": "DIFFUSION RESTREINTE", "prov": "local · ollama", "read": "read_file main_test.go", "read_r": "main_test.go · ok", "write": "write_file main.go", "allowed": "autorisé", "write_r": "écrit · point de reprise", "shell": "shell go test ./...", "allowed_net": "autorisé · réseau : non", "shell_r": "ok · confiné", "answer": "Test corrigé.", "done": "4 itérations"}, "cap": ["Le harness tenon vu de l'intérieur : une demande va faire tourner la boucle d'agent.", "Vous écrivez votre demande dans le terminal.", "Vos hooks peuvent ajouter du contexte ou bloquer la demande.", "Le moteur assemble le contexte et charge le skill utile, sans élargir ses droits.", "Avant chaque appel du modèle : masquage des secrets, puis routage. Contenu classé : modèle local seulement.", "Itération 1 : le modèle demande à lire main_test.go. Lecture dans le projet : autorisée d'office.", "Le résultat revient au moteur, qui relance le modèle : c'est la boucle.", "Itération 2 : le modèle veut modifier main.go. Une écriture : tenon vous demande l'accord.", "Un point de reprise copie le fichier avant l'écriture : /rewind pourra l'annuler.", "Itération 3 : une commande shell. Accord, puis l'isolation système se referme autour d'elle.", "Confinée : écriture dans le projet seulement, ~/.ssh illisible, réseau fermé. Résultat : ok.", "Itération 4 : le modèle répond, le tour se termine. La réponse arrive dans votre terminal.", "Chaque événement est scellé, horodatable et exportable pour votre DPO."]} if fr else {"machine": "YOUR MACHINE · SIGNED POLICY", "n": {"you": "You", "hooks": "Hooks", "skills": "Skills", "engine": "Engine", "redaction": "Masking", "routing": "Routing", "model": "Local model", "permissions": "Permissions", "tool": "Tool", "result": "Result", "checkpoints": "Checkpoints", "eu": "EU providers", "sandbox": "System sandbox", "loop": "AGENT LOOP"}, "chapters": ["Context", "Loop", "Guardrails", "Evidence"], "prompt": "fix the failing test", "final": "✓ test fixed", "ctx": "+ context", "skill": "SKILL.md", "secret": "sk-9f3a2c7e", "masked": "[REDACTED]", "stamp": "EU RESTRICTED", "local": "local", "eu": "EU", "replies": ["read_file main_test.go", "write_file main.go", "shell go test ./...", "Test fixed."], "tools": ["read_file", "write_file", "shell"], "tool_ok": ["main_test.go read", "main.go written", "ok"], "perm_auto": "Read: auto", "perm_ask": "Approve?", "perm_ok": "Allowed", "snap": "copy before write", "escape": ["~/.ssh", "network"], "refused": "refused", "sb": "Landlock · sandbox-exec", "iter": "iteration", "proofs": ["Hash-chained log: tenon audit verify ✓", "RFC 3161 timestamp: only the head hash leaves", "Compliance export: HTML and JSON report for the DPO"], "log_title": "Audit log · live", "log_note": "tenon's real event types, each line sealed by the hash of the previous one.", "ev": {"user": "“fix the failing test”", "hook_s": "UserPromptSubmit", "hook_c": "+ context", "redact": "1 secret masked", "class": "EU RESTRICTED", "prov": "local · ollama", "read": "read_file main_test.go", "read_r": "main_test.go · ok", "write": "write_file main.go", "allowed": "allowed", "write_r": "written · checkpoint", "shell": "shell go test ./...", "allowed_net": "allowed · network: no", "shell_r": "ok · confined", "answer": "Test fixed.", "done": "4 iterations"}, "cap": ["The tenon harness from the inside: one request is about to drive the agent loop.", "You type your request in the terminal.", "Your hooks can add context or block the request.", "The engine builds the context and loads the right skill, unable to widen its rights.", "Before every model call: secrets masked, then routing. Classified content: local model only.", "Iteration 1: the model asks to read main_test.go. A read inside the project is allowed by default.", "The result goes back to the engine, which calls the model again: this is the loop.", "Iteration 2: the model wants to edit main.go. A write: tenon asks for your approval.", "A checkpoint copies the file before the write: /rewind can undo it.", "Iteration 3: a shell command. Approval, then the system sandbox closes around it.", "Confined: writes in the project only, ~/.ssh unreadable, network closed. Result: ok.", "Iteration 4: the model answers, the turn ends. The answer reaches your terminal.", "Every event is sealed, timestampable and exportable for your DPO."]} %}
+{% set jr = {"machine": "VOTRE MACHINE · POLITIQUE SIGNÉE", "n": {"you": "Vous", "hooks": "Hooks", "skills": "Skills", "engine": "Moteur", "redaction": "Masquage", "routing": "Routage", "model": "Modèle local", "permissions": "Permissions", "tool": "Outil", "result": "Résultat", "checkpoints": "Points de reprise", "eu": "Fournisseurs UE", "sandbox": "Isolation système", "loop": "BOUCLE D'AGENT", "memory": "Mémoire"}, "chapters": ["Contexte", "Boucle", "Garde-fous", "Preuves"], "prompt": "corrige le test qui échoue", "final": "✓ test corrigé", "ctx": "+ contexte", "skill": "SKILL.md", "secret": "sk-9f3a2c7e", "masked": "[MASQUÉ]", "stamp": "DIFFUSION RESTREINTE", "local": "local", "eu": "UE", "replies": ["read_file main_test.go", "write_file main.go", "shell go test ./...", "Test corrigé."], "tools": ["read_file", "write_file", "shell"], "tool_ok": ["main_test.go lu", "main.go écrit", "ok"], "perm_auto": "Lecture : auto", "perm_ask": "Accord ?", "perm_ok": "Autorisé", "snap": "copie avant écriture", "escape": ["~/.ssh", "réseau"], "refused": "refusé", "sb": "Landlock · sandbox-exec", "iter": "itération", "proofs": ["Journal chaîné par hachage : tenon audit verify ✓", "Horodatage RFC 3161 : seul le hash de tête sort", "Export de conformité : rapport HTML et JSON pour le DPO"], "log_title": "Journal d'audit · en direct", "log_note": "Les vrais types d'événements de tenon, chaque ligne scellée par le hash de la précédente.", "ev": {"user": "« corrige le test qui échoue »", "hook_s": "UserPromptSubmit", "hook_c": "+ contexte", "redact": "1 secret masqué", "class": "DIFFUSION RESTREINTE", "prov": "local · ollama", "read": "read_file main_test.go", "read_r": "main_test.go · ok", "write": "write_file main.go", "allowed": "autorisé", "write_r": "écrit · point de reprise", "shell": "shell go test ./...", "allowed_net": "autorisé · réseau : non", "shell_r": "ok · confiné", "answer": "Test corrigé.", "done": "4 itérations", "mem": "project/build-cmd", "usage": ["ollama · entrée 3,2 k · sortie 41", "ollama · entrée 4,6 k · sortie 118", "ollama · entrée 5,1 k · sortie 36", "ollama · entrée 5,4 k · sortie 22"]}, "cap": ["Le harness tenon vu de l'intérieur : une demande va faire tourner la boucle d'agent.", "Vous écrivez votre demande dans le terminal.", "Vos hooks peuvent ajouter du contexte ou bloquer la demande.", "Le moteur assemble le contexte et charge le skill utile, sans élargir ses droits.", "Mémoire : des notes gardées d'une session à l'autre. Une note du projet ne se charge qu'après votre approbation sur cette machine.", "Avant chaque appel du modèle : masquage des secrets, puis routage. Contenu classé : modèle local seulement. Chaque appel compte ses jetons.", "Itération 1 : le modèle demande à lire main_test.go. Lecture dans le projet : autorisée d'office.", "Le résultat revient au moteur, qui relance le modèle : c'est la boucle.", "Itération 2 : le modèle veut modifier main.go. Une écriture : tenon vous demande l'accord.", "Un point de reprise copie le fichier avant l'écriture : /rewind pourra l'annuler.", "Itération 3 : une commande shell. Accord, puis l'isolation système se referme autour d'elle.", "Confinée : écriture dans le projet seulement, ~/.ssh illisible, réseau fermé. Résultat : ok.", "Itération 4 : le modèle répond, le tour se termine. Le badge dit qui a répondu : le modèle local.", "Chaque événement est scellé, horodatable et exportable pour votre DPO."], "mem": ["build-cmd", "style-tests"], "badge": "Ollama · local"} if fr else {"machine": "YOUR MACHINE · SIGNED POLICY", "n": {"you": "You", "hooks": "Hooks", "skills": "Skills", "engine": "Engine", "redaction": "Masking", "routing": "Routing", "model": "Local model", "permissions": "Permissions", "tool": "Tool", "result": "Result", "checkpoints": "Checkpoints", "eu": "EU providers", "sandbox": "System sandbox", "loop": "AGENT LOOP", "memory": "Memory"}, "chapters": ["Context", "Loop", "Guardrails", "Evidence"], "prompt": "fix the failing test", "final": "✓ test fixed", "ctx": "+ context", "skill": "SKILL.md", "secret": "sk-9f3a2c7e", "masked": "[REDACTED]", "stamp": "EU RESTRICTED", "local": "local", "eu": "EU", "replies": ["read_file main_test.go", "write_file main.go", "shell go test ./...", "Test fixed."], "tools": ["read_file", "write_file", "shell"], "tool_ok": ["main_test.go read", "main.go written", "ok"], "perm_auto": "Read: auto", "perm_ask": "Approve?", "perm_ok": "Allowed", "snap": "copy before write", "escape": ["~/.ssh", "network"], "refused": "refused", "sb": "Landlock · sandbox-exec", "iter": "iteration", "proofs": ["Hash-chained log: tenon audit verify ✓", "RFC 3161 timestamp: only the head hash leaves", "Compliance export: HTML and JSON report for the DPO"], "log_title": "Audit log · live", "log_note": "tenon's real event types, each line sealed by the hash of the previous one.", "ev": {"user": "“fix the failing test”", "hook_s": "UserPromptSubmit", "hook_c": "+ context", "redact": "1 secret masked", "class": "EU RESTRICTED", "prov": "local · ollama", "read": "read_file main_test.go", "read_r": "main_test.go · ok", "write": "write_file main.go", "allowed": "allowed", "write_r": "written · checkpoint", "shell": "shell go test ./...", "allowed_net": "allowed · network: no", "shell_r": "ok · confined", "answer": "Test fixed.", "done": "4 iterations", "mem": "project/build-cmd", "usage": ["ollama · in 3.2k · out 41", "ollama · in 4.6k · out 118", "ollama · in 5.1k · out 36", "ollama · in 5.4k · out 22"]}, "cap": ["The tenon harness from the inside: one request is about to drive the agent loop.", "You type your request in the terminal.", "Your hooks can add context or block the request.", "The engine builds the context and loads the right skill, unable to widen its rights.", "Memory: notes kept between sessions. A project note loads only once you trust it on this machine.", "Before every model call: secrets masked, then routing. Classified content: local model only. Every call counts its tokens.", "Iteration 1: the model asks to read main_test.go. A read inside the project is allowed by default.", "The result goes back to the engine, which calls the model again: this is the loop.", "Iteration 2: the model wants to edit main.go. A write: tenon asks for your approval.", "A checkpoint copies the file before the write: /rewind can undo it.", "Iteration 3: a shell command. Approval, then the system sandbox closes around it.", "Confined: writes in the project only, ~/.ssh unreadable, network closed. Result: ok.", "Iteration 4: the model answers, the turn ends. The badge says who answered: the local model.", "Every event is sealed, timestampable and exportable for your DPO."], "mem": ["build-cmd", "style-tests"], "badge": "Ollama · local"} %}
 {% set brew = 'brew install tenon-code-eu/tap/tenon' %}
 {% set script = 'curl -fsSL https://raw.githubusercontent.com/tenon-code-eu/tenon/main/install.sh | sh' %}
+{% set vsc = 'code --install-extension tenon-code-eu.tenon' %}
+{% set vsc_url = 'https://marketplace.visualstudio.com/items?itemName=tenon-code-eu.tenon' %}
 
 {% block extrahead %}
   {{ super() }}
@@ -179,6 +262,7 @@
           <div class="h-install__tabs" role="tablist" aria-label="{{ T.install }}">
             <button class="h-install__tab" role="tab" id="h-tab-brew" aria-selected="true" aria-controls="h-pane-brew">Homebrew</button>
             <button class="h-install__tab" role="tab" id="h-tab-script" aria-selected="false" aria-controls="h-pane-script" tabindex="-1">{{ T.tab_script }}</button>
+            <button class="h-install__tab" role="tab" id="h-tab-vsc" aria-selected="false" aria-controls="h-pane-vsc" tabindex="-1">VS Code</button>
           </div>
           <div class="h-install__pane" role="tabpanel" id="h-pane-brew" aria-labelledby="h-tab-brew">
             <code class="h-cmd"><span class="h-cmd__prompt" aria-hidden="true">$</span><span class="h-cmd__text">{{ brew }}</span></code>
@@ -188,7 +272,14 @@
             <code class="h-cmd"><span class="h-cmd__prompt" aria-hidden="true">$</span><span class="h-cmd__text">{{ script }}</span></code>
             <button class="h-copy" type="button" data-copy="{{ script }}" data-copied="{{ T.copied }}">{{ T.copy_label }}</button>
           </div>
-          <p class="h-install__note">{{ T.script_note }} <a href="https://github.com/tenon-code-eu/tenon/blob/main/install.sh">{{ T.read_script }}</a></p>
+          <div class="h-install__pane h-install__pane--vsc" role="tabpanel" id="h-pane-vsc" aria-labelledby="h-tab-vsc" hidden>
+            <div class="h-install__row">
+              <code class="h-cmd"><span class="h-cmd__prompt" aria-hidden="true">$</span><span class="h-cmd__text">{{ vsc }}</span></code>
+              <button class="h-copy" type="button" data-copy="{{ vsc }}" data-copied="{{ T.copied }}">{{ T.copy_label }}</button>
+            </div>
+            <p class="h-install__note">{{ T.vsc_note }} <a href="https://github.com/tenon-code-eu/tenon/releases/latest">{{ T.vsc_release }}</a>{{ T.vsc_then }} <a href="{{ vsc_url }}">{{ T.vsc_market }}</a></p>
+          </div>
+          <p class="h-install__note" id="h-install-note">{{ T.script_note }} <a href="https://github.com/tenon-code-eu/tenon/blob/main/install.sh">{{ T.read_script }}</a></p>
         </div>
         <ul class="h-badges" aria-label="{{ T.badges_label }}">
           <li><a href="https://github.com/tenon-code-eu/tenon/blob/main/LICENSE"><span>licence</span>EUPL-1.2</a></li>
@@ -226,6 +317,287 @@
         </ol>
         <script type="application/json" id="h-parts" data-overview-name="{{ T.overview_name }}" data-overview-desc="{{ T.overview_desc }}">{{ parts | tojson }}</script>
       </figure>
+    </div>
+  </section>
+
+  <section class="h-real" aria-labelledby="h-rl-title">
+    <div class="h-wrap">
+      <h2 class="h-h2" id="h-rl-title">{{ T.rl_title }}</h2>
+      <p class="h-lede">{{ T.rl_lede }}</p>
+      <figure class="h-tui" id="h-tui" data-theme="tenon">
+        <div class="h-tui__chrome" aria-hidden="true"><i></i><i></i><i></i><span>tenon — ~/src/shop</span></div>
+        <div class="h-tui__screen" role="img" tabindex="0" aria-label="{{ T.rl_label }}">
+          <div class="h-tui__home">
+            <div class="h-tui__logo" aria-hidden="true">
+              <pre class="h-tui__half h-tui__half--l">      ╱▔▔▔
+    ╱  ━━━
+   ▕  ◦
+   ▕ ┃┃
+    ╲ ┗┛
+      ╲▁▁▁</pre><pre class="h-tui__half h-tui__half--r">▔▔▔▔╲
+┳━━━  ╲
+┃   ◦  ▏
+◉   ┃┃ ▏
+┃  ┗┛ ╱
+┻▁▁▁╱</pre><pre class="h-tui__word">████████ ███████ ███    ██  ██████  ███    ██
+   ██    ██      ████   ██ ██    ██ ████   ██
+   ██    █████   ██ ██  ██ ██    ██ ██ ██  ██
+   ██    ██      ██  ██ ██ ██    ██ ██  ██ ██
+   ██    ███████ ██   ████  ██████  ██   ████</pre>
+              <p class="h-tui__compact">⬢ TENON</p>
+            </div>
+            <p class="h-tui__slogan h-tui__fade">{{ ui.slogan }} · <b>v0.10.0</b></p>
+            <div class="h-tui__input h-tui__fade"><span class="h-tui__chev">›</span><span class="h-tui__typed" id="h-tui-typed"></span><span class="h-tui__cursor"></span></div>
+            <p class="h-tui__keys h-tui__fade">{{ ui.shortcuts }}</p>
+            <p class="h-tui__tip h-tui__fade">{{ ui.tip }}</p>
+            <p class="h-tui__links h-tui__fade"><u>{{ ui.links[0] }}</u> · <u>{{ ui.links[1] }}</u> · <u>{{ ui.links[2] }}</u></p>
+          </div>
+          <div class="h-tui__main">
+            <div class="h-tui__thread">
+              <p class="h-tui__user"><span class="h-tui__chev">›</span> {{ ui.prompt }}</p>
+              {% for tl in ui.tools %}<p class="h-tui__tool" data-at="{{ [5.9, 6.9, 8.0][loop.index0] }}"><span class="h-tui__dot">●</span> {{ tl }} <em>{{ ui.tool_r[loop.index0] }}</em></p>{% endfor %}
+              <p class="h-tui__answer" data-at="9.1">{{ ui.answer }}</p>
+              <p class="h-tui__badge" data-at="9.7">{{ ui.badge }}</p>
+              <div class="h-tui__input h-tui__input--low"><span class="h-tui__chev">›</span><span class="h-tui__cursor"></span></div>
+            </div>
+            <div class="h-tui__panel">
+              <p class="h-tui__ptitle" id="h-tui-title">{{ ui.prompt }}</p>
+              <p class="h-tui__phead">{{ ui.context }}</p>
+              <p class="h-tui__gauge" id="h-tui-gauge">███░░░░░░░ {{ ui.pct }}</p>
+              <p class="h-tui__muted" id="h-tui-tokens">{{ ui.tokens }}</p>
+              <p class="h-tui__phead">{{ ui.files }}</p>
+              <p class="h-tui__file" id="h-tui-file"><b>M</b> auth.go <span>+1 −1</span></p>
+              <p class="h-tui__phead">{{ ui.sov }}</p>
+              <p class="h-tui__send" id="h-tui-send">● 4 → Mistral AI · FR</p>
+              <p class="h-tui__ok">{{ ui.sandboxed }}</p>
+              <p class="h-tui__muted">{{ ui.profile }}</p>
+            </div>
+          </div>
+          <p class="h-tui__status"><span>~/src/shop</span><span>&nbsp;·&nbsp;mistral-medium-3-5</span><span class="h-tui__drop">&nbsp;·&nbsp;Mistral AI</span><span class="h-tui__drop">&nbsp;·&nbsp;FR</span><span>&nbsp;</span><span class="h-tui__pill">{{ ui.eu }}</span><span>&nbsp;</span><span class="h-tui__pill">{{ ui.sandboxed }}</span><span class="h-tui__drop">&nbsp;·&nbsp;{{ ui.profile }}</span><span class="h-tui__usage" data-at="9.1">&nbsp;·&nbsp;{{ ui.usage }}</span></p>
+        </div>
+        <div class="h-tui__bar">
+          <button class="h-tui__btn" type="button" id="h-tui-theme" data-label="{{ T.rl_theme }}{{ ' : ' if fr else ': ' }}">{{ T.rl_theme }}{{ ' : ' if fr else ': ' }}tenon</button>
+          <button class="h-tui__btn" type="button" id="h-tui-toggle" data-play="{{ T.jr_play }}" data-pause="{{ T.jr_pause }}">{{ T.jr_pause }}</button>
+          <button class="h-tui__btn" type="button" id="h-tui-replay">{{ T.jr_replay }}</button>
+        </div>
+        <script type="application/json" id="h-tui-data">{{ {'prompt': ui.prompt, 'untitled': ui.untitled, 'pct': (['0 %', '27 %', '29 %', '30 %', '31 %'] if fr else ['0%', '27%', '29%', '30%', '31%']), 'cells': [0, 2, 2, 3, 3], 'tokens': (['entrée 0 · sortie 0', 'entrée 71,2 k · sortie 412', 'entrée 145 k · sortie 1 k', 'entrée 222 k · sortie 1,5 k', 'entrée 301 k · sortie 2,1 k'] if fr else ['in 0 · out 0', 'in 71.2k · out 412', 'in 145k · out 1k', 'in 222k · out 1.5k', 'in 301k · out 2.1k']), 'none': ('aucun' if fr else 'none'), 'nosend': ('aucun envoi' if fr else 'no sends yet'), 'send': '● {n} → Mistral AI · FR', 'themes': ['tenon', 'tokyonight', 'catppuccin', 'gruvbox', 'light']} | tojson }}</script>
+      </figure>
+      <p class="h-note">{{ T.rl_note }}</p>
+    </div>
+  </section>
+
+  <section class="h-ci" id="h-ci" aria-labelledby="h-ci-title">
+    <div class="h-wrap">
+      <h2 class="h-h2" id="h-ci-title">{{ T.ci_title }}</h2>
+      <p class="h-lede">{{ T.ci_lede }}</p>
+      <figure class="h-pipe" id="h-pipe" data-running="{{ 'en cours' if fr else 'running' }}" data-ok="{{ 'réussi' if fr else 'passed' }}" data-fail="{{ 'échec · code 3' if fr else 'failed · exit 3' }}" data-wait="{{ 'en attente' if fr else 'waiting' }}">
+        <div class="h-pipe__stage" role="img" tabindex="0" aria-label="{{ T.ci_label }}">
+          <div class="h-pipe__mr" data-at="0.2"><span class="h-pipe__mr-ico" aria-hidden="true"></span><span>{{ T.ci_mr }}</span><span class="h-pipe__mr-job">→ {{ T.ci_job }}</span></div>
+          <ol class="h-pipe__steps">
+            <li class="h-pipe__step" data-from="1" data-to="3.4" data-result="ok">
+              <p class="h-pipe__head"><span class="h-pipe__num">1</span><strong>{{ 'Installer' if fr else 'Install' }}</strong><span class="h-pipe__chip"></span></p>
+              <code class="h-pipe__cmd">TENON_VERSION=v0.10.0 TENON_REQUIRE_SIGNATURE=1 sh install.sh</code>
+              <ul class="h-pipe__facts">
+                <li data-at="1.8">{{ 'version épinglée v0.10.0' if fr else 'pinned release v0.10.0' }}</li>
+                <li data-at="2.6">{{ 'signature minisign vérifiée' if fr else 'minisign signature checked' }}</li>
+              </ul>
+            </li>
+            <li class="h-pipe__step" data-from="3.6" data-to="8.2" data-result="fail">
+              <p class="h-pipe__head"><span class="h-pipe__num">2</span><strong>{{ 'Exécuter' if fr else 'Run' }}</strong><span class="h-pipe__chip"></span></p>
+              <code class="h-pipe__cmd">tenon --config ci/tenon.toml -p "…" --strict --output json</code>
+              <ul class="h-pipe__facts">
+                <li data-at="4.3">{{ 'profil eu-only · Mistral AI · UE' if fr else 'profile eu-only · Mistral AI · EU' }}</li>
+                <li data-at="5.3" class="is-yes">go test ./... · {{ 'règle allow' if fr else 'allow rule' }}</li>
+                <li data-at="6.6" class="is-no">git push · {{ 'refusé : aucun accord en CI' if fr else 'denied: no approval in CI' }}</li>
+              </ul>
+            </li>
+            <li class="h-pipe__step" data-from="8.4" data-to="11.2" data-result="ok">
+              <p class="h-pipe__head"><span class="h-pipe__num">3</span><strong>{{ 'Prouver' if fr else 'Prove' }}</strong><span class="h-pipe__chip"></span></p>
+              <code class="h-pipe__cmd">tenon audit verify · tenon audit export</code>
+              <ul class="h-pipe__facts">
+                <li data-at="8.6">{{ "toujours, même en cas d'échec" if fr else 'always, even on failure' }}</li>
+                <li data-at="9.2" class="is-yes">{{ 'chaîne de hachage intacte' if fr else 'hash chain intact' }}</li>
+                <li data-at="10.2" class="is-yes">{{ 'rapport HTML et JSON' if fr else 'HTML and JSON report' }}</li>
+              </ul>
+            </li>
+            <li class="h-pipe__step" data-from="11.4" data-to="13.2" data-result="ok">
+              <p class="h-pipe__head"><span class="h-pipe__num">4</span><strong>{{ 'Archiver' if fr else 'Archive' }}</strong><span class="h-pipe__chip"></span></p>
+              <code class="h-pipe__cmd">artifacts · when: always</code>
+              <ul class="h-pipe__facts">
+                <li data-at="11.9">tenon-events.jsonl</li>
+                <li data-at="12.3">tenon-audit/</li>
+                <li data-at="12.7">tenon-audit-log/</li>
+              </ul>
+            </li>
+          </ol>
+          <div class="h-pipe__log">
+            <p class="h-pipe__log-title">{{ T.ci_log }}</p>
+            <ol class="h-pipe__lines">
+              <li data-at="1.2"><i>$</i> curl -fsSL -o install.sh https://raw.githubusercontent.com/tenon-code-eu/tenon/v0.10.0/install.sh</li>
+              <li data-at="1.6"><i>$</i> TENON_VERSION=v0.10.0 TENON_REQUIRE_SIGNATURE=1 sh install.sh</li>
+              <li data-at="3.8"><i>$</i> tenon --config ci/tenon.toml -p "$TENON_TASK" --strict --output json &gt; tenon-events.jsonl</li>
+              <li data-at="4.3" class="h-pipe__ev"><b>SessionStarted</b> mistral · eu-only</li>
+              <li data-at="5.0" class="h-pipe__ev"><b>ToolCallRequested</b> shell go test ./...</li>
+              <li data-at="5.3" class="h-pipe__ev"><b>PermissionResolved</b> {{ 'autorisé · règle allow' if fr else 'allowed · allow rule' }}</li>
+              <li data-at="6.2" class="h-pipe__ev"><b>ToolCallRequested</b> shell git push</li>
+              <li data-at="6.6" class="h-pipe__ev is-no"><b>PermissionResolved</b> {{ 'refusé · aucun accord possible' if fr else 'denied · no approval possible' }}</li>
+              <li data-at="7.6" class="h-pipe__ev"><b>TurnCompleted</b></li>
+              <li data-at="8.0" class="is-no"><i>→</i> {{ 'code de sortie 3' if fr else 'exit code 3' }}</li>
+              <li data-at="8.6"><i>$</i> tenon --config ci/tenon.toml audit verify</li>
+              <li data-at="9.2" class="is-yes"><i>✓</i> {{ 'chaîne de hachage intacte' if fr else 'hash chain intact' }}</li>
+              <li data-at="9.7"><i>$</i> tenon --config ci/tenon.toml audit export --all-projects --out tenon-audit</li>
+              <li data-at="11.6"><i>↑</i> tenon-events.jsonl · tenon-audit/ · tenon-audit-log/</li>
+            </ol>
+          </div>
+          <p class="h-pipe__result" data-at="13.3">{{ "Job en échec, code 3 : la commande refusée est dans le journal, et les preuves sont archivées." if fr else 'Job failed with exit code 3: the denied command is in the log, and the evidence is archived.' }}</p>
+        </div>
+        <div class="h-pipe__ctl">
+          <button class="h-tui__btn" type="button" id="h-pipe-toggle" data-play="{{ T.jr_play }}" data-pause="{{ T.jr_pause }}">{{ T.jr_pause }}</button>
+          <button class="h-tui__btn" type="button" id="h-pipe-replay">{{ T.jr_replay }}</button>
+        </div>
+        <table class="h-exit">
+          <caption>{{ T.ci_exit_title }}</caption>
+          <thead><tr><th scope="col">{{ T.ci_code }}</th><th scope="col">{{ T.ci_meaning }}</th></tr></thead>
+          <tbody>
+            <tr><th scope="row"><code>0</code></th><td>{{ T.ci_x0 }}</td></tr>
+            <tr><th scope="row"><code>1</code></th><td>{{ T.ci_x1 }}</td></tr>
+            <tr class="h-exit__hit" data-at="8.0"><th scope="row"><code>3</code></th><td>{{ T.ci_x3 }}</td></tr>
+            <tr><th scope="row"><code>4</code></th><td>{{ T.ci_x4 }}</td></tr>
+          </tbody>
+        </table>
+      </figure>
+
+      <div class="h-tpl">
+        <h3 class="h-h3">{{ T.ci_tpl_title }}</h3>
+        <div class="h-tpl__box" data-tabs>
+          <div class="h-install__tabs" role="tablist" aria-label="{{ T.ci_tpl_title }}">
+            <button class="h-install__tab" role="tab" id="h-tab-gitlab" aria-selected="true" aria-controls="h-pane-gitlab">GitLab CI</button>
+            <button class="h-install__tab" role="tab" id="h-tab-forgejo" aria-selected="false" aria-controls="h-pane-forgejo" tabindex="-1">Forgejo · Gitea</button>
+            <button class="h-install__tab" role="tab" id="h-tab-github" aria-selected="false" aria-controls="h-pane-github" tabindex="-1">GitHub Actions</button>
+          </div>
+          {% for t in [('gitlab', 'gitlab-ci.yml', '41–49'), ('forgejo', 'forgejo.yml', '57–65'), ('github', 'github.yml', '62–76')] %}
+          <div class="h-tpl__pane" role="tabpanel" id="h-pane-{{ t[0] }}" aria-labelledby="h-tab-{{ t[0] }}"{% if not loop.first %} hidden{% endif %}>
+            <div class="h-tpl__meta">
+              <span>docs/ci/{{ t[1] }} · {{ T.ci_lines }} {{ t[2] }}</span>
+              <span class="h-tpl__acts"><button class="h-copy" type="button" data-copy-from="h-ci-code-{{ t[0] }}" data-copied="{{ T.copied }}">{{ T.copy_label }}</button>
+              <a class="h-tpl__full" href="https://github.com/tenon-code-eu/tenon/blob/main/docs/ci/{{ t[1] }}">{{ T.ci_full }}</a></span>
+            </div>
+            {% if t[0] == "gitlab" %}{% raw %}<pre class="h-code"><code id="h-ci-code-gitlab"><span class="h-code__ln" data-n="41">curl -fsSL -o install.sh https://raw.githubusercontent.com/tenon-code-eu/tenon/v0.10.0/install.sh
+</span><span class="h-code__ln" data-n="42">TENON_VERSION=v0.10.0 TENON_REQUIRE_SIGNATURE=1 sh install.sh
+</span><span class="h-code__ln" data-n="43">export PATH="$HOME/.local/bin:$PATH"
+</span><span class="h-code__ln" data-n="44">rc=0
+</span><span class="h-code__ln" data-n="45">tenon --config ci/tenon.toml -p "$TENON_TASK" --strict --output json &gt; tenon-events.jsonl || rc=$?
+</span><span class="h-code__ln" data-n="46"># Always check and export the audit log, even when tenon failed.
+</span><span class="h-code__ln" data-n="47">vrc=0
+</span><span class="h-code__ln" data-n="48">tenon --config ci/tenon.toml audit verify || vrc=$?
+</span><span class="h-code__ln" data-n="49">tenon --config ci/tenon.toml audit export --all-projects --out tenon-audit || true
+</span></code></pre>{% endraw %}{% elif t[0] == "forgejo" %}{% raw %}<pre class="h-code"><code id="h-ci-code-forgejo"><span class="h-code__ln" data-n="57">- name: Run tenon
+</span><span class="h-code__ln" data-n="58">  env:
+</span><span class="h-code__ln" data-n="59">    MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+</span><span class="h-code__ln" data-n="60">  run: |
+</span><span class="h-code__ln" data-n="61">    set -eu
+</span><span class="h-code__ln" data-n="62">    export PATH="$HOME/.local/bin:$PATH"
+</span><span class="h-code__ln" data-n="63">    rc=0
+</span><span class="h-code__ln" data-n="64">    tenon --config ci/tenon.toml -p "$TENON_TASK" --strict --output json &gt; tenon-events.jsonl || rc=$?
+</span><span class="h-code__ln" data-n="65">    exit "$rc"
+</span></code></pre>{% endraw %}{% else %}{% raw %}<pre class="h-code"><code id="h-ci-code-github"><span class="h-code__ln" data-n="62">- name: Verify and export the audit log
+</span><span class="h-code__ln" data-n="63">  if: always()
+</span><span class="h-code__ln" data-n="64">  run: |
+</span><span class="h-code__ln" data-n="65">    set -eu
+</span><span class="h-code__ln" data-n="66">    # The run step already fails the job on a tenon error; verify and
+</span><span class="h-code__ln" data-n="67">    # export always run to archive the evidence.
+</span><span class="h-code__ln" data-n="68">    # The audit log lives in tenon's default data dir, outside the
+</span><span class="h-code__ln" data-n="69">    # workspace (the sandbox denies it to commands): copy it into the
+</span><span class="h-code__ln" data-n="70">    # workspace so the artifact upload can find it.
+</span><span class="h-code__ln" data-n="71">    mkdir -p tenon-audit-log
+</span><span class="h-code__ln" data-n="72">    cp -R "${XDG_DATA_HOME:-$HOME/.local/share}/tenon/audit/." tenon-audit-log/ || true
+</span><span class="h-code__ln" data-n="73">    vrc=0
+</span><span class="h-code__ln" data-n="74">    tenon --config ci/tenon.toml audit verify || vrc=$?
+</span><span class="h-code__ln" data-n="75">    tenon --config ci/tenon.toml audit export --all-projects --out tenon-audit
+</span><span class="h-code__ln" data-n="76">    exit "$vrc"
+</span></code></pre>{% endraw %}{% endif %}
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+
+      <h3 class="h-h3 h-safe__title">{{ T.ci_safe_title }}</h3>
+      <ul class="h-safe">
+        <li><a href="{{ T.ci_href }}#{{ 'sécurité' if fr else 'security' }}"><strong>{{ T.ci_s1_t }}</strong><span>{{ T.ci_s1_d }}</span></a></li>
+        <li><a href="{{ T.ci_href }}#{{ 'sécurité' if fr else 'security' }}"><strong>{{ T.ci_s2_t }}</strong><span>{{ T.ci_s2_d }}</span></a></li>
+        <li><a href="{{ T.ci_href }}#{{ 'installer-depuis-un-miroir' if fr else 'install-from-a-mirror' }}"><strong>{{ T.ci_s3_t }}</strong><span>{{ T.ci_s3_d }}</span></a></li>
+        <li><a href="{{ T.ci_href }}#{{ 'sécurité' if fr else 'security' }}"><strong>{{ T.ci_s4_t }}</strong><span>{{ T.ci_s4_d }}</span></a></li>
+      </ul>
+      <div class="h-mark">
+        <p>{{ T.ci_mark }}</p>
+        <code class="h-cmd"><span class="h-cmd__prompt" aria-hidden="true">$</span><span class="h-cmd__text">tenon git install-hook</span></code>
+      </div>
+      <p class="h-ci__more"><a class="h-link h-link--gold" href="{{ T.ci_href }}">{{ T.ci_more }}</a></p>
+    </div>
+  </section>
+
+  <section class="h-ed" aria-labelledby="h-ed-title">
+    <div class="h-wrap">
+      <h2 class="h-h2" id="h-ed-title">{{ T.ed_title }}</h2>
+      <p class="h-lede">{{ T.ed_lede }}</p>
+      <div class="h-ed__grid">
+        <figure class="h-vsc" role="img" aria-label="{{ T.ed_label }}">
+          <div class="h-vsc__win">
+            <div class="h-vsc__act" aria-hidden="true"><i></i><i></i><i class="is-on"><img src="{{ root }}/assets/site/mark.svg" width="18" height="18" alt=""></i><i></i></div>
+            <div class="h-vsc__side">
+              <p class="h-vsc__sidehead">TENON</p>
+              <div class="h-vsc__chat">
+                <div class="h-vsc__home">
+                  <img src="{{ root }}/assets/site/mark.svg" width="40" height="40" alt="">
+                  <p class="h-vsc__slogan">{{ ui.slogan }} <b>v0.10.0</b></p>
+                  <p class="h-vsc__keys">{{ ui.vsc_short }}</p>
+                </div>
+                <div class="h-vsc__thread">
+                  <p class="h-vsc__user">{{ ui.prompt }}</p>
+                  <p class="h-vsc__tool">✓ edit_file auth.go <u>{{ 'Voir le diff' if fr else 'Open diff' }}</u></p>
+                  <p class="h-vsc__answer">{{ ui.answer }}</p>
+                  <p class="h-vsc__badge">{{ ui.vsc_badge }}</p>
+                </div>
+              </div>
+              <div class="h-vsc__session">
+                <p class="h-vsc__sidehead">{{ ui.session|upper }}</p>
+                <p class="h-vsc__stitle">{{ ui.prompt }}</p>
+                <p class="h-vsc__label">{{ ui.context }}</p>
+                <p class="h-vsc__gauge"><span style="width:31%"></span></p>
+                <p class="h-vsc__muted">{{ ui.pct }} · {{ ui.tokens }}</p>
+                <p class="h-vsc__label">{{ ui.files }}</p>
+                <p class="h-vsc__file"><b>M</b> auth.go</p>
+                <p class="h-vsc__label">{{ ui.sov }}</p>
+                <p class="h-vsc__send">● 4 → Mistral AI · {{ ui.eu }}</p>
+                <p class="h-vsc__muted">{{ ui.sandboxed }} · {{ ui.profile }}</p>
+              </div>
+            </div>
+            <div class="h-vsc__editor" aria-hidden="true">
+              <p class="h-vsc__tab">auth.go (tenon)</p>
+              <pre class="h-vsc__code"><span>func valid(t Token, now time.Time) bool {</span><span class="is-del">-   return now.Unix() &lt; t.Expiry</span><span class="is-add">+   return now.Unix() &lt;= t.Expiry</span><span>}</span></pre>
+            </div>
+          </div>
+          <p class="h-vsc__status"><span>tenon · Mistral AI · {{ ui.eu }} · {{ ui.sandboxed }}</span></p>
+        </figure>
+        <ul class="h-ed__cards">
+          <li>
+            <h3 class="h-h3">{{ T.ed_c1_t }}</h3>
+            <p>{{ T.vsc_d }}</p>
+            <a class="h-link" href="{{ vsc_url }}">{{ T.vsc_market }}</a>
+          </li>
+          <li>
+            <h3 class="h-h3">{{ T.ed_c2_t }}</h3>
+            <p>{{ T.ed_c2_d }}</p>
+            <code class="h-cmd h-cmd--light"><span class="h-cmd__prompt" aria-hidden="true">$</span><span class="h-cmd__text">tenon acp</span></code>
+            <a class="h-link" href="{{ T.editors_href }}">{{ T.ed_c2_l }}</a>
+          </li>
+          <li>
+            <h3 class="h-h3">{{ T.ed_c3_t }}</h3>
+            <p>{{ T.ed_c3_d }}</p>
+            <a class="h-link" href="{{ T.editors_href }}#{{ 'ce-qui-reste-appliqué' if fr else 'what-stays-enforced' }}">{{ T.ed_c3_l }}</a>
+          </li>
+        </ul>
+      </div>
     </div>
   </section>
 
@@ -342,13 +714,17 @@
           </div>
         </div>
         <div class="h-get__item">
+          <h3 class="h-h3">VS Code</h3>
+          <div class="h-get__cmd">
+            <code class="h-cmd h-cmd--light"><span class="h-cmd__prompt" aria-hidden="true">$</span><span class="h-cmd__text">{{ vsc }}</span></code>
+            <button class="h-copy h-copy--light" type="button" data-copy="{{ vsc }}" data-copied="{{ T.copied }}">{{ T.copy_label }}</button>
+          </div>
+          <p class="h-get__sub"><a class="h-link" href="{{ vsc_url }}">{{ T.vsc_market }}</a> · {{ T.vsc_note }} <a class="h-link" href="https://github.com/tenon-code-eu/tenon/releases/latest">{{ T.vsc_release }}</a>{{ T.vsc_then }}</p>
+        </div>
+        <div class="h-get__item">
           <h3 class="h-h3">{{ T.verify_title }}</h3>
           <p>{{ T.verify_d }}</p>
           <code class="h-cmd h-cmd--light"><span class="h-cmd__prompt" aria-hidden="true">$</span><span class="h-cmd__text">minisign -Vm SHA256SUMS -p tenon.pub</span></code>
-        </div>
-        <div class="h-get__item h-get__item--soon">
-          <h3 class="h-h3">{{ T.soon }}</h3>
-          <p>{{ T.soon_d }}</p>
         </div>
       </div>
       <p class="h-get__docs"><a class="h-link" href="{{ T.docs_href }}">{{ T.read_docs }}</a></p>
@@ -367,11 +743,13 @@
         <p class="h-cmdk__group">{{ T.pal_copy }}</p>
         <button class="h-cmdk__item" role="option" data-copy="{{ brew }}" data-copied="{{ T.copied }}">{{ brew }}</button>
         <button class="h-cmdk__item" role="option" data-copy="{{ script }}" data-copied="{{ T.copied }}">{{ T.tab_script }} · install.sh</button>
+        <button class="h-cmdk__item" role="option" data-copy="{{ vsc }}" data-copied="{{ T.copied }}">VS Code · {{ vsc }}</button>
         <p class="h-cmdk__group">{{ T.pal_go }}</p>
         <button class="h-cmdk__item" role="option" data-href="{{ T.docs_href }}">{{ T.usage }}</button>
         <button class="h-cmdk__item" role="option" data-href="{{ T.security_href }}">{{ T.security }}</button>
         <button class="h-cmdk__item" role="option" data-href="{{ T.policy_href }}">{{ T.policy }}</button>
         <button class="h-cmdk__item" role="option" data-href="{{ T.ci_href }}">{{ T.ci }}</button>
+        <button class="h-cmdk__item" role="option" data-href="{{ T.editors_href }}">{{ T.editors }}</button>
         <button class="h-cmdk__item" role="option" data-href="https://github.com/tenon-code-eu/tenon">GitHub · tenon-code-eu/tenon</button>
         <button class="h-cmdk__item" role="option" data-href="{{ T.other_href }}">{{ T.other_lang }}</button>
         <p class="h-cmdk__empty" hidden>{{ T.pal_none }}</p>
@@ -404,4 +782,5 @@
   {{ super() }}
   <script src="{{ root }}/assets/site/home.js?v={{ v }}" defer></script>
   <script src="{{ root }}/assets/site/journey.js?v={{ v }}" defer></script>
+  <script src="{{ root }}/assets/site/live.js?v={{ v }}" defer></script>
 {% endblock %}

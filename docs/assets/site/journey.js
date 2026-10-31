@@ -1,4 +1,5 @@
 /* tenon · « Le voyage d'une requête » : la boucle d'agent vue de l'intérieur.
+ * La mémoire est lue avant la boucle (MemoryRead) ; chaque appel du modèle compte ses jetons (Usage).
  * Un anneau autour du moteur (masquage → routage → modèle → permissions → outil → résultat),
  * parcouru une fois par itération ; les garde-fous autour ; et, à côté, le journal d'audit en
  * direct avec les vrais types d'événements de tenon. Quatre chapitres, barre déplaçable.
@@ -40,7 +41,8 @@
     hooks: { x: 300, y: 205, w: 190, h: 88 },
     skills: { x: 300, y: 815, w: 190, h: 88 },
     checkpoints: { x: 1080, y: 865, w: 190, h: 88 },
-    eu: { x: 1290, y: 175, w: 170, h: 120 }
+    eu: { x: 1290, y: 175, w: 170, h: 120 },
+    memory: { x: 300, y: 510, w: 150, h: 88 }
   };
   Object.keys(RING).forEach(function (id) { var p = ringPt(RING[id]); N[id] = { x: p[0], y: p[1], w: 172, h: 84, ring: RING[id] }; });
   var FRAME = { x0: 195, y0: 108, x1: 1185, y1: 948 };
@@ -50,10 +52,11 @@
   function key(id, stay, cap, evs, zoom) { K.push({ id: id, stay: stay, cap: cap, evs: evs || [], zoom: !!zoom }); }
   key("you", 1.0, 1, [["UserMessage", TXT.ev.user]]);
   key("hooks", 0.9, 2, [["HookStarted", TXT.ev.hook_s], ["HookCompleted", TXT.ev.hook_c]]);
-  key("engine", 0.6, 3);
+  key("engine", 0.5, 3);
   key("skills", 0.8, 3);
-  key("engine", 0.4, 3);
-  var CAPS = [[4, 4, 5, 5, 5, 6, 6], [7, 7, 7, 7, 8, 8, 8], [9, 9, 9, 9, 10, 10, 10], [11, 11, 11]];
+  key("memory", 1.0, 4, [["MemoryRead", TXT.ev.mem]]);
+  key("engine", 0.4, 4);
+  var CAPS = [[5, 5, 6, 6, 6, 7, 7], [8, 8, 8, 8, 9, 9, 9], [10, 10, 10, 10, 11, 11, 11], [12, 12, 12]];
   var CALL = [["ToolCallRequested", TXT.ev.read], ["ToolCallRequested", TXT.ev.write], ["ToolCallRequested", TXT.ev.shell], ["AssistantMessage", TXT.ev.answer]];
   var PERM = [[], [["PermissionRequested", TXT.ev.write], ["PermissionResolved", TXT.ev.allowed]], [["PermissionRequested", TXT.ev.shell], ["PermissionResolved", TXT.ev.allowed_net]]];
   var RES = [["ToolResult", TXT.ev.read_r], ["ToolResult", TXT.ev.write_r], ["ToolResult", TXT.ev.shell_r]];
@@ -61,15 +64,15 @@
     var cp = CAPS[it];
     key("redaction", it === 0 ? 0.8 : 0.22, cp[0], it === 0 ? [["RedactionApplied", TXT.ev.redact]] : []);
     key("routing", it === 0 ? 1.2 : 0.22, cp[1], it === 0 ? [["SessionClassified", TXT.ev["class"]], ["ProviderSelected", TXT.ev.prov]] : [], it === 0);
-    key("model", 0.9, cp[2], [CALL[it]]);
+    key("model", 0.9, cp[2], [CALL[it], ["Usage", TXT.ev.usage[it]]]);
     if (it < 3) {
       key("permissions", it === 0 ? 0.5 : 1.15, cp[3], PERM[it], it === 1);
       key("tool", it === 0 ? 0.8 : it === 1 ? 1.25 : 2.0, cp[4], [RES[it]], it === 2);
       key("result", 0.22, cp[5]);
       key("engine", 0.35, cp[6]);
     } else {
-      key("engine", 0.4, 11);
-      key("you", 1.3, 11, [["TurnCompleted", TXT.ev.done]]);
+      key("engine", 0.4, 12);
+      key("you", 1.3, 12, [["TurnCompleted", TXT.ev.done]]);
     }
   }
   /* Temps : déplacement entre deux arrêts, plus court sur l'anneau. */
@@ -169,7 +172,7 @@
   function capOf(x) {
     x = wrap(x);
     if (x < T0 - 0.3) return 0;
-    if (x >= PROOF0 - 0.1) return 12;
+    if (x >= PROOF0 - 0.1) return TXT.cap.length - 1;
     var c = 0; K.forEach(function (k) { if (x >= k.land - 0.25) c = k.cap; }); return c;
   }
 
@@ -241,7 +244,7 @@
   function spokes() {
     ctx.strokeStyle = C["3d-edge"]; ctx.globalAlpha = 0.5; ctx.lineWidth = 2.5; ctx.setLineDash([8, 8]);
     ctx.beginPath();
-    [["engine", "redaction"], ["result", "engine"], ["engine", "you"], ["engine", "hooks"], ["engine", "skills"], ["tool", "checkpoints"]].forEach(function (s) {
+    [["engine", "redaction"], ["result", "engine"], ["engine", "you"], ["engine", "hooks"], ["engine", "skills"], ["memory", "skills"], ["tool", "checkpoints"]].forEach(function (s) {
       ctx.moveTo(N[s[0]].x, N[s[0]].y); ctx.lineTo(N[s[1]].x, N[s[1]].y);
     });
     ctx.moveTo(N.routing.x, N.routing.y); ctx.lineTo(FRAME.x1, N.eu.y + 40); ctx.lineTo(N.eu.x - 80, N.eu.y + 40);
@@ -268,6 +271,24 @@
         text("tenon", n.x - n.w / 2 + 16, n.y + 22, 13, C["on-night-muted"]);
       }
       ctx.restore(); label("you", L.lit > 0.5);
+      /* badge de juridiction sous la réponse finale : qui a répondu */
+      if (L.nth >= 1) {
+        var k = clamp(spring(clamp(L.p * 2, 0, 1)), 0, 1.1);
+        ctx.globalAlpha = clamp(k, 0, 1); ctx.font = "500 14px " + F.mono;
+        var bw = ctx.measureText(TXT.badge).width + 28, by = n.y + n.h / 2 + 64;
+        rr(n.x - bw / 2, by - 17, bw, 34, 17); ctx.fillStyle = C["night-2"]; ctx.fill();
+        ctx.strokeStyle = C.gold; ctx.lineWidth = 2; ctx.stroke();
+        text(TXT.badge, n.x, by, 14, C.gold, F.mono, "center", 500); ctx.globalAlpha = 1;
+      }
+    },
+    memory: function (x) {
+      var L = last("memory", x), n = N.memory, k = easeOut(L.p); card("memory", L.lit, false);
+      for (var i = 0; i < 2; i++) {
+        var on = i === 0 && L.nth >= 0, dy = on ? -6 * k : 0;
+        rr(n.x - 58, n.y - 26 + i * 28 + dy, 116, 22, 5); ctx.fillStyle = on ? C.gold : C["3d-post"]; ctx.fill();
+        text(TXT.mem[i], n.x, n.y - 15 + i * 28 + dy, 12, on ? C["gold-ink"] : C["on-night-muted"], F.mono, "center", 500);
+      }
+      label("memory", L.lit > 0.5);
     },
     hooks: function (x) {
       var L = last("hooks", x), n = N.hooks, k = spring(L.p); card("hooks", L.lit, false);
@@ -390,7 +411,7 @@
     ctx.fillStyle = C.night; ctx.fillRect(0, 0, W, Hh);
     ctx.translate(W / 2, Hh / 2); ctx.scale(sc, sc); ctx.translate(-c.x, -c.y);
     frame(); spokes(); drawRing(x, sc);
-    ["you", "hooks", "skills", "checkpoints", "eu", "redaction", "routing", "model", "permissions", "result", "tool"].forEach(function (id) { FACES[id](x); });
+    ["you", "hooks", "skills", "memory", "checkpoints", "eu", "redaction", "routing", "model", "permissions", "result", "tool"].forEach(function (id) { FACES[id](x); });
     drawEngine(x);
     var h = hero(x), sqx = 1, sqy = 1;
     if (h.land >= 0 && h.land < 0.35) { var q = Math.sin(h.land / 0.35 * Math.PI) * Math.exp(-h.land * 5); sqx = 1 + 0.4 * q; sqy = 1 - 0.3 * q; }

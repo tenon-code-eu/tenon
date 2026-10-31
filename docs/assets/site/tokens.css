@@ -39,6 +39,7 @@
   --color-accent-ink:     oklch(98% 0.006 262);
   --color-gold:           oklch(86% 0.17 92);
   --color-gold-ink:       oklch(20% 0.04 264);
+  --color-danger:         oklch(74% 0.15 35);     /* refus, échec : lisible sur la nuit */
   --color-focus:          oklch(86% 0.17 92);
   --color-focus-light:    oklch(44% 0.19 264);
   --color-scrim:          oklch(17% 0.045 264 / 0.55);
