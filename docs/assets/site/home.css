@@ -72,15 +72,27 @@ body:has(.h-page) { background: var(--color-paper); color: var(--color-ink-2);
 .h-btn:active { transform: translateY(0); }
 
 /* ── Hero : la bande de nuit ─────────────────────────────────────── */
-.h-hero { background: var(--color-night); color: var(--color-on-night); border-bottom: 4px solid var(--color-gold); }
-.h-hero__inner { max-width: var(--page-max); margin-inline: auto; padding: var(--space-2xl) var(--page-gutter) var(--space-2xl);
-  display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-xl); align-items: center; }
+.h-hero { position: relative; isolation: isolate; overflow: hidden; background: var(--color-night); color: var(--color-on-night); border-bottom: 4px solid var(--color-gold); }
+/* Le bouclier 3D derrière le titre ; l'image fixe (SVG) sert de repli, sans JavaScript ni WebGL. */
+.h-hero__art { position: absolute; z-index: -1; inset: 0 0 auto 0; height: 23rem; margin: 0; pointer-events: none; }
+.h-hero__canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; opacity: 0; transition: opacity 0.9s var(--ease-out); }
+.h-hero__still { position: absolute; left: 50%; top: 180px; width: min(82vw, 340px); height: auto; transform: translate(-50%, -50%);
+  transition: opacity 0.6s var(--ease-out); }
+.h-hero__art.is-3d .h-hero__canvas { opacity: 1; }
+.h-hero__art.is-3d .h-hero__still { opacity: 0; }
+.h-hero__stars use { fill: var(--color-gold); transform-box: fill-box; transform-origin: center; }
+.h-anim .h-hero__stars use { opacity: 0; }
+.h-anim.no-webgl .h-hero__stars use, .h-anim .is-3d-failed .h-hero__stars use {
+  animation: h-star-in 0.9s var(--ease-out) forwards; animation-delay: calc(0.3s + var(--i) * 0.06s); }
+@keyframes h-star-in { from { opacity: 0; transform: scale(0.2) rotate(-90deg); } to { opacity: 1; transform: none; } }
+.h-hero__inner { max-width: var(--page-max); margin-inline: auto; padding: 19rem var(--page-gutter) var(--space-2xl); }
 .h-hero__title { font-family: var(--font-display); font-weight: 700; font-style: normal; font-size: var(--text-display);
   line-height: 0.98; letter-spacing: -0.035em; margin: 0 0 var(--space-lg); color: var(--color-on-night);
   overflow-wrap: anywhere; min-width: 0; max-width: 17ch; }
 .h-hero__lede { max-width: 54ch; margin: 0 0 var(--space-xl); color: var(--color-on-night-muted); font-size: var(--text-base); }
 
-.h-hero__copy { min-width: 0; }
+.h-hero__copy { min-width: 0; max-width: 38rem; }
+.h-hero__title, .h-hero__lede { text-shadow: 0 2px 22px var(--color-night), 0 0 2px var(--color-night); }
 .h-install { border: var(--rule-hair) solid var(--color-night-rule); border-radius: var(--radius-md);
   background: var(--color-night-2); padding: var(--space-xs); max-width: 40rem; }
 .h-install__tabs { display: flex; gap: var(--space-2xs); padding: var(--space-2xs); }
@@ -313,7 +325,9 @@ body:has(.h-page) { background: var(--color-paper); color: var(--color-ink-2);
 }
 @media (min-width: 60rem) {
   .h-search { display: flex; }
-  .h-hero__inner { grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr); padding-block: var(--space-3xl); }
+  .h-hero__inner { padding-block: var(--space-3xl); min-height: min(46rem, calc(100svh - 3.5rem)); display: flex; align-items: center; }
+  .h-hero__art { inset: 0; height: auto; }
+  .h-hero__still { left: 74%; top: 50%; width: min(42vw, 34rem); }
   .h-flow { grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.1fr) minmax(0, 1.2fr); align-items: center; gap: var(--space-2xl); }
   .h-flow__node + li::before, .h-flow__node + .h-flow__node::before { left: calc(-1 * var(--space-2xl)); top: 50%;
     width: var(--space-2xl); height: 0; border-left: 0; border-top: 2px solid var(--color-ink); }

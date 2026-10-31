@@ -29,6 +29,9 @@
   'b_sbom': 'SBOM CycloneDX' if fr else 'CycloneDX SBOM',
   'b_eu': "Conçu en Europe" if fr else 'Built in Europe',
   'read_script': 'Lire le script' if fr else 'Read the script',
+  'hero_label': "Le bouclier hexagonal de tenon en relief, ses circuits allumés, entouré des douze étoiles dorées de l'Union européenne qui viennent former leur cercle." if fr else "The tenon hexagonal shield in relief, its circuits lit, surrounded by the twelve gold stars of the European Union as they come together in a circle.",
+  'hs_title': 'Le harness, pièce par pièce' if fr else 'The harness, piece by piece',
+  'hs_lede': "Vingt-deux composants autour d'une seule boucle d'agent. Cliquez un composant, ou lancez la visite." if fr else 'Twenty-two components around a single agent loop. Click a component, or start the tour.',
   'stage_hint': 'Cliquez un composant · glissez pour tourner' if fr else 'Click a component · drag to orbit',
   'stage_label': "Maquette 3D du harness tenon vue de haut : vingt-deux composants reliés par des pistes de données. Flèches gauche et droite pour passer d'un composant à l'autre, Échap pour la vue d'ensemble." if fr else 'A 3D top-down model of the tenon harness: twenty-two components linked by data traces. Left and right arrows move between components, Escape returns to the overview.',
   'prev': 'Composant précédent' if fr else 'Previous component',
@@ -220,6 +223,7 @@
   {{ super() }}
   <link rel="stylesheet" href="{{ root }}/assets/site/tokens.css?v={{ v }}">
   <link rel="stylesheet" href="{{ root }}/assets/site/home.css?v={{ v }}">
+  <script>if(!matchMedia("(prefers-reduced-motion: reduce)").matches)document.documentElement.classList.add("h-anim")</script>
   <link rel="preload" href="{{ root }}/assets/site/fonts/bricolage-grotesque-latin-700-normal.woff2" as="font" type="font/woff2" crossorigin>
 {% endblock %}
 
@@ -253,6 +257,29 @@
 <main class="h-page" id="h-main" lang="{{ T.lang }}">
 
   <section class="h-hero" aria-labelledby="h-title">
+    <figure class="h-hero__art" id="h-hero-3d">
+      <canvas class="h-hero__canvas" role="img" aria-label="{{ T.hero_label }}"></canvas>
+      <svg class="h-hero__still" viewBox="-46 -46 92 92" role="img" aria-label="{{ T.hero_label }}">
+        <defs>
+          <linearGradient id="h-st-hex" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1f4bb0"/><stop offset="1" stop-color="#0c1f52"/></linearGradient>
+          <polygon id="h-star" points="0.00,-2.90 0.65,-0.90 2.76,-0.90 1.05,0.34 1.70,2.35 0.00,1.11 -1.70,2.35 -1.05,0.34 -2.76,-0.90 -0.65,-0.90"/>
+        </defs>
+        <g transform="scale(0.85) translate(-32 -32)" fill="none" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M32 2.5 57.5 17.2v29.6L32 61.5 6.5 46.8V17.2Z" fill="url(#h-st-hex)" stroke="#5fd8ff" stroke-width="2"/>
+          <g stroke="#5fd8ff" stroke-width="1.9">
+            <path d="M21 14.5 32 8.6l11 5.9 M30 21.5H21.5L18.5 18.5 M29 26H18.5 M28 30.5H23v12l4 4 M19.5 31.5v12.5l5.5 5.5 M15.5 33v9.5 M34 21.5h8.5l3-3 M35 26h10.5 M36 30.5h5v12l-4 4 M44.5 31.5v12.5l-5.5 5.5 M48.5 33v9.5 M24.5 16.5 32 22.5l7.5-6 M32 22.5V32 M32 40.5V56"/>
+          </g>
+          <rect x="28.6" y="32" width="6.8" height="8.5" rx="3.4" fill="#0c1f52" stroke="#7fe3ff" stroke-width="2"/>
+          <circle cx="32" cy="36.25" r="1.5" fill="#7fe3ff"/>
+        </g>
+        <g class="h-hero__stars">
+          <use href="#h-star" x="0.00" y="-39.00" style="--i:0"/><use href="#h-star" x="19.50" y="-33.77" style="--i:1"/><use href="#h-star" x="33.77" y="-19.50" style="--i:2"/>
+          <use href="#h-star" x="39.00" y="0.00" style="--i:3"/><use href="#h-star" x="33.77" y="19.50" style="--i:4"/><use href="#h-star" x="19.50" y="33.77" style="--i:5"/>
+          <use href="#h-star" x="0.00" y="39.00" style="--i:6"/><use href="#h-star" x="-19.50" y="33.77" style="--i:7"/><use href="#h-star" x="-33.77" y="19.50" style="--i:8"/>
+          <use href="#h-star" x="-39.00" y="0.00" style="--i:9"/><use href="#h-star" x="-33.77" y="-19.50" style="--i:10"/><use href="#h-star" x="-19.50" y="-33.77" style="--i:11"/>
+        </g>
+      </svg>
+    </figure>
     <div class="h-hero__inner">
       <div class="h-hero__copy">
         <h1 class="h-hero__title" id="h-title">{{ T.title }}</h1>
@@ -291,6 +318,13 @@
         </ul>
       </div>
 
+    </div>
+  </section>
+
+  <section class="h-harness" aria-labelledby="h-hs-title">
+    <div class="h-wrap">
+      <h2 class="h-h2" id="h-hs-title">{{ T.hs_title }}</h2>
+      <p class="h-lede">{{ T.hs_lede }}</p>
       <figure class="h-stage is-fallback" id="h-stage">
         <div class="h-stage__view">
           <canvas class="h-stage__canvas" id="h-harness" tabindex="0" role="img" aria-label="{{ T.stage_label }}"></canvas>
@@ -783,4 +817,5 @@
   <script src="{{ root }}/assets/site/home.js?v={{ v }}" defer></script>
   <script src="{{ root }}/assets/site/journey.js?v={{ v }}" defer></script>
   <script src="{{ root }}/assets/site/live.js?v={{ v }}" defer></script>
+  <script type="module" src="{{ root }}/assets/site/3d/main.js?v={{ v }}"></script>
 {% endblock %}
