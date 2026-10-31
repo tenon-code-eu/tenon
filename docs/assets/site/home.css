@@ -131,6 +131,15 @@ body:has(.h-page) { background: var(--color-paper); color: var(--color-ink-2);
 .h-copy--light { color: var(--color-ink); border-color: var(--color-rule-2); background: var(--color-paper); }
 .h-copy--light:hover, .h-copy--light[data-state="done"] { border-color: var(--color-accent); color: var(--color-accent); }
 
+/* ── Film de lancement ─────────────────────────────────────────── */
+.h-film { background: var(--color-night); color: var(--color-on-night); padding-block: var(--space-3xl) var(--space-2xl); }
+.h-film .h-h2 { color: var(--color-on-night); }
+.h-film .h-lede { color: var(--color-on-night-muted); }
+.h-film__fig { margin: 0; display: grid; gap: var(--space-sm); }
+.h-film__video { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; border-radius: var(--radius-md);
+  border: var(--rule-hair) solid var(--color-night-rule); background: var(--color-night-2); }
+.h-film__cap { font-size: var(--text-sm); color: var(--color-on-night-muted); }
+
 /* ── Scène 3D : maquette du harness ─────────────────────────────── */
 .h-stage { margin: 0; position: relative; display: grid; gap: var(--space-sm); min-width: 0; }
 .h-stage__view { position: relative; }

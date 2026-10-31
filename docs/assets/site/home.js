@@ -48,6 +48,19 @@
     });
   });
 
+  /* ── Film de lancement : lecture muette quand il est à l'écran, pause sinon.
+   * Jamais en mouvement réduit ; une pause demandée par le lecteur est respectée. ── */
+  var film = document.getElementById("h-film");
+  if (film && !reduce && "IntersectionObserver" in window) {
+    var filmVis = false, autoPause = false, userStop = false;
+    var playFilm = function () { if (filmVis && !userStop && !document.hidden && film.paused) { film.muted = true; var p = film.play(); if (p && p.catch) p.catch(function () {}); } };
+    var pauseFilm = function () { if (!film.paused) { autoPause = true; film.pause(); } };
+    film.addEventListener("pause", function () { if (!autoPause) userStop = true; autoPause = false; });
+    film.addEventListener("play", function () { userStop = false; });
+    new IntersectionObserver(function (en) { filmVis = en[0].isIntersecting; if (filmVis) playFilm(); else pauseFilm(); }, { threshold: 0.4 }).observe(film);
+    document.addEventListener("visibilitychange", function () { if (document.hidden) pauseFilm(); else playFilm(); });
+  }
+
   /* ── Palette ⌘K ─────────────────────────────────────────────────────── */
   var cmdk = document.getElementById("h-cmdk");
   var opener = document.getElementById("h-search");
