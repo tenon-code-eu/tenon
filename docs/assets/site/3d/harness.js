@@ -98,6 +98,13 @@ export function mount(stageEl, THREE, C) {
   const key = new THREE.DirectionalLight(0xffffff, Math.PI * 0.62); key.position.set(0.4, 0.85, 0.5); scene.add(key);
   const fill = new THREE.DirectionalLight(0xffffff, Math.PI * 0.18); fill.position.set(-0.6, 0.3, -0.5); scene.add(fill);
 
+  /* ── Quatre étages (vue éclatée) : du bas vers le haut, contrôle, moteur, données, preuves ── */
+  const LAYERS = JSON.parse(document.getElementById("h-layers").textContent);
+  const layerOf = {};
+  LAYERS.forEach((ids, li) => ids.forEach((id) => { layerOf[id] = li; }));
+  const floors = LAYERS.map(() => { const g = new THREE.Group(); scene.add(g); return g; });
+  const GAP = 3.4;
+
   const board = mesh([B(0, -0.3, 0.1, 22, 0.3, 15)]);
   scene.add(new THREE.Mesh(board.solid, new THREE.MeshLambertMaterial({ color: col.night2 })));
   { const g = [];
@@ -105,6 +112,14 @@ export function mount(stageEl, THREE, C) {
     for (let z = -7; z <= 7; z++) g.push(-10.8, 0.004, z, 10.8, 0.004, z);
     const geo = new THREE.BufferGeometry(); geo.setAttribute("position", new THREE.Float32BufferAttribute(g, 3));
     scene.add(new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: col.rule, transparent: true, opacity: 0.55 }))); }
+  /* une plaque de verre sous chaque étage soulevé */
+  const plateGeo = mesh([B(0, -0.06, 0.1, 22, 0.06, 15)]);
+  const plates = floors.slice(1).map((g) => {
+    const m = new THREE.MeshLambertMaterial({ color: col.night2, transparent: true, opacity: 0, depthWrite: false });
+    const e = new THREE.LineBasicMaterial({ color: col.edge, transparent: true, opacity: 0 });
+    g.add(new THREE.Mesh(plateGeo.solid, m), new THREE.LineSegments(plateGeo.edges, e));
+    return { m, e };
+  });
 
   TRACES.forEach((t) => {
     let len = 0; t.segs = [];
@@ -113,30 +128,42 @@ export function mount(stageEl, THREE, C) {
       t.segs.push({ a, b, l, o: len }); len += l;
     }
     t.len = len;
+    /* une piste interne à un étage monte avec lui ; une piste entre étages s'efface à l'ouverture */
+    t.layer = layerOf[t.ends[0]] === layerOf[t.ends[1]] ? layerOf[t.ends[0]] : -1;
     t.mat = new THREE.LineBasicMaterial({ color: col.edge, transparent: true, opacity: 0.7 });
-    scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(t.pts.map(([x, z]) => new THREE.Vector3(x, 0.02, z))), t.mat));
+    const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(t.pts.map(([x, z]) => new THREE.Vector3(x, 0.02, z))), t.mat);
+    (t.layer >= 0 ? floors[t.layer] : scene).add(line);
   });
 
   const PARTS = PARTS_TXT.map((p, i) => {
-    const sh = SHAPES[p.id], m = mesh(sh.boxes);
+    const sh = SHAPES[p.id], m = mesh(sh.boxes), layer = layerOf[p.id];
     const solid = new THREE.MeshLambertMaterial({ color: col.rail, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
     const edge = new THREE.LineBasicMaterial({ color: col.edge, transparent: true, opacity: 0.8 });
-    scene.add(new THREE.Mesh(m.solid, solid), new THREE.LineSegments(m.edges, edge));
-    return { id: p.id, name: p.name, desc: p.desc, num: (i + 1 < 10 ? "0" : "") + (i + 1), at: sh.at, d: sh.d, solid, edge, anchor: new THREE.Vector3(...sh.at) };
+    floors[layer].add(new THREE.Mesh(m.solid, solid), new THREE.LineSegments(m.edges, edge));
+    return { id: p.id, name: p.name, desc: p.desc, num: (i + 1 < 10 ? "0" : "") + (i + 1), at: sh.at, d: sh.d, solid, edge, layer,
+      home: new THREE.Vector3(...sh.at), anchor: new THREE.Vector3(...sh.at) };
   });
 
-  /* Les douze étoiles autour des fournisseurs : le cercle européen, à plat sur la carte. */
+  /* Les douze étoiles autour des fournisseurs : le cercle européen, à plat sur l'étage des données. */
   const starGeo = C.starGeometry(THREE, 0.32, 0.06), starMat = new THREE.MeshBasicMaterial({ color: col.gold });
   for (let i = 0; i < 12; i++) {
     const a = i / 12 * Math.PI * 2, s = new THREE.Mesh(starGeo, starMat);
-    s.position.set(8.4 + 2.3 * Math.cos(a), 1.6, 2.3 * Math.sin(a)); s.rotation.x = -Math.PI / 2; scene.add(s);
+    s.position.set(8.4 + 2.3 * Math.cos(a), 1.6, 2.3 * Math.sin(a)); s.rotation.x = -Math.PI / 2; floors[layerOf.providers].add(s);
   }
 
-  /* Paquets de données : ils circulent sur les pistes du composant visé. */
-  const MAXP = 64, pkPos = new Float32Array(MAXP * 3), pkGeo = new THREE.BufferGeometry();
+  /* Paquets de données : sur les pistes du composant visé, ou de l'étage raconté. */
+  const MAXP = 96, pkPos = new Float32Array(MAXP * 3), pkGeo = new THREE.BufferGeometry();
   pkGeo.setAttribute("position", new THREE.BufferAttribute(pkPos, 3)); pkGeo.setDrawRange(0, 0);
   const packets = new THREE.Points(pkGeo, new THREE.PointsMaterial({ color: col.gold, size: 0.7, map: C.glowTexture(THREE), transparent: true, depthWrite: false }));
   packets.frustumCulled = false; scene.add(packets);
+
+  /* ── Récit au défilement (absent en mouvement réduit) ── */
+  const track = stageEl.querySelector(".h-stage__track");
+  const chapters = Array.prototype.slice.call(stageEl.querySelectorAll(".h-stage__chapters li"));
+  const story = !reduce && !!track;
+  if (story) stageEl.classList.add("is-scroll"); else stageEl.classList.add("is-explore");
+  let prog = 0, chapter = -1, explode = 0, exploring = !story, viewX = 0, viewY = 0;
+  const CH = [0.2, 0.37, 0.54, 0.71, 0.86];                     /* bornes des quatre chapitres */
 
   /* ── Caméra : cible, distance, lacet, tangage ; « goal » est l'état visé ── */
   const OVER = { t: [0, 0, 0.2], d: 35, yaw: 0, pitch: 1.12 };
@@ -158,7 +185,8 @@ export function mount(stageEl, THREE, C) {
     return b;
   });
 
-  const fitFactor = () => (canvas.clientWidth / Math.max(1, canvas.clientHeight) < 0.9 ? 1.25 : 1);
+  /* recul selon le cadre : la carte (22 × 15) doit tenir en largeur sur un écran haut */
+  const fitFactor = () => { const asp = canvas.clientWidth / Math.max(1, canvas.clientHeight); return Math.max(1, Math.min(2.8, 1.2 / asp)) * (story && asp > 1.3 ? 1.12 : 1); };
   function select(i) {
     focus = i;
     if (i < 0) {
@@ -217,7 +245,48 @@ export function mount(stageEl, THREE, C) {
     return [(v.x * 0.5 + 0.5) * canvas.clientWidth, (1 - (v.y * 0.5 + 0.5)) * canvas.clientHeight, v.z];
   }
 
+  function storyFrame(dt) {
+    prog = C.damp(prog, C.pinProgress(track), 0.15, dt);
+    const p = prog;
+    explode = C.smooth(0.05, 0.17, p) * (1 - C.smooth(0.86, 0.94, p));
+    let c = -1;
+    for (let i = 0; i < 4; i++) if (p >= CH[i] && p < CH[i + 1]) c = i;
+    const ex = p >= 0.94;
+    if (ex !== exploring) {
+      exploring = ex; stageEl.classList.toggle("is-explore", ex);
+      if (ex) { goal.t = OVER.t.slice(); goal.d = OVER.d * fitFactor(); goal.yaw = OVER.yaw; goal.pitch = OVER.pitch; }
+      else { stopTour(); if (focus >= 0) select(-1); }
+    }
+    if (c !== chapter) {
+      chapter = c;
+      chapters.forEach((li, i) => li.classList.toggle("is-on", i === c));
+      PARTS.forEach((pt, k) => {
+        const on = c < 0 || pt.layer === c;
+        pt.solid.color.copy(on ? col.rail : col.post);
+        pt.edge.color.copy(c >= 0 && on ? col.gold : col.edge); pt.edge.opacity = on ? (c >= 0 ? 1 : 0.8) : 0.3;
+        pins[k].classList.toggle("is-named", c >= 0 && on);
+      });
+      TRACES.forEach((t) => { const on = c >= 0 && t.layer === c; t.mat.color.copy(on ? col.gold : col.edge); });
+    }
+    if (exploring) return;
+    /* caméra du récit : vue de trois quarts qui tourne lentement autour de la pile */
+    const fit = fitFactor(), lift = explode * GAP;
+    const midY = lift * 1.5, aimY = c >= 0 ? C.lerp(midY, lift * c + 0.6, 0.35) : midY;
+    cam.t = [0, aimY, 0.2];
+    const tall = canvas.clientWidth / Math.max(1, canvas.clientHeight) < 0.8;   /* mobile : la pile ouverte se regarde de plus près */
+    cam.d = C.lerp(OVER.d * fit, 46 * fit * (tall ? 0.68 : 1), explode);
+    cam.yaw = C.lerp(OVER.yaw, C.lerp(-0.7, 0.55, C.smooth(0.12, 0.86, p)), explode);
+    cam.pitch = C.lerp(OVER.pitch, 0.42, explode);
+    goal.t = cam.t.slice(); goal.d = cam.d; goal.yaw = cam.yaw; goal.pitch = cam.pitch;
+  }
+
   function render(dt, time) {
+    if (story) storyFrame(dt);
+    floors.forEach((g, i) => { g.position.y = explode * GAP * i; });
+    plates.forEach((pl) => { pl.m.opacity = 0.55 * explode; pl.e.opacity = 0.5 * explode; });
+    TRACES.forEach((t) => { if (t.layer < 0) t.mat.opacity = 0.7 * (1 - explode); });
+    PARTS.forEach((pt) => { pt.anchor.copy(pt.home); pt.anchor.y += explode * GAP * pt.layer; });
+
     const k = reduce ? 1 : 1 - Math.exp(-dt / 0.32);
     let settled = true;
     ["d", "yaw", "pitch"].forEach((f) => { cam[f] = C.lerp(cam[f], goal[f], k); if (Math.abs(cam[f] - goal[f]) > 1e-3) settled = false; else cam[f] = goal[f]; });
@@ -225,21 +294,31 @@ export function mount(stageEl, THREE, C) {
     const cp = Math.cos(cam.pitch);
     camera.position.set(cam.t[0] + cam.d * cp * Math.sin(cam.yaw), cam.t[1] + cam.d * Math.sin(cam.pitch), cam.t[2] + cam.d * cp * Math.cos(cam.yaw));
     camera.lookAt(cam.t[0], cam.t[1], cam.t[2]);
+    /* décalage de cadrage : la maquette laisse la place au texte (chapitres à gauche, panneau à
+     * droite sur grand écran ; cartes en bas sur mobile) */
+    const CW = canvas.clientWidth, CH_ = canvas.clientHeight, wide = CW >= 960;
+    const sx = !story ? 0 : wide ? (exploring ? -0.17 : 0.16) : 0, sy = !story ? 0 : wide ? 0 : 0.14;
+    viewX = reduce ? sx : C.damp(viewX, sx, 0.35, dt); viewY = reduce ? sy : C.damp(viewY, sy, 0.35, dt);
+    if (Math.abs(viewX - sx) > 1e-3 || Math.abs(viewY - sy) > 1e-3) settled = false;
+    if (CW && CH_) camera.setViewOffset(CW, CH_, -viewX * CW, viewY * CH_, CW, CH_);
     camera.updateMatrixWorld();
 
+    /* paquets : l'étage raconté, ou les pistes du composant visé */
     let n = 0;
-    const active = focus >= 0 ? PARTS[focus].id : null;
-    if (active && !reduce) {
+    const active = exploring && focus >= 0 ? PARTS[focus].id : null;
+    const runs = (t) => (active ? t.ends.indexOf(active) >= 0 || active === "policy" : !exploring && chapter >= 0 && t.layer === chapter);
+    if (!reduce && (active || (!exploring && chapter >= 0))) {
       if (!t0) t0 = time;
       const tt = time - t0;
       TRACES.forEach((t) => {
-        if (!(t.ends.indexOf(active) >= 0 || active === "policy")) return;
+        if (!runs(t)) return;
+        const y = 0.08 + (t.layer >= 0 ? explode * GAP * t.layer : 0);
         for (let j = 0; j < 3 && n < MAXP; j++) {
           const u = ((tt * 2.2 / t.len) + j / 3) % 1 * t.len;
           for (const sg of t.segs) {
             if (u <= sg.o + sg.l) {
               const f = (u - sg.o) / sg.l;
-              pkPos.set([sg.a[0] + (sg.b[0] - sg.a[0]) * f, 0.08, sg.a[1] + (sg.b[1] - sg.a[1]) * f], n * 3);
+              pkPos.set([sg.a[0] + (sg.b[0] - sg.a[0]) * f, y, sg.a[1] + (sg.b[1] - sg.a[1]) * f], n * 3);
               n++; break;
             }
           }
@@ -252,18 +331,19 @@ export function mount(stageEl, THREE, C) {
 
     /* Étiquettes HTML calées sur la projection des ancrages. */
     const W = canvas.clientWidth, H = canvas.clientHeight;
-    PARTS.forEach((p, i) => {
-      const s = project(p.anchor), b = pins[i];
-      b.classList.toggle("is-hidden", s[2] > 1 || s[0] < 0 || s[1] < 0 || s[0] > W || s[1] > H);
+    PARTS.forEach((pt, i) => {
+      const s = project(pt.anchor), b = pins[i];
+      const off = s[2] > 1 || s[0] < 0 || s[1] < 0 || s[0] > W || s[1] > H || (!exploring && !(chapter >= 0 && pt.layer === chapter));
+      b.classList.toggle("is-hidden", off);
       b.style.transform = "translate(" + s[0].toFixed(1) + "px," + s[1].toFixed(1) + "px) translate(-50%, calc(-100% - 10px))";
       b.style.zIndex = i === focus ? 2 : 1;
     });
     if (!shown) { shown = true; stageEl.classList.add("is-3d"); }
-    return dragging || !settled || n > 0;
+    return story || dragging || !settled || n > 0;
   }
 
   /* Orbite à la souris ou au doigt ; un clic sans glisser vise le composant le plus proche. */
-  canvas.addEventListener("pointerdown", (e) => { dragging = true; moved = 0; lx = e.clientX; ly = e.clientY; canvas.setPointerCapture(e.pointerId); });
+  canvas.addEventListener("pointerdown", (e) => { if (!exploring) return; dragging = true; moved = 0; lx = e.clientX; ly = e.clientY; canvas.setPointerCapture(e.pointerId); });
   canvas.addEventListener("pointermove", (e) => {
     if (!dragging) return;
     const dx = e.clientX - lx, dy = e.clientY - ly; lx = e.clientX; ly = e.clientY;
@@ -288,6 +368,7 @@ export function mount(stageEl, THREE, C) {
   canvas.addEventListener("pointerup", end);
   canvas.addEventListener("pointercancel", end);
   canvas.addEventListener("keydown", (e) => {
+    if (!exploring) return;
     if (e.key === "ArrowRight") { stopTour(); step(1); }
     else if (e.key === "ArrowLeft") { stopTour(); step(-1); }
     else if (e.key === "Escape") { stopTour(); select(-1); }
@@ -302,13 +383,5 @@ export function mount(stageEl, THREE, C) {
     lost() { stopTour(); stageEl.classList.remove("is-3d"); stageEl.classList.add("is-fallback"); },
   });
   select(-1);
-  /* La caméra descend sur la carte, puis la visite démarre une fois quand la carte est à l'écran
-   * (jamais en mouvement réduit). */
-  if (!reduce && "IntersectionObserver" in window) {
-    const io = new IntersectionObserver((en) => {
-      if (!en[0].isIntersecting) return;
-      io.disconnect(); timer = setTimeout(() => { if (!playing && focus < 0) startTour(); }, 2200);
-    }, { threshold: 0.5 });
-    io.observe(canvas);
-  }
+  if (story) addEventListener("scroll", () => st.request(), { passive: true });
 }
