@@ -48,8 +48,8 @@ jobs:
           # For an air-gapped or mirror install, also fetch install.sh itself from
           # the mirror (or vendor it in your repository) and pin it with a
           # "sha256sum -c" check: it carries the minisign public key.
-          curl -fsSL -o install.sh https://raw.githubusercontent.com/tenon-code-eu/tenon/v0.8.0/install.sh
-          TENON_VERSION=v0.8.0 TENON_REQUIRE_SIGNATURE=1 sh install.sh
+          curl -fsSL -o install.sh https://raw.githubusercontent.com/tenon-code-eu/tenon/v0.10.0/install.sh
+          TENON_VERSION=v0.10.0 TENON_REQUIRE_SIGNATURE=1 sh install.sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: Run tenon
         env:

@@ -24,7 +24,7 @@ tenon s'exécute dans un pipeline en mode non interactif (`-p`), sans terminal e
 Copiez le modèle de votre forge et la configuration dans `ci/tenon.toml` de votre dépôt. Ensuite :
 
 1. Définissez la clé du fournisseur (`MISTRAL_API_KEY` dans l'exemple) en variable masquée et protégée (GitLab) ou en secret (Forgejo, Gitea, GitHub).
-2. Épinglez la version : les modèles installent `v0.8.0`. Relevez-la volontairement, n'utilisez jamais une version flottante.
+2. Épinglez la version : les modèles installent `v0.10.0`. Relevez-la volontairement, n'utilisez jamais une version flottante.
 3. Lancez le job à la main avec la tâche (`TENON_TASK` dans GitLab, l'entrée `task` ailleurs), ou sur les merge requests et pull requests de votre propre dépôt.
 
 ## Ce que fait le job

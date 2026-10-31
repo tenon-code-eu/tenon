@@ -24,7 +24,7 @@ tenon runs in a pipeline in non-interactive mode (`-p`), with no terminal and no
 Copy the template of your forge and the configuration to `ci/tenon.toml` in your repository. Then:
 
 1. Define the provider key (`MISTRAL_API_KEY` in the example) as a masked and protected variable (GitLab) or as a secret (Forgejo, Gitea, GitHub).
-2. Pin the version: the templates install `v0.8.0`. Raise it on purpose, never use a floating version.
+2. Pin the version: the templates install `v0.10.0`. Raise it on purpose, never use a floating version.
 3. Run the job by hand with the task (`TENON_TASK` in GitLab, the `task` input elsewhere), or on merge and pull requests of your own repository.
 
 ## What the job does
