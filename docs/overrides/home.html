@@ -33,7 +33,7 @@
   'film_title': 'tenon en 37 secondes' if fr else 'tenon in 37 seconds',
   'film_lede': "Le film de lancement : l'accord avant chaque changement, le trajet de vos données, et le journal d'audit." if fr else 'The launch film: approval before every change, the path of your data, and the audit log.',
   'film_label': "Film de lancement de tenon, muet, 37 secondes : le bouclier et les étoiles de l'UE ; un terminal où une écriture attend votre accord ; le trajet des données par le masquage, l'accord et le journal vers un modèle local ou des fournisseurs européens, le hors UE bloqué sans consentement ; le journal d'audit chaîné ; la commande d'installation." if fr else 'tenon launch film, silent, 37 seconds: the shield and the EU stars; a terminal where a write waits for your approval; the path of data through masking, approval and the log to a local model or European providers, outside the EU blocked without consent; the hash-chained audit log; the install command.',
-  'film_cap': 'Muet, 37 secondes, textes en anglais. Les contrôles du lecteur le mettent en pause.' if fr else 'Silent, 37 seconds. The player controls pause it.',
+  'film_cap': 'Muet, 37 secondes. Les contrôles du lecteur le mettent en pause.' if fr else 'Silent, 37 seconds. The player controls pause it.',
   'hs_title': 'Le harness, pièce par pièce' if fr else 'The harness, piece by piece',
   'hs_lede': "Vingt-deux composants autour d'une seule boucle d'agent. Cliquez un composant, ou lancez la visite." if fr else 'Twenty-two components around a single agent loop. Click a component, or start the tour.',
   'stage_hint': 'Cliquez un composant · glissez pour tourner' if fr else 'Click a component · drag to orbit',
@@ -337,9 +337,9 @@
       <figure class="h-film__fig">
         {#- Pas d'attribut autoplay : la lecture muette démarre à l'écran (home.js), pour ne rien télécharger avant. -#}
         <video class="h-film__video" id="h-film" muted loop playsinline controls preload="none" width="1920" height="1080"
-          poster="{{ root }}/assets/site/film/tenon-launch-poster.jpg" aria-label="{{ T.film_label }}">
-          <source src="{{ root }}/assets/site/film/tenon-launch-720.mp4" type="video/mp4" media="(max-width: 48rem)">
-          <source src="{{ root }}/assets/site/film/tenon-launch-1080.mp4" type="video/mp4">
+          poster="{{ root }}/assets/site/film/tenon-launch{{ "-fr" if fr }}-poster.jpg" aria-label="{{ T.film_label }}">
+          <source src="{{ root }}/assets/site/film/tenon-launch{{ "-fr" if fr }}-720.mp4" type="video/mp4" media="(max-width: 48rem)">
+          <source src="{{ root }}/assets/site/film/tenon-launch{{ "-fr" if fr }}-1080.mp4" type="video/mp4">
         </video>
         <figcaption class="h-film__cap">{{ T.film_cap }}</figcaption>
       </figure>
