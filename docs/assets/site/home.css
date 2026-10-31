@@ -140,7 +140,11 @@ body:has(.h-page) { background: var(--color-paper); color: var(--color-ink-2);
   border: var(--rule-hair) solid var(--color-night-rule); background: var(--color-night-2); }
 .h-film__cap { font-size: var(--text-sm); color: var(--color-on-night-muted); }
 
-/* ── Scène 3D : maquette du harness ─────────────────────────────── */
+/* ── Le harness, pièce par pièce (three.js) ─────────────────────── */
+.h-harness { background: var(--color-night); color: var(--color-on-night); padding-block: var(--space-2xl) var(--space-3xl); }
+.h-harness .h-h2 { color: var(--color-on-night); }
+.h-harness .h-lede { color: var(--color-on-night-muted); }
+.h-harness :focus-visible { outline-color: var(--color-focus); }
 .h-stage { margin: 0; position: relative; display: grid; gap: var(--space-sm); min-width: 0; }
 .h-stage__view { position: relative; }
 .h-stage__canvas { display: block; width: 100%; aspect-ratio: 1 / 1; max-height: 36rem; border-radius: var(--radius-md);
@@ -337,6 +341,10 @@ body:has(.h-page) { background: var(--color-paper); color: var(--color-ink-2);
   .h-hero__inner { padding-block: var(--space-3xl); min-height: min(46rem, calc(100svh - 3.5rem)); display: flex; align-items: center; }
   .h-hero__art { inset: 0; height: auto; }
   .h-hero__still { left: 74%; top: 50%; width: min(42vw, 34rem); }
+  .h-stage { grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); align-items: start; column-gap: var(--space-xl); }
+  .h-stage__view { grid-row: 1 / span 3; }
+  .h-stage__canvas { aspect-ratio: 4 / 3; max-height: 40rem; }
+  .h-stage.is-fallback { grid-template-columns: minmax(0, 1fr); }
   .h-flow { grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.1fr) minmax(0, 1.2fr); align-items: center; gap: var(--space-2xl); }
   .h-flow__node + li::before, .h-flow__node + .h-flow__node::before { left: calc(-1 * var(--space-2xl)); top: 50%;
     width: var(--space-2xl); height: 0; border-left: 0; border-top: 2px solid var(--color-ink); }

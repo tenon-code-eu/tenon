@@ -16,6 +16,7 @@ function webgl() {
 /* id du conteneur → module de la scène. */
 const SCENES = [
   ["h-hero-3d", "hero.js"],
+  ["h-stage", "harness.js"],
 ];
 
 if (!webgl()) {
@@ -27,7 +28,11 @@ if (!webgl()) {
   const start = (el, file) =>
     Promise.all([three(), base(), import(at(file))])
       .then(([THREE, C, m]) => m.mount(el, THREE, C))
-      .catch((e) => { el.classList.remove("is-3d"); el.classList.add("is-3d-failed"); console.warn("tenon 3D:", e); });
+      .catch((e) => {
+        el.classList.remove("is-3d"); el.classList.add("is-3d-failed");
+        if (el.id === "h-stage") el.classList.add("is-fallback");
+        console.warn("tenon 3D:", e);
+      });
 
   const io = "IntersectionObserver" in window
     ? new IntersectionObserver((entries) => {
