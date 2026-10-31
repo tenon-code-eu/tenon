@@ -59,6 +59,11 @@
   'gate_perm': 'Écritures, commandes et appels MCP soumis à votre accord' if fr else 'Writes, commands and MCP calls wait for you',
   'gate_log': 'Journal chaîné par hachage, horodatable (RFC 3161)' if fr else 'Hash-chained log, timestampable (RFC 3161)',
   'gate_route': "Contenu classé : modèle local seulement" if fr else 'Classified content: local model only',
+  'flow_label': "Animation au défilement : vos fichiers partent de votre projet et traversent trois portes, masquage des secrets, votre accord, puis le journal d'audit. Le flux se partage ensuite vers votre machine (modèle local) et vers les fournisseurs européens. La branche hors UE bute sur une barrière : sans votre consentement explicite, rien ne sort." if fr else 'Scroll animation: your files leave your project and pass three gates, secret masking, your approval, then the audit log. The flow then splits to your machine (local model) and to European providers. The branch outside the EU hits a barrier: without your explicit consent, nothing leaves.',
+  'g_mask': 'Masquage' if fr else 'Masking',
+  'g_perm': 'Votre accord' if fr else 'Your approval',
+  'g_log': "Journal d'audit" if fr else 'Audit log',
+  'flow_blocked': 'bloqué sans votre consentement explicite' if fr else 'blocked without your explicit consent',
   'dest_local': 'Sur votre machine' if fr else 'On your machine',
   'dest_eu': 'Fournisseurs européens' if fr else 'European providers',
   'dest_out': 'Hors UE' if fr else 'Outside the EU',
@@ -692,7 +697,25 @@
     <div class="h-wrap">
       <h2 class="h-h2" id="h-map-title">{{ T.map_title }}</h2>
       <p class="h-lede">{{ T.map_lede }}</p>
-
+    </div>
+    <figure class="h-flow3d" id="h-flow-3d">
+      <div class="h-flow3d__track">
+        <div class="h-flow3d__pin">
+          <canvas class="h-flow3d__canvas" role="img" aria-label="{{ T.flow_label }}"></canvas>
+          <ul class="h-flow3d__labels" aria-hidden="true">
+            <li data-k="project"><b>{{ T.node_project }}</b><span>{{ T.node_project_d }}</span></li>
+            <li data-k="mask"><b>{{ T.g_mask }}</b><span>{{ T.gate_mask }}</span></li>
+            <li data-k="perm"><b>{{ T.g_perm }}</b><span>{{ T.gate_perm }}</span></li>
+            <li data-k="log"><b>{{ T.g_log }}</b><span>{{ T.gate_log }}</span></li>
+            <li data-k="route" class="is-note"><span>{{ T.gate_route }}</span></li>
+            <li data-k="local"><b>{{ T.dest_local }}</b><span>Ollama · vLLM</span></li>
+            <li data-k="eu" class="is-eu"><b>{{ T.dest_eu }}</b><span>Mistral AI · Scaleway · OVHcloud · Albert API</span></li>
+            <li data-k="out" class="is-out"><b>{{ T.dest_out }}</b><span>{{ T.flow_blocked }}</span></li>
+          </ul>
+        </div>
+      </div>
+    </figure>
+    <div class="h-wrap">
       <ol class="h-flow">
         <li class="h-flow__node h-flow__node--src">
           <span class="h-flow__label">{{ T.node_project }}</span>

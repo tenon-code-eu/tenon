@@ -17,6 +17,7 @@ function webgl() {
 const SCENES = [
   ["h-hero-3d", "hero.js"],
   ["h-stage", "harness.js"],
+  ["h-flow-3d", "flow.js"],
 ];
 
 if (!webgl()) {
@@ -39,7 +40,8 @@ if (!webgl()) {
         entries.forEach((en) => {
           if (!en.isIntersecting) return;
           io.unobserve(en.target);
-          start(en.target, en.target.getAttribute("data-scene"));
+          const el = en.target.__scene || en.target;
+          start(el, el.getAttribute("data-scene"));
         });
       }, { rootMargin: "400px 0px" })
     : null;
@@ -53,7 +55,12 @@ if (!webgl()) {
     if (!el) return;
     el.setAttribute("data-scene", file);
     if (id === "h-hero-3d") whenLoaded(() => start(el, file));
-    else if (io) io.observe(el);
+    else if (io) {
+      /* on observe la section : la figure peut être masquée tant que la scène n'est pas montée */
+      const watch = el.closest("section") || el;
+      watch.__scene = el;
+      io.observe(watch);
+    }
     else start(el, file);
   });
 }

@@ -212,6 +212,37 @@ body:has(.h-page) { background: var(--color-paper); color: var(--color-ink-2);
 .h-dest--out { border-style: dashed; border-left-style: dashed; border-left-color: var(--color-muted); background: var(--color-paper-2); }
 .h-dest--out .h-flow__label { color: var(--color-ink-2); }
 
+/* Scène 3D au défilement : le bloc « track » est haut, la scène reste collée en dessous du menu. */
+.h-map:has(.h-flow3d.is-3d) { background: var(--color-night); color: var(--color-on-night); padding-bottom: 0; }
+.h-map:has(.h-flow3d.is-3d) .h-h2 { color: var(--color-on-night); }
+.h-map:has(.h-flow3d.is-3d) .h-lede { color: var(--color-on-night-muted); margin-bottom: 0; }
+.h-flow3d { display: none; margin: 0; }
+.h-flow3d.is-3d { display: block; }
+.h-flow3d.is-3d.is-scroll .h-flow3d__track { height: 240vh; }
+.h-flow3d__pin { position: relative; height: min(42rem, 80vh); overflow: hidden; }
+.h-flow3d.is-scroll .h-flow3d__pin { position: sticky; top: 3.9rem; height: calc(100vh - 3.9rem); height: calc(100svh - 3.9rem); }
+.h-flow3d__canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
+.h-flow3d__labels { position: absolute; inset: 0; margin: 0; padding: 0; list-style: none; pointer-events: none; }
+.h-flow3d__labels li { position: absolute; left: 0; top: 0; display: grid; gap: 2px; max-width: 15rem; padding: 0 2px;
+  text-align: center; transition: opacity var(--dur-long) var(--ease-out); text-shadow: 0 1px 8px var(--color-night); }
+.h-flow3d__labels li.is-off { opacity: 0; }
+.h-flow3d__labels b { font: 600 var(--text-sm)/1.2 var(--font-body); color: var(--color-on-night); }
+.h-flow3d__labels span { font: 400 0.72rem/1.35 var(--font-mono); color: var(--color-on-night-muted); }
+.h-flow3d__labels .is-eu b { color: var(--color-gold); }
+.h-flow3d__labels .is-out b, .h-flow3d__labels .is-out span { color: var(--color-danger); }
+.h-flow3d__labels .is-note span { color: var(--color-gold); max-width: 13rem; }
+.h-flow3d__labels [data-k="eu"] { text-align: start; max-width: 12rem; }
+.h-flow3d.is-portrait .h-flow3d__labels li { max-width: 9.5rem; }
+.h-flow3d.is-portrait .h-flow3d__labels [data-k="project"], .h-flow3d.is-portrait .h-flow3d__labels [data-k="mask"],
+.h-flow3d.is-portrait .h-flow3d__labels [data-k="perm"], .h-flow3d.is-portrait .h-flow3d__labels [data-k="log"],
+.h-flow3d.is-portrait .h-flow3d__labels [data-k="route"] { text-align: start; max-width: min(10rem, 44vw); }
+.h-flow3d.is-portrait .h-flow3d__labels span { font-size: 0.68rem; }
+.h-flow3d.is-portrait .h-flow3d__labels [data-k="eu"] span, .h-flow3d.is-portrait .h-flow3d__labels [data-k="local"] span { display: none; }
+.h-flow3d.is-portrait .h-flow3d__labels [data-k="local"], .h-flow3d.is-portrait .h-flow3d__labels [data-k="eu"],
+.h-flow3d.is-portrait .h-flow3d__labels [data-k="out"] { text-align: center; max-width: 8rem; }
+/* La liste reste la version de référence pour les lecteurs d'écran. */
+.h-map:has(.h-flow3d.is-3d) .h-flow { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
 /* ── Preuves (tableau des repères) ───────────────────────────────── */
 .h-proof { padding-block: var(--space-2xl) var(--space-3xl); border-top: var(--rule-hair) solid var(--color-rule); }
 .h-proof__grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-xl); }
