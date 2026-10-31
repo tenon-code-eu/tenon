@@ -1,6 +1,8 @@
-/* tenon · héros 3D : le bouclier hexagonal de mark.svg en relief, ses pistes allumées,
- * et les douze étoiles de l'Union européenne qui viennent former leur cercle.
- * Léger parallaxe à la souris ; en mouvement réduit, l'image finale, fixe. */
+/* tenon · héros 3D : le bouclier hexagonal de mark.svg en relief, ses pistes allumées, et les
+ * douze étoiles de l'Union européenne en cercle. Les étoiles s'assemblent d'abord en CSS 3D sur
+ * l'image fixe (aucun script nécessaire) ; la scène se cale exactement sur cette image, la
+ * remplace en fondu, puis prend vie : le bouclier pivote, une onde parcourt les étoiles,
+ * léger parallaxe à la souris. En mouvement réduit : une image fixe. */
 export function mount(fig, THREE, C) {
   const canvas = fig.querySelector("canvas");
   const col = C.colors(THREE);
@@ -78,11 +80,8 @@ export function mount(fig, THREE, C) {
   const stars = [];
   for (let i = 0; i < 12; i++) {
     const a = Math.PI / 2 - i * Math.PI / 6, m = new THREE.Mesh(starGeo, starMat);
-    const end = new THREE.Vector3(Math.cos(a) * RING_R, Math.sin(a) * RING_R, 0.2 * Math.sin(i * 1.7));
-    const th = rnd() * Math.PI * 2, rr = 9 + rnd() * 6;
-    const start = new THREE.Vector3(Math.cos(th) * rr, Math.sin(th) * rr * 0.7, -6 + rnd() * 16);
-    stars.push({ m, end, start, spin: (rnd() - 0.5) * 12, delay: 0.35 + i * 0.065 });
-    tilt.add(m);
+    m.position.set(Math.cos(a) * RING_R, Math.sin(a) * RING_R, 0.25 * Math.sin(i * 1.7));   /* légère profondeur */
+    stars.push(m); tilt.add(m);
   }
 
   /* Poussière d'étoiles, hors du groupe : elle donne la profondeur au parallaxe. */
@@ -93,14 +92,17 @@ export function mount(fig, THREE, C) {
   scene.add(dust);
 
   /* ── Mise en page : à droite du titre sur grand écran, au-dessus sur mobile ── */
+  /* La scène se cale sur l'image fixe (.h-hero__still) : même centre, même rayon du cercle
+   * (39/92 du cadre), pour un fondu sans saut. */
+  const still = fig.querySelector(".h-hero__still");
   let wide = true;
   function layout(w, h) {
     camera.aspect = w / h; camera.updateProjectionMatrix();
     const k = 2 * DIST * Math.tan(camera.fov * Math.PI / 360) / h;   /* unités monde par pixel à z = 0 */
     wide = w >= 960;
-    const cx = wide ? w * 0.74 : w * 0.5, cy = wide ? h * 0.5 : Math.min(h * 0.5, 180);
-    const rpx = wide ? Math.min(h * 0.4, w * 0.22) : Math.min(w * 0.42, 155);
-    root.scale.setScalar(rpx * k / (RING_R + 0.4));
+    const c = canvas.getBoundingClientRect(), r = still.getBoundingClientRect();
+    const cx = r.left - c.left + r.width / 2, cy = r.top - c.top + r.height / 2;
+    root.scale.setScalar(r.width * 39 / 92 * k / RING_R);
     root.position.set((cx - w / 2) * k, -(cy - h / 2) * k, 0);
   }
 
@@ -114,30 +116,21 @@ export function mount(fig, THREE, C) {
     hero.addEventListener("pointerleave", () => { tx = 0; ty = 0; st.request(); });
   }
 
-  const END = 2.6;
-  let t = C.reduce ? END + 10 : 0, shown = false;
-  const tmp = new THREE.Vector3();
+  let t = C.reduce ? 10 : 0, shown = false;
   function render(dt) {
     t += dt;
-    /* bouclier : il pivote vers vous et ses pistes s'allument */
-    const e = C.easeOut(t / 1.3);
-    shield.rotation.y = C.lerp(-0.9, 0, e);
-    shield.scale.setScalar(C.lerp(0.84, 1, e));
-    glow.emissiveIntensity = C.smooth(0.5, 1.6, t) * (0.42 + (C.reduce ? 0 : 0.14 * Math.sin(t * 1.7)));
-    /* étoiles : elles convergent, puis scintillent doucement */
-    stars.forEach((s, i) => {
-      const u = C.clamp((t - s.delay) / 1.5, 0, 1), k = C.easeOut(u);
-      tmp.copy(s.start).lerp(s.end, k);
-      const sw = Math.sin(Math.PI * k) * 1.4;   /* trajectoire en arc */
-      tmp.x += -s.end.y / RING_R * sw; tmp.y += s.end.x / RING_R * sw;
-      s.m.position.copy(tmp);
-      s.m.rotation.set((1 - k) * s.spin * 0.5, (1 - k) * s.spin * 0.3, (1 - k) * s.spin);
-      s.m.scale.setScalar((u <= 0 ? 0 : 0.2 + 0.8 * k) * (1 + (u >= 1 && !C.reduce ? 0.07 * Math.sin(t * 2.2 + i) : 0)));
+    const life = C.easeIO(t / 1.8);                                /* 0 → 1 : la scène prend vie */
+    glow.emissiveIntensity = C.lerp(0.18, 0.42, life) + (C.reduce ? 0 : 0.14 * life * Math.sin(t * 1.7));
+    /* une onde d'or fait le tour des étoiles, puis elles scintillent doucement */
+    stars.forEach((m, i) => {
+      const wave = C.reduce ? 0 : Math.exp(-Math.pow((t - 0.4 - i * 0.09) / 0.16, 2));
+      m.scale.setScalar(1 + 0.45 * wave + (C.reduce ? 0 : 0.06 * Math.sin(t * 2.2 + i) * life));
+      m.rotation.y = wave * Math.PI;
     });
-    /* parallaxe amorti et légère respiration */
+    /* parallaxe amorti et légère respiration, à partir de la vue de face de l'image fixe */
     px = C.damp(px, tx, 0.35, dt); py = C.damp(py, ty, 0.35, dt);
-    const idle = C.reduce ? 0 : Math.sin(t * 0.45) * 0.06;
-    tilt.rotation.y = (wide ? -0.24 : -0.12) + px * 0.32 + idle; tilt.rotation.x = 0.06 + py * 0.2 + idle * 0.4;
+    const idle = C.reduce ? 0 : Math.sin(t * 0.45) * 0.06 * life;
+    tilt.rotation.y = life * (wide ? -0.24 : -0.12) + px * 0.32 + idle; tilt.rotation.x = life * 0.06 + py * 0.2 + idle * 0.4;
     dust.position.x = -px * 0.8; dust.position.y = py * 0.5;
     dust.rotation.z = C.reduce ? 0 : t * 0.004;
     st.renderer.render(scene, camera);

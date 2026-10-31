@@ -47,15 +47,24 @@ if (!webgl()) {
       }, { rootMargin: "400px 0px" })
     : null;
 
-  /* Le héros attend la fin du chargement et un moment calme : le titre HTML reste le premier rendu. */
-  const idle = (fn) => ("requestIdleCallback" in window ? requestIdleCallback(fn, { timeout: 2500 }) : setTimeout(fn, 600));
-  const whenLoaded = (fn) => (document.readyState === "complete" ? idle(fn) : addEventListener("load", () => idle(fn), { once: true }));
+  /* Le héros affiche d'abord son image fixe (étoiles assemblées en CSS). La scène three.js ne se
+   * charge qu'au premier geste (souris, toucher, défilement, clavier) ou 7 s après le chargement :
+   * rien ne pèse sur le premier rendu ni sur la réactivité de la page. */
+  const firstGesture = (fn) => {
+    let done = false;
+    const evs = ["pointermove", "pointerdown", "touchstart", "wheel", "scroll", "keydown"];
+    const go = () => { if (done) return; done = true; evs.forEach((e) => removeEventListener(e, go, true)); clearTimeout(timer); fn(); };
+    evs.forEach((e) => addEventListener(e, go, { capture: true, passive: true }));
+    let timer = 0;
+    const arm = () => { timer = setTimeout(go, 7000); };
+    if (document.readyState === "complete") arm(); else addEventListener("load", arm, { once: true });
+  };
 
   SCENES.forEach(([id, file]) => {
     const el = document.getElementById(id);
     if (!el) return;
     el.setAttribute("data-scene", file);
-    if (id === "h-hero-3d") whenLoaded(() => start(el, file));
+    if (id === "h-hero-3d") firstGesture(() => start(el, file));
     else if (io) {
       /* on observe la section : la figure peut être masquée tant que la scène n'est pas montée */
       const watch = el.closest("section") || el;

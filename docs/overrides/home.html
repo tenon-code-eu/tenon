@@ -274,26 +274,20 @@
   <section class="h-hero" aria-labelledby="h-title">
     <figure class="h-hero__art" id="h-hero-3d">
       <canvas class="h-hero__canvas" role="img" aria-label="{{ T.hero_label }}"></canvas>
-      <svg class="h-hero__still" viewBox="-46 -46 92 92" role="img" aria-label="{{ T.hero_label }}">
-        <defs>
-          <linearGradient id="h-st-hex" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1f4bb0"/><stop offset="1" stop-color="#0c1f52"/></linearGradient>
-          <polygon id="h-star" points="0.00,-2.90 0.65,-0.90 2.76,-0.90 1.05,0.34 1.70,2.35 0.00,1.11 -1.70,2.35 -1.05,0.34 -2.76,-0.90 -0.65,-0.90"/>
-        </defs>
-        <g transform="scale(0.85) translate(-32 -32)" fill="none" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M32 2.5 57.5 17.2v29.6L32 61.5 6.5 46.8V17.2Z" fill="url(#h-st-hex)" stroke="#5fd8ff" stroke-width="2"/>
-          <g stroke="#5fd8ff" stroke-width="1.9">
-            <path d="M21 14.5 32 8.6l11 5.9 M30 21.5H21.5L18.5 18.5 M29 26H18.5 M28 30.5H23v12l4 4 M19.5 31.5v12.5l5.5 5.5 M15.5 33v9.5 M34 21.5h8.5l3-3 M35 26h10.5 M36 30.5h5v12l-4 4 M44.5 31.5v12.5l-5.5 5.5 M48.5 33v9.5 M24.5 16.5 32 22.5l7.5-6 M32 22.5V32 M32 40.5V56"/>
+      <div class="h-hero__still" role="img" aria-label="{{ T.hero_label }}">
+        <svg viewBox="-46 -46 92 92" aria-hidden="true">
+          <defs><linearGradient id="h-st-hex" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1f4bb0"/><stop offset="1" stop-color="#0c1f52"/></linearGradient></defs>
+          <g transform="scale(0.85) translate(-32 -32)" fill="none" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M32 2.5 57.5 17.2v29.6L32 61.5 6.5 46.8V17.2Z" fill="url(#h-st-hex)" stroke="#5fd8ff" stroke-width="2"/>
+            <g stroke="#5fd8ff" stroke-width="1.9">
+              <path d="M21 14.5 32 8.6l11 5.9 M30 21.5H21.5L18.5 18.5 M29 26H18.5 M28 30.5H23v12l4 4 M19.5 31.5v12.5l5.5 5.5 M15.5 33v9.5 M34 21.5h8.5l3-3 M35 26h10.5 M36 30.5h5v12l-4 4 M44.5 31.5v12.5l-5.5 5.5 M48.5 33v9.5 M24.5 16.5 32 22.5l7.5-6 M32 22.5V32 M32 40.5V56"/>
+            </g>
+            <rect x="28.6" y="32" width="6.8" height="8.5" rx="3.4" fill="#0c1f52" stroke="#7fe3ff" stroke-width="2"/>
+            <circle cx="32" cy="36.25" r="1.5" fill="#7fe3ff"/>
           </g>
-          <rect x="28.6" y="32" width="6.8" height="8.5" rx="3.4" fill="#0c1f52" stroke="#7fe3ff" stroke-width="2"/>
-          <circle cx="32" cy="36.25" r="1.5" fill="#7fe3ff"/>
-        </g>
-        <g class="h-hero__stars">
-          <use href="#h-star" x="0.00" y="-39.00" style="--i:0"/><use href="#h-star" x="19.50" y="-33.77" style="--i:1"/><use href="#h-star" x="33.77" y="-19.50" style="--i:2"/>
-          <use href="#h-star" x="39.00" y="0.00" style="--i:3"/><use href="#h-star" x="33.77" y="19.50" style="--i:4"/><use href="#h-star" x="19.50" y="33.77" style="--i:5"/>
-          <use href="#h-star" x="0.00" y="39.00" style="--i:6"/><use href="#h-star" x="-19.50" y="33.77" style="--i:7"/><use href="#h-star" x="-33.77" y="19.50" style="--i:8"/>
-          <use href="#h-star" x="-39.00" y="0.00" style="--i:9"/><use href="#h-star" x="-33.77" y="-19.50" style="--i:10"/><use href="#h-star" x="-19.50" y="-33.77" style="--i:11"/>
-        </g>
-      </svg>
+        </svg>
+        <span class="h-hero__stars" aria-hidden="true"><i class="h-star" style="--x:0.0000;--y:-1.0000;--fx:-220px;--fy:-260px;--i:0"></i><i class="h-star" style="--x:0.5000;--y:-0.8660;--fx:260px;--fy:-200px;--i:1"></i><i class="h-star" style="--x:0.8660;--y:-0.5000;--fx:300px;--fy:40px;--i:2"></i><i class="h-star" style="--x:1.0000;--y:-0.0000;--fx:240px;--fy:240px;--i:3"></i><i class="h-star" style="--x:0.8660;--y:0.5000;--fx:-60px;--fy:300px;--i:4"></i><i class="h-star" style="--x:0.5000;--y:0.8660;--fx:-300px;--fy:180px;--i:5"></i><i class="h-star" style="--x:0.0000;--y:1.0000;--fx:-280px;--fy:-80px;--i:6"></i><i class="h-star" style="--x:-0.5000;--y:0.8660;--fx:120px;--fy:-320px;--i:7"></i><i class="h-star" style="--x:-0.8660;--y:0.5000;--fx:-180px;--fy:220px;--i:8"></i><i class="h-star" style="--x:-1.0000;--y:0.0000;--fx:320px;--fy:-120px;--i:9"></i><i class="h-star" style="--x:-0.8660;--y:-0.5000;--fx:-320px;--fy:60px;--i:10"></i><i class="h-star" style="--x:-0.5000;--y:-0.8660;--fx:60px;--fy:280px;--i:11"></i></span>
+      </div>
     </figure>
     <div class="h-hero__inner">
       <div class="h-hero__copy">
