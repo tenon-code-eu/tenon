@@ -35,7 +35,7 @@
   'film_label': "Film de lancement de tenon, muet, 37 secondes : le bouclier et les étoiles de l'UE ; un terminal où une écriture attend votre accord ; le trajet des données par le masquage, l'accord et le journal vers un modèle local ou des fournisseurs européens, le hors UE bloqué sans consentement ; le journal d'audit chaîné ; la commande d'installation." if fr else 'tenon launch film, silent, 37 seconds: the shield and the EU stars; a terminal where a write waits for your approval; the path of data through masking, approval and the log to a local model or European providers, outside the EU blocked without consent; the hash-chained audit log; the install command.',
   'film_cap': 'Muet, 37 secondes. Les contrôles du lecteur le mettent en pause.' if fr else 'Silent, 37 seconds. The player controls pause it.',
   'hs_title': 'Le harness, pièce par pièce' if fr else 'The harness, piece by piece',
-  'hs_lede': "Vingt-deux composants autour d'une seule boucle d'agent. Cliquez un composant, ou lancez la visite." if fr else 'Twenty-two components around a single agent loop. Click a component, or start the tour.',
+  'hs_lede': "Vingt-deux composants, quatre étages, une seule boucle d'agent. Cliquez un composant pour le détailler." if fr else 'Twenty-two components, four floors, one agent loop. Click a component to see what it does.',
   'stage_hint': 'Cliquez un composant · glissez pour tourner' if fr else 'Click a component · drag to orbit',
   'stage_label': "Maquette 3D du harness tenon vue de haut : vingt-deux composants reliés par des pistes de données. Flèches gauche et droite pour passer d'un composant à l'autre, Échap pour la vue d'ensemble." if fr else 'A 3D top-down model of the tenon harness: twenty-two components linked by data traces. Left and right arrows move between components, Escape returns to the overview.',
   'prev': 'Composant précédent' if fr else 'Previous component',
@@ -221,6 +221,21 @@
   {'id': 'ci', 'name': 'In your pipelines', 'desc': 'GitLab CI, Forgejo/Gitea and GitHub Actions templates, --strict exit codes, audit verify and the compliance export as artifacts. tenon git install-hook marks the commits written by the agent.'},
   {'id': 'cra', 'name': 'CRA assistant', 'desc': 'tenon cra: SBOM, VEX, reporting deadlines and the Cyber Resilience Act technical dossier, with an offline OSV scan.'},
   {'id': 'policy', 'name': 'Organisation policy', 'desc': 'A floor signed with minisign, verified at every startup, that nobody can loosen.'}
+] %}
+{#- Les quatre étages de la vue éclatée (du bas vers le haut) et leurs composants. -#}
+{% set hs_layers = [
+  {'ids': ['policy', 'profile', 'permissions', 'sandbox', 'hooks'],
+   't': "Vos règles d'abord" if fr else 'Your rules first',
+   'd': "Politique signée, profil, permissions, isolation système et hooks : l'étage du dessous. Rien ne passe sans lui." if fr else 'Signed policy, profile, permissions, system sandbox and hooks: the bottom floor. Nothing gets past it.'},
+  {'ids': ['engine', 'tools', 'memory', 'skills', 'subagents', 'mcp', 'checkpoints', 'editors'],
+   't': "La boucle d'agent" if fr else 'The agent loop',
+   'd': "Le moteur lit, propose et exécute avec ses outils, sa mémoire, ses skills, ses sous-agents et MCP. Chaque message est un point de reprise." if fr else 'The engine reads, proposes and runs with its tools, memory, skills, sub-agents and MCP. Every prompt is a restore point.'},
+  {'ids': ['redaction', 'routing', 'providers', 'sobriety'],
+   't': 'Vos données' if fr else 'Your data',
+   'd': "Masquage, routage par sensibilité, fournisseurs européens ou locaux, sobriété en jetons : ce qui sort, et vers où." if fr else 'Masking, sensitivity routing, European or local providers, token sobriety: what leaves, and where to.'},
+  {'ids': ['audit', 'timestamp', 'export', 'cra', 'ci'],
+   't': 'Les preuves' if fr else 'The evidence',
+   'd': "Journal chaîné, horodatage RFC 3161, export de conformité, assistant CRA, pipelines : de quoi répondre à l'audit." if fr else 'Hash-chained log, RFC 3161 timestamps, compliance export, CRA assistant, pipelines: what the audit asks for.'}
 ] %}
 {#- Le journal d'audit de la preuve : vrais types d'événements de tenon (internal/event). -#}
 {% set jr = {"log_title": "Journal d'audit · en direct", "proofs": ["Journal chaîné par hachage : tenon audit verify ✓", "Horodatage RFC 3161 : seul le hash de tête sort", "Export de conformité : rapport HTML et JSON pour le DPO"], "ev": {"session": "ollama · profil eu-only", "user": "« corrige le test qui échoue »", "hook": "UserPromptSubmit · + contexte", "mem": "project/build-cmd", "redact": "1 secret masqué", "class": "DIFFUSION RESTREINTE", "prov": "local · ollama", "write": "write_file main.go", "allowed": "autorisé", "write_r": "écrit · point de reprise", "done": "4 itérations"}} if fr else {"log_title": "Audit log · live", "proofs": ["Hash-chained log: tenon audit verify ✓", "RFC 3161 timestamp: only the head hash leaves", "Compliance export: HTML and JSON report for the DPO"], "ev": {"session": "ollama · profile eu-only", "user": "“fix the failing test”", "hook": "UserPromptSubmit · + context", "mem": "project/build-cmd", "redact": "1 secret masked", "class": "EU RESTRICTED", "prov": "local · ollama", "write": "write_file main.go", "allowed": "allowed", "write_r": "written · checkpoint", "done": "4 iterations"}} %}
@@ -416,33 +431,47 @@
     <div class="h-wrap">
       <h2 class="h-h2" id="h-hs-title">{{ T.hs_title }}</h2>
       <p class="h-lede">{{ T.hs_lede }}</p>
-      <figure class="h-stage is-fallback" id="h-stage">
-        <div class="h-stage__view">
-          <canvas class="h-stage__canvas" id="h-harness" tabindex="0" role="img" aria-label="{{ T.stage_label }}"></canvas>
-          <div class="h-pins" id="h-pins"></div>
-        </div>
-        <div class="h-stage__panel" aria-live="polite">
-          <span class="h-stage__num" id="h-part-num">00</span>
-          <div>
-            <p class="h-stage__name" id="h-part-name">{{ T.overview_name }}</p>
-            <p class="h-stage__desc" id="h-part-desc">{{ T.overview_desc }}</p>
+    </div>
+    {#- Vue éclatée au défilement : quatre étages, un chapitre chacun, puis exploration libre. -#}
+    <figure class="h-stage is-fallback" id="h-stage">
+      <div class="h-stage__track">
+        <div class="h-stage__pin">
+          <div class="h-stage__view">
+            <canvas class="h-stage__canvas" id="h-harness" tabindex="0" role="img" aria-label="{{ T.stage_label }}"></canvas>
+            <div class="h-pins" id="h-pins"></div>
+          </div>
+          <ol class="h-stage__chapters">
+            {% for c in hs_layers %}<li data-layer="{{ loop.index0 }}"><span class="h-stage__cnum">{{ '%02d' % loop.index }}</span><h3 class="h-stage__ctitle">{{ c.t }}</h3><p class="h-stage__ctext">{{ c.d }}</p></li>
+            {% endfor %}
+          </ol>
+          <div class="h-stage__dock">
+            <div class="h-stage__panel" aria-live="polite">
+              <span class="h-stage__num" id="h-part-num">00</span>
+              <div>
+                <p class="h-stage__name" id="h-part-name">{{ T.overview_name }}</p>
+                <p class="h-stage__desc" id="h-part-desc">{{ T.overview_desc }}</p>
+              </div>
+            </div>
+            <div class="h-stage__bar">
+              <span class="h-stage__hint">{{ T.stage_hint }}</span>
+              <div class="h-stage__ctl">
+                <button class="h-stage__btn" type="button" id="h-prev" aria-label="{{ T.prev }}">◀</button>
+                <button class="h-stage__btn h-stage__btn--tour" type="button" id="h-tour" data-play="{{ T.tour }}" data-pause="{{ T.pause }}">{{ T.tour }}</button>
+                <button class="h-stage__btn" type="button" id="h-overview">{{ T.overview }}</button>
+                <button class="h-stage__btn" type="button" id="h-next" aria-label="{{ T.next }}">▶</button>
+              </div>
+            </div>
           </div>
         </div>
-        <div class="h-stage__bar">
-          <span class="h-stage__hint">{{ T.stage_hint }}</span>
-          <div class="h-stage__ctl">
-            <button class="h-stage__btn" type="button" id="h-prev" aria-label="{{ T.prev }}">◀</button>
-            <button class="h-stage__btn h-stage__btn--tour" type="button" id="h-tour" data-play="{{ T.tour }}" data-pause="{{ T.pause }}">{{ T.tour }}</button>
-            <button class="h-stage__btn" type="button" id="h-overview">{{ T.overview }}</button>
-            <button class="h-stage__btn" type="button" id="h-next" aria-label="{{ T.next }}">▶</button>
-          </div>
-        </div>
+      </div>
+      <div class="h-wrap">
         <ol class="h-stage__list">
           {% for p in parts %}<li><strong>{{ p.name }}</strong> — {{ p.desc }}</li>{% endfor %}
         </ol>
-        <script type="application/json" id="h-parts" data-overview-name="{{ T.overview_name }}" data-overview-desc="{{ T.overview_desc }}">{{ parts | tojson }}</script>
-      </figure>
-    </div>
+      </div>
+      <script type="application/json" id="h-parts" data-overview-name="{{ T.overview_name }}" data-overview-desc="{{ T.overview_desc }}">{{ parts | tojson }}</script>
+      <script type="application/json" id="h-layers">{{ hs_layers | map(attribute='ids') | list | tojson }}</script>
+    </figure>
   </section>
 
   <section class="h-map" aria-labelledby="h-map-title">

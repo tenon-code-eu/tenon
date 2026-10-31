@@ -151,9 +151,13 @@ body:has(.h-page) { background: var(--color-paper); color: var(--color-ink-2);
 .h-harness .h-h2 { color: var(--color-on-night); }
 .h-harness .h-lede { color: var(--color-on-night-muted); }
 .h-harness :focus-visible { outline-color: var(--color-focus); }
-.h-stage { margin: 0; position: relative; display: grid; gap: var(--space-sm); min-width: 0; }
+.h-harness { padding-bottom: var(--space-2xl); }
+/* Vue statique (mouvement réduit) : maquette, chapitres en grille, panneau. */
+.h-stage { margin: 0; position: relative; min-width: 0; }
+.h-stage__pin { width: 100%; max-width: var(--page-max); margin-inline: auto; padding-inline: var(--page-gutter);
+  display: grid; gap: var(--space-md); }
 .h-stage__view { position: relative; }
-.h-stage__canvas { display: block; width: 100%; aspect-ratio: 1 / 1; max-height: 36rem; border-radius: var(--radius-md);
+.h-stage__canvas { display: block; width: 100%; aspect-ratio: 1 / 1; max-height: 40rem; border-radius: var(--radius-md);
   touch-action: pan-y; cursor: grab; background: transparent; }
 .h-stage__canvas:active { cursor: grabbing; }
 .h-pins { position: absolute; inset: 0; pointer-events: none; overflow: hidden; border-radius: var(--radius-md); }
@@ -192,8 +196,57 @@ body:has(.h-page) { background: var(--color-paper); color: var(--color-ink-2);
 .h-stage__list { display: none; margin: 0; padding-inline-start: var(--space-lg); font-size: var(--text-sm); color: var(--color-on-night-muted); }
 .h-stage__list li { margin-bottom: var(--space-2xs); }
 .h-stage__list strong { color: var(--color-on-night); }
-.h-stage.is-fallback .h-stage__view, .h-stage.is-fallback .h-stage__panel, .h-stage.is-fallback .h-stage__bar { display: none; }
-.h-stage.is-fallback .h-stage__list { display: block; }
+.h-stage__dock { display: grid; gap: var(--space-sm); }
+.h-stage__chapters { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-md); }
+.h-stage__chapters li { border-top: 2px solid var(--color-gold); padding-top: var(--space-sm); }
+.h-stage__cnum { font: 500 0.8rem/1 var(--font-mono); letter-spacing: 0.12em; color: var(--color-gold); }
+.h-stage__ctitle { margin: var(--space-xs) 0 var(--space-2xs); font-family: var(--font-display); font-weight: 700; font-size: var(--text-lg);
+  line-height: 1.15; letter-spacing: -0.01em; color: var(--color-on-night); }
+.h-stage__ctext { margin: 0; font-size: var(--text-sm); color: var(--color-on-night-muted); }
+.h-stage.is-fallback .h-stage__view, .h-stage.is-fallback .h-stage__dock { display: none; }
+.h-stage.is-fallback .h-stage__list { display: block; margin-top: var(--space-xl); }
+@media (min-width: 40rem) { .h-stage__chapters { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 60rem) {
+  .h-stage:not(.is-scroll) .h-stage__canvas { aspect-ratio: 16 / 9; }
+  .h-stage:not(.is-scroll) .h-stage__chapters { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
+/* Vue éclatée au défilement : la scène reste collée, les chapitres se relaient, puis le panneau
+ * d'exploration apparaît quand la maquette s'est refermée. */
+.h-stage.is-scroll .h-stage__track { height: 440vh; }
+.h-stage.is-scroll .h-stage__pin { position: sticky; top: 3.9rem; height: calc(100vh - 3.9rem); height: calc(100svh - 3.9rem);
+  max-width: none; padding: 0; display: block; overflow: hidden; }
+.h-stage.is-scroll .h-stage__view { position: absolute; inset: 0; }
+.h-stage.is-scroll .h-stage__canvas { aspect-ratio: auto; height: 100%; max-height: none; border-radius: 0; touch-action: pan-y; }
+.h-stage.is-scroll .h-pins { border-radius: 0; }
+.h-stage.is-scroll .h-stage__chapters { position: absolute; left: var(--page-gutter); right: var(--page-gutter); bottom: var(--space-lg);
+  display: block; pointer-events: none; }
+.h-stage.is-scroll .h-stage__chapters li { position: absolute; left: 0; right: 0; bottom: 0; border: 0; padding: var(--space-md) var(--space-lg);
+  border-left: 3px solid var(--color-gold); border-radius: var(--radius-sm); background: oklch(17% 0.045 264 / 0.82);
+  opacity: 0; translate: 0 18px; transition: opacity var(--dur-long) var(--ease-out), translate var(--dur-long) var(--ease-out); }
+.h-stage.is-scroll .h-stage__chapters li.is-on { opacity: 1; translate: 0 0; }
+.h-stage.is-scroll .h-stage__ctitle { font-size: var(--text-2xl); line-height: 1.05; letter-spacing: -0.025em; }
+.h-stage.is-scroll .h-stage__dock { position: absolute; left: var(--page-gutter); right: var(--page-gutter); bottom: var(--space-md);
+  opacity: 0; visibility: hidden; translate: 0 18px;
+  transition: opacity var(--dur-long) var(--ease-out), translate var(--dur-long) var(--ease-out), visibility 0s linear var(--dur-long); }
+.h-stage.is-scroll.is-explore .h-stage__dock { opacity: 1; visibility: visible; translate: 0 0; transition-delay: 0s; }
+.h-stage.is-scroll .h-stage__panel { min-height: 0; background: oklch(22% 0.055 264 / 0.9); }
+.h-stage.is-scroll:not(.is-explore) .h-pin { pointer-events: none; }
+.h-stage.is-scroll:not(.is-explore) .h-stage__canvas { cursor: default; }
+.h-pin.is-named { color: var(--color-on-night); border-color: var(--color-gold); }
+.h-pin.is-named .h-pin__name { display: inline; }
+@media (max-width: 39.99rem) {
+  .h-stage.is-scroll .h-stage__ctitle { font-size: var(--text-lg); }
+  .h-stage.is-scroll .h-stage__chapters li { padding: var(--space-sm) var(--space-md); }
+  .h-stage.is-scroll .h-stage__hint { display: none; }
+  .h-stage.is-scroll .h-stage__desc { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+}
+@media (min-width: 60rem) {
+  .h-stage.is-scroll .h-stage__chapters { right: auto; bottom: auto; top: 50%; width: 27rem; translate: 0 -50%; }
+  .h-stage.is-scroll .h-stage__chapters li { bottom: auto; top: 0; translate: 0 calc(-50% + 18px); padding: var(--space-lg); }
+  .h-stage.is-scroll .h-stage__chapters li.is-on { translate: 0 -50%; }
+  .h-stage.is-scroll .h-stage__dock { left: auto; width: 28rem; bottom: var(--space-xl); }
+}
 
 /* ── Carte des flux (macrostructure Map / Diagram) ───────────────── */
 .h-map { padding-block: var(--space-3xl) var(--space-2xl); }
@@ -355,10 +408,6 @@ body:has(.h-page) { background: var(--color-paper); color: var(--color-ink-2);
   .h-hero__inner { padding-block: var(--space-3xl); min-height: min(46rem, calc(100svh - 3.5rem)); display: flex; align-items: center; }
   .h-hero__art { inset: 0; height: auto; }
   .h-hero__still { left: 74%; top: 50%; width: min(46vw, 36rem, 80svh); }
-  .h-stage { grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); align-items: start; column-gap: var(--space-xl); }
-  .h-stage__view { grid-row: 1 / span 3; }
-  .h-stage__canvas { aspect-ratio: 4 / 3; max-height: 40rem; }
-  .h-stage.is-fallback { grid-template-columns: minmax(0, 1fr); }
   .h-flow { grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.1fr) minmax(0, 1.2fr); align-items: center; gap: var(--space-2xl); }
   .h-flow__node + li::before, .h-flow__node + .h-flow__node::before { left: calc(-1 * var(--space-2xl)); top: 50%;
     width: var(--space-2xl); height: 0; border-left: 0; border-top: 2px solid var(--color-ink); }
