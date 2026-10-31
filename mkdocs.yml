@@ -12,6 +12,7 @@ exclude_docs: |
   superpowers/
   overrides/
   requirements.txt
+  assets/site/vendor/**/README.md
 
 theme:
   name: material

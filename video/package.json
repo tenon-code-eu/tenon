@@ -1,0 +1,46 @@
+{
+  "name": "tenon-launch-video",
+  "version": "1.0.0",
+  "description": "Variants of the tenon launch film (square, vertical, EN/FR), rendered with Remotion.",
+  "repository": {},
+  "license": "EUPL-1.2",
+  "engines": {
+    "node": "^20.19.0 || ^22.13.0 || >=24"
+  },
+  "private": true,
+  "dependencies": {
+    "@react-three/fiber": "9.1.2",
+    "@remotion/cli": "4.0.539",
+    "@remotion/fonts": "4.0.539",
+    "@remotion/three": "4.0.539",
+    "@remotion/transitions": "4.0.539",
+    "@types/three": "0.170.0",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "remotion": "4.0.539",
+    "three": "0.170.0"
+  },
+  "devDependencies": {
+    "@remotion/eslint-config-flat": "4.0.539",
+    "@types/react": "19.2.7",
+    "@types/web": "0.0.166",
+    "eslint": "10.12.0",
+    "prettier": "3.8.1",
+    "typescript": "5.9.3"
+  },
+  "scripts": {
+    "dev": "remotion studio",
+    "build": "remotion bundle",
+    "upgrade": "remotion upgrade",
+    "lint": "eslint src && tsc",
+    "render:square:en": "remotion render Launch-Square-EN out/tenon-launch-1080x1080-en.mp4",
+    "render:square:fr": "remotion render Launch-Square-FR out/tenon-launch-1080x1080-fr.mp4",
+    "render:vertical:en": "remotion render Launch-Vertical-EN out/tenon-launch-1080x1920-en.mp4",
+    "render:vertical:fr": "remotion render Launch-Vertical-FR out/tenon-launch-1080x1920-fr.mp4",
+    "render:landscape:fr": "remotion render Launch-Landscape-FR out/tenon-launch-1920x1080-fr.mp4",
+    "render:all": "npm run render:square:en && npm run render:square:fr && npm run render:vertical:en && npm run render:vertical:fr && npm run render:landscape:fr"
+  },
+  "allowScripts": {
+    "esbuild": false
+  }
+}

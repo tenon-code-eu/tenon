@@ -29,6 +29,13 @@
   'b_sbom': 'SBOM CycloneDX' if fr else 'CycloneDX SBOM',
   'b_eu': "Conçu en Europe" if fr else 'Built in Europe',
   'read_script': 'Lire le script' if fr else 'Read the script',
+  'hero_label': "Le bouclier hexagonal de tenon en relief, ses circuits allumés, entouré des douze étoiles dorées de l'Union européenne qui viennent former leur cercle." if fr else "The tenon hexagonal shield in relief, its circuits lit, surrounded by the twelve gold stars of the European Union as they come together in a circle.",
+  'film_title': 'tenon en 37 secondes' if fr else 'tenon in 37 seconds',
+  'film_lede': "Le film de lancement : l'accord avant chaque changement, le trajet de vos données, et le journal d'audit." if fr else 'The launch film: approval before every change, the path of your data, and the audit log.',
+  'film_label': "Film de lancement de tenon, muet, 37 secondes : le bouclier et les étoiles de l'UE ; un terminal où une écriture attend votre accord ; le trajet des données par le masquage, l'accord et le journal vers un modèle local ou des fournisseurs européens, le hors UE bloqué sans consentement ; le journal d'audit chaîné ; la commande d'installation." if fr else 'tenon launch film, silent, 37 seconds: the shield and the EU stars; a terminal where a write waits for your approval; the path of data through masking, approval and the log to a local model or European providers, outside the EU blocked without consent; the hash-chained audit log; the install command.',
+  'film_cap': 'Muet, 37 secondes. Les contrôles du lecteur le mettent en pause.' if fr else 'Silent, 37 seconds. The player controls pause it.',
+  'hs_title': 'Le harness, pièce par pièce' if fr else 'The harness, piece by piece',
+  'hs_lede': "Vingt-deux composants autour d'une seule boucle d'agent. Cliquez un composant, ou lancez la visite." if fr else 'Twenty-two components around a single agent loop. Click a component, or start the tour.',
   'stage_hint': 'Cliquez un composant · glissez pour tourner' if fr else 'Click a component · drag to orbit',
   'stage_label': "Maquette 3D du harness tenon vue de haut : vingt-deux composants reliés par des pistes de données. Flèches gauche et droite pour passer d'un composant à l'autre, Échap pour la vue d'ensemble." if fr else 'A 3D top-down model of the tenon harness: twenty-two components linked by data traces. Left and right arrows move between components, Escape returns to the overview.',
   'prev': 'Composant précédent' if fr else 'Previous component',
@@ -38,9 +45,6 @@
   'overview': "Vue d'ensemble" if fr else 'Overview',
   'overview_name': 'Le harness tenon' if fr else 'The tenon harness',
   'overview_desc': "Vingt-deux composants, une seule règle : rien ne sort sans passer par vos permissions, votre masquage et votre journal." if fr else 'Twenty-two components, one rule: nothing leaves without going through your permissions, your masking and your log.',
-  'jr_title': "Le voyage d'une requête" if fr else 'The journey of a request',
-  'jr_lede': "Le harness vu de l'intérieur : une demande fait tourner la boucle d'agent, et chaque étape s'inscrit en direct dans le journal d'audit, avec les vrais événements de tenon." if fr else "The harness from the inside: one request drives the agent loop, and every step lands live in the audit log, with tenon's real events.",
-  'jr_label': "Animation : plan du harness tenon vu de haut. Une étoile d'or, votre demande, passe par la mémoire puis fait tourner la boucle d'agent en quatre itérations : lecture, écriture avec accord et point de reprise, commande isolée, réponse finale et son badge de juridiction ; puis journal, horodatage et export." if fr else 'Animation: top-down plan of the tenon harness. A gold star, your request, passes the memory, then drives the agent loop through four iterations: a read, a write with approval and checkpoint, a sandboxed command, the final answer with its jurisdiction badge; then the log, timestamp and export.',
   'jr_play': 'Lecture' if fr else 'Play',
   'jr_pause': 'Pause' if fr else 'Pause',
   'jr_replay': 'Rejouer' if fr else 'Replay',
@@ -52,12 +56,20 @@
   'gate_perm': 'Écritures, commandes et appels MCP soumis à votre accord' if fr else 'Writes, commands and MCP calls wait for you',
   'gate_log': 'Journal chaîné par hachage, horodatable (RFC 3161)' if fr else 'Hash-chained log, timestampable (RFC 3161)',
   'gate_route': "Contenu classé : modèle local seulement" if fr else 'Classified content: local model only',
+  'flow_label': "Animation au défilement : vos fichiers partent de votre projet et traversent trois portes, masquage des secrets, votre accord, puis le journal d'audit. Le flux se partage ensuite vers votre machine (modèle local) et vers les fournisseurs européens. La branche hors UE bute sur une barrière : sans votre consentement explicite, rien ne sort." if fr else 'Scroll animation: your files leave your project and pass three gates, secret masking, your approval, then the audit log. The flow then splits to your machine (local model) and to European providers. The branch outside the EU hits a barrier: without your explicit consent, nothing leaves.',
+  'g_mask': 'Masquage' if fr else 'Masking',
+  'g_perm': 'Votre accord' if fr else 'Your approval',
+  'g_log': "Journal d'audit" if fr else 'Audit log',
+  'flow_blocked': 'bloqué sans votre consentement explicite' if fr else 'blocked without your explicit consent',
   'dest_local': 'Sur votre machine' if fr else 'On your machine',
   'dest_eu': 'Fournisseurs européens' if fr else 'European providers',
   'dest_out': 'Hors UE' if fr else 'Outside the EU',
   'dest_out_d': 'seulement avec votre consentement explicite' if fr else 'only with your explicit consent',
   'proof_title': "Des preuves pour l'audit, pas des promesses" if fr else 'Evidence for the audit, not promises',
   'proof_lede': "tenon ne rend pas un système conforme à lui seul. Il produit les traces que vos équipes conformité et votre DPO demandent." if fr else 'tenon does not make a system compliant on its own. It produces the records your compliance team and DPO ask for.',
+  'chain_label': "Animation au défilement : la chaîne du journal d'audit se construit, un bloc par événement de tenon, de SessionStarted à TurnCompleted. Chaque bloc porte le hash de la ligne précédente et le sien. Puis tenon audit verify parcourt la chaîne et chaque bloc vérifié passe à l'or." if fr else "Scroll animation: the audit log chain builds up, one block per tenon event, from SessionStarted to TurnCompleted. Each block carries the hash of the previous line and its own. Then tenon audit verify walks the chain and each verified block turns gold.",
+  'chain_ok': 'chaîne intacte' if fr else 'chain intact',
+  'chain_note': "Les hash sont calculés dans votre navigateur comme tenon les calcule : SHA-256 du hash précédent et de la ligne JSON. Modifiez une ligne, toutes les suivantes changent." if fr else 'The hashes are computed in your browser the way tenon computes them: SHA-256 of the previous hash and the JSON line. Change one line and every following one changes.',
   'col_ref': 'Repère' if fr else 'Reference',
   'col_what': 'Ce que tenon fait' if fr else 'What tenon does',
   'r1_ref': 'AI Act, art. 12 · journalisation' if fr else 'AI Act, Art. 12 · record-keeping',
@@ -210,7 +222,13 @@
   {'id': 'cra', 'name': 'CRA assistant', 'desc': 'tenon cra: SBOM, VEX, reporting deadlines and the Cyber Resilience Act technical dossier, with an offline OSV scan.'},
   {'id': 'policy', 'name': 'Organisation policy', 'desc': 'A floor signed with minisign, verified at every startup, that nobody can loosen.'}
 ] %}
-{% set jr = {"machine": "VOTRE MACHINE · POLITIQUE SIGNÉE", "n": {"you": "Vous", "hooks": "Hooks", "skills": "Skills", "engine": "Moteur", "redaction": "Masquage", "routing": "Routage", "model": "Modèle local", "permissions": "Permissions", "tool": "Outil", "result": "Résultat", "checkpoints": "Points de reprise", "eu": "Fournisseurs UE", "sandbox": "Isolation système", "loop": "BOUCLE D'AGENT", "memory": "Mémoire"}, "chapters": ["Contexte", "Boucle", "Garde-fous", "Preuves"], "prompt": "corrige le test qui échoue", "final": "✓ test corrigé", "ctx": "+ contexte", "skill": "SKILL.md", "secret": "sk-9f3a2c7e", "masked": "[MASQUÉ]", "stamp": "DIFFUSION RESTREINTE", "local": "local", "eu": "UE", "replies": ["read_file main_test.go", "write_file main.go", "shell go test ./...", "Test corrigé."], "tools": ["read_file", "write_file", "shell"], "tool_ok": ["main_test.go lu", "main.go écrit", "ok"], "perm_auto": "Lecture : auto", "perm_ask": "Accord ?", "perm_ok": "Autorisé", "snap": "copie avant écriture", "escape": ["~/.ssh", "réseau"], "refused": "refusé", "sb": "Landlock · sandbox-exec", "iter": "itération", "proofs": ["Journal chaîné par hachage : tenon audit verify ✓", "Horodatage RFC 3161 : seul le hash de tête sort", "Export de conformité : rapport HTML et JSON pour le DPO"], "log_title": "Journal d'audit · en direct", "log_note": "Les vrais types d'événements de tenon, chaque ligne scellée par le hash de la précédente.", "ev": {"user": "« corrige le test qui échoue »", "hook_s": "UserPromptSubmit", "hook_c": "+ contexte", "redact": "1 secret masqué", "class": "DIFFUSION RESTREINTE", "prov": "local · ollama", "read": "read_file main_test.go", "read_r": "main_test.go · ok", "write": "write_file main.go", "allowed": "autorisé", "write_r": "écrit · point de reprise", "shell": "shell go test ./...", "allowed_net": "autorisé · réseau : non", "shell_r": "ok · confiné", "answer": "Test corrigé.", "done": "4 itérations", "mem": "project/build-cmd", "usage": ["ollama · entrée 3,2 k · sortie 41", "ollama · entrée 4,6 k · sortie 118", "ollama · entrée 5,1 k · sortie 36", "ollama · entrée 5,4 k · sortie 22"]}, "cap": ["Le harness tenon vu de l'intérieur : une demande va faire tourner la boucle d'agent.", "Vous écrivez votre demande dans le terminal.", "Vos hooks peuvent ajouter du contexte ou bloquer la demande.", "Le moteur assemble le contexte et charge le skill utile, sans élargir ses droits.", "Mémoire : des notes gardées d'une session à l'autre. Une note du projet ne se charge qu'après votre approbation sur cette machine.", "Avant chaque appel du modèle : masquage des secrets, puis routage. Contenu classé : modèle local seulement. Chaque appel compte ses jetons.", "Itération 1 : le modèle demande à lire main_test.go. Lecture dans le projet : autorisée d'office.", "Le résultat revient au moteur, qui relance le modèle : c'est la boucle.", "Itération 2 : le modèle veut modifier main.go. Une écriture : tenon vous demande l'accord.", "Un point de reprise copie le fichier avant l'écriture : /rewind pourra l'annuler.", "Itération 3 : une commande shell. Accord, puis l'isolation système se referme autour d'elle.", "Confinée : écriture dans le projet seulement, ~/.ssh illisible, réseau fermé. Résultat : ok.", "Itération 4 : le modèle répond, le tour se termine. Le badge dit qui a répondu : le modèle local.", "Chaque événement est scellé, horodatable et exportable pour votre DPO."], "mem": ["build-cmd", "style-tests"], "badge": "Ollama · local"} if fr else {"machine": "YOUR MACHINE · SIGNED POLICY", "n": {"you": "You", "hooks": "Hooks", "skills": "Skills", "engine": "Engine", "redaction": "Masking", "routing": "Routing", "model": "Local model", "permissions": "Permissions", "tool": "Tool", "result": "Result", "checkpoints": "Checkpoints", "eu": "EU providers", "sandbox": "System sandbox", "loop": "AGENT LOOP", "memory": "Memory"}, "chapters": ["Context", "Loop", "Guardrails", "Evidence"], "prompt": "fix the failing test", "final": "✓ test fixed", "ctx": "+ context", "skill": "SKILL.md", "secret": "sk-9f3a2c7e", "masked": "[REDACTED]", "stamp": "EU RESTRICTED", "local": "local", "eu": "EU", "replies": ["read_file main_test.go", "write_file main.go", "shell go test ./...", "Test fixed."], "tools": ["read_file", "write_file", "shell"], "tool_ok": ["main_test.go read", "main.go written", "ok"], "perm_auto": "Read: auto", "perm_ask": "Approve?", "perm_ok": "Allowed", "snap": "copy before write", "escape": ["~/.ssh", "network"], "refused": "refused", "sb": "Landlock · sandbox-exec", "iter": "iteration", "proofs": ["Hash-chained log: tenon audit verify ✓", "RFC 3161 timestamp: only the head hash leaves", "Compliance export: HTML and JSON report for the DPO"], "log_title": "Audit log · live", "log_note": "tenon's real event types, each line sealed by the hash of the previous one.", "ev": {"user": "“fix the failing test”", "hook_s": "UserPromptSubmit", "hook_c": "+ context", "redact": "1 secret masked", "class": "EU RESTRICTED", "prov": "local · ollama", "read": "read_file main_test.go", "read_r": "main_test.go · ok", "write": "write_file main.go", "allowed": "allowed", "write_r": "written · checkpoint", "shell": "shell go test ./...", "allowed_net": "allowed · network: no", "shell_r": "ok · confined", "answer": "Test fixed.", "done": "4 iterations", "mem": "project/build-cmd", "usage": ["ollama · in 3.2k · out 41", "ollama · in 4.6k · out 118", "ollama · in 5.1k · out 36", "ollama · in 5.4k · out 22"]}, "cap": ["The tenon harness from the inside: one request is about to drive the agent loop.", "You type your request in the terminal.", "Your hooks can add context or block the request.", "The engine builds the context and loads the right skill, unable to widen its rights.", "Memory: notes kept between sessions. A project note loads only once you trust it on this machine.", "Before every model call: secrets masked, then routing. Classified content: local model only. Every call counts its tokens.", "Iteration 1: the model asks to read main_test.go. A read inside the project is allowed by default.", "The result goes back to the engine, which calls the model again: this is the loop.", "Iteration 2: the model wants to edit main.go. A write: tenon asks for your approval.", "A checkpoint copies the file before the write: /rewind can undo it.", "Iteration 3: a shell command. Approval, then the system sandbox closes around it.", "Confined: writes in the project only, ~/.ssh unreadable, network closed. Result: ok.", "Iteration 4: the model answers, the turn ends. The badge says who answered: the local model.", "Every event is sealed, timestampable and exportable for your DPO."], "mem": ["build-cmd", "style-tests"], "badge": "Ollama · local"} %}
+{#- Le journal d'audit de la preuve : vrais types d'événements de tenon (internal/event). -#}
+{% set jr = {"log_title": "Journal d'audit · en direct", "proofs": ["Journal chaîné par hachage : tenon audit verify ✓", "Horodatage RFC 3161 : seul le hash de tête sort", "Export de conformité : rapport HTML et JSON pour le DPO"], "ev": {"session": "ollama · profil eu-only", "user": "« corrige le test qui échoue »", "hook": "UserPromptSubmit · + contexte", "mem": "project/build-cmd", "redact": "1 secret masqué", "class": "DIFFUSION RESTREINTE", "prov": "local · ollama", "write": "write_file main.go", "allowed": "autorisé", "write_r": "écrit · point de reprise", "done": "4 itérations"}} if fr else {"log_title": "Audit log · live", "proofs": ["Hash-chained log: tenon audit verify ✓", "RFC 3161 timestamp: only the head hash leaves", "Compliance export: HTML and JSON report for the DPO"], "ev": {"session": "ollama · profile eu-only", "user": "“fix the failing test”", "hook": "UserPromptSubmit · + context", "mem": "project/build-cmd", "redact": "1 secret masked", "class": "EU RESTRICTED", "prov": "local · ollama", "write": "write_file main.go", "allowed": "allowed", "write_r": "written · checkpoint", "done": "4 iterations"}} %}
+{% set chain = [
+  ('SessionStarted', jr.ev.session), ('UserMessage', jr.ev.user), ('HookCompleted', jr.ev.hook), ('MemoryRead', jr.ev.mem),
+  ('RedactionApplied', jr.ev.redact), ('SessionClassified', jr.ev['class']), ('ProviderSelected', jr.ev.prov), ('ToolCallRequested', jr.ev.write),
+  ('PermissionRequested', jr.ev.write), ('PermissionResolved', jr.ev.allowed), ('ToolResult', jr.ev.write_r), ('TurnCompleted', jr.ev.done)
+] %}
 {% set brew = 'brew install tenon-code-eu/tap/tenon' %}
 {% set script = 'curl -fsSL https://raw.githubusercontent.com/tenon-code-eu/tenon/main/install.sh | sh' %}
 {% set vsc = 'code --install-extension tenon-code-eu.tenon' %}
@@ -220,6 +238,7 @@
   {{ super() }}
   <link rel="stylesheet" href="{{ root }}/assets/site/tokens.css?v={{ v }}">
   <link rel="stylesheet" href="{{ root }}/assets/site/home.css?v={{ v }}">
+  <script>if(!matchMedia("(prefers-reduced-motion: reduce)").matches)document.documentElement.classList.add("h-anim")</script>
   <link rel="preload" href="{{ root }}/assets/site/fonts/bricolage-grotesque-latin-700-normal.woff2" as="font" type="font/woff2" crossorigin>
 {% endblock %}
 
@@ -253,6 +272,23 @@
 <main class="h-page" id="h-main" lang="{{ T.lang }}">
 
   <section class="h-hero" aria-labelledby="h-title">
+    <figure class="h-hero__art" id="h-hero-3d">
+      <canvas class="h-hero__canvas" role="img" aria-label="{{ T.hero_label }}"></canvas>
+      <div class="h-hero__still" role="img" aria-label="{{ T.hero_label }}">
+        <svg viewBox="-46 -46 92 92" aria-hidden="true">
+          <defs><linearGradient id="h-st-hex" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1f4bb0"/><stop offset="1" stop-color="#0c1f52"/></linearGradient></defs>
+          <g transform="scale(0.85) translate(-32 -32)" fill="none" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M32 2.5 57.5 17.2v29.6L32 61.5 6.5 46.8V17.2Z" fill="url(#h-st-hex)" stroke="#5fd8ff" stroke-width="2"/>
+            <g stroke="#5fd8ff" stroke-width="1.9">
+              <path d="M21 14.5 32 8.6l11 5.9 M30 21.5H21.5L18.5 18.5 M29 26H18.5 M28 30.5H23v12l4 4 M19.5 31.5v12.5l5.5 5.5 M15.5 33v9.5 M34 21.5h8.5l3-3 M35 26h10.5 M36 30.5h5v12l-4 4 M44.5 31.5v12.5l-5.5 5.5 M48.5 33v9.5 M24.5 16.5 32 22.5l7.5-6 M32 22.5V32 M32 40.5V56"/>
+            </g>
+            <rect x="28.6" y="32" width="6.8" height="8.5" rx="3.4" fill="#0c1f52" stroke="#7fe3ff" stroke-width="2"/>
+            <circle cx="32" cy="36.25" r="1.5" fill="#7fe3ff"/>
+          </g>
+        </svg>
+        <span class="h-hero__stars" aria-hidden="true"><i class="h-star" style="--x:0.0000;--y:-1.0000;--fx:-220px;--fy:-260px;--i:0"></i><i class="h-star" style="--x:0.5000;--y:-0.8660;--fx:260px;--fy:-200px;--i:1"></i><i class="h-star" style="--x:0.8660;--y:-0.5000;--fx:300px;--fy:40px;--i:2"></i><i class="h-star" style="--x:1.0000;--y:-0.0000;--fx:240px;--fy:240px;--i:3"></i><i class="h-star" style="--x:0.8660;--y:0.5000;--fx:-60px;--fy:300px;--i:4"></i><i class="h-star" style="--x:0.5000;--y:0.8660;--fx:-300px;--fy:180px;--i:5"></i><i class="h-star" style="--x:0.0000;--y:1.0000;--fx:-280px;--fy:-80px;--i:6"></i><i class="h-star" style="--x:-0.5000;--y:0.8660;--fx:120px;--fy:-320px;--i:7"></i><i class="h-star" style="--x:-0.8660;--y:0.5000;--fx:-180px;--fy:220px;--i:8"></i><i class="h-star" style="--x:-1.0000;--y:0.0000;--fx:320px;--fy:-120px;--i:9"></i><i class="h-star" style="--x:-0.8660;--y:-0.5000;--fx:-320px;--fy:60px;--i:10"></i><i class="h-star" style="--x:-0.5000;--y:-0.8660;--fx:60px;--fy:280px;--i:11"></i></span>
+      </div>
+    </figure>
     <div class="h-hero__inner">
       <div class="h-hero__copy">
         <h1 class="h-hero__title" id="h-title">{{ T.title }}</h1>
@@ -291,31 +327,21 @@
         </ul>
       </div>
 
-      <figure class="h-stage is-fallback" id="h-stage">
-        <div class="h-stage__view">
-          <canvas class="h-stage__canvas" id="h-harness" tabindex="0" role="img" aria-label="{{ T.stage_label }}"></canvas>
-          <div class="h-pins" id="h-pins"></div>
-        </div>
-        <div class="h-stage__panel" aria-live="polite">
-          <span class="h-stage__num" id="h-part-num">00</span>
-          <div>
-            <p class="h-stage__name" id="h-part-name">{{ T.overview_name }}</p>
-            <p class="h-stage__desc" id="h-part-desc">{{ T.overview_desc }}</p>
-          </div>
-        </div>
-        <div class="h-stage__bar">
-          <span class="h-stage__hint">{{ T.stage_hint }}</span>
-          <div class="h-stage__ctl">
-            <button class="h-stage__btn" type="button" id="h-prev" aria-label="{{ T.prev }}">◀</button>
-            <button class="h-stage__btn h-stage__btn--tour" type="button" id="h-tour" data-play="{{ T.tour }}" data-pause="{{ T.pause }}">{{ T.tour }}</button>
-            <button class="h-stage__btn" type="button" id="h-overview">{{ T.overview }}</button>
-            <button class="h-stage__btn" type="button" id="h-next" aria-label="{{ T.next }}">▶</button>
-          </div>
-        </div>
-        <ol class="h-stage__list">
-          {% for p in parts %}<li><strong>{{ p.name }}</strong> — {{ p.desc }}</li>{% endfor %}
-        </ol>
-        <script type="application/json" id="h-parts" data-overview-name="{{ T.overview_name }}" data-overview-desc="{{ T.overview_desc }}">{{ parts | tojson }}</script>
+    </div>
+  </section>
+
+  <section class="h-film" aria-labelledby="h-film-title">
+    <div class="h-wrap">
+      <h2 class="h-h2" id="h-film-title">{{ T.film_title }}</h2>
+      <p class="h-lede">{{ T.film_lede }}</p>
+      <figure class="h-film__fig">
+        {#- Pas d'attribut autoplay : la lecture muette démarre à l'écran (home.js), pour ne rien télécharger avant. -#}
+        <video class="h-film__video" id="h-film" muted loop playsinline controls preload="none" width="1920" height="1080"
+          poster="{{ root }}/assets/site/film/tenon-launch{{ "-fr" if fr }}-poster.jpg" aria-label="{{ T.film_label }}">
+          <source src="{{ root }}/assets/site/film/tenon-launch{{ "-fr" if fr }}-720.mp4" type="video/mp4" media="(max-width: 48rem)">
+          <source src="{{ root }}/assets/site/film/tenon-launch{{ "-fr" if fr }}-1080.mp4" type="video/mp4">
+        </video>
+        <figcaption class="h-film__cap">{{ T.film_cap }}</figcaption>
       </figure>
     </div>
   </section>
@@ -383,6 +409,137 @@
         <script type="application/json" id="h-tui-data">{{ {'prompt': ui.prompt, 'untitled': ui.untitled, 'pct': (['0 %', '27 %', '29 %', '30 %', '31 %'] if fr else ['0%', '27%', '29%', '30%', '31%']), 'cells': [0, 2, 2, 3, 3], 'tokens': (['entrée 0 · sortie 0', 'entrée 71,2 k · sortie 412', 'entrée 145 k · sortie 1 k', 'entrée 222 k · sortie 1,5 k', 'entrée 301 k · sortie 2,1 k'] if fr else ['in 0 · out 0', 'in 71.2k · out 412', 'in 145k · out 1k', 'in 222k · out 1.5k', 'in 301k · out 2.1k']), 'none': ('aucun' if fr else 'none'), 'nosend': ('aucun envoi' if fr else 'no sends yet'), 'send': '● {n} → Mistral AI · FR', 'themes': ['tenon', 'tokyonight', 'catppuccin', 'gruvbox', 'light']} | tojson }}</script>
       </figure>
       <p class="h-note">{{ T.rl_note }}</p>
+    </div>
+  </section>
+
+  <section class="h-harness" aria-labelledby="h-hs-title">
+    <div class="h-wrap">
+      <h2 class="h-h2" id="h-hs-title">{{ T.hs_title }}</h2>
+      <p class="h-lede">{{ T.hs_lede }}</p>
+      <figure class="h-stage is-fallback" id="h-stage">
+        <div class="h-stage__view">
+          <canvas class="h-stage__canvas" id="h-harness" tabindex="0" role="img" aria-label="{{ T.stage_label }}"></canvas>
+          <div class="h-pins" id="h-pins"></div>
+        </div>
+        <div class="h-stage__panel" aria-live="polite">
+          <span class="h-stage__num" id="h-part-num">00</span>
+          <div>
+            <p class="h-stage__name" id="h-part-name">{{ T.overview_name }}</p>
+            <p class="h-stage__desc" id="h-part-desc">{{ T.overview_desc }}</p>
+          </div>
+        </div>
+        <div class="h-stage__bar">
+          <span class="h-stage__hint">{{ T.stage_hint }}</span>
+          <div class="h-stage__ctl">
+            <button class="h-stage__btn" type="button" id="h-prev" aria-label="{{ T.prev }}">◀</button>
+            <button class="h-stage__btn h-stage__btn--tour" type="button" id="h-tour" data-play="{{ T.tour }}" data-pause="{{ T.pause }}">{{ T.tour }}</button>
+            <button class="h-stage__btn" type="button" id="h-overview">{{ T.overview }}</button>
+            <button class="h-stage__btn" type="button" id="h-next" aria-label="{{ T.next }}">▶</button>
+          </div>
+        </div>
+        <ol class="h-stage__list">
+          {% for p in parts %}<li><strong>{{ p.name }}</strong> — {{ p.desc }}</li>{% endfor %}
+        </ol>
+        <script type="application/json" id="h-parts" data-overview-name="{{ T.overview_name }}" data-overview-desc="{{ T.overview_desc }}">{{ parts | tojson }}</script>
+      </figure>
+    </div>
+  </section>
+
+  <section class="h-map" aria-labelledby="h-map-title">
+    <div class="h-wrap">
+      <h2 class="h-h2" id="h-map-title">{{ T.map_title }}</h2>
+      <p class="h-lede">{{ T.map_lede }}</p>
+    </div>
+    <figure class="h-flow3d" id="h-flow-3d">
+      <div class="h-flow3d__track">
+        <div class="h-flow3d__pin">
+          <canvas class="h-flow3d__canvas" role="img" aria-label="{{ T.flow_label }}"></canvas>
+          <ul class="h-flow3d__labels" aria-hidden="true">
+            <li data-k="project"><b>{{ T.node_project }}</b><span>{{ T.node_project_d }}</span></li>
+            <li data-k="mask"><b>{{ T.g_mask }}</b><span>{{ T.gate_mask }}</span></li>
+            <li data-k="perm"><b>{{ T.g_perm }}</b><span>{{ T.gate_perm }}</span></li>
+            <li data-k="log"><b>{{ T.g_log }}</b><span>{{ T.gate_log }}</span></li>
+            <li data-k="route" class="is-note"><span>{{ T.gate_route }}</span></li>
+            <li data-k="local"><b>{{ T.dest_local }}</b><span>Ollama · vLLM</span></li>
+            <li data-k="eu" class="is-eu"><b>{{ T.dest_eu }}</b><span>Mistral AI · Scaleway · OVHcloud · Albert API</span></li>
+            <li data-k="out" class="is-out"><b>{{ T.dest_out }}</b><span>{{ T.flow_blocked }}</span></li>
+          </ul>
+        </div>
+      </div>
+    </figure>
+    <div class="h-wrap">
+      <ol class="h-flow">
+        <li class="h-flow__node h-flow__node--src">
+          <span class="h-flow__label">{{ T.node_project }}</span>
+          <span class="h-flow__meta">{{ T.node_project_d }}</span>
+        </li>
+        <li class="h-flow__node h-flow__node--gate">
+          <span class="h-flow__label"><img src="{{ root }}/assets/site/mark.svg" width="20" height="20" alt=""> tenon</span>
+          <ul class="h-flow__gates">
+            <li>{{ T.gate_mask }}</li>
+            <li>{{ T.gate_perm }}</li>
+            <li>{{ T.gate_log }}</li>
+            <li>{{ T.gate_route }}</li>
+          </ul>
+        </li>
+        <li class="h-flow__dests">
+          <div class="h-dest h-dest--local">
+            <span class="h-flow__label">{{ T.dest_local }}</span>
+            <span class="h-flow__meta">Ollama · vLLM</span>
+          </div>
+          <div class="h-dest h-dest--eu">
+            <span class="h-flow__label">{{ T.dest_eu }}</span>
+            <span class="h-flow__meta">Mistral AI · Codestral · Scaleway · OVHcloud · Albert API</span>
+          </div>
+          <div class="h-dest h-dest--out">
+            <span class="h-flow__label">{{ T.dest_out }}</span>
+            <span class="h-flow__meta">{{ T.dest_out_d }}</span>
+          </div>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="h-proof" aria-labelledby="h-proof-title">
+    <div class="h-proof__band">
+      <div class="h-wrap">
+        <h2 class="h-h2" id="h-proof-title">{{ T.proof_title }}</h2>
+        <p class="h-lede">{{ T.proof_lede }}</p>
+        <figure class="h-chain" id="h-chain-3d">
+          <div class="h-chain__track">
+            <div class="h-chain__pin">
+              <canvas class="h-chain__canvas" role="img" aria-label="{{ T.chain_label }}"></canvas>
+              <aside class="h-chain__log" aria-label="{{ jr.log_title }}">
+                <p class="h-chain__log-title">{{ jr.log_title }}</p>
+                <ol class="h-chain__events">
+                  {% for e in chain %}<li data-type="{{ e[0] }}" data-detail="{{ e[1] }}"><span>#{{ '%02d' % loop.index }}</span><i><b>{{ e[0] }}</b> {{ e[1] }}</i><em>sha256:…</em></li>
+                  {% endfor %}<li class="h-chain__verify"><span>✓</span><i><b>tenon audit verify</b> {{ T.chain_ok }}</i></li>
+                </ol>
+                <ul class="h-chain__proofs">
+                  {% for p in jr.proofs %}<li>{{ p }}</li>{% endfor %}
+                </ul>
+                <p class="h-chain__note">{{ T.chain_note }}</p>
+              </aside>
+            </div>
+          </div>
+        </figure>
+      </div>
+    </div>
+    <div class="h-wrap h-proof__grid">
+      <figure class="h-export">
+        <code class="h-cmd h-cmd--light"><span class="h-cmd__prompt" aria-hidden="true">$</span><span class="h-cmd__text">tenon audit export --out {{ "rapport" if fr else "report" }}</span></code>
+        <figcaption>{{ T.export_cap }}</figcaption>
+      </figure>
+      <table class="h-table">
+        <thead><tr><th scope="col">{{ T.col_ref }}</th><th scope="col">{{ T.col_what }}</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">{{ T.r1_ref }}</th><td>{{ T.r1_what }}</td></tr>
+          <tr><th scope="row">{{ T.r2_ref }}</th><td>{{ T.r2_what }}</td></tr>
+          <tr><th scope="row">{{ T.r3_ref }}</th><td>{{ T.r3_what }}</td></tr>
+          <tr><th scope="row">{{ T.r4_ref }}</th><td>{{ T.r4_what }}</td></tr>
+          <tr><th scope="row">{{ T.r5_ref }}</th><td>{{ T.r5_what }}</td></tr>
+        </tbody>
+      </table>
     </div>
   </section>
 
@@ -601,99 +758,6 @@
     </div>
   </section>
 
-  <section class="h-journey" aria-labelledby="h-jr-title">
-    <div class="h-wrap">
-      <h2 class="h-h2" id="h-jr-title">{{ T.jr_title }}</h2>
-      <p class="h-lede">{{ T.jr_lede }}</p>
-      <figure class="h-jr" id="h-jr">
-        <nav class="h-jr__chapters" aria-label="{{ T.jr_title }}">
-          {% for c in jr.chapters %}<button class="h-jr__chap" type="button" data-chap="{{ loop.index0 }}"><span>{{ loop.index }}</span>{{ c }}</button>{% endfor %}
-        </nav>
-        <div class="h-jr__stage">
-          <canvas class="h-jr__canvas" id="h-jr-canvas" role="img" aria-label="{{ T.jr_label }}"></canvas>
-          <aside class="h-jr__log" aria-label="{{ jr.log_title }}">
-            <p class="h-jr__log-title">{{ jr.log_title }}</p>
-            <ol class="h-jr__events" id="h-jr-events"></ol>
-            <ul class="h-jr__proofs" id="h-jr-proofs">
-              {% for p in jr.proofs %}<li>{{ p }}</li>{% endfor %}
-            </ul>
-            <p class="h-jr__log-note">{{ jr.log_note }}</p>
-          </aside>
-        </div>
-        <p class="h-jr__cap" id="h-jr-cap">{{ jr.cap[0] }}</p>
-        <div class="h-jr__bar">
-          <button class="h-jr__btn" type="button" id="h-jr-toggle" data-play="{{ T.jr_play }}" data-pause="{{ T.jr_pause }}">{{ T.jr_pause }}</button>
-          <button class="h-jr__btn" type="button" id="h-jr-replay">{{ T.jr_replay }}</button>
-          <div class="h-jr__track" id="h-jr-track" role="slider" tabindex="0" aria-label="{{ T.jr_title }}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span class="h-jr__fill" id="h-jr-fill"></span><span class="h-jr__marks" id="h-jr-marks"></span></div>
-        </div>
-        <ol class="h-jr__steps">
-          {% for c in jr.cap[1:] %}<li>{{ c }}</li>{% endfor %}
-        </ol>
-        <script type="application/json" id="h-jr-data">{{ jr | tojson }}</script>
-      </figure>
-    </div>
-  </section>
-
-  <section class="h-map" aria-labelledby="h-map-title">
-    <div class="h-wrap">
-      <h2 class="h-h2" id="h-map-title">{{ T.map_title }}</h2>
-      <p class="h-lede">{{ T.map_lede }}</p>
-
-      <ol class="h-flow">
-        <li class="h-flow__node h-flow__node--src">
-          <span class="h-flow__label">{{ T.node_project }}</span>
-          <span class="h-flow__meta">{{ T.node_project_d }}</span>
-        </li>
-        <li class="h-flow__node h-flow__node--gate">
-          <span class="h-flow__label"><img src="{{ root }}/assets/site/mark.svg" width="20" height="20" alt=""> tenon</span>
-          <ul class="h-flow__gates">
-            <li>{{ T.gate_mask }}</li>
-            <li>{{ T.gate_perm }}</li>
-            <li>{{ T.gate_log }}</li>
-            <li>{{ T.gate_route }}</li>
-          </ul>
-        </li>
-        <li class="h-flow__dests">
-          <div class="h-dest h-dest--local">
-            <span class="h-flow__label">{{ T.dest_local }}</span>
-            <span class="h-flow__meta">Ollama · vLLM</span>
-          </div>
-          <div class="h-dest h-dest--eu">
-            <span class="h-flow__label">{{ T.dest_eu }}</span>
-            <span class="h-flow__meta">Mistral AI · Codestral · Scaleway · OVHcloud · Albert API</span>
-          </div>
-          <div class="h-dest h-dest--out">
-            <span class="h-flow__label">{{ T.dest_out }}</span>
-            <span class="h-flow__meta">{{ T.dest_out_d }}</span>
-          </div>
-        </li>
-      </ol>
-    </div>
-  </section>
-
-  <section class="h-proof" aria-labelledby="h-proof-title">
-    <div class="h-wrap h-proof__grid">
-      <div class="h-proof__head">
-        <h2 class="h-h2" id="h-proof-title">{{ T.proof_title }}</h2>
-        <p class="h-lede">{{ T.proof_lede }}</p>
-        <figure class="h-export">
-          <code class="h-cmd h-cmd--light"><span class="h-cmd__prompt" aria-hidden="true">$</span><span class="h-cmd__text">tenon audit export --out {{ "rapport" if fr else "report" }}</span></code>
-          <figcaption>{{ T.export_cap }}</figcaption>
-        </figure>
-      </div>
-      <table class="h-table">
-        <thead><tr><th scope="col">{{ T.col_ref }}</th><th scope="col">{{ T.col_what }}</th></tr></thead>
-        <tbody>
-          <tr><th scope="row">{{ T.r1_ref }}</th><td>{{ T.r1_what }}</td></tr>
-          <tr><th scope="row">{{ T.r2_ref }}</th><td>{{ T.r2_what }}</td></tr>
-          <tr><th scope="row">{{ T.r3_ref }}</th><td>{{ T.r3_what }}</td></tr>
-          <tr><th scope="row">{{ T.r4_ref }}</th><td>{{ T.r4_what }}</td></tr>
-          <tr><th scope="row">{{ T.r5_ref }}</th><td>{{ T.r5_what }}</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </section>
-
   <section class="h-get" id="h-install" aria-labelledby="h-get-title">
     <div class="h-wrap">
       <h2 class="h-h2" id="h-get-title">{{ T.install_title }}</h2>
@@ -781,6 +845,6 @@
 {% block scripts %}
   {{ super() }}
   <script src="{{ root }}/assets/site/home.js?v={{ v }}" defer></script>
-  <script src="{{ root }}/assets/site/journey.js?v={{ v }}" defer></script>
   <script src="{{ root }}/assets/site/live.js?v={{ v }}" defer></script>
+  <script type="module" src="{{ root }}/assets/site/3d/main.js?v={{ v }}"></script>
 {% endblock %}
