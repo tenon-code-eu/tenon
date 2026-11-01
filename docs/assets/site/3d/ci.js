@@ -1,214 +1,155 @@
-/* tenon · « Un agent de code dans votre CI » : le pipeline en 3D, piloté par le défilement.
- * Une merge request glisse sur un rail et traverse quatre stations : installer (signature
- * minisign), exécuter (go test autorisé, git push refusé, code 3), prouver (audit verify, export),
- * archiver (trois artefacts). Le journal du job se remplit à côté. En mouvement réduit, la
- * scène ne se monte pas : l'animation HTML existante (live.js) reste, avec son image finale. */
+/* tenon · « Un agent de code dans votre CI » : l'animation d'un pipeline, en boucle.
+ * Une merge request glisse sur un rail et traverse quatre stations : installer (sceau minisign),
+ * exécuter (git push refusé, code 3), prouver (la chaîne d'audit passe à l'or), archiver (trois
+ * artefacts). Jouée quand elle est à l'écran ; en mouvement réduit, l'image finale, fixe. */
 export function mount(fig, THREE, C) {
-  if (C.reduce) return;
   fig.classList.add("is-3d");
   const canvas = fig.querySelector("canvas");
-  const track = fig.querySelector(".h-ci3d__track");
-  const chapters = Array.prototype.slice.call(fig.querySelectorAll(".h-ci3d__chapters li"));
   const col = C.colors(THREE);
 
-  /* journal du job : les lignes de l'animation HTML, révélées au fil du récit */
-  const linesBox = fig.querySelector(".h-ci3d__lines");
-  const src = document.querySelectorAll("#h-pipe .h-pipe__lines li");
-  const LINES = Array.prototype.map.call(src, (li) => {
-    const c = li.cloneNode(true);
-    c.removeAttribute("data-at"); c.classList.remove("is-on");
-    linesBox.appendChild(c);
-    return { el: c, at: 0.1 + (parseFloat(li.getAttribute("data-at")) / 13.3) * 0.8 };
-  });
-
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(34, 1, 0.1, 300);
+  const camera = new THREE.PerspectiveCamera(32, 1, 0.1, 300);
   scene.add(new THREE.AmbientLight(0xffffff, 1.0));
   const key = new THREE.DirectionalLight(0xffffff, 2.2); key.position.set(4, 9, 7); scene.add(key);
-  const goldL = new THREE.PointLight(col.gold, 0, 10); scene.add(goldL);
-  const world = new THREE.Group(); scene.add(world);
+  const goldL = new THREE.PointLight(col.gold, 0, 9); scene.add(goldL);
 
-  const edged = (geo, mat, ec, op) => {
-    const g = new THREE.Group(), e = new THREE.LineBasicMaterial({ color: ec || col.edge, transparent: true, opacity: op == null ? 0.9 : op });
-    g.add(new THREE.Mesh(geo, mat), new THREE.LineSegments(new THREE.EdgesGeometry(geo), e));
+  const mat = (c, extra) => new THREE.MeshStandardMaterial(Object.assign({ color: c, roughness: 0.55, metalness: 0.15 }, extra || {}));
+  const edged = (geo, m) => {
+    const g = new THREE.Group(), e = new THREE.LineBasicMaterial({ color: col.edge, transparent: true, opacity: 0.9 });
+    g.add(new THREE.Mesh(geo, m), new THREE.LineSegments(new THREE.EdgesGeometry(geo), e));
     g.userData.edge = e; return g;
   };
-  const lam = (c, extra) => new THREE.MeshStandardMaterial(Object.assign({ color: c, roughness: 0.55, metalness: 0.15 }, extra || {}));
-  const mGold = lam(col.gold, { emissive: col.gold, emissiveIntensity: 0.4, metalness: 0.5, roughness: 0.3 });
 
-  /* ── Stations ─────────────────────────────────────────────── */
-  const KEYS = ["install", "run", "prove", "archive"];
-  const stations = KEYS.map(() => {
-    const g = new THREE.Group(); world.add(g);
-    const base = edged(new THREE.BoxGeometry(3.2, 0.36, 3.2), lam(col.night2)); base.position.y = -0.18; g.add(base);
-    const gateMat = lam(col.edge, { emissive: col.gold, emissiveIntensity: 0, metalness: 0.4, roughness: 0.35 });
-    const gate = new THREE.Mesh(C.hexRing(THREE, 0.05, 3, 0.16), gateMat); gate.position.y = 1.5; g.add(gate);
-    return { g, base, gate, gateMat };
+  /* ── Les quatre stations ─────────────────────────────────── */
+  const SPAN = [-7.5, -2.5, 2.5, 7.5];
+  const stations = SPAN.map(() => {
+    const g = new THREE.Group(); scene.add(g);
+    const base = edged(new THREE.BoxGeometry(3, 0.34, 3), mat(col.night2)); base.position.y = -0.17; g.add(base);
+    const gateMat = mat(col.edge, { emissive: col.gold, emissiveIntensity: 0, metalness: 0.4, roughness: 0.35 });
+    const gate = new THREE.Mesh(C.hexRing(THREE, 0.045, 3, 0.15), gateMat); gate.position.y = 1.35; g.add(gate);
+    return { g, base, gateMat };
   });
-  /* 1 · installer : le paquet et le sceau minisign qui vient le tamponner */
-  const pkg = edged(new THREE.BoxGeometry(1.1, 1.1, 1.1), lam(col.rail)); pkg.position.set(0, 0.55, 0.6); stations[0].g.add(pkg);
-  const sealMat = lam(col.edge, { emissive: col.gold, emissiveIntensity: 0, metalness: 0.5 });
-  const seal = new THREE.Mesh(C.hexRing(THREE, 0.018, 6, 0.12), sealMat); seal.rotation.x = -Math.PI / 2; stations[0].g.add(seal);
-  /* 2 · exécuter : le poste, une voie autorisée (go test), une voie refusée (git push) */
-  const runner = edged(new THREE.BoxGeometry(1.2, 0.9, 1.0), lam(col.rail)); runner.position.set(0, 0.45, 0.6); stations[1].g.add(runner);
+  /* installer : le paquet et son sceau */
+  const pkg = edged(new THREE.BoxGeometry(1, 1, 1), mat(col.rail)); pkg.position.set(0, 0.5, 0.55); stations[0].g.add(pkg);
+  const sealMat = mat(col.edge, { emissive: col.gold, emissiveIntensity: 0, metalness: 0.5 });
+  const seal = new THREE.Mesh(C.hexRing(THREE, 0.016, 6, 0.1), sealMat); seal.rotation.x = -Math.PI / 2; stations[0].g.add(seal);
+  /* exécuter : le poste et la barrière de git push */
+  const runner = edged(new THREE.BoxGeometry(1.1, 0.85, 0.95), mat(col.rail)); runner.position.set(0, 0.42, 0.55); stations[1].g.add(runner);
   const barMat = new THREE.MeshBasicMaterial({ color: col.danger, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false });
-  const barrier = new THREE.Group();
-  const bGeo = new THREE.BoxGeometry(0.05, 1.1, 1.1);
   const barEdge = new THREE.LineBasicMaterial({ color: col.danger, transparent: true, opacity: 0 });
+  const bGeo = new THREE.BoxGeometry(0.05, 1, 1), barrier = new THREE.Group();
   barrier.add(new THREE.Mesh(bGeo, barMat), new THREE.LineSegments(new THREE.EdgesGeometry(bGeo), barEdge));
-  stations[1].g.add(barrier);
-  /* 3 · prouver : une chaîne de cinq blocs qui passe à l'or, et le rapport qui se lève */
-  const proofBlocks = [0, 1, 2, 3, 4].map((i) => {
-    const m = lam(col.night2, { emissive: col.gold, emissiveIntensity: 0 });
-    const b = edged(new THREE.BoxGeometry(0.42, 0.42, 0.42), m); b.position.set(-1 + i * 0.5, 0.21, 0.9); stations[2].g.add(b);
+  barrier.position.set(1.25, 0.5, 0.55); stations[1].g.add(barrier);
+  /* prouver : cinq blocs chaînés */
+  const proof = [0, 1, 2, 3, 4].map((i) => {
+    const m = mat(col.night2, { emissive: col.gold, emissiveIntensity: 0 });
+    const b = edged(new THREE.BoxGeometry(0.4, 0.4, 0.4), m); b.position.set(-1 + i * 0.5, 0.2, 0.85); stations[2].g.add(b);
     return { b, m };
   });
-  const report = edged(new THREE.BoxGeometry(1.0, 1.3, 0.05), lam(col.rail)); report.position.set(0, 0.65, -0.4); stations[2].g.add(report);
-  /* 4 · archiver : la caisse ouverte et les trois artefacts qui y tombent */
-  const crate = new THREE.Group();
-  const cm = lam(col.post);
-  [[0, 0.05, 0, 1.6, 0.1, 1.3], [0, 0.45, 0.65, 1.6, 0.8, 0.06], [0, 0.45, -0.65, 1.6, 0.8, 0.06], [0.8, 0.45, 0, 0.06, 0.8, 1.3], [-0.8, 0.45, 0, 0.06, 0.8, 1.3]].forEach((b) => {
-    const m = edged(new THREE.BoxGeometry(b[3], b[4], b[5]), cm); m.position.set(b[0], b[1], b[2]); crate.add(m);
+  /* archiver : la caisse et ses trois artefacts */
+  const cm = mat(col.post);
+  [[0, 0.05, 0, 1.5, 0.1, 1.2], [0, 0.4, 0.6, 1.5, 0.7, 0.06], [0, 0.4, -0.6, 1.5, 0.7, 0.06], [0.75, 0.4, 0, 0.06, 0.7, 1.2], [-0.75, 0.4, 0, 0.06, 0.7, 1.2]].forEach((b) => {
+    const m = edged(new THREE.BoxGeometry(b[3], b[4], b[5]), cm); m.position.set(b[0], b[1], b[2] + 0.3); stations[3].g.add(m);
   });
-  crate.position.z = 0.3; stations[3].g.add(crate);
-  const tiles = [0, 1, 2].map((i) => { const t = edged(new THREE.BoxGeometry(0.9, 0.08, 0.6), lam(col.rail)); stations[3].g.add(t); return { t, i }; });
+  const tiles = [0, 1, 2].map(() => { const t = edged(new THREE.BoxGeometry(0.85, 0.08, 0.55), mat(col.rail)); stations[3].g.add(t); return t; });
 
-  /* rail et merge request */
-  const railMat = lam(col.post), rail = new THREE.Mesh(new THREE.BoxGeometry(1, 0.1, 0.5), railMat); world.add(rail);
+  /* rail, pointillés dorés, merge request */
+  const rail = new THREE.Mesh(new THREE.BoxGeometry(22, 0.1, 0.5), mat(col.post)); rail.position.y = -0.05; scene.add(rail);
   const dashMat = new THREE.MeshBasicMaterial({ color: col.gold }), dashes = [];
-  for (let i = 0; i < 30; i++) { const d = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.02, 0.06), dashMat); world.add(d); dashes.push(d); }
+  for (let i = 0; i < 24; i++) { const d = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.02, 0.06), dashMat); scene.add(d); dashes.push(d); }
   const token = new THREE.Group();
-  token.add(edged(new THREE.BoxGeometry(1.1, 0.22, 0.75), lam(col.accent, { emissive: col.accent, emissiveIntensity: 0.5 }), col.gold, 1));
+  const tk = edged(new THREE.BoxGeometry(1, 0.22, 0.7), mat(col.accent, { emissive: col.accent, emissiveIntensity: 0.5 }));
+  tk.userData.edge.color.copy(col.gold); token.add(tk);
   const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: C.glowTexture(THREE), color: col.gold, transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending }));
-  glow.scale.set(2.4, 2.4, 1); token.add(glow); world.add(token);
-  /* paquets de la station « exécuter » */
-  const pk = [0, 1].map((i) => { const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: C.glowTexture(THREE), color: i ? col.danger : col.gold, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending })); s.scale.set(1, 1, 1); world.add(s); return s; });
+  glow.scale.set(2.2, 2.2, 1); token.add(glow); scene.add(token);
 
-  /* ── Mise en page : en ligne (grand écran) ou en profondeur (écran haut) ── */
+  /* ── Mise en page : en ligne, ou en profondeur sur écran haut ── */
   let portrait = false;
-  const SPAN = [-9, -3, 3, 9];
   const at = (u, y, out) => (portrait ? out.set(0, y, u) : out.set(u, y, 0));
   function layout() {
     portrait = camera.aspect < 0.85;
-    /* les stations font face au trajet : la porte est traversée, la barrière reste sur le côté */
     stations.forEach((s, i) => { at(SPAN[i], 0, s.g.position); s.g.rotation.y = portrait ? 0 : -Math.PI / 2; });
-    rail.scale.set(26, 1, 1); rail.rotation.y = portrait ? Math.PI / 2 : 0; rail.position.set(0, -0.05, 0);
-    dashes.forEach((d, i) => { at(-14 + i * 0.95, 0.01, d.position); d.rotation.y = portrait ? Math.PI / 2 : 0; });
-    barrier.position.set(1.35, 0.55, 0.6);
+    rail.rotation.y = portrait ? Math.PI / 2 : 0;
+    dashes.forEach((d, i) => { at(-11 + i * 0.95, 0.01, d.position); d.rotation.y = portrait ? Math.PI / 2 : 0; });
+    token.rotation.y = portrait ? Math.PI / 2 : 0;
   }
 
-  const tmp = new THREE.Vector3(), tmp2 = new THREE.Vector3();
+  /* ── Boucle de 10 s : arrivée à la station i à ARR[i] ── */
+  const D = 10, ARR = [1, 3.1, 5.2, 7.3], END = 9.2;
   const L = {};
   fig.querySelectorAll(".h-ci3d__labels [data-k]").forEach((el) => { L[el.getAttribute("data-k")] = el; });
   const tan = Math.tan(camera.fov * Math.PI / 360);
-  let prog = 0, chapter = -2, viewX = 0, viewY = 0, camT = null, camE = null, lastLines = -1;
-  const CH = [0.1, 0.3, 0.5, 0.7, 0.9];
+  let t = C.reduce ? END - 0.7 : 0;
+  const v = new THREE.Vector3(), tmp = new THREE.Vector3();
 
-  function render(dt, time) {
-    prog = C.damp(prog, C.pinProgress(track), 0.15, dt);
-    const p = prog;
-    let c = -1;
-    for (let i = 0; i < 4; i++) if (p >= CH[i] && p < CH[i + 1]) c = i;
-    if (p >= 0.9) c = 4;
-    if (c !== chapter) { chapter = c; chapters.forEach((li, i) => li.classList.toggle("is-on", i === c)); }
-    const local = (i) => C.clamp((p - CH[i]) / 0.2, 0, 1);       /* avancement dans le chapitre i */
+  function render(dt) {
+    if (!C.reduce) t = (t + dt) % D;
+    const live = C.reduce || t < D - 0.5;                              /* tout s'éteint avant de reboucler */
+    /* la merge request : glisse vers chaque station, s'y arrête, puis sort à droite */
+    let u = -10.5;
+    for (let i = 0; i < 4; i++) if (t >= ARR[i] - 0.8) u = C.lerp(i ? SPAN[i - 1] : -10.5, SPAN[i], C.easeIO((t - (ARR[i] - 0.8)) / 0.8));
+    if (t >= END - 0.6) u = C.lerp(SPAN[3], 10.5, C.easeIO((t - (END - 0.6)) / 0.8));
+    at(u, 0.33, token.position);
+    token.visible = live && u < 10;
 
-    /* la merge request rejoint la station du chapitre en cours */
-    const stop = c < 0 ? -1 : Math.min(3, c);
-    const prevU = stop <= 0 ? -13 : SPAN[stop - 1], targetU = stop < 0 ? -13 : SPAN[stop];
-    const move = stop < 0 ? 0 : C.easeIO(C.clamp(local(stop) / 0.3, 0, 1));
-    const u = c === 4 ? SPAN[3] + 2.6 * C.easeIO(C.clamp((p - 0.9) / 0.06, 0, 1)) : C.lerp(prevU, targetU, stop < 0 ? 1 : move);
-    at(u, 0.35 + Math.sin(time * 2) * 0.04, token.position);
-    token.rotation.y = portrait ? Math.PI / 2 : 0;
-
-    /* stations : portes, sceau, voies, preuves, artefacts */
+    const reached = (i) => t >= ARR[i] && live;
     stations.forEach((s, i) => {
-      const reached = stop > i || (stop === i && move > 0.95) || c === 4;
-      const e = s.base.userData.edge;
-      e.color.copy(i === 1 && reached && local(1) > 0.55 || i === 1 && stop > 1 ? col.danger : reached ? col.gold : col.edge);
-      e.opacity = reached ? 1 : 0.6;
-      s.gateMat.emissiveIntensity = C.damp(s.gateMat.emissiveIntensity, reached ? 0.55 : 0, 0.2, dt);
-      s.gateMat.color.copy(reached ? col.gold : col.edge);
+      const on = reached(i), failed = i === 1 && t >= ARR[1] + 0.6 && live;
+      s.base.userData.edge.color.copy(failed ? col.danger : on ? col.gold : col.edge);
+      s.gateMat.color.copy(on ? col.gold : col.edge);
+      s.gateMat.emissiveIntensity = on ? 0.5 : 0;
     });
-    const l0 = local(0), stamp = C.easeOut(C.clamp((l0 - 0.35) / 0.3, 0, 1));
-    seal.position.set(0, C.lerp(3.2, 1.12, stamp), 0.6); seal.scale.setScalar(C.lerp(1.6, 1, stamp));
-    sealMat.color.copy(stamp > 0.98 ? col.gold : col.edge); sealMat.emissiveIntensity = stamp > 0.98 ? 0.6 : 0;
-    pkg.userData.edge.color.copy(stamp > 0.98 ? col.gold : col.edge);
-
-    const l1 = local(1), runOn = stop === 1 && move > 0.9;
-    const deny = C.smooth(0.5, 0.62, l1) * (stop >= 1 ? 1 : 0);
-    barMat.opacity = 0.25 * (stop > 1 || c === 4 ? 1 : deny); barEdge.opacity = stop > 1 || c === 4 ? 1 : deny;
-    pk.forEach((s, i) => {
-      s.visible = runOn;
-      if (!runOn) return;
-      const k = (time * 0.6 + i * 0.5) % 1;
-      /* go test passe tout droit ; git push part sur le côté et bute sur la barrière */
-      tmp.set(i ? Math.min(1.3, k * 2.2) : 0, 1.15, 0.6 + (i ? 0 : -k * 1.8));
-      stations[1].g.localToWorld(tmp); s.position.copy(tmp);
-      s.material.opacity = i && k * 2.2 > 1.3 ? Math.max(0, 1 - (k * 2.2 - 1.3) * 3) : 1;
-    });
-
-    const l2 = local(2);
-    proofBlocks.forEach((b, i) => {
-      const on = stop > 2 || c === 4 || (stop === 2 && l2 > 0.35 + i * 0.08);
-      b.m.emissiveIntensity = on ? 0.5 : 0; b.m.color.copy(on ? col.gold : col.night2);
+    const stamp = live ? C.easeOut(C.clamp((t - ARR[0] - 0.2) / 0.5, 0, 1)) : 0;
+    seal.position.set(0, C.lerp(3, 1.02, stamp), 0.55); seal.scale.setScalar(C.lerp(1.6, 1, stamp));
+    const sealed = stamp > 0.98;
+    sealMat.color.copy(sealed ? col.gold : col.edge); sealMat.emissiveIntensity = sealed ? 0.6 : 0;
+    seal.visible = stamp > 0;
+    pkg.userData.edge.color.copy(sealed ? col.gold : col.edge);
+    const deny = live ? C.smooth(ARR[1] + 0.4, ARR[1] + 0.6, t) : 0;
+    barMat.opacity = 0.25 * deny; barEdge.opacity = deny;
+    proof.forEach((b, i) => {
+      const on = live && t >= ARR[2] + 0.2 + i * 0.15;
+      b.m.color.copy(on ? col.gold : col.night2); b.m.emissiveIntensity = on ? 0.5 : 0;
       b.b.userData.edge.color.copy(on ? col.gold : col.edge);
     });
-    const rise = stop > 2 || c === 4 ? 1 : stop === 2 ? C.easeOut(C.clamp((l2 - 0.65) / 0.25, 0, 1)) : 0;
-    report.position.y = C.lerp(-0.6, 0.75, rise); report.visible = rise > 0;
-    report.userData.edge.color.copy(rise > 0.98 ? col.gold : col.edge);
-
-    const l3 = stop > 3 || c === 4 ? 1 : stop === 3 ? local(3) : 0;
-    tiles.forEach(({ t, i }) => {
-      const k = C.easeOut(C.clamp((l3 - 0.3 - i * 0.12) / 0.25, 0, 1));
-      t.visible = k > 0; t.position.set(0, C.lerp(3.4, 0.16 + i * 0.12, k), 0.3); t.rotation.z = (1 - k) * 0.8 * (i - 1);
-      t.userData.edge.color.copy(k > 0.98 ? col.gold : col.edge);
+    tiles.forEach((tile, i) => {
+      const k = live ? C.easeOut(C.clamp((t - ARR[3] - 0.2 - i * 0.2) / 0.4, 0, 1)) : 0;
+      tile.visible = k > 0; tile.position.set(0, C.lerp(3, 0.16 + i * 0.11, k), 0.3);
+      tile.userData.edge.color.copy(k > 0.98 ? col.gold : col.edge);
     });
-    if (stop >= 0 && c !== 4) { stations[stop].g.getWorldPosition(goldL.position); goldL.position.y += 2.5; goldL.intensity = 20; } else goldL.intensity = 0;
+    let cur = -1; for (let i = 0; i < 4; i++) if (t >= ARR[i] && t < END) cur = i;
+    if (cur >= 0 && live) { stations[cur].g.getWorldPosition(goldL.position); goldL.position.y += 2.4; goldL.intensity = 18; } else goldL.intensity = 0;
 
-    /* caméra : elle suit la merge request, puis recule sur tout le pipeline */
-    const fin = C.easeIO(C.clamp((p - 0.88) / 0.08, 0, 1)) || (p < 0.08 ? 1 - C.smooth(0.02, 0.1, p) : 0);
+    /* caméra fixe, de trois quarts, avec une légère respiration */
     const asp = camera.aspect;
-    const whole = portrait ? Math.max(4.2 / (tan * asp), 13.5 / tan) * 1.05 : Math.max(13.5 / (tan * asp), 4.5 / tan) * 1.05;
-    const follow = portrait ? Math.max(9, whole * 0.48) : Math.max(13, whole * 0.72);
-    at(C.lerp(c < 0 ? 0 : u, 0, fin), 0.6, tmp);
-    const d = C.lerp(follow, whole, fin);
-    const yaw = portrait ? C.lerp(0.5, 0.25, fin) : C.lerp(-0.38, -0.2, fin), pitch = portrait ? C.lerp(0.55, 0.95, fin) : C.lerp(0.42, 0.55, fin);
-    tmp2.set(tmp.x + d * Math.sin(yaw) * Math.cos(pitch), tmp.y + d * Math.sin(pitch), tmp.z + d * Math.cos(yaw) * Math.cos(pitch));
-    if (!camT) { camT = tmp.clone(); camE = tmp2.clone(); }
-    camT.lerp(tmp, 1 - Math.exp(-dt / 0.25)); camE.lerp(tmp2, 1 - Math.exp(-dt / 0.25));
-    camera.position.copy(camE); camera.lookAt(camT);
-    const CW = canvas.clientWidth, CHh = canvas.clientHeight, wide = CW >= 960;
-    viewX = C.damp(viewX, wide ? (c < 0 ? 0.08 : 0.17) : 0, 0.35, dt); viewY = C.damp(viewY, wide ? 0 : 0.16, 0.35, dt);
-    if (CW && CHh) camera.setViewOffset(CW, CHh, -viewX * CW, viewY * CHh, CW, CHh);
+    const d = portrait ? Math.max(3.6 / (tan * asp), 11.5 / tan) : Math.max(12.2 / (tan * asp), 4.2 / tan) * 1.18;
+    const sway = C.reduce ? 0 : Math.sin(t / D * Math.PI * 2) * 0.06;
+    const yaw = (portrait ? 0.35 : -0.3) + sway, pitch = portrait ? 0.9 : 0.5;
+    /* visée décalée : sur grand écran le pipeline se centre, sur mobile la colonne laisse la place aux libellés */
+    const ox = portrait ? 2.3 : 1.2;
+    camera.position.set(ox + d * Math.sin(yaw) * Math.cos(pitch), 0.6 + d * Math.sin(pitch), d * Math.cos(yaw) * Math.cos(pitch));
+    camera.lookAt(ox, portrait ? 0.6 : 0.2, 0);
     camera.updateMatrixWorld();
     st.renderer.render(scene, camera);
 
-    /* étiquettes */
-    const items = KEYS.map((k, i) => {
-      const v = new THREE.Vector3(); at(SPAN[i], 3.3, v);
-      return { el: L[k], at: v, hide: !(stop === i || c === 4) };   /* la station en cours, ou toutes à la fin */
+    /* étiquettes : à côté de chaque station, la merge request, et le code 3 */
+    const items = ["install", "run", "prove", "archive"].map((k, i) => {
+      const p = new THREE.Vector3(); at(SPAN[i], 0, p);
+      if (portrait) p.x += 1.8; else p.z += 2.3;
+      L[k].classList.toggle("is-on", reached(i));
+      return { el: L[k], at: p, anchor: portrait ? "translate(0, -50%)" : "translate(-50%, 0)" };
     });
-    const tv = token.position.clone(); tv.y += 1.1;
-    items.push({ el: L.mr, at: tv, hide: c < 0 || c === 4 });
-    const ev = new THREE.Vector3(); at(SPAN[1], 0, ev); ev.add(new THREE.Vector3(portrait ? 1.6 : 0.6, 2.2, portrait ? 0.6 : -1.6));
-    items.push({ el: L.exit, at: ev, hide: !(deny > 0.5 || stop > 1 || c === 4) });
+    v.copy(token.position); v.y += 1;
+    items.push({ el: L.mr, at: v.clone(), hide: !token.visible || u > 9.5 });
+    at(SPAN[1], 2.4, tmp); items.push({ el: L.exit, at: tmp.clone(), hide: deny < 0.5 });
     C.placeLabels(THREE, camera, st.width, st.height, items);
-
-    /* journal du job */
-    let n = 0; LINES.forEach((l) => { if (p >= l.at) n++; });
-    if (n !== lastLines) {
-      lastLines = n;
-      LINES.forEach((l, i) => { l.el.style.display = i < n && i >= n - 8 ? "" : "none"; l.el.classList.toggle("is-new", i === n - 1); });
-    }
     return true;
   }
 
   const st = C.stage(THREE, canvas, {
     render,
-    resize(w, h) { camera.aspect = w / h; camera.updateProjectionMatrix(); layout(); camT = null; },
+    resize(w, h) { camera.aspect = w / h; camera.updateProjectionMatrix(); layout(); },
     lost() { fig.classList.remove("is-3d"); },
   });
-  addEventListener("scroll", () => st.request(), { passive: true });
   st.request();
 }
