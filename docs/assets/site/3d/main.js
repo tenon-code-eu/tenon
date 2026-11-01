@@ -19,6 +19,7 @@ const SCENES = [
   ["h-stage", "harness.js"],
   ["h-flow-3d", "flow.js"],
   ["h-chain-3d", "chain.js"],
+  ["h-ci-3d", "ci.js"],
 ];
 
 if (!webgl()) {
