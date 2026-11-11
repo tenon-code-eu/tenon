@@ -7,7 +7,7 @@ A version that fails an item is not published.
 ## 1. Before the tag
 
 - [ ] The branch to release is up to date and the CI is green (`make ci`, `make repro-check`).
-- [ ] Go = latest 1.26.x patch release: the release machine and the CI images (`golang:1.26.N` in `.github/workflows/ci.yml`, `.forgejo/workflows/ci.yml` and `.woodpecker.yml`) use the latest published Go 1.26 patch release (≥ 1.26.10 as of 2026-10-22). `govulncheck` reports the standard library vulnerabilities of earlier patch releases. The `vscode` CI job installs Go from the official archive: update its URL and its two SHA-256 sums (amd64, arm64) from <https://go.dev/dl/?mode=json> at the same time.
+- [ ] Go = latest 1.26.x patch release: the release machine and the CI images (`golang:1.26.N` in `.github/workflows/ci.yml`, `.forgejo/workflows/ci.yml` and `.woodpecker.yml`) use the latest published Go 1.26 patch release (≥ 1.26.11 as of 2026-11-11). `govulncheck` reports the standard library vulnerabilities of earlier patch releases. The `vscode` CI job installs Go from the official archive: update its URL and its two SHA-256 sums (amd64, arm64) from <https://go.dev/dl/?mode=json> at the same time.
 - [ ] VS Code extension: `version` in `editors/vscode/package.json` is the version of the release, without the `v` (`scripts/vscode-package.sh` refuses any other value). `editors/vscode/CHANGELOG.md` has its entry. The release machine has Node.js 22, npm and `unzip`.
 - [ ] The package maintainer (`maintainer` in `packaging/nfpm.yaml`) is the real name and a real contact address, not the placeholder value "Projet tenon <noreply@digicactus.com>".
 - [ ] `GOFLAGS=-mod=vendor go test -race ./...` passes locally.
@@ -24,7 +24,7 @@ A version that fails an item is not published.
 ## 2. Build
 
 - [ ] Create the annotated tag: `git tag -a vX.Y.Z -m "tenon vX.Y.Z"`. A lightweight tag is refused. For a dry run, create a throwaway annotated tag the same way in a clone, with `ALLOW_VULN=1`. The tag must carry the version of `editors/vscode/package.json` (for example `git tag -a v0.9.0 -m essai`), or the VS Code packaging step stops.
-- [ ] Run `make release VERSION=vX.Y.Z` from a clean tree, with the latest published Go 1.26 patch release (≥ 1.26.10 as of 2026-10-22). The target first runs `make vuln`: if `govulncheck` fails, the release stops.
+- [ ] Run `make release VERSION=vX.Y.Z` from a clean tree, with the latest published Go 1.26 patch release (≥ 1.26.11 as of 2026-11-11). The target first runs `make vuln`: if `govulncheck` fails, the release stops.
 - [ ] **Never** use `ALLOW_VULN=1` for a real release. This variable is only for local tests: it skips `make vuln`, writes `dist/UNSAFE-DRY-RUN`, and the script then refuses to sign. A `dist/` that contains this file is not published.
 - [ ] Archives: generated with GNU tar if `tar` or `gtar` is GNU, otherwise with bsdtar (macOS) from a staging directory with fixed dates. Both paths are deterministic, but their bytes can differ: publish the archives of a single machine, and redo the reproducibility check with the same tool. gzip implementations also differ: publish from a single documented environment (system, tar and gzip versions).
 - [ ] Check in `dist/`:

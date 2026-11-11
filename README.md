@@ -68,7 +68,7 @@ sudo apt install ./tenon_*.deb             # Debian, Ubuntu
 sudo dnf install ./tenon_*.rpm             # Fedora, RHEL
 ```
 
-**From source.** You need the latest Go 1.26 patch release (≥ 1.26.10 as of 2026-10-22): earlier ones have known vulnerabilities in the standard library. The dependencies are in the repository; no module proxy is contacted.
+**From source.** You need the latest Go 1.26 patch release (≥ 1.26.11 as of 2026-11-11): earlier ones have known vulnerabilities in the standard library. The dependencies are in the repository; no module proxy is contacted.
 
 ```
 git clone https://github.com/tenon-code-eu/tenon.git
