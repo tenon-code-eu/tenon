@@ -45,7 +45,29 @@ theme:
     - content.code.copy
 
 extra_css:
+  - assets/site/vendor/katex/katex.min.css
   - assets/site/docs.css
+
+# Formules du blog : KaTeX auto-hébergé (assets/site/vendor/katex), aucun appel externe.
+extra_javascript:
+  - assets/site/vendor/katex/katex.min.js
+  - assets/site/vendor/katex/auto-render.min.js
+  - assets/site/math.js
+
+plugins:
+  - search
+  - blog:
+      blog_dir: blog
+      blog_toc: true
+      post_url_format: "{slug}"
+      archive: false
+      categories: false
+  - blog:
+      blog_dir: fr/blog
+      blog_toc: true
+      post_url_format: "{slug}"
+      archive: false
+      categories: false
 
 extra:
   alternate:
@@ -69,8 +91,11 @@ markdown_extensions:
       slugify: !!python/object/apply:pymdownx.slugs.slugify
         kwds:
           case: lower
+  - footnotes
   - pymdownx.highlight
   - pymdownx.superfences
+  - pymdownx.arithmatex:
+      generic: true
 
 nav:
   - Home: index.md
@@ -81,6 +106,7 @@ nav:
       - CI integration: ci.md
       - Editors (ACP): editors.md
       - Cyber Resilience Act: cra.md
+      - Blog: blog/index.md
   - Français:
       - Accueil: fr/index.md
       - Utilisation: fr/utilisation.md
@@ -89,3 +115,4 @@ nav:
       - Intégration CI: fr/ci.md
       - Éditeurs (ACP): fr/editeurs.md
       - Cyber Resilience Act: fr/cra.md
+      - Blog: fr/blog/index.md

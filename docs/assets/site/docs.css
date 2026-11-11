@@ -22,3 +22,26 @@
 .md-typeset h1, .md-typeset h2, .md-typeset h3 {
   font-family: var(--font-display); font-weight: 700; letter-spacing: -0.02em; font-style: normal;
 }
+
+/* Blog : essais mathématiques. Définitions, propositions et preuves en admonitions
+   (!!! definition "…", !!! proposition "…", !!! proof), formules KaTeX. */
+.md-typeset .katex-display { overflow-x: auto; overflow-y: hidden; padding: 0.2em 0; }
+.md-typeset .katex { font-size: 1.05em; }
+.md-typeset .admonition.definition,
+.md-typeset .admonition.proposition,
+.md-typeset .admonition.proof {
+  font-size: inherit; box-shadow: none; border-radius: 0;
+  border: 0; border-left: 3px solid var(--md-accent-fg-color);
+  background: transparent; padding-left: 1em;
+}
+.md-typeset .admonition.proposition { border-left-color: var(--color-gold); }
+.md-typeset .admonition.proof { border-left-color: var(--md-default-fg-color--lighter); }
+.md-typeset .definition > .admonition-title,
+.md-typeset .proposition > .admonition-title,
+.md-typeset .proof > .admonition-title {
+  background: transparent; padding-left: 0; font-weight: 700;
+}
+.md-typeset .definition > .admonition-title::before,
+.md-typeset .proposition > .admonition-title::before,
+.md-typeset .proof > .admonition-title::before { display: none; }
+.md-typeset .proof > :last-child::after { content: " ∎"; }

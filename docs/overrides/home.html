@@ -10,6 +10,8 @@
   'skip': 'Aller au contenu' if fr else 'Skip to content',
   'docs': 'Documentation' if fr else 'Docs',
   'docs_href': root ~ ('/fr/utilisation/' if fr else '/usage/'),
+  'blog': 'Blog',
+  'blog_href': root ~ ('/fr/blog/' if fr else '/blog/'),
   'security_href': root ~ ('/fr/securite/' if fr else '/security/'),
   'policy_href': root ~ ('/fr/politique/' if fr else '/policy/'),
   'ci_href': root ~ ('/fr/ci/' if fr else '/ci/'),
@@ -281,6 +283,7 @@
     </button>
     <nav class="h-nav__right" aria-label="{{ T.docs }}">
       <a class="h-nav__link h-nav__link--docs" href="{{ T.docs_href }}">{{ T.docs }}</a>
+      <a class="h-nav__link h-nav__link--hide" href="{{ T.blog_href }}">{{ T.blog }}</a>
       <a class="h-nav__link h-nav__link--hide" href="https://github.com/tenon-code-eu/tenon">GitHub</a>
       <a class="h-nav__link" href="{{ T.other_href }}" hreflang="{{ 'en' if fr else 'fr' }}" lang="{{ 'en' if fr else 'fr' }}">{{ 'EN' if fr else 'FR' }}</a>
       <a class="h-btn h-btn--gold" href="#h-install">{{ T.install }}</a>
@@ -865,6 +868,7 @@
         <button class="h-cmdk__item" role="option" data-href="{{ T.policy_href }}">{{ T.policy }}</button>
         <button class="h-cmdk__item" role="option" data-href="{{ T.ci_href }}">{{ T.ci }}</button>
         <button class="h-cmdk__item" role="option" data-href="{{ T.editors_href }}">{{ T.editors }}</button>
+        <button class="h-cmdk__item" role="option" data-href="{{ T.blog_href }}">{{ T.blog }}</button>
         <button class="h-cmdk__item" role="option" data-href="https://github.com/tenon-code-eu/tenon">GitHub · tenon-code-eu/tenon</button>
         <button class="h-cmdk__item" role="option" data-href="{{ T.other_href }}">{{ T.other_lang }}</button>
         <p class="h-cmdk__empty" hidden>{{ T.pal_none }}</p>
@@ -885,6 +889,7 @@
       <span class="h-foot__brand"><img src="{{ root }}/assets/site/mark.svg" width="20" height="20" alt=""> tenon</span>
       <nav class="h-foot__links" aria-label="tenon">
         <a href="{{ T.docs_href }}">{{ T.docs }}</a>
+        <a href="{{ T.blog_href }}">{{ T.blog }}</a>
         <a href="https://github.com/tenon-code-eu/tenon">GitHub</a>
         <a href="https://github.com/tenon-code-eu/tenon/blob/main/LICENSE">EUPL-1.2</a>
       </nav>
